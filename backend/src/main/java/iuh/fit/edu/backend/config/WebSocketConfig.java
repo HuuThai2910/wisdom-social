@@ -34,6 +34,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         registry.setApplicationDestinationPrefixes("/app");
 
         // Prefix cho các tin nhắn từ Server đẩy xuống Client
+        // /topic -> broadcast cho nhiều người dùng (group chat)
+        // /queue -> point-to-point (tin nhắn cá nhân)_
         registry.enableSimpleBroker("/topic", "/queue");
     }
 }
