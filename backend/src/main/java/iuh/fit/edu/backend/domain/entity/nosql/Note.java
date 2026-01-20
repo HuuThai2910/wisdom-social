@@ -7,35 +7,108 @@ package iuh.fit.edu.backend.domain.entity.nosql;
 import iuh.fit.edu.backend.constant.PrivacyType;
 import iuh.fit.edu.backend.constant.StatusType;
 import jakarta.persistence.Id;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 import org.bson.types.ObjectId;
+import org.springframework.data.mongodb.core.index.CompoundIndex;
+import org.springframework.data.mongodb.core.index.CompoundIndexes;
+import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
 
 /*
- * @description
- * @author: Huu Thai
- * @date:
+ * @description: Note entity (short text with music - like Facebook Notes/Mood)
+ * Tối ưu: TTL index tự động xóa sau 24-48h
+ * Compound index cho query notes của user
+ * @author: The Bao
+ * @date: 2026-01-20
  * @version: 1.0
  */
 @Document(collection = "notes")
 @Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+@CompoundIndexes({
+        @CompoundIndex(
+                name = "user_created_idx",
+                def = "{'userId': 1, 'createdAt': -1}"
+        ),
+        @CompoundIndex(
+                name = "status_expire_idx",
+                def = "{'status': 1, 'expireAt': 1}"
+        )
+})
 public class Note {
 
     @Id
     private ObjectId id;
 
+    @Indexed
     private ObjectId userId;
+    
     private String content;
 
+    // Background theme
+    private NoteTheme theme;
+
+    // Music track
     private ObjectId musicTrackId;
+    private NoteMusic music;
+
+    // Privacy
     private PrivacyType privacy;
 
-    private Stats stats;
+    // Stats
+    private NoteStats stats;
 
+    // Status
     private StatusType status;
 
+    // Timestamps
     private Instant createdAt;
+    
+    // TTL - Tự động xóa sau 24h (config via MongoConfig)
+    @Indexed
     private Instant expireAt;
+}
+
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+class NoteTheme {
+    private String backgroundType; // solid | gradient | image
+    private String backgroundColor;
+    private String gradientColors; // JSON array
+    private String backgroundImageUrl;
+    private String textColor;
+    private String fontFamily;
+    private String fontSize;
+    private String textAlign;
+}
+
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+class NoteMusic {
+    private String trackId;
+    private String title;
+    private String artist;
+    private String coverUrl;
+    private String previewUrl;
+}
+
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+class NoteStats {
+    private long reactCount;
+    private long commentCount;
+    private long viewCount;
 }
