@@ -38,6 +38,8 @@ public class User {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
+    private Boolean confirmUseAI = false;
+
     // ===== Relations =====
 
     @OneToMany(mappedBy = "user")
