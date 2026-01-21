@@ -2,7 +2,7 @@ import { mockPosts, mockStories } from "../api/mockData";
 import StoriesBar from "../components/story/StoriesBar";
 import PostCard from "../components/post/PostCard";
 
-export default function Home() {
+export default function Feed() {
     return (
         <div>
             {/* Stories */}

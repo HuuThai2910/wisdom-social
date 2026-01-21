@@ -5,3 +5,75 @@ export interface ApiResponse<T> {
     message: string;
     data: T;
 }
+
+// User Types
+export interface User {
+    id: string;
+    username: string;
+    fullName: string;
+    avatar: string;
+    bio?: string;
+    isVerified?: boolean;
+    followersCount?: number;
+    followingCount?: number;
+    postsCount?: number;
+}
+
+// Post Types
+export interface Post {
+    id: string;
+    user: User;
+    images: string[];
+    caption: string;
+    likes: number;
+    comments: Comment[];
+    createdAt: string;
+    isLiked?: boolean;
+    isSaved?: boolean;
+}
+
+export interface Comment {
+    id: string;
+    user: User;
+    text: string;
+    createdAt: string;
+    likes: number;
+}
+
+// Story Types
+export interface Story {
+    id: string;
+    user: User;
+    image: string;
+    createdAt: string;
+    isViewed?: boolean;
+}
+
+// Message Types
+export interface Message {
+    id: string;
+    senderId: string;
+    text: string;
+    createdAt: string;
+    isRead?: boolean;
+}
+
+export interface Chat {
+    id: string;
+    user: User;
+    lastMessage: Message;
+    unreadCount: number;
+}
+
+// Notification Types
+export type NotificationType = 'like' | 'comment' | 'follow' | 'mention';
+
+export interface Notification {
+    id: string;
+    type: NotificationType;
+    user: User;
+    post?: Post;
+    text: string;
+    createdAt: string;
+    isRead?: boolean;
+}
