@@ -38,7 +38,7 @@ public class User {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
-    private Boolean confirmUseAI = false;
+    private boolean confirmUseAI = false;
 
     // ===== Relations =====
 
