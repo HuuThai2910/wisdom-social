@@ -18,9 +18,10 @@ import java.util.List;
  * @date:
  * @version: 1.0
  */
-@Entity
+@Table(name = "conversations")
 @Getter
 @Setter
+@Entity
 public class Conversation {
 
     @Id
@@ -32,6 +33,8 @@ public class Conversation {
 //    Avatar nhom
     private String imageUrl;
     private Instant updatedAt;
+
+
 
     @OneToMany(mappedBy = "conversation")
     private List<ConversationUser> users;

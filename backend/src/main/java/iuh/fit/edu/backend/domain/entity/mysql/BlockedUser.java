@@ -14,9 +14,10 @@ import lombok.Setter;
  * @date:
  * @version: 1.0
  */
-@Entity
+@Table(name = "blocked_users")
 @Getter
 @Setter
+@Entity
 public class BlockedUser {
 
     @Id

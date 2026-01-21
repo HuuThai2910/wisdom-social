@@ -16,9 +16,11 @@ import org.springframework.data.mongodb.core.mapping.Document;
 import java.time.Instant;
 
 /*
- * @description
- * @author: Huu Thai
- * @date:
+ * @description: Reaction entity for all content types
+ * Tối ưu: Unique compound index tránh duplicate reactions
+ * Index cho query reactions theo target và type
+ * @author: The Bao
+ * @date: 2026-01-20
  * @version: 1.0
  */
 @Document(collection = "reactions")
@@ -26,8 +28,16 @@ import java.time.Instant;
 @CompoundIndexes({
         @CompoundIndex(
                 name = "unique_reaction",
-                def = "{'userId':1,'targetType':1,'targetId':1}",
+                def = "{'userId': 1, 'targetType': 1, 'targetId': 1}",
                 unique = true
+        ),
+        @CompoundIndex(
+                name = "target_type_idx",
+                def = "{'targetType': 1, 'targetId': 1, 'type': 1, 'createdAt': -1}"
+        ),
+        @CompoundIndex(
+                name = "user_created_idx",
+                def = "{'userId': 1, 'createdAt': -1}"
         )
 })
 public class Reaction {

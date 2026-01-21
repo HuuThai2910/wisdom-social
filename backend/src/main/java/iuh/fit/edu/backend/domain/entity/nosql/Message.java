@@ -16,6 +16,7 @@ import lombok.Getter;
 import lombok.Setter;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
+import org.springframework.data.mongodb.core.mapping.Field;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -27,20 +28,22 @@ public class Message {
 
     @Id
     private String id; // Mongo ID (ObjectId)
-
+    @Field(name = "message_type")
     private MessageType messageType;
     private String content;
+    @Field(name = "created_at")
     private Instant createdAt;
+    @Field(name = "modified_at")
     private Instant modifiedAt;
-
-//    Tham chieu tu conversation
+    @Field(name = "conservation_id")
     private Long conversationId;
 
-//    Tham chieu tu conversation_user de lay ra duoc biet danh cua user
+    // Tham chiếu tới conversation_user để lấy ra được biệt danh của user
+    @Field(name = "sender_id")
     private Long senderId;
+
     private String replyTo;
     private IconName iconName;
-
 }
 
 class IconName{
