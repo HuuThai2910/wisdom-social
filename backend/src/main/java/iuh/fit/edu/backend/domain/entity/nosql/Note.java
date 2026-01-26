@@ -1,7 +1,3 @@
-/*
- * @ (#) .java    1.0
- * Copyright (c)  IUH. All rights reserved.
- */
 package iuh.fit.edu.backend.domain.entity.nosql;
 
 import iuh.fit.edu.backend.constant.PrivacyType;
@@ -71,8 +67,9 @@ public class Note {
     // Timestamps
     private Instant createdAt;
     
-    // TTL - Tự động xóa sau 24h (config via MongoConfig)
-    @Indexed
+    // TTL - Tự động xóa sau 24h (86400 seconds)
+    // MongoDB sẽ tự động xóa document khi expireAt đã qua
+    @Indexed(expireAfter  = "PT0S") // 0 = xóa ngay khi expireAt time đến
     private Instant expireAt;
 }
 

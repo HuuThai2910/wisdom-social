@@ -6,6 +6,7 @@ package iuh.fit.edu.backend.domain.entity.nosql;
 
 import iuh.fit.edu.backend.constant.PrivacyType;
 import iuh.fit.edu.backend.constant.StatusType;
+import iuh.fit.edu.backend.domain.entity.nosql.embeddable.Location;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -96,6 +97,7 @@ public class Post {
 @NoArgsConstructor
 @AllArgsConstructor
 class Media {
+    private Integer order; // Thứ tự hiển thị trong carousel (0, 1, 2...)
     private String url;
     private String type; // image | video | gif
     private String thumbnailUrl; // Thumbnail cho video
@@ -103,6 +105,15 @@ class Media {
     private Integer height;
     private Long duration; // Duration cho video (seconds)
     private String altText; // Accessibility
+    
+    // Content riêng cho mỗi media item (giống Instagram carousel)
+    private String caption; // Caption/mô tả riêng cho media này
+    private List<ObjectId> taggedUserIds; // Users được tag trong media này
+    private Location location; // Location riêng cho media này (nếu khác với post chính)
+    
+    // Metadata bổ sung
+    private String filter; // Filter/effect được áp dụng
+    private MediaMetadata metadata; // Metadata EXIF, thông tin chi tiết
 }
 
 @Data
@@ -120,21 +131,25 @@ class Stats {
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-class Location {
-    private String name; // Tên địa điểm
-    private String address;
-    private Double latitude;
-    private Double longitude;
-    private String placeId; // Google Places API ID
+class Activity {
+    private String type; // feeling | activity
+    private String name; // happy | excited | watching | eating...
+    private String iconUrl;
+    private String description;
 }
 
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-class Activity {
-    private String type; // feeling | activity
-    private String name; // happy | excited | watching | eating...
-    private String iconUrl;
-    private String description;
+class MediaMetadata {
+    private String cameraModel; // Model camera/điện thoại
+    private String lens; // Ống kính sử dụng
+    private String iso; // ISO setting
+    private String focalLength; // Độ dài tiêu cự
+    private String aperture; // Khẩu độ (f-stop)
+    private String shutterSpeed; // Tốc độ màn trập
+    private Instant capturedAt; // Thời gian chụp/quay thực tế
+    private String resolution; // Độ phân giải
+    private Long fileSize; // Kích thước file (bytes)
 }

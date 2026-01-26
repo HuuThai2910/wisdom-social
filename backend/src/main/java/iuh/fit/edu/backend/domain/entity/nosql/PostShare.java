@@ -89,6 +89,6 @@ public class PostShare {
 class ShareStats {
     private long reactCount;
     private long commentCount;
-    private long shareCount; // Re-share
+    private long shareCount;
     private long viewCount;
 }
