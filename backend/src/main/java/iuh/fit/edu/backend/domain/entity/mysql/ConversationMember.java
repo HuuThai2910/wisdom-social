@@ -34,7 +34,7 @@ public class ConversationUser {
     @JoinColumn(name = "user_id")
     private User user;
 
-//    Đánh dấu là nhóm trưởng (chỉ có khi là group chat)
+    // Đánh dấu là nhóm trưởng (chỉ có khi là group chat)
     private boolean isAdmin;
     private boolean isMuted;
     private Long lastReadId;
