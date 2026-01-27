@@ -1,9 +1,11 @@
 // API Response Types
 export interface ApiResponse<T> {
-    status: number;
-    success: boolean;
-    message: string;
-    data: T;
+  status: number;
+  success: boolean;
+  message: string;
+  data: T | null;
+  errors?: any;
+  timestamp: string; // OffsetDateTime -> ISO string
 }
 
 // User Types

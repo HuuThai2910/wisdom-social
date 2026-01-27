@@ -5,6 +5,7 @@
 package iuh.fit.edu.backend.domain.entity.mysql;
 
 import iuh.fit.edu.backend.constant.ConversationType;
+import iuh.fit.edu.backend.constant.MessageType;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -27,6 +28,7 @@ public class Conversation {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+    @Enumerated(EnumType.STRING)
     private ConversationType type;
 //    Tên nhóm (null nếu là direct chat)
     private String name;
@@ -34,8 +36,13 @@ public class Conversation {
     private String imageUrl;
     private Instant updatedAt;
 
-
+    // Snapshot cho tin nhan moi nhat
+    private String lastMessageContent;
+    private Instant lastMessageAt;
+    @Enumerated(EnumType.STRING)
+    private MessageType lastMessageType;
+    private Long lastSenderId;
 
     @OneToMany(mappedBy = "conversation")
-    private List<ConversationUser> users;
+    private List<ConversationMember> members;
 }

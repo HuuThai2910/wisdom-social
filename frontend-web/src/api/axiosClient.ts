@@ -1,6 +1,5 @@
 import axios, { type AxiosInstance } from "axios";
 
-
 const axiosClient: AxiosInstance = axios.create({
     baseURL: "/api",
     withCredentials: true,
@@ -9,3 +8,4 @@ const axiosClient: AxiosInstance = axios.create({
         Accept: "application/json",
     },
 });
+export default axiosClient;

@@ -1,0 +1,13 @@
+services:
+  redis:
+    image: redis:7.2
+    container_name: chat-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes
+    volumes:
+      - chat_redis_data:/data
+    restart: unless-stopped
+
+volumes:
+  chat_redis_data:

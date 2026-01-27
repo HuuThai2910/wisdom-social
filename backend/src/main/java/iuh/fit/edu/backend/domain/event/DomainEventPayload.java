@@ -4,6 +4,7 @@
  */
 package iuh.fit.edu.backend.domain.event;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import iuh.fit.edu.backend.constant.event.DomainEventType;
 import lombok.Getter;
 
@@ -15,6 +16,7 @@ import lombok.Getter;
  */
 @Getter
 public abstract class DomainEventPayload {
+    @JsonProperty("type")
     private final DomainEventType domainEventType;
 
     protected DomainEventPayload(DomainEventType domainEventType) {
