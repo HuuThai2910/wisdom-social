@@ -23,15 +23,13 @@ import java.time.LocalDateTime;
 @Data
 public class MessageResponse {
     private String id;
-
-    private Long conversation_id;
-
-
-    private Long senderId;
-
+    private Long conversationId;
     private String content;
     private MessageType type;
     private Instant createdAt;
+    private Long senderId;
+    private String senderName;
+    private String senderAvatar;
+    private boolean isActive;
 
-    private Boolean isActive;
 }

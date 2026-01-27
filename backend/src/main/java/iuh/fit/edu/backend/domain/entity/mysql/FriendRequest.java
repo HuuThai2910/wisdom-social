@@ -14,9 +14,10 @@ import lombok.Setter;
  * @date:
  * @version: 1.0
  */
-@Entity
+@Table(name = "friend_requests")
 @Getter
 @Setter
+@Entity
 public class FriendRequest {
 
     @Id

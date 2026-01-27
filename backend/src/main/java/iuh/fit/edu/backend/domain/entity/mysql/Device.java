@@ -14,9 +14,10 @@ import lombok.Setter;
  * @date:
  * @version: 1.0
  */
-@Entity
+@Table(name = "devices")
 @Getter
 @Setter
+@Entity
 public class Device {
 
     @Id

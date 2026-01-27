@@ -12,7 +12,10 @@ package iuh.fit.edu.backend.service.chat;/*
 import iuh.fit.edu.backend.dto.response.conversation.ConversationMemberResponse;
 import org.springframework.cache.annotation.Cacheable;
 
-public interface ConversationUserService {
+import java.util.Map;
+import java.util.Set;
+
+public interface ConversationMemberService {
     //    Trước khi chạy method này, spring sẽ kiểm tra redis trước
     //    Nếu cache này đã có dữ liệu thì method này sẽ không được gọi
     //    Dựa vào key có dạng là: sender-name::{conversationId}:{userId}
@@ -22,4 +25,8 @@ public interface ConversationUserService {
             unless = "#result == null"
     )
     ConversationMemberResponse getMemberInfo(Long conversationId, Long userId);
+
+    Map<Long, ConversationMemberResponse> getMembersMap(Long conversationId, Set<Long> userIds);
+
+    Set<Long> getAllMemberId(Long conversationId);
 }

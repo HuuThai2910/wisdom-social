@@ -120,7 +120,7 @@ class Stats {
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-class Location {
+class LocationPost {
     private String name; // Tên địa điểm
     private String address;
     private Double latitude;

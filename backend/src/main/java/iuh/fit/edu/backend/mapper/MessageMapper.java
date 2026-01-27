@@ -9,6 +9,8 @@ import iuh.fit.edu.backend.dto.response.message.MessageResponse;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 
+import java.util.List;
+
 /*
  * @description
  * @author: Huu Thai
@@ -18,5 +20,7 @@ import org.mapstruct.Mapping;
 @Mapper(componentModel = "spring")
 public interface MessageMapper {
     @Mapping(target = "senderName", ignore = true)
-    MessageResponse toMessageReponse(Message message);
+    @Mapping(target = "senderAvatar", ignore = true)
+    MessageResponse toMessageResponse(Message message);
+
 }

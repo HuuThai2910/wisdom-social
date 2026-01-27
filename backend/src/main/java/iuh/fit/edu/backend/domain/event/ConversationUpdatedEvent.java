@@ -11,6 +11,7 @@ package iuh.fit.edu.backend.domain.event;
  * @version: 1.0
  */
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import iuh.fit.edu.backend.constant.event.DomainEventType;
 import iuh.fit.edu.backend.dto.response.message.LastMessageResponse;
 import lombok.Getter;
@@ -18,12 +19,15 @@ import lombok.Getter;
 import java.util.Set;
 
 @Getter
-public class ConservationUpdatedEvent extends DomainEventPayload{
+public class ConversationUpdatedEvent extends DomainEventPayload{
     private final Long conversationId;
     private final LastMessageResponse lastMessage;
+
+    // Field này chỉ dùng để Server biết gửi cho ai, không gửi xuống Client
+    @JsonIgnore
     private final Set<Long> memberIds;
 
-    public ConservationUpdatedEvent(Long conversationId, LastMessageResponse lastMessage, Set<Long> memberIds) {
+    public ConversationUpdatedEvent(Long conversationId, LastMessageResponse lastMessage, Set<Long> memberIds) {
         super(DomainEventType.ROOM_UPDATED);
         this.conversationId = conversationId;
         this.lastMessage = lastMessage;
