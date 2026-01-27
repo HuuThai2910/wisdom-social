@@ -21,7 +21,6 @@ import Explore from "./pages/Explore";
 import Reels from "./pages/Reels";
 import Notifications from "./pages/Notifications";
 import Messages from "./pages/Messages";
-import MessagesWhite from "./pages/MessagesWhite";
 import Post from "./pages/Post";
 import ProfileAccount from "./pages/ProfileAccount";
 import ProfileMyPosts from "./pages/ProfileMyPosts";
@@ -77,8 +76,8 @@ function App() {
                         />
                         <Route path="/messages" element={<Messages />} />
                         <Route
-                            path="/messages/:chatId"
-                            element={<MessagesWhite />}
+                            path="/messages/:conversationId"
+                            element={<Messages />}
                         />
                         <Route path="/create" element={<CreatePost />} />
                         <Route path="/post/:id" element={<Post />} />

@@ -4,6 +4,8 @@
  */
 package iuh.fit.edu.backend.mapper;
 
+import org.mapstruct.Mapper;
+
 /*
  * @description
  * @author: Huu Thai
