@@ -9,7 +9,6 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import org.bson.types.ObjectId;
 import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.index.CompoundIndexes;
 import org.springframework.data.mongodb.core.index.Indexed;
@@ -44,10 +43,10 @@ import java.time.Instant;
 public class StoryView {
 
     @Id
-    private ObjectId id;
+    private String id;
 
-    private ObjectId storyId;
-    private ObjectId viewerId;
+    private String storyId;
+    private String viewerId;
 
     // Thời điểm xem
     private Instant createdAt;

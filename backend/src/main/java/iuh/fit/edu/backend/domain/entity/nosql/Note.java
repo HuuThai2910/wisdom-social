@@ -7,7 +7,6 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import org.bson.types.ObjectId;
 import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.index.CompoundIndexes;
 import org.springframework.data.mongodb.core.index.Indexed;
@@ -41,10 +40,10 @@ import java.time.Instant;
 public class Note {
 
     @Id
-    private ObjectId id;
+    private String id;
 
     @Indexed
-    private ObjectId userId;
+    private String userId;
     
     private String content;
 
@@ -52,7 +51,7 @@ public class Note {
     private NoteTheme theme;
 
     // Music track
-    private ObjectId musicTrackId;
+    private String musicTrackId;
     private NoteMusic music;
 
     // Privacy

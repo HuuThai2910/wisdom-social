@@ -1,11 +1,11 @@
 // API Response Types
 export interface ApiResponse<T> {
-  status: number;
-  success: boolean;
-  message: string;
-  data: T | null;
-  errors?: any;
-  timestamp: string; // OffsetDateTime -> ISO string
+    status: number;
+    success: boolean;
+    message: string;
+    data: T | null;
+    errors?: any;
+    timestamp: string; // OffsetDateTime -> ISO string
 }
 
 // User Types
@@ -16,6 +16,7 @@ export interface User {
     avatar: string;
     bio?: string;
     isVerified?: boolean;
+    friendsCount?: number;
     followersCount?: number;
     followingCount?: number;
     postsCount?: number;
