@@ -9,6 +9,7 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -32,10 +33,11 @@ public class User {
     private String name;
     private String username;
     private String avatarUrl;
+    private String birthday;
     private String bio;
     private Gender gender;
 
-    private LocalDateTime createdAt;
+    private Instant createdAt;
     private LocalDateTime updatedAt;
 
     // ===== Relations =====

@@ -116,17 +116,6 @@ class Stats {
     private long viewCount; // View count cho video
 }
 
-@Data
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
-class Location {
-    private String name; // Tên địa điểm
-    private String address;
-    private Double latitude;
-    private Double longitude;
-    private String placeId; // Google Places API ID
-}
 
 @Data
 @Builder
