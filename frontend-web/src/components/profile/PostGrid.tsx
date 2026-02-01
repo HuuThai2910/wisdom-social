@@ -32,6 +32,9 @@ export default function PostGrid({
 
       {posts.map((post) => {
         const imageUrl = (post as any).imageUrl || post.images?.[0];
+        const likesCount = (post as any).likes ?? post.likes ?? 0;
+        const commentsCount = (post as any).comments ?? 0;
+
         return (
           <Link
             key={post.id}
@@ -56,11 +59,11 @@ export default function PostGrid({
             <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-6 text-white">
               <div className="flex items-center gap-2 font-semibold">
                 <Heart size={20} fill="white" />
-                <span>{post.likes.toLocaleString()}</span>
+                <span>{likesCount.toLocaleString()}</span>
               </div>
               <div className="flex items-center gap-2 font-semibold">
                 <MessageCircle size={20} fill="white" />
-                <span>{post.comments?.length || 0}</span>
+                <span>{commentsCount.toLocaleString()}</span>
               </div>
             </div>
           </Link>

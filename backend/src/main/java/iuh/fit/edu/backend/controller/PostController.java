@@ -150,4 +150,39 @@ public class PostController {
                     .body(ApiResponse.error(400, "Lỗi khi cập nhật post: " + e.getMessage(), null));
         }
     }
+
+    /**
+     * Get posts where user is tagged
+     * @param userId User ID
+     * @return List of posts
+     */
+    @GetMapping("/tagged/{userId}")
+    public ResponseEntity<ApiResponse<List<Post>>> getPostsByTaggedUserId(@PathVariable String userId) {
+        try {
+            log.info("Fetching posts where user {} is tagged", userId);
+            List<Post> posts = postService.getPostsByTaggedUserId(userId);
+            return ResponseEntity.ok(ApiResponse.success(200, "Lấy danh sách post được tag thành công", posts));
+        } catch (Exception e) {
+            log.error("Error fetching tagged posts", e);
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error(400, "Lỗi khi lấy danh sách post được tag: " + e.getMessage(), null));
+        }
+    }
+
+    /**
+     * Sync stats for all posts from reactions and comments
+     * @return Success message
+     */
+    @PostMapping("/sync-stats")
+    public ResponseEntity<ApiResponse<String>> syncAllPostsStats() {
+        try {
+            log.info("Syncing stats for all posts");
+            postService.syncAllPostsStats();
+            return ResponseEntity.ok(ApiResponse.success(200, "Đồng bộ thống kê cho tất cả posts thành công", "OK"));
+        } catch (Exception e) {
+            log.error("Error syncing posts stats", e);
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error(400, "Lỗi khi đồng bộ thống kê: " + e.getMessage(), null));
+        }
+    }
 }

@@ -1,67 +1,138 @@
-import { useParams } from "react-router-dom";
+import { useParams, useOutletContext } from "react-router-dom";
 import { useState, useEffect } from "react";
-import ProfileHeader from "../components/profile/ProfileHeader";
-import ProfileTabs from "../components/profile/ProfileTabs";
 import PostGrid from "../components/profile/PostGrid";
-import { mockPosts } from "../api/mockData";
 import axios from "axios";
 import type { User } from "../types";
-import { getCurrentUser } from "../utils/auth";
 
 const API_BASE_URL = "http://localhost:8080/api";
 
+interface Post {
+  id: string;
+  authorId: string;
+  content: string;
+  privacy: string;
+  media: Array<{
+    url: string;
+    type: string;
+  }>;
+  location?: {
+    name: string;
+  };
+  hashtags: string[];
+  mentions: string[];
+  stats: {
+    reactCount: number;
+    commentCount: number;
+    shareCount: number;
+    viewCount: number;
+  };
+  createdAt: string;
+}
+
+interface OutletContext {
+  user: User;
+  isOwnProfile: boolean;
+}
+
 export default function ProfileSavedPost() {
   const { username } = useParams();
-  const [user, setUser] = useState<User | null>(null);
+  const { user, isOwnProfile } = useOutletContext<OutletContext>();
+  const [posts, setPosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchUser = async () => {
+    const fetchSavedPosts = async () => {
       try {
-        const response = await axios.get(
-          `${API_BASE_URL}/auth/user/${username}`
+        if (!user) return;
+
+        setLoading(true);
+        // Fetch saved posts
+        const savedResponse = await axios.get(
+          `${API_BASE_URL}/saved-posts/user?userId=${user.id}`
         );
-        if (response.data.success) {
-          const userData = response.data.data;
-          setUser({
-            id: userData.id.toString(),
-            username: userData.username,
-            fullName: userData.name || userData.username,
-            avatar: userData.avatarUrl || "https://i.pravatar.cc/150?img=5",
-            bio: userData.bio,
-            friendsCount: userData.friendCount || 0,
-            followersCount: userData.followerCount || 0,
-            followingCount: userData.followingCount || 0,
-            postsCount: userData.postCount || 0,
-          });
+
+        if (savedResponse.data.success) {
+          const savedPostsData = savedResponse.data.data;
+
+          // Fetch each post's details
+          const postDetailsPromises = savedPostsData.map(
+            async (savedPost: any) => {
+              try {
+                const postResponse = await axios.get(
+                  `${API_BASE_URL}/posts/${savedPost.targetId}`
+                );
+                const post: Post = postResponse.data.data;
+
+                // Fetch author data
+                const authorResponse = await axios.get(
+                  `${API_BASE_URL}/auth/user/id/${post.authorId}`
+                );
+                const authorData = authorResponse.data.data;
+
+                return {
+                  id: post.id,
+                  imageUrl:
+                    post.media && post.media.length > 0
+                      ? post.media[0].url
+                      : null,
+                  likes: post.stats?.reactCount || 0,
+                  comments: post.stats?.commentCount || 0,
+                  caption: post.content,
+                  privacy: post.privacy,
+                  images: [
+                    post.media && post.media.length > 0
+                      ? post.media[0].url
+                      : "",
+                  ],
+                  user: {
+                    id: authorData.id.toString(),
+                    username: authorData.username,
+                    fullName: authorData.name || authorData.username,
+                    avatar:
+                      authorData.avatarUrl || "https://i.pravatar.cc/150?img=5",
+                  },
+                };
+              } catch (error) {
+                console.error(
+                  "Error fetching saved post:",
+                  savedPost.targetId,
+                  error
+                );
+                return null;
+              }
+            }
+          );
+
+          const transformedPosts = (
+            await Promise.all(postDetailsPromises)
+          ).filter((post) => post !== null);
+          setPosts(transformedPosts);
         }
       } catch (error) {
-        console.error("Error fetching user:", error);
+        console.error("Error fetching saved posts:", error);
       } finally {
         setLoading(false);
       }
     };
 
-    if (username) {
-      fetchUser();
-    }
-  }, [username]);
+    fetchSavedPosts();
+  }, [user]);
 
   if (loading) {
-    return <div className="p-4 text-center">Loading...</div>;
+    return (
+      <div className="p-8 text-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500 mx-auto"></div>
+      </div>
+    );
   }
 
-  if (!user) {
-    return <div className="p-4 text-center">User not found</div>;
+  if (posts.length === 0) {
+    return (
+      <div className="p-8 text-center text-gray-500 dark:text-gray-400">
+        Chưa có bài viết nào được lưu
+      </div>
+    );
   }
 
-  const savedPosts = mockPosts.slice(0, 2);
-
-  return (
-    <div className="max-w-4xl mx-auto">
-      <ProfileHeader user={user} />
-      <ProfileTabs username={username!} />
-      <PostGrid posts={savedPosts} />
-    </div>
-  );
+  return <PostGrid posts={posts} />;
 }

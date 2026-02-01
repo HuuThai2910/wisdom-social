@@ -7,6 +7,7 @@ import {
   useLocation,
 } from "react-router-dom";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import { AuthProvider } from "./contexts/AuthContext";
 import MainLayout from "./components/layout/MainLayout";
 import PublicLayout from "./components/layout/PublicLayout";
 import RequireAuth from "./components/auth/RequireAuth";
@@ -32,10 +33,12 @@ import Messages from "./pages/Messages";
 import ProfileAccount from "./pages/ProfileAccount";
 import ProfileMyPosts from "./pages/ProfileMyPosts";
 import ProfileSavedPost from "./pages/ProfileSavedPost";
+import ProfileTaggedPost from "./pages/ProfileTaggedPost";
 import ProfileGeneral from "./pages/ProfileGeneral";
 import CreatePost from "./pages/CreatePost";
 import EditPost from "./pages/EditPost";
 import Settings from "./pages/Settings";
+import ProfileLayout from "./components/profile/ProfileLayout";
 
 // Other Pages
 import General from "./pages/General";
@@ -63,66 +66,67 @@ function App() {
   }
 
   return (
-    <ThemeProvider>
-      <BrowserRouter>
-        <Routes>
-          {/* Public Routes */}
-          <Route element={<PublicLayout />}>
-            <Route path="/login" element={<Login />} />
-            <Route path="/login/email" element={<LoginWithEmail />} />
-            <Route path="/signup" element={<SignUp />} />
-            <Route path="/forgot-password" element={<ForgotPassword />} />
-            <Route path="/checkinbox" element={<CheckInbox />} />
-            <Route path="/verify-otp" element={<VerifyOTP />} />
-          </Route>
+    <AuthProvider>
+      <ThemeProvider>
+        <BrowserRouter>
+          <Routes>
+            {/* Public Routes */}
+            <Route element={<PublicLayout />}>
+              <Route path="/login" element={<Login />} />
+              <Route path="/login/email" element={<LoginWithEmail />} />
+              <Route path="/signup" element={<SignUp />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route path="/checkinbox" element={<CheckInbox />} />
+              <Route path="/verify-otp" element={<VerifyOTP />} />
+            </Route>
 
-          {/* Private Routes */}
-          <Route
-            element={
-              <RequireAuth>
-                <MainLayout />
-              </RequireAuth>
-            }
-          >
-            <Route path="/" element={<Home />} />
-            <Route path="/feed" element={<Feed />} />
-            <Route path="/search" element={<Search />} />
-            <Route path="/explore" element={<Explore />} />
-            <Route path="/reels" element={<Reels />} />
-            <Route path="/notifications" element={<Notifications />} />
-
-            {/* Post Modal Route */}
-            <Route path="/post/:id" element={<PostModalWrapper />} />
-            <Route path="/messages" element={<Messages />} />
-            <Route path="/messages/:conversationId" element={<Messages />} />
-            <Route path="/create" element={<CreatePost />} />
-            <Route path="/edit-post/:postId" element={<EditPost />} />
-
+            {/* Private Routes */}
             <Route
-              path="/profile/:username/posts"
-              element={<ProfileMyPosts />}
-            />
-            <Route
-              path="/profile/:username/saved"
-              element={<ProfileSavedPost />}
-            />
-            <Route
-              path="/profile/:username/general"
-              element={<ProfileGeneral />}
-            />
-            <Route path="/profile/:username" element={<ProfileAccount />} />
-            <Route path="/settings" element={<Settings />} />
-          </Route>
+              element={
+                <RequireAuth>
+                  <MainLayout />
+                </RequireAuth>
+              }
+            >
+              <Route path="/" element={<Home />} />
+              <Route path="/feed" element={<Feed />} />
+              <Route path="/search" element={<Search />} />
+              <Route path="/explore" element={<Explore />} />
+              <Route path="/reels" element={<Reels />} />
+              <Route path="/notifications" element={<Notifications />} />
 
-          {/* Other Routes */}
-          <Route path="/general" element={<General />} />
-          <Route path="/misc" element={<Misc />} />
+              {/* Post Modal Route */}
+              <Route path="/post/:id" element={<PostModalWrapper />} />
+              <Route path="/messages" element={<Messages />} />
+              <Route path="/messages/:conversationId" element={<Messages />} />
+              <Route path="/create" element={<CreatePost />} />
+              <Route path="/edit-post/:postId" element={<EditPost />} />
 
-          {/* 404 */}
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
-    </ThemeProvider>
+              {/* Profile Routes with nested tabs */}
+              <Route path="/profile/:username" element={<ProfileLayout />}>
+                <Route index element={<ProfileMyPosts />} />
+                <Route path="posts" element={<ProfileMyPosts />} />
+                <Route path="saved" element={<ProfileSavedPost />} />
+                <Route path="tagged" element={<ProfileTaggedPost />} />
+              </Route>
+
+              <Route
+                path="/profile/:username/general"
+                element={<ProfileGeneral />}
+              />
+              <Route path="/settings" element={<Settings />} />
+            </Route>
+
+            {/* Other Routes */}
+            <Route path="/general" element={<General />} />
+            <Route path="/misc" element={<Misc />} />
+
+            {/* 404 */}
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </BrowserRouter>
+      </ThemeProvider>
+    </AuthProvider>
   );
 }
 

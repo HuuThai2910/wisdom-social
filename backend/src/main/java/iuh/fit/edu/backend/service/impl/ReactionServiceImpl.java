@@ -7,7 +7,9 @@ package iuh.fit.edu.backend.service.impl;
 import iuh.fit.edu.backend.constant.ReactionType;
 import iuh.fit.edu.backend.constant.TargetType;
 import iuh.fit.edu.backend.domain.entity.nosql.Reaction;
+import iuh.fit.edu.backend.domain.entity.nosql.Post;
 import iuh.fit.edu.backend.repository.nosql.ReactionRepository;
+import iuh.fit.edu.backend.repository.nosql.PostRepository;
 import iuh.fit.edu.backend.service.ReactionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +32,7 @@ import java.util.Optional;
 public class ReactionServiceImpl implements ReactionService {
 
     private final ReactionRepository reactionRepository;
+    private final PostRepository postRepository;
 
     @Override
     @Transactional
@@ -47,6 +50,12 @@ public class ReactionServiceImpl implements ReactionService {
             if (reaction.getType() == reactionType) {
                 reactionRepository.delete(reaction);
                 log.info("Removed reaction: {}", reaction.getId());
+                
+                // Update post stats if target is POST
+                if (targetType == TargetType.POST) {
+                    updatePostReactCount(targetId, -1);
+                }
+                
                 return null;
             }
             
@@ -69,7 +78,24 @@ public class ReactionServiceImpl implements ReactionService {
 
         Reaction saved = reactionRepository.save(newReaction);
         log.info("Created new reaction: {}", saved.getId());
+        
+        // Update post stats if target is POST
+        if (targetType == TargetType.POST) {
+            updatePostReactCount(targetId, 1);
+        }
+        
         return saved;
+    }
+
+    private void updatePostReactCount(String postId, int delta) {
+        postRepository.findById(postId).ifPresent(post -> {
+            if (post.getStats() != null) {
+                long newCount = Math.max(0L, post.getStats().getReactCount() + delta);
+                post.getStats().setReactCount(newCount);
+                postRepository.save(post);
+                log.info("Updated post {} reactCount to: {}", postId, newCount);
+            }
+        });
     }
 
     @Override

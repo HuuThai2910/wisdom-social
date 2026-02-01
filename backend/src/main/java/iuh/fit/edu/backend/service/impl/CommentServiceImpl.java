@@ -7,8 +7,10 @@ package iuh.fit.edu.backend.service.impl;
 import iuh.fit.edu.backend.constant.StatusType;
 import iuh.fit.edu.backend.constant.TargetType;
 import iuh.fit.edu.backend.domain.entity.nosql.Comment;
+import iuh.fit.edu.backend.domain.entity.nosql.Post;
 import iuh.fit.edu.backend.dto.request.CreateCommentRequest;
 import iuh.fit.edu.backend.repository.nosql.CommentRepository;
+import iuh.fit.edu.backend.repository.nosql.PostRepository;
 import iuh.fit.edu.backend.service.CommentService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -33,6 +35,7 @@ import java.util.regex.Pattern;
 public class CommentServiceImpl implements CommentService {
 
     private final CommentRepository commentRepository;
+    private final PostRepository postRepository;
 
     @Override
     @Transactional
@@ -66,6 +69,9 @@ public class CommentServiceImpl implements CommentService {
                 parent.setReplyCount(parent.getReplyCount() + 1);
                 commentRepository.save(parent);
             });
+        } else if (request.getTargetType() == TargetType.POST) {
+            // If this is a top-level comment on a post, update post stats
+            updatePostCommentCount(request.getTargetId(), 1);
         }
 
         log.info("Comment created successfully with ID: {}", savedComment.getId());
@@ -102,6 +108,9 @@ public class CommentServiceImpl implements CommentService {
                 parent.setReplyCount(Math.max(0, parent.getReplyCount() - 1));
                 commentRepository.save(parent);
             });
+        } else if (comment.getTargetType() == TargetType.POST) {
+            // If this is a top-level comment on a post, update post stats
+            updatePostCommentCount(comment.getTargetId(), -1);
         }
 
         commentRepository.deleteById(commentId);
@@ -116,5 +125,16 @@ public class CommentServiceImpl implements CommentService {
             mentions.add(matcher.group(1));
         }
         return mentions;
+    }
+
+    private void updatePostCommentCount(String postId, int delta) {
+        postRepository.findById(postId).ifPresent(post -> {
+            if (post.getStats() != null) {
+                long newCount = Math.max(0L, post.getStats().getCommentCount() + delta);
+                post.getStats().setCommentCount(newCount);
+                postRepository.save(post);
+                log.info("Updated post {} commentCount to: {}", postId, newCount);
+            }
+        });
     }
 }

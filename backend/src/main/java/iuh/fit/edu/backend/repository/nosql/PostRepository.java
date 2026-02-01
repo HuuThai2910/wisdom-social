@@ -13,5 +13,6 @@ import java.util.List;
 @Repository
 public interface PostRepository extends MongoRepository<Post, String> {
     List<Post> findByAuthorIdOrderByCreatedAtDesc(String authorId);
+    List<Post> findByTaggedUserIdsContaining(String userId);
 }
 

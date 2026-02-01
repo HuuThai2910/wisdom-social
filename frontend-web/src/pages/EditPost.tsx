@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import axios from "axios";
-import { getCurrentUser } from "../utils/auth";
+import { useAuth } from "../contexts/AuthContext";
 import EmojiPicker, {
   type EmojiClickData,
   type Theme,
@@ -29,6 +29,7 @@ type PrivacyType =
 export default function EditPost() {
   const navigate = useNavigate();
   const { postId } = useParams<{ postId: string }>();
+  const { currentUser } = useAuth();
   const [caption, setCaption] = useState("");
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
   const [newImages, setNewImages] = useState<File[]>([]);
@@ -108,10 +109,9 @@ export default function EditPost() {
   useEffect(() => {
     const fetchFriends = async () => {
       try {
-        const user = getCurrentUser();
-        if (user?.id) {
+        if (currentUser?.id) {
           const response = await axios.get(
-            `http://localhost:8080/api/users/${user.id}/friends`
+            `http://localhost:8080/api/users/${currentUser.id}/friends`
           );
 
           let friendsData = response.data;
@@ -217,8 +217,7 @@ export default function EditPost() {
 
   const handleUpdatePost = async () => {
     try {
-      const user = getCurrentUser();
-      if (!user?.id) {
+      if (!currentUser?.id) {
         alert("Please login to update post");
         return;
       }
@@ -253,7 +252,7 @@ export default function EditPost() {
 
       // Add post data as JSON string
       formData.append("postData", JSON.stringify(postData));
-      formData.append("userId", user.id.toString());
+      formData.append("userId", currentUser.id.toString());
 
       console.log("Updating post...");
 

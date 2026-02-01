@@ -1,11 +1,8 @@
-import { useParams } from "react-router-dom";
+import { useParams, useOutletContext } from "react-router-dom";
 import { useState, useEffect } from "react";
-import ProfileHeader from "../components/profile/ProfileHeader";
-import ProfileTabs from "../components/profile/ProfileTabs";
 import PostGrid from "../components/profile/PostGrid";
 import axios from "axios";
 import type { User } from "../types";
-import { getCurrentUser } from "../utils/auth";
 
 const API_BASE_URL = "http://localhost:8080/api";
 
@@ -32,97 +29,70 @@ interface Post {
   createdAt: string;
 }
 
+interface OutletContext {
+  user: User;
+  isOwnProfile: boolean;
+}
+
 export default function ProfileMyPosts() {
   const { username } = useParams();
-  const [user, setUser] = useState<User | null>(null);
+  const { user, isOwnProfile } = useOutletContext<OutletContext>();
   const [posts, setPosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchUserAndPosts = async () => {
+    const fetchPosts = async () => {
       try {
-        // Fetch user info
-        const userResponse = await axios.get(
-          `${API_BASE_URL}/auth/user/${username}`
+        if (!user) return;
+
+        setLoading(true);
+        // Fetch user's posts
+        const postsResponse = await axios.get(
+          `${API_BASE_URL}/posts/user/${user.id}`
         );
 
-        if (userResponse.data.success) {
-          const userData = userResponse.data.data;
-          const userId = userData.id;
-
-          setUser({
-            id: userId.toString(),
-            username: userData.username,
-            fullName: userData.name || userData.username,
-            avatar: userData.avatarUrl || "https://i.pravatar.cc/150?img=5",
-            bio: userData.bio,
-            friendsCount: userData.friendCount || 0,
-            followersCount: userData.followerCount || 0,
-            followingCount: userData.followingCount || 0,
-            postsCount: userData.postCount || 0,
+        if (postsResponse.data.success) {
+          const postsData = postsResponse.data.data;
+          // Transform posts to match PostGrid expected format
+          const transformedPosts = postsData.map((post: Post) => {
+            return {
+              id: post.id,
+              imageUrl:
+                post.media && post.media.length > 0 ? post.media[0].url : null,
+              likes: post.stats?.reactCount || 0,
+              comments: post.stats?.commentCount || 0,
+              caption: post.content,
+              privacy: post.privacy,
+              images: [
+                post.media && post.media.length > 0 ? post.media[0].url : "",
+              ],
+              user: {
+                id: user.id,
+                username: user.username,
+                fullName: user.fullName,
+                avatar: user.avatar,
+              },
+            };
           });
-
-          // Fetch user's posts
-          const postsResponse = await axios.get(
-            `${API_BASE_URL}/posts/user/${userId}`
-          );
-
-          if (postsResponse.data.success) {
-            const postsData = postsResponse.data.data;
-            // Transform posts to match PostGrid expected format
-            const transformedPosts = postsData.map((post: Post) => {
-              return {
-                id: post.id, // Now it's already a String from MongoDB
-                imageUrl:
-                  post.media && post.media.length > 0
-                    ? post.media[0].url
-                    : null,
-                likes: post.stats?.reactCount || 0,
-                comments: post.stats?.commentCount || 0,
-                caption: post.content,
-                images: [
-                  post.media && post.media.length > 0 ? post.media[0].url : "",
-                ],
-                user: {
-                  id: userId.toString(),
-                  username: userData.username,
-                  fullName: userData.name || userData.username,
-                  avatar:
-                    userData.avatarUrl || "https://i.pravatar.cc/150?img=5",
-                },
-              };
-            });
-            setPosts(transformedPosts);
-          }
+          setPosts(transformedPosts);
         }
       } catch (error) {
-        console.error("Error fetching data:", error);
+        console.error("Error fetching posts:", error);
       } finally {
         setLoading(false);
       }
     };
 
-    if (username) {
-      fetchUserAndPosts();
-    }
-  }, [username]);
+    fetchPosts();
+  }, [user]);
 
   if (loading) {
-    return <div className="p-4 text-center">Loading...</div>;
+    return (
+      <div className="p-8 text-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500 mx-auto"></div>
+      </div>
+    );
   }
 
-  if (!user) {
-    return <div className="p-4 text-center">User not found</div>;
-  }
-
-  const currentUser = getCurrentUser();
-  const isOwnProfile = currentUser?.username === username;
-
-  return (
-    <div className="max-w-4xl mx-auto">
-      <ProfileHeader user={user} isOwnProfile={isOwnProfile} />
-      <ProfileTabs username={username!} />
-      <PostGrid posts={posts} isOwnProfile={isOwnProfile} />
-    </div>
-  );
+  return <PostGrid posts={posts} isOwnProfile={isOwnProfile} />;
 }

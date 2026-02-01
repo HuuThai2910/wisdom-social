@@ -13,7 +13,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { currentUser } from "../api/mockData";
 import axios from "axios";
-import { getCurrentUser } from "../utils/auth";
+import { useAuth } from "../contexts/AuthContext";
 import EmojiPicker, {
   type EmojiClickData,
   type Theme,
@@ -29,6 +29,7 @@ type PrivacyType =
 
 export default function CreatePost() {
   const navigate = useNavigate();
+  const { currentUser } = useAuth();
   const [caption, setCaption] = useState("");
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -53,10 +54,9 @@ export default function CreatePost() {
   useEffect(() => {
     const fetchFriends = async () => {
       try {
-        const user = getCurrentUser();
-        if (user?.id) {
+        if (currentUser?.id) {
           const response = await axios.get(
-            `http://localhost:8080/api/users/${user.id}/friends`
+            `http://localhost:8080/api/users/${currentUser.id}/friends`
           );
           console.log("Friends response:", response.data);
 
@@ -78,17 +78,15 @@ export default function CreatePost() {
                 "https://i.pravatar.cc/150?img=5",
             })
           );
-
           setFriends(mappedFriends);
         }
       } catch (error) {
         console.error("Error fetching friends:", error);
-        setFriends([]);
       }
     };
 
     fetchFriends();
-  }, []);
+  }, [currentUser]);
 
   // Search location suggestions with debounce
   useEffect(() => {
@@ -123,17 +121,43 @@ export default function CreatePost() {
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files) {
-      const newImages: string[] = [];
-      Array.from(files).forEach((file) => {
+      processFiles(files);
+    }
+    // Reset input value to allow selecting the same file again
+    e.target.value = "";
+  };
+
+  const processFiles = (files: FileList) => {
+    const newImages: string[] = [];
+    const maxFiles = 10 - selectedImages.length;
+    const filesToProcess = Array.from(files).slice(0, maxFiles);
+
+    filesToProcess.forEach((file) => {
+      if (file.type.startsWith("image/")) {
         const reader = new FileReader();
         reader.onloadend = () => {
           newImages.push(reader.result as string);
-          if (newImages.length === files.length) {
+          if (newImages.length === filesToProcess.length) {
             setSelectedImages([...selectedImages, ...newImages]);
           }
         };
         reader.readAsDataURL(file);
-      });
+      }
+    });
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      processFiles(files);
     }
   };
 
@@ -151,7 +175,7 @@ export default function CreatePost() {
 
   const filteredFriends = friends.filter(
     (user) =>
-      user.username !== currentUser.username &&
+      user.username !== currentUser?.username &&
       !taggedUsers.includes(user.username) &&
       (user.username.toLowerCase().includes(tagInput.toLowerCase()) ||
         user.fullName.toLowerCase().includes(tagInput.toLowerCase()))
@@ -167,8 +191,7 @@ export default function CreatePost() {
 
   const handlePost = async () => {
     try {
-      const user = getCurrentUser();
-      if (!user?.id) {
+      if (!currentUser?.id) {
         alert("Please login to create post");
         return;
       }
@@ -204,7 +227,7 @@ export default function CreatePost() {
 
       // Add post data as JSON string
       formData.append("postData", JSON.stringify(postData));
-      formData.append("authorId", user.id.toString());
+      formData.append("authorId", currentUser.id.toString());
 
       console.log("Creating post...");
 
@@ -266,13 +289,13 @@ export default function CreatePost() {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
                 <img
-                  src={currentUser.avatar}
-                  alt={currentUser.username}
+                  src={currentUser?.avatar || "https://i.pravatar.cc/150?img=5"}
+                  alt={currentUser?.username || "User"}
                   className="w-10 h-10 rounded-full"
                 />
                 <div>
                   <p className="text-sm font-semibold dark:text-white">
-                    {currentUser.username}
+                    {currentUser?.username || "User"}
                   </p>
                   <button
                     onClick={() => setShowPrivacyMenu(!showPrivacyMenu)}
@@ -350,37 +373,43 @@ export default function CreatePost() {
 
             {/* Image Upload Area */}
             {selectedImages.length === 0 ? (
-              <div className="border-2 border-dashed border-gray-300 dark:border-[#363636] rounded-xl p-12 text-center mb-4">
+              <div
+                onDragOver={handleDragOver}
+                onDrop={handleDrop}
+                className="border-2 border-dashed border-gray-300 dark:border-[#363636] rounded-xl p-12 text-center mb-4 hover:border-blue-400 dark:hover:border-blue-500 transition-colors"
+              >
+                <ImagePlus
+                  size={64}
+                  className="text-gray-400 dark:text-gray-600 mb-4 mx-auto"
+                />
+                <p className="text-lg font-medium mb-2 dark:text-white">
+                  Select photos from your computer
+                </p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                  Or drag and drop them here (up to 10 photos)
+                </p>
+                <input
+                  id="image-upload"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={handleImageSelect}
+                />
                 <label
                   htmlFor="image-upload"
-                  className="cursor-pointer flex flex-col items-center"
+                  className="inline-block px-4 py-2 bg-[#0095f6] hover:bg-[#1877f2] text-white rounded-lg text-sm font-semibold cursor-pointer transition-colors"
                 >
-                  <ImagePlus
-                    size={64}
-                    className="text-gray-400 dark:text-gray-600 mb-4"
-                  />
-                  <p className="text-lg font-medium mb-2 dark:text-white">
-                    Select photos from your computer
-                  </p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
-                    Or drag and drop them here (up to 10 photos)
-                  </p>
-                  <input
-                    id="image-upload"
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    className="hidden"
-                    onChange={handleImageSelect}
-                  />
-                  <button className="mt-4 px-4 py-2 bg-[#0095f6] hover:bg-[#1877f2] text-white rounded-lg text-sm font-semibold">
-                    Select from computer
-                  </button>
+                  Select from computer
                 </label>
               </div>
             ) : (
               <div className="mb-4">
-                <div className="grid grid-cols-2 gap-2 mb-2">
+                <div
+                  onDragOver={handleDragOver}
+                  onDrop={handleDrop}
+                  className="grid grid-cols-2 gap-2 mb-2"
+                >
                   {selectedImages.map((img, index) => (
                     <div key={index} className="relative">
                       <img

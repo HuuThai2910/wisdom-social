@@ -1,12 +1,7 @@
-/*
- * @ (#) ResourceNotFoundException.java    1.0
- * Copyright (c)  IUH. All rights reserved.
- */
 package iuh.fit.edu.backend.exception;
-
 /*
  * @description: Exception thrown when a resource is not found
- * @author: Huu Thai
+ * @author: The Bao
  * @date:
  * @version: 1.0
  */

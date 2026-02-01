@@ -7,6 +7,7 @@ interface PostData {
   id: string;
   authorId: string;
   content: string;
+  privacy?: string;
   media?: Array<{ url: string; type: string; order: number }>;
   stats?: { reactCount: number; commentCount: number; shareCount: number };
   createdAt: string;
@@ -45,6 +46,7 @@ export default function Post() {
               ? postData.media.map((m) => m.url)
               : [],
           caption: postData.content,
+          privacy: postData.privacy as any,
           likes: postData.stats?.reactCount || 0,
           comments: postData.stats?.commentCount || 0,
           shares: postData.stats?.shareCount || 0,

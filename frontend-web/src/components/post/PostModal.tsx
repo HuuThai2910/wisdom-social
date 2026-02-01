@@ -14,9 +14,12 @@ import {
   Users,
   Image as ImageIcon,
   Globe,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import axiosClient from "../../api/axiosClient";
 import FriendSelectorModal from "./FriendSelectorModal";
+import { useAuth } from "../../contexts/AuthContext";
 
 interface PostModalProps {
   postId: string;
@@ -27,6 +30,7 @@ interface PostData {
   id: string;
   authorId: string;
   content: string;
+  privacy?: string;
   media?: Array<{ url: string; type: string; order: number }>;
   mediaList?: Array<{ url: string; type: string; order: number }>;
   stats?: { reactCount: number; commentCount: number; shareCount: number };
@@ -57,10 +61,13 @@ interface CommentData {
   createdAt: string;
   reactCount: number;
   replyCount: number;
+  parentId?: string;
+  replies?: CommentData[];
 }
 
 export default function PostModal({ postId, onClose }: PostModalProps) {
   const navigate = useNavigate();
+  const { currentUser } = useAuth();
   const [post, setPost] = useState<PostData | null>(null);
   const [author, setAuthor] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -72,6 +79,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
   const [showReactions, setShowReactions] = useState(false);
   const [currentReaction, setCurrentReaction] = useState<string | null>(null);
   const [reactCount, setReactCount] = useState(0);
+  const [isSaved, setIsSaved] = useState(false);
   const [showMentionDropdown, setShowMentionDropdown] = useState(false);
   const [mentionSearch, setMentionSearch] = useState("");
   const [mentionUsers, setMentionUsers] = useState<UserData[]>([]);
@@ -92,6 +100,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
   const [showExcludedModal, setShowExcludedModal] = useState(false);
   const [specificViewers, setSpecificViewers] = useState<string[]>([]);
   const [excludedUsers, setExcludedUsers] = useState<string[]>([]);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
   useEffect(() => {
     const fetchPost = async () => {
@@ -123,13 +132,30 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
         const commentsResponse = await axiosClient.get(`/comments`, {
           params: { targetType: "POST", targetId: postId },
         });
-        setComments(commentsResponse.data.data || []);
+
+        // Filter only top-level comments (no parentId)
+        const allComments = commentsResponse.data.data || [];
+        const topLevelComments = allComments.filter(
+          (comment: CommentData) => !comment.parentId
+        );
+        setComments(topLevelComments);
 
         // Fetch reactions count
         const reactionsResponse = await axiosClient.get(`/reactions`, {
           params: { targetType: "POST", targetId: postId },
         });
         setReactCount(reactionsResponse.data.data?.length || 0);
+
+        // Fetch saved status
+        if (currentUser?.id) {
+          const savedResponse = await axiosClient.get(`/saved-posts/check`, {
+            params: {
+              userId: currentUser.id,
+              postId: postId,
+            },
+          });
+          setIsSaved(savedResponse.data.data || false);
+        }
       } catch (err) {
         console.error("Error fetching post:", err);
       } finally {
@@ -143,8 +169,15 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
   // Fetch user's current reaction
   useEffect(() => {
     const fetchUserReaction = async () => {
+      if (!currentUser?.id) return;
+
       try {
-        const currentUser = { id: 1 }; // TODO: Get from auth context
+        console.log(
+          "PostModal: Fetching reaction for post:",
+          postId,
+          "user:",
+          currentUser.id
+        );
         const response = await axiosClient.get(`/reactions/user`, {
           params: {
             userId: currentUser.id,
@@ -152,15 +185,24 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
             targetId: postId,
           },
         });
+        console.log("PostModal: Reaction response:", response.data);
         if (response.data.data) {
+          console.log(
+            "PostModal: Setting currentReaction to:",
+            response.data.data.type
+          );
           setCurrentReaction(response.data.data.type);
+        } else {
+          console.log("PostModal: No reaction found, setting to null");
+          setCurrentReaction(null);
         }
       } catch (error) {
-        console.error("Error fetching user reaction:", error);
+        console.log("PostModal: Error fetching reaction:", error);
+        setCurrentReaction(null);
       }
     };
     fetchUserReaction();
-  }, [postId]);
+  }, [postId, currentUser]);
 
   const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget) {
@@ -190,7 +232,11 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
     if (!post) return;
 
     try {
-      const currentUser = { id: 1 }; // TODO: Get from auth context
+      if (!currentUser?.id) {
+        alert("Please login to update privacy");
+        return;
+      }
+
       const formData = new FormData();
 
       const postData = {
@@ -201,9 +247,12 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
             ? post.location
             : post.location?.name || null,
         taggedUserIds: post.taggedUserIds || [],
-        existingMediaUrls: post.mediaList?.map((m) => m.url) || [],
-        specificViewerUsernames: selectedSpecificViewers || [],
-        excludedUsernames: selectedExcludedUsers || [],
+        existingMediaUrls:
+          (post.media || post.mediaList)?.map((m) => m.url) || [],
+        specificViewerUsernames:
+          newPrivacy === "SPECIFIC" ? selectedSpecificViewers || [] : [],
+        excludedUsernames:
+          newPrivacy === "EXCEPT" ? selectedExcludedUsers || [] : [],
       };
 
       formData.append("postData", JSON.stringify(postData));
@@ -218,10 +267,10 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
       setPost(response.data.data);
       setShowPrivacyMenu(false);
       setShowMenu(false);
-      alert("Đã cập nhật quyền riêng tư!");
+      alert("Privacy updated successfully!");
     } catch (error) {
       console.error("Error updating privacy:", error);
-      alert("Không thể cập nhật quyền riêng tư.");
+      alert("Failed to update privacy.");
     }
   };
 
@@ -330,7 +379,10 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
 
     try {
       setSubmittingComment(true);
-      const currentUser = { id: 1 }; // TODO: Get from auth context
+      if (!currentUser?.id) {
+        alert("Please login to comment");
+        return;
+      }
 
       const response = await axiosClient.post(
         `/comments?userId=${currentUser.id}`,
@@ -352,16 +404,38 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
   };
 
   const handleDeleteComment = async (commentId: string) => {
-    if (!confirm("Bạn có chắc muốn xóa bình luận này?")) return;
+    if (
+      !confirm("Bạn có chắc muốn xóa bình luận này? (Tất cả replies sẽ bị xóa)")
+    )
+      return;
 
     try {
-      const currentUser = { id: 1 }; // TODO: Get from auth context
+      if (!currentUser?.id) {
+        alert("Please login to delete comment");
+        return;
+      }
       await axiosClient.delete(
         `/comments/${commentId}?userId=${currentUser.id}`
       );
 
-      // Remove comment from list
-      setComments(comments.filter((c) => c.id !== commentId));
+      // Recursive function to remove comment and its replies from nested structure
+      const removeCommentRecursive = (
+        commentsList: CommentData[]
+      ): CommentData[] => {
+        return commentsList.filter((c) => {
+          if (c.id === commentId) {
+            return false; // Remove this comment
+          }
+          // Check replies if exists
+          if (c.replies && c.replies.length > 0) {
+            c.replies = removeCommentRecursive(c.replies);
+          }
+          return true;
+        });
+      };
+
+      // Remove comment from main list (handles both top-level and nested)
+      setComments(removeCommentRecursive(comments));
     } catch (error) {
       console.error("Error deleting comment:", error);
       alert("Không thể xóa bình luận");
@@ -428,9 +502,12 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
   };
 
   const handleReaction = async (reactionType: string) => {
-    try {
-      const currentUser = { id: 1 }; // TODO: Get from auth context
+    if (!currentUser?.id) {
+      alert("Please login to react");
+      return;
+    }
 
+    try {
       const response = await axiosClient.post(`/reactions/toggle`, null, {
         params: {
           userId: currentUser.id,
@@ -456,6 +533,27 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
     }
   };
 
+  const handleSave = async () => {
+    if (!currentUser?.id) {
+      alert("Please login to save posts");
+      return;
+    }
+
+    try {
+      await axiosClient.post(`/saved-posts/toggle`, null, {
+        params: {
+          userId: currentUser.id,
+          postId: postId,
+        },
+      });
+
+      // Toggle saved state
+      setIsSaved(!isSaved);
+    } catch (error) {
+      console.error("Error toggling save status:", error);
+    }
+  };
+
   if (loading) {
     return (
       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center">
@@ -468,8 +566,24 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
     return null;
   }
 
+  // Check if current user is the post owner
+  const isOwnPost = currentUser?.id.toString() === post.authorId;
+
   const hasMedia = post.media && post.media.length > 0;
+  const totalImages = post?.media?.length || 0;
   const timeAgo = new Date(post.createdAt).toLocaleDateString("vi-VN");
+
+  const handlePrevImage = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setCurrentImageIndex((prev) => (prev === 0 ? totalImages - 1 : prev - 1));
+  };
+
+  const handleNextImage = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setCurrentImageIndex((prev) => (prev === totalImages - 1 ? 0 : prev + 1));
+  };
 
   return (
     <div
@@ -486,13 +600,62 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
 
       <div className="relative bg-white dark:bg-gray-900 rounded-lg max-w-6xl w-full max-h-[90vh] flex overflow-hidden shadow-2xl">
         {/* Left side - Media */}
-        <div className="flex-1 bg-black flex items-center justify-center">
+        <div className="flex-1 bg-black flex items-center justify-center relative group">
           {hasMedia ? (
-            <img
-              src={post.media![0].url}
-              alt="Post content"
-              className="max-h-[90vh] max-w-full object-contain"
-            />
+            <>
+              <img
+                src={post.media![currentImageIndex].url}
+                alt="Post content"
+                className="max-h-[90vh] max-w-full object-contain"
+              />
+              {/* Navigation arrows - Only show if multiple images */}
+              {totalImages > 1 && (
+                <>
+                  {/* Previous button */}
+                  <button
+                    onClick={handlePrevImage}
+                    className="absolute left-4 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-3 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                    aria-label="Previous image"
+                  >
+                    <ChevronLeft size={24} />
+                  </button>
+
+                  {/* Next button */}
+                  <button
+                    onClick={handleNextImage}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-3 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                    aria-label="Next image"
+                  >
+                    <ChevronRight size={24} />
+                  </button>
+
+                  {/* Dots indicator */}
+                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-10">
+                    {post.media!.map((_, index) => (
+                      <button
+                        key={index}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setCurrentImageIndex(index);
+                        }}
+                        className={`w-2 h-2 rounded-full transition-all ${
+                          index === currentImageIndex
+                            ? "bg-blue-500 w-2.5 h-2.5"
+                            : "bg-gray-300/70 hover:bg-gray-300"
+                        }`}
+                        aria-label={`Go to image ${index + 1}`}
+                      />
+                    ))}
+                  </div>
+
+                  {/* Image counter */}
+                  <div className="absolute top-4 right-4 bg-black/50 text-white text-sm px-3 py-1.5 rounded-full z-10">
+                    {currentImageIndex + 1} / {totalImages}
+                  </div>
+                </>
+              )}
+            </>
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900">
               <p className="text-4xl font-bold text-gray-400 dark:text-gray-600 px-8 text-center">
@@ -516,6 +679,72 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
                 <p className="font-semibold text-sm dark:text-white">
                   {author.username}
                 </p>
+                {post.privacy &&
+                  (() => {
+                    const isOwnPost = currentUser?.id === author.id;
+
+                    // Hiển thị cho chủ post
+                    if (isOwnPost) {
+                      return (
+                        <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                          {post.privacy === "PUBLIC" && (
+                            <>
+                              <Globe className="w-3 h-3 text-blue-500" />
+                              <span className="font-medium">Public</span>
+                            </>
+                          )}
+                          {post.privacy === "FRIENDS" && (
+                            <>
+                              <Users className="w-3 h-3 text-green-500" />
+                              <span className="font-medium">Friends</span>
+                            </>
+                          )}
+                          {post.privacy === "SPECIFIC" && (
+                            <>
+                              <Users className="w-3 h-3 text-purple-500" />
+                              <span className="font-medium">
+                                Specific friends
+                              </span>
+                            </>
+                          )}
+                          {post.privacy === "EXCEPT" && (
+                            <>
+                              <Users className="w-3 h-3 text-orange-500" />
+                              <span className="font-medium">
+                                Friends except
+                              </span>
+                            </>
+                          )}
+                          {post.privacy === "ONLY_ME" && (
+                            <>
+                              <Globe className="w-3 h-3 text-gray-500" />
+                              <span className="font-medium">Only me</span>
+                            </>
+                          )}
+                        </p>
+                      );
+                    }
+
+                    // Hiển thị cho người khác - chỉ Public hoặc Friends
+                    return (
+                      <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                        {post.privacy === "PUBLIC" && (
+                          <>
+                            <Globe className="w-3 h-3 text-blue-500" />
+                            <span className="font-medium">Public</span>
+                          </>
+                        )}
+                        {(post.privacy === "FRIENDS" ||
+                          post.privacy === "SPECIFIC" ||
+                          post.privacy === "EXCEPT") && (
+                          <>
+                            <Users className="w-3 h-3 text-green-500" />
+                            <span className="font-medium">Friends</span>
+                          </>
+                        )}
+                      </p>
+                    );
+                  })()}
                 {post.location && (
                   <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
                     <MapPin className="w-3 h-3" />
@@ -526,109 +755,111 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
                 )}
               </div>
             </div>
-            {/* More options button with dropdown menu */}
-            <div className="relative">
-              <button
-                onClick={() => setShowMenu(!showMenu)}
-                className="text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
-              >
-                <MoreHorizontal className="w-5 h-5" />
-              </button>
+            {/* More options button with dropdown menu - Only show for post owner */}
+            {isOwnPost && (
+              <div className="relative">
+                <button
+                  onClick={() => setShowMenu(!showMenu)}
+                  className="text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
+                >
+                  <MoreHorizontal className="w-5 h-5" />
+                </button>
 
-              {/* Dropdown menu */}
-              {showMenu && (
-                <>
-                  <div
-                    className="fixed inset-0 z-10"
-                    onClick={() => setShowMenu(false)}
-                  />
-                  <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg z-20 py-2 border dark:border-gray-700">
-                    <button
-                      onClick={handleEdit}
-                      className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 dark:text-white"
-                    >
-                      <Edit2 className="w-4 h-4" />
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => {
-                        setShowPrivacyMenu(!showPrivacyMenu);
-                      }}
-                      className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 dark:text-white"
-                    >
-                      <Globe className="w-4 h-4" />
-                      Change privacy
-                    </button>
-                    {showPrivacyMenu && (
-                      <div className="px-2 py-1 space-y-1">
-                        <button
-                          onClick={() => handleChangePrivacy("PUBLIC")}
-                          className="w-full px-4 py-1.5 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700 rounded dark:text-white flex items-center gap-2"
-                        >
-                          <Globe className="w-3 h-3" />
-                          Công khai
-                        </button>
-                        <button
-                          onClick={() => handleChangePrivacy("FRIENDS")}
-                          className="w-full px-4 py-1.5 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700 rounded dark:text-white flex items-center gap-2"
-                        >
-                          <Users className="w-3 h-3" />
-                          Bạn bè
-                        </button>
-                        <button
-                          onClick={() => handleChangePrivacy("ONLY_ME")}
-                          className="w-full px-4 py-1.5 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700 rounded dark:text-white flex items-center gap-2"
-                        >
-                          <Globe className="w-3 h-3" />
-                          Chỉ mình tôi
-                        </button>
-                        <button
-                          onClick={() => {
-                            setShowPrivacyMenu(false);
-                            setShowSpecificModal(true);
-                          }}
-                          className="w-full px-4 py-1.5 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700 rounded dark:text-white flex items-center gap-2"
-                        >
-                          <Users className="w-3 h-3" />
-                          Người cụ thể
-                        </button>
-                        <button
-                          onClick={() => {
-                            setShowPrivacyMenu(false);
-                            setShowExcludedModal(true);
-                          }}
-                          className="w-full px-4 py-1.5 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700 rounded dark:text-white flex items-center gap-2"
-                        >
-                          <Users className="w-3 h-3" />
-                          Bạn bè ngoại trừ
-                        </button>
-                      </div>
-                    )}
-                    <button
-                      onClick={handleDelete}
-                      className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 text-red-600 dark:text-red-400"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      Delete
-                    </button>
-                    <button
-                      onClick={handleCopyLink}
-                      className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 dark:text-white"
-                    >
-                      <LinkIcon className="w-4 h-4" />
-                      Copy link
-                    </button>
-                    <div className="border-t dark:border-gray-700 my-1" />
-                    <button
+                {/* Dropdown menu */}
+                {showMenu && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-10"
                       onClick={() => setShowMenu(false)}
-                      className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 dark:text-white"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
+                    />
+                    <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg z-20 py-2 border dark:border-gray-700">
+                      <button
+                        onClick={handleEdit}
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 dark:text-white"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowPrivacyMenu(!showPrivacyMenu);
+                        }}
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 dark:text-white"
+                      >
+                        <Globe className="w-4 h-4" />
+                        Change privacy
+                      </button>
+                      {showPrivacyMenu && (
+                        <div className="px-2 py-1 space-y-1">
+                          <button
+                            onClick={() => handleChangePrivacy("PUBLIC")}
+                            className="w-full px-4 py-1.5 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700 rounded dark:text-white flex items-center gap-2"
+                          >
+                            <Globe className="w-3 h-3" />
+                            Public
+                          </button>
+                          <button
+                            onClick={() => handleChangePrivacy("FRIENDS")}
+                            className="w-full px-4 py-1.5 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700 rounded dark:text-white flex items-center gap-2"
+                          >
+                            <Users className="w-3 h-3" />
+                            Friends
+                          </button>
+                          <button
+                            onClick={() => handleChangePrivacy("ONLY_ME")}
+                            className="w-full px-4 py-1.5 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700 rounded dark:text-white flex items-center gap-2"
+                          >
+                            <Globe className="w-3 h-3" />
+                            Only me
+                          </button>
+                          <button
+                            onClick={() => {
+                              setShowPrivacyMenu(false);
+                              setShowSpecificModal(true);
+                            }}
+                            className="w-full px-4 py-1.5 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700 rounded dark:text-white flex items-center gap-2"
+                          >
+                            <Users className="w-3 h-3" />
+                            Specific friends
+                          </button>
+                          <button
+                            onClick={() => {
+                              setShowPrivacyMenu(false);
+                              setShowExcludedModal(true);
+                            }}
+                            className="w-full px-4 py-1.5 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700 rounded dark:text-white flex items-center gap-2"
+                          >
+                            <Users className="w-3 h-3" />
+                            Friends except
+                          </button>
+                        </div>
+                      )}
+                      <button
+                        onClick={handleDelete}
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 text-red-600 dark:text-red-400"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Delete
+                      </button>
+                      <button
+                        onClick={handleCopyLink}
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 dark:text-white"
+                      >
+                        <LinkIcon className="w-4 h-4" />
+                        Copy link
+                      </button>
+                      <div className="border-t dark:border-gray-700 my-1" />
+                      <button
+                        onClick={() => setShowMenu(false)}
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 dark:text-white"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Caption/Content */}
@@ -936,6 +1167,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
                     key={comment.id}
                     comment={comment}
                     onDelete={handleDeleteComment}
+                    postId={postId}
                   />
                 ))
               )}
@@ -1056,8 +1288,14 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
                   <Send className="w-6 h-6 dark:text-white" />
                 </button>
               </div>
-              <button className="hover:opacity-70 transition-opacity">
-                <Bookmark className="w-6 h-6 dark:text-white" />
+              <button
+                onClick={handleSave}
+                className="hover:opacity-70 transition-opacity"
+              >
+                <Bookmark
+                  className="w-6 h-6 dark:text-white"
+                  fill={isSaved ? "currentColor" : "none"}
+                />
               </button>
             </div>
 
@@ -1189,13 +1427,32 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
 function CommentItem({
   comment,
   onDelete,
+  postId,
+  level = 0,
 }: {
   comment: CommentData;
   onDelete: (commentId: string) => void;
+  postId: string;
+  level?: number;
 }) {
   const [commentUser, setCommentUser] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
-  const currentUser = { id: 1 }; // TODO: Get from auth context
+  const { currentUser } = useAuth();
+
+  // Reply state
+  const [showReplyInput, setShowReplyInput] = useState(false);
+  const [replyContent, setReplyContent] = useState("");
+  const [submittingReply, setSubmittingReply] = useState(false);
+  const [replies, setReplies] = useState<CommentData[]>([]);
+  const [showReplies, setShowReplies] = useState(false);
+  const [loadingReplies, setLoadingReplies] = useState(false);
+  const [replyCount, setReplyCount] = useState(comment.replyCount || 0);
+
+  // Reaction state
+  const [currentReaction, setCurrentReaction] = useState<string | null>(null);
+  const [reactCount, setReactCount] = useState(comment.reactCount || 0);
+  const [showReactionPicker, setShowReactionPicker] = useState(false);
+  const [reactionTimeout, setReactionTimeout] = useState<number | null>(null);
 
   const renderCommentContent = (content: string) => {
     // Split by mentions (@username) - match @ followed by word characters
@@ -1212,6 +1469,7 @@ function CommentItem({
     });
   };
 
+  // Fetch comment user
   useEffect(() => {
     const fetchUser = async () => {
       try {
@@ -1228,6 +1486,182 @@ function CommentItem({
     fetchUser();
   }, [comment.userId]);
 
+  // Fetch user's reaction on comment
+  useEffect(() => {
+    const fetchUserReaction = async () => {
+      if (!currentUser?.id) return;
+
+      try {
+        const response = await axiosClient.get(`/reactions/user`, {
+          params: {
+            userId: currentUser.id,
+            targetType: "COMMENT",
+            targetId: comment.id,
+          },
+        });
+
+        if (response.data.data) {
+          setCurrentReaction(response.data.data.type);
+        }
+      } catch (error) {
+        console.debug("No reaction found for comment:", comment.id);
+      }
+    };
+
+    fetchUserReaction();
+  }, [currentUser, comment.id]);
+
+  // Fetch replies
+  const fetchReplies = async () => {
+    if (replies.length > 0) {
+      setShowReplies(!showReplies);
+      return;
+    }
+
+    setLoadingReplies(true);
+    try {
+      const response = await axiosClient.get(`/comments/${comment.id}/replies`);
+      setReplies(response.data.data || []);
+      setShowReplies(true);
+    } catch (error) {
+      console.error("Error fetching replies:", error);
+    } finally {
+      setLoadingReplies(false);
+    }
+  };
+
+  // Handle reply submission
+  const handleSubmitReply = async () => {
+    if (!replyContent.trim() || !currentUser?.id) return;
+
+    setSubmittingReply(true);
+    try {
+      const response = await axiosClient.post(
+        `/comments`,
+        {
+          targetType: "POST",
+          targetId: postId,
+          content: replyContent,
+          parentId: comment.id,
+        },
+        {
+          params: { userId: currentUser.id },
+        }
+      );
+
+      const newReply = response.data.data;
+      setReplies([...replies, newReply]);
+      setReplyContent("");
+      setShowReplyInput(false);
+      setShowReplies(true);
+
+      // Update reply count
+      setReplyCount((prev) => prev + 1);
+    } catch (error) {
+      console.error("Error submitting reply:", error);
+      alert("Failed to submit reply");
+    } finally {
+      setSubmittingReply(false);
+    }
+  };
+
+  // Handle delete reply (also removes from local state)
+  const handleDeleteReply = (commentId: string) => {
+    // Call parent delete handler
+    onDelete(commentId);
+
+    // Also remove from local replies state
+    const removeFromReplies = (repliesList: CommentData[]): CommentData[] => {
+      return repliesList.filter((r) => {
+        if (r.id === commentId) {
+          // Decrease reply count when removing
+          setReplyCount((prev) => Math.max(0, prev - 1));
+          return false;
+        }
+        if (r.replies && r.replies.length > 0) {
+          r.replies = removeFromReplies(r.replies);
+        }
+        return true;
+      });
+    };
+
+    setReplies(removeFromReplies(replies));
+  };
+
+  // Handle reaction
+  const handleReaction = async (reactionType: string) => {
+    if (!currentUser?.id) {
+      alert("Please login to react");
+      return;
+    }
+
+    try {
+      const response = await axiosClient.post(`/reactions/toggle`, null, {
+        params: {
+          userId: currentUser.id,
+          targetType: "COMMENT",
+          targetId: comment.id,
+          reactionType: reactionType,
+        },
+      });
+
+      if (response.data.data === null) {
+        // Reaction removed
+        setCurrentReaction(null);
+        setReactCount((prev) => Math.max(0, prev - 1));
+      } else {
+        // Reaction added or changed
+        const wasNewReaction = currentReaction === null;
+        setCurrentReaction(response.data.data.type);
+        if (wasNewReaction) {
+          setReactCount((prev) => prev + 1);
+        }
+        // If changing reaction type, count stays the same
+      }
+      setShowReactionPicker(false);
+    } catch (error) {
+      console.error("Error toggling reaction:", error);
+    }
+  };
+
+  const handleLikeClick = () => {
+    if (currentReaction) {
+      // If already has reaction, clicking again will remove it
+      // Just call handleReaction with current reaction, backend will toggle it off
+      handleReaction(currentReaction);
+    } else {
+      // Add like
+      handleReaction("LIKE");
+    }
+  };
+
+  const handleReactionMouseEnter = () => {
+    if (reactionTimeout) {
+      clearTimeout(reactionTimeout);
+      setReactionTimeout(null);
+    }
+    setShowReactionPicker(true);
+  };
+
+  const handleReactionMouseLeave = () => {
+    const timeout = setTimeout(() => {
+      setShowReactionPicker(false);
+    }, 300);
+    setReactionTimeout(timeout);
+  };
+
+  const getReactionEmoji = (type: string) => {
+    const emojis: Record<string, string> = {
+      LIKE: "👍",
+      LOVE: "❤️",
+      HAHA: "😂",
+      WOW: "😮",
+      SAD: "😢",
+      ANGRY: "😡",
+    };
+    return emojis[type] || "👍";
+  };
+
   if (loading || !commentUser) {
     return (
       <div className="h-12 bg-gray-100 dark:bg-gray-800 animate-pulse rounded" />
@@ -1235,48 +1669,161 @@ function CommentItem({
   }
 
   const timeAgo = new Date(comment.createdAt).toLocaleDateString("vi-VN");
+  const maxLevel = 3; // Maximum nesting level for replies
 
   return (
-    <div className="flex gap-3 px-4">
-      <img
-        src={commentUser.avatarUrl || "https://i.pravatar.cc/150?img=5"}
-        alt={commentUser.username}
-        className="w-8 h-8 rounded-full shrink-0"
-      />
-      <div className="flex-1">
-        <div className="bg-gray-100 dark:bg-gray-800 rounded-2xl px-3 py-2">
-          <p className="font-semibold text-sm dark:text-white">
-            {commentUser.username}
-          </p>
-          <p className="text-sm dark:text-white">
-            {renderCommentContent(comment.content)}
-          </p>
-        </div>
-        <div className="flex items-center gap-4 mt-1 px-3">
-          <button className="text-xs text-gray-500 dark:text-gray-400 hover:underline">
-            {timeAgo}
-          </button>
-          <button className="text-xs text-gray-500 dark:text-gray-400 font-semibold hover:underline">
-            Like
-          </button>
-          <button className="text-xs text-gray-500 dark:text-gray-400 font-semibold hover:underline">
-            Reply
-          </button>
-          {comment.userId === String(currentUser.id) && (
-            <button
-              onClick={() => onDelete(comment.id)}
-              className="text-xs text-red-500 dark:text-red-400 font-semibold hover:underline"
-            >
-              Delete
+    <div className={level > 0 ? "ml-10" : ""}>
+      <div className="flex gap-3 px-4">
+        <img
+          src={commentUser.avatarUrl || "https://i.pravatar.cc/150?img=5"}
+          alt={commentUser.username}
+          className="w-8 h-8 rounded-full shrink-0"
+        />
+        <div className="flex-1">
+          <div className="bg-gray-100 dark:bg-gray-800 rounded-2xl px-3 py-2">
+            <p className="font-semibold text-sm dark:text-white">
+              {commentUser.username}
+            </p>
+            <p className="text-sm dark:text-white">
+              {renderCommentContent(comment.content)}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-4 mt-1 px-3">
+            <button className="text-xs text-gray-500 dark:text-gray-400 hover:underline">
+              {timeAgo}
             </button>
+
+            {/* Reaction Button */}
+            <div className="relative">
+              <button
+                onClick={handleLikeClick}
+                onMouseEnter={handleReactionMouseEnter}
+                onMouseLeave={handleReactionMouseLeave}
+                className={`text-xs font-semibold hover:underline ${
+                  currentReaction
+                    ? "text-blue-500 dark:text-blue-400"
+                    : "text-gray-500 dark:text-gray-400"
+                }`}
+              >
+                {currentReaction ? getReactionEmoji(currentReaction) : "Like"}
+              </button>
+
+              {/* Reaction Picker */}
+              {showReactionPicker && (
+                <div
+                  onMouseEnter={handleReactionMouseEnter}
+                  onMouseLeave={handleReactionMouseLeave}
+                  className="absolute bottom-full left-0 mb-1 bg-white dark:bg-gray-800 rounded-full shadow-lg border border-gray-200 dark:border-gray-700 px-2 py-1 flex gap-1 z-10"
+                >
+                  {["LIKE", "LOVE", "HAHA", "WOW", "SAD", "ANGRY"].map(
+                    (type) => (
+                      <button
+                        key={type}
+                        onClick={() => handleReaction(type)}
+                        className="text-xl hover:scale-125 transition-transform"
+                        title={type}
+                      >
+                        {getReactionEmoji(type)}
+                      </button>
+                    )
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Reply Button */}
+            {level < maxLevel && (
+              <button
+                onClick={() => setShowReplyInput(!showReplyInput)}
+                className="text-xs text-gray-500 dark:text-gray-400 font-semibold hover:underline"
+              >
+                Reply
+              </button>
+            )}
+
+            {/* Delete Button */}
+            {currentUser && comment.userId === currentUser.id.toString() && (
+              <button
+                onClick={() => onDelete(comment.id)}
+                className="text-xs text-red-500 dark:text-red-400 font-semibold hover:underline"
+              >
+                Delete
+              </button>
+            )}
+
+            {/* Reaction Count */}
+            {reactCount > 0 && (
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                {reactCount} {reactCount === 1 ? "like" : "likes"}
+              </span>
+            )}
+          </div>
+
+          {/* Reply Input */}
+          {showReplyInput && (
+            <div className="mt-2 flex gap-2">
+              <input
+                type="text"
+                value={replyContent}
+                onChange={(e) => setReplyContent(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSubmitReply();
+                  }
+                }}
+                placeholder={`Reply to ${commentUser.username}...`}
+                className="flex-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-full bg-gray-50 dark:bg-gray-900 dark:text-white outline-none focus:border-blue-500"
+                disabled={submittingReply}
+              />
+              <button
+                onClick={handleSubmitReply}
+                disabled={!replyContent.trim() || submittingReply}
+                className="px-3 py-1.5 text-sm text-blue-500 font-semibold hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {submittingReply ? "..." : "Post"}
+              </button>
+            </div>
           )}
-          {comment.reactCount > 0 && (
-            <span className="text-xs text-gray-500 dark:text-gray-400">
-              {comment.reactCount} likes
-            </span>
+
+          {/* Show Replies Button */}
+          {replyCount > 0 && (
+            <button
+              onClick={fetchReplies}
+              className="mt-2 text-xs text-gray-600 dark:text-gray-400 font-semibold hover:underline flex items-center gap-1"
+              disabled={loadingReplies}
+            >
+              {loadingReplies ? (
+                "Loading..."
+              ) : showReplies ? (
+                <>
+                  Hide {replyCount} {replyCount === 1 ? "reply" : "replies"}
+                </>
+              ) : (
+                <>
+                  View {replyCount} {replyCount === 1 ? "reply" : "replies"}
+                </>
+              )}
+            </button>
           )}
         </div>
       </div>
+
+      {/* Nested Replies */}
+      {showReplies && replies.length > 0 && (
+        <div className="mt-3 space-y-3">
+          {replies.map((reply) => (
+            <CommentItem
+              key={reply.id}
+              comment={reply}
+              onDelete={handleDeleteReply}
+              postId={postId}
+              level={level + 1}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

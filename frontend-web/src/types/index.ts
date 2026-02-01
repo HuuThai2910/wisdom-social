@@ -23,6 +23,8 @@ export interface User {
 }
 
 // Post Types
+export type PrivacyType = "PUBLIC" | "FRIENDS" | "ONLY_ME" | "SPECIFIC" | "EXCEPT";
+
 export interface Post {
     id: string;
     user: User;
@@ -33,6 +35,7 @@ export interface Post {
     createdAt: string;
     isLiked?: boolean;
     isSaved?: boolean;
+    privacy?: PrivacyType;
 }
 
 export interface Comment {

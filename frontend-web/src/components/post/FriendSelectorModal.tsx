@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { X, Search } from "lucide-react";
 import axios from "axios";
-import { getCurrentUser } from "../../utils/auth";
+import { useAuth } from "../../contexts/AuthContext";
 
 interface Friend {
   id: string;
@@ -27,6 +27,7 @@ export default function FriendSelectorModal({
   description,
   initialSelected = [],
 }: FriendSelectorModalProps) {
+  const { currentUser } = useAuth();
   const [friends, setFriends] = useState<Friend[]>([]);
   const [filteredFriends, setFilteredFriends] = useState<Friend[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -60,14 +61,13 @@ export default function FriendSelectorModal({
   const fetchFriends = async () => {
     try {
       setLoading(true);
-      const user = getCurrentUser();
-      if (!user?.id) {
+      if (!currentUser?.id) {
         console.error("No user ID found");
         return;
       }
 
       const response = await axios.get(
-        `http://localhost:8080/api/users/${user.id}/friends`
+        `http://localhost:8080/api/users/${currentUser.id}/friends`
       );
 
       let friendsData = response.data;

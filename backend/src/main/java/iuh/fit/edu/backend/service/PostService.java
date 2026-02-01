@@ -22,4 +22,6 @@ public interface PostService {
     Post getPostById(String postId);
     void deletePost(String postId, Long userId);
     Post updatePost(String postId, CreatePostRequest request, List<MultipartFile> newImages, Long userId);
+    List<Post> getPostsByTaggedUserId(String userId);
+    void syncAllPostsStats();
 }

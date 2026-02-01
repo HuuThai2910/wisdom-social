@@ -4,13 +4,16 @@
  */
 package iuh.fit.edu.backend.service.impl;
 
+import iuh.fit.edu.backend.constant.TargetType;
 import iuh.fit.edu.backend.domain.entity.nosql.Media;
 import iuh.fit.edu.backend.domain.entity.nosql.Post;
 import iuh.fit.edu.backend.domain.entity.nosql.Stats;
 import iuh.fit.edu.backend.domain.entity.nosql.embeddable.Location;
 import iuh.fit.edu.backend.dto.request.CreatePostRequest;
 import iuh.fit.edu.backend.repository.mysql.UserRepository;
+import iuh.fit.edu.backend.repository.nosql.CommentRepository;
 import iuh.fit.edu.backend.repository.nosql.PostRepository;
+import iuh.fit.edu.backend.repository.nosql.ReactionRepository;
 import iuh.fit.edu.backend.service.PostService;
 import iuh.fit.edu.backend.service.S3Service;
 import lombok.RequiredArgsConstructor;
@@ -40,6 +43,8 @@ public class PostServiceImpl implements PostService {
     private final PostRepository postRepository;
     private final UserRepository userRepository;
     private final S3Service s3Service;
+    private final ReactionRepository reactionRepository;
+    private final CommentRepository commentRepository;
     
     @Override
     @Transactional
@@ -289,12 +294,23 @@ public class PostServiceImpl implements PostService {
         // Handle media updates
         List<Media> updatedMediaList = new ArrayList<>();
         
-        // Keep existing media that wasn't removed (from request.getExistingMediaUrls())
-        if (request.getExistingMediaUrls() != null && post.getMedia() != null) {
-            for (Media existingMedia : post.getMedia()) {
-                if (request.getExistingMediaUrls().contains(existingMedia.getUrl())) {
-                    updatedMediaList.add(existingMedia);
+        // If existingMediaUrls is provided, use it to filter what to keep
+        // If not provided, keep all existing media (user is not modifying images)
+        if (request.getExistingMediaUrls() != null) {
+            // User is explicitly managing images
+            if (post.getMedia() != null && !request.getExistingMediaUrls().isEmpty()) {
+                // Keep only the media URLs specified in existingMediaUrls
+                for (Media existingMedia : post.getMedia()) {
+                    if (request.getExistingMediaUrls().contains(existingMedia.getUrl())) {
+                        updatedMediaList.add(existingMedia);
+                    }
                 }
+            }
+            // If existingMediaUrls is empty list, it means user wants to remove all existing images
+        } else {
+            // No existingMediaUrls provided means keep all existing media
+            if (post.getMedia() != null) {
+                updatedMediaList.addAll(post.getMedia());
             }
         }
         
@@ -324,5 +340,51 @@ public class PostServiceImpl implements PostService {
         Post updated = postRepository.save(post);
         log.info("Post {} updated successfully", postId);
         return updated;
+    }
+
+    @Override
+    public List<Post> getPostsByTaggedUserId(String userId) {
+        log.info("Getting posts where user {} is tagged", userId);
+        return postRepository.findByTaggedUserIdsContaining(userId);
+    }
+
+    @Override
+    @Transactional
+    public void syncAllPostsStats() {
+        log.info("Starting to sync stats for all posts");
+        List<Post> allPosts = postRepository.findAll();
+        
+        for (Post post : allPosts) {
+            try {
+                // Count reactions for this post
+                long reactCount = reactionRepository.findByTargetTypeAndTargetId(
+                    TargetType.POST, 
+                    post.getId()
+                ).size();
+                
+                // Count top-level comments for this post (parentId == null)
+                long commentCount = commentRepository.findByTargetTypeAndTargetIdOrderByCreatedAtDesc(
+                    TargetType.POST, 
+                    post.getId()
+                ).stream()
+                .filter(comment -> comment.getParentId() == null)
+                .count();
+                
+                // Update stats
+                if (post.getStats() == null) {
+                    post.setStats(new Stats());
+                }
+                post.getStats().setReactCount(reactCount);
+                post.getStats().setCommentCount(commentCount);
+                
+                postRepository.save(post);
+                log.info("Updated stats for post {}: {} reactions, {} comments", 
+                    post.getId(), reactCount, commentCount);
+            } catch (Exception e) {
+                log.error("Error syncing stats for post {}: {}", post.getId(), e.getMessage());
+            }
+        }
+        
+        log.info("Finished syncing stats for {} posts", allPosts.size());
     }
 }
