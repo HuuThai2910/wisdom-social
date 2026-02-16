@@ -1,30 +1,37 @@
 package iuh.fit.edu.backend.controller;
 
 import iuh.fit.edu.backend.domain.entity.mysql.User;
-import iuh.fit.edu.backend.dto.request.user.UserRequestConfirmRegister;
-import iuh.fit.edu.backend.dto.request.user.UserRequestForgotPassword;
-import iuh.fit.edu.backend.dto.request.user.UserRequestLogin;
-import iuh.fit.edu.backend.dto.request.user.UserRequestRegister;
-import iuh.fit.edu.backend.dto.request.user.UserRequestResetPassword;
+import iuh.fit.edu.backend.dto.request.friend.FriendRequest;
+import iuh.fit.edu.backend.dto.request.user.*;
 import iuh.fit.edu.backend.dto.response.user.UserResponseConfirmRegister;
 import iuh.fit.edu.backend.dto.response.user.UserResponseLogin;
 import iuh.fit.edu.backend.dto.response.user.UserResponseOTPPassword;
 import iuh.fit.edu.backend.dto.response.user.UserResponseRegister;
+import iuh.fit.edu.backend.service.impl.user.BlockUserService;
 import iuh.fit.edu.backend.service.impl.user.UserService;
+import iuh.fit.edu.backend.service.impl.user.UserSettingService;
 import iuh.fit.edu.backend.util.anotation.ApiMessage;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/auth")
 public class UserController {
     UserService userService;
+    UserSettingService userSettingService;
+    BlockUserService blockUserService;
 
 
-    public UserController(UserService userService) {
+    public UserController(BlockUserService blockUserService, UserService userService,
+                          UserSettingService userSettingService) {
+        this.blockUserService = blockUserService;
         this.userService = userService;
+        this.userSettingService = userSettingService;
     }
 
     @PostMapping("/register")
@@ -99,6 +106,72 @@ public class UserController {
             return ResponseEntity.ok("Password has been reset successfully");
         }
         return ResponseEntity.badRequest().body("Failed to reset password");
+    }
+
+    @GetMapping("/users")
+    @ApiMessage("Get all User")
+    public ResponseEntity<List<User>> getAllUser(){
+        return ResponseEntity.ok(userService.getAllUser());
+    }
+
+    @DeleteMapping("/users/{id}")
+    @ApiMessage("Delete User successfully")
+    public ResponseEntity<String> deleteUser(@PathVariable long id){
+        boolean success=userService.deleteUser(id);
+        if (success) {
+            return ResponseEntity.ok("Delete User successfully");
+        }
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body("User not found");
+    }
+
+    @PutMapping("/users/{id}")
+    @ApiMessage("Update User successfully")
+    public ResponseEntity<String> updateUser(@PathVariable long id, @RequestBody UserRequestUpdate update){
+        boolean success=userService.updateUser(id,update);
+        if (success) {
+            return ResponseEntity.ok("Update User successfully");
+        }
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body("User not found");
+    }
+
+    @GetMapping("/user/{id}")
+    @ApiMessage("Get profile User")
+    public ResponseEntity<User> getProfileUser(@PathVariable long id){
+        return ResponseEntity.ok(userSettingService.getProfileUser(id));
+    }
+
+    @GetMapping("/users/{id}")
+    @ApiMessage("Get all User")
+    public ResponseEntity<List<User>> getAllForUser(@PathVariable long id){
+        return ResponseEntity.ok(userService.getAllForUser(id));
+    }
+
+    @GetMapping("/users/blocked/{id}")
+    @ApiMessage("Get all User")
+    public ResponseEntity<List<User>> getBlockUser(@PathVariable long id){
+        return ResponseEntity.ok(userService.getAllBlockUser(id));
+    }
+
+    @PostMapping("/users/block")
+    @ApiMessage("Block User successfully")
+    public ResponseEntity<String> blockUser(@RequestBody FriendRequest friendRequest){
+        boolean success=userService.saveBlockUser(friendRequest);
+        if(success){
+            return ResponseEntity.ok("Block User successfully");
+        }
+        return ResponseEntity.badRequest().body("Block User failed");
+    }
+
+    @PostMapping("/users/cancel-block")
+    @ApiMessage("Cancel block User successfully")
+    public ResponseEntity<String> cancelBlockUser(@RequestBody FriendRequest friendRequest){
+        boolean success=userService.cancelBlockUser(friendRequest);
+        if(success){
+            return ResponseEntity.ok("Cancel block User successfully");
+        }
+        return ResponseEntity.badRequest().body("Cancel block User failed");
     }
 
 }

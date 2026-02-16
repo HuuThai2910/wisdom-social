@@ -5,12 +5,10 @@
 package iuh.fit.edu.backend.service.impl;
 
 import iuh.fit.edu.backend.domain.entity.mysql.BlackListUser;
+import iuh.fit.edu.backend.domain.entity.mysql.BlockedUser;
 import iuh.fit.edu.backend.domain.entity.mysql.User;
-import iuh.fit.edu.backend.dto.request.user.UserRequestConfirmRegister;
-import iuh.fit.edu.backend.dto.request.user.UserRequestForgotPassword;
-import iuh.fit.edu.backend.dto.request.user.UserRequestLogin;
-import iuh.fit.edu.backend.dto.request.user.UserRequestRegister;
-import iuh.fit.edu.backend.dto.request.user.UserRequestResetPassword;
+import iuh.fit.edu.backend.dto.request.friend.FriendRequest;
+import iuh.fit.edu.backend.dto.request.user.*;
 import iuh.fit.edu.backend.dto.response.user.UserResponseConfirmRegister;
 import iuh.fit.edu.backend.dto.response.user.UserResponseLogin;
 import iuh.fit.edu.backend.dto.response.user.UserResponseOTPPassword;
@@ -18,16 +16,19 @@ import iuh.fit.edu.backend.dto.response.user.UserResponseRegister;
 import iuh.fit.edu.backend.mapper.UserMapper;
 import iuh.fit.edu.backend.repository.mysql.BlackListUserRepository;
 import iuh.fit.edu.backend.repository.mysql.UserRepository;
+import iuh.fit.edu.backend.service.impl.user.BlockUserService;
 import iuh.fit.edu.backend.service.impl.user.UserService;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.*;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Objects;
+
+import java.time.OffsetDateTime;
+import java.util.*;
+import java.util.stream.Collectors;
 
 /*
  * @description
@@ -45,16 +46,22 @@ public class UserServiceImpl implements UserService {
     UserMapper userMapper;
     UserRepository userRepository;
     BlackListUserRepository blackListUserRepository;
+    BlockUserService blockUserService;
     CognitoIdentityProviderClient cognitoClient;
+    SimpMessagingTemplate simpMessagingTemplate;
 
-    public UserServiceImpl(CognitoIdentityProviderClient cognitoClient,
+    public UserServiceImpl(BlackListUserRepository blackListUserRepository,
+                           BlockUserService blockUserService, CognitoIdentityProviderClient cognitoClient,
                            UserMapper userMapper, UserRepository userRepository,
-                           BlackListUserRepository blackListUserRepository) {
+                           SimpMessagingTemplate simpMessagingTemplate) {
+        this.blackListUserRepository = blackListUserRepository;
+        this.blockUserService = blockUserService;
         this.cognitoClient = cognitoClient;
         this.userMapper = userMapper;
         this.userRepository = userRepository;
-        this.blackListUserRepository = blackListUserRepository;
+        this.simpMessagingTemplate = simpMessagingTemplate;
     }
+
     /*Đăng kí tài khoản bằng aws cognito
     * @params
     * phone:số điện thoại người dùng
@@ -237,5 +244,112 @@ public class UserServiceImpl implements UserService {
             System.out.println("Reset password failed: " + e.getMessage());
             throw new RuntimeException("Failed to reset password: " + e.getMessage());
         }
+    }
+
+    @Override
+    public boolean deleteUser(long id) {
+        if(id>0){
+            userRepository.deleteById(id);
+            return true;
+        }
+        return false;
+    }
+
+    @Override
+    public boolean updateUser(long id, UserRequestUpdate requestUpdate) {
+        if(id>0){
+           User user=userRepository.findById(id).orElse(null);
+           if(user!=null){
+               user=User.builder()
+                       .id(id)
+                       .bio(requestUpdate.getBio())
+                       .gender(requestUpdate.getGender())
+                       .avatarUrl(requestUpdate.getAvatarUrl())
+                       .birthday(requestUpdate.getBirthday())
+                       .username(requestUpdate.getUsername())
+                       .updatedAt(OffsetDateTime.now().toLocalDateTime())
+                       .build();
+               userRepository.save(user);
+               return true;
+           }
+        }
+        return false;
+    }
+
+    @Override
+    public List<User> getAllUser() {
+        return userRepository.findAll();
+    }
+
+    @Override
+    public User findUserById(long id) {
+        return userRepository.findById(id).orElse(null);
+    }
+
+    @Override
+    public List<User> getAllForUser(long id) {
+        List<User> allUser = getAllUser();
+        User user = findUserById(id);
+        List<BlockedUser> blockedUsers = blockUserService.getBlockUser(user);
+
+        Set<Long> blockedIds = blockedUsers.stream()
+                .map(b -> b.getBlocked().getId())
+                .collect(Collectors.toSet());
+
+        allUser.removeIf(u -> blockedIds.contains(u.getId()));
+
+        return allUser;
+    }
+
+
+    @Override
+    public List<User> getAllBlockUser(long id) {
+        List<User> allUser=getAllUser();
+        User user=findUserById(id);
+        List<BlockedUser> blockedUsers=blockUserService.getBlockUser(user);
+        List<User> users=new ArrayList<>();
+
+        for (User u:allUser){
+            for (BlockedUser blockedUser:blockedUsers){
+                if(u.getId().equals(blockedUser.getBlocked().getId())){
+                    System.out.println(u.getId());
+                    users.add(u);
+                }
+            }
+        }
+        return users;
+    }
+
+    @Override
+    public boolean saveBlockUser(FriendRequest friendRequest) {
+        if(friendRequest!=null){
+            BlockedUser blockedUser= BlockedUser.builder()
+                    .blocker(findUserById(friendRequest.getSenderId()))
+                    .blocked(findUserById(friendRequest.getReceivedId()))
+                    .build();
+            blockUserService.blockUser(blockedUser);
+            simpMessagingTemplate.convertAndSendToUser(
+                    "+84398723346",
+                    "/queue/save-block",
+                    "Người dùng này đã bị chặn"
+            );
+            return true;
+        }
+        return false;
+    }
+
+    @Override
+    public boolean cancelBlockUser(FriendRequest friendRequest) {
+        if(friendRequest!=null){
+            BlockedUser blockedUser=blockUserService.getBlockUserByBlockerAndBlocked(friendRequest);
+            blockUserService.cancelBlockUser(blockedUser);
+            simpMessagingTemplate.convertAndSendToUser(
+                    "+84398723346",
+                    "/queue/cancel-block",
+                    "Người dùng này đã được gỡ chặn"
+            );
+            return true;
+        }
+        return false;
     }
 }

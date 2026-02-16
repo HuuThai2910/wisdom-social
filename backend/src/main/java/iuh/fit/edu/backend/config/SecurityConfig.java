@@ -5,12 +5,12 @@
 package iuh.fit.edu.backend.config;
 
 import iuh.fit.edu.backend.config.filter.JwtAuthFilter;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
@@ -24,13 +24,16 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
-    @Autowired
-    private JwtAuthFilter jwtAuthFilter;
+    private final JwtAuthFilter jwtAuthFilter;
+
+    public SecurityConfig(JwtAuthFilter jwtAuthFilter) {
+        this.jwtAuthFilter = jwtAuthFilter;
+    }
 
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain filterChain(HttpSecurity http)  {
         http
-                .csrf(csrf -> csrf.disable())
+                .csrf(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.POST,"/api/auth/register").permitAll()
                         .requestMatchers(HttpMethod.POST,"/api/auth/login").permitAll()
@@ -40,6 +43,10 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET,"/api/auth/refresh").permitAll()
                         .requestMatchers(HttpMethod.POST,"/api/auth/reset-password").permitAll()
                         .requestMatchers(HttpMethod.POST,"/api/auth/forgot-password").permitAll()
+                        .requestMatchers(HttpMethod.GET,"/api/auth/users/").permitAll()
+                        .requestMatchers(HttpMethod.PUT,"/api/auth/users/**").permitAll()
+                        .requestMatchers(HttpMethod.DELETE,"/api/auth/users/**").permitAll()
+                        .requestMatchers(HttpMethod.POST,"/api/friends/request").permitAll()
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)

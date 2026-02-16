@@ -21,6 +21,12 @@ public enum Gender {
         public String toString() {
             return "Nữ";
         }
+    },
+    HIDDEN{
+        @Override
+        public String toString() {
+            return "******";
+        }
     };
 
 }

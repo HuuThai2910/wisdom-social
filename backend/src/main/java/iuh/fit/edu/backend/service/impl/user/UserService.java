@@ -1,15 +1,14 @@
 package iuh.fit.edu.backend.service.impl.user;
 
 import iuh.fit.edu.backend.domain.entity.mysql.User;
-import iuh.fit.edu.backend.dto.request.user.UserRequestConfirmRegister;
-import iuh.fit.edu.backend.dto.request.user.UserRequestForgotPassword;
-import iuh.fit.edu.backend.dto.request.user.UserRequestLogin;
-import iuh.fit.edu.backend.dto.request.user.UserRequestRegister;
-import iuh.fit.edu.backend.dto.request.user.UserRequestResetPassword;
+import iuh.fit.edu.backend.dto.request.friend.FriendRequest;
+import iuh.fit.edu.backend.dto.request.user.*;
 import iuh.fit.edu.backend.dto.response.user.UserResponseConfirmRegister;
 import iuh.fit.edu.backend.dto.response.user.UserResponseLogin;
 import iuh.fit.edu.backend.dto.response.user.UserResponseOTPPassword;
 import iuh.fit.edu.backend.dto.response.user.UserResponseRegister;
+
+import java.util.List;
 
 
 public interface UserService {
@@ -21,5 +20,12 @@ public interface UserService {
     String getNewAccessToken(String refreshToken);
     UserResponseOTPPassword forgotPasswordUser(UserRequestForgotPassword requestForgotPassword);
     boolean resetPassword(UserRequestResetPassword requestResetPassword);
-
+    boolean deleteUser(long id);
+    boolean updateUser(long id, UserRequestUpdate requestUpdate);
+    List<User> getAllUser();
+    User findUserById(long id);
+    List<User> getAllForUser(long id);
+    List<User> getAllBlockUser(long id);
+    boolean saveBlockUser(FriendRequest friendRequest);
+    boolean cancelBlockUser(FriendRequest friendRequest);
 }

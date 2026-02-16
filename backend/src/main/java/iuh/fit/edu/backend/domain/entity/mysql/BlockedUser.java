@@ -5,8 +5,7 @@
 package iuh.fit.edu.backend.domain.entity.mysql;
 
 import jakarta.persistence.*;
-import lombok.Getter;
-import lombok.Setter;
+import lombok.*;
 
 /*
  * @description
@@ -18,6 +17,9 @@ import lombok.Setter;
 @Getter
 @Setter
 @Entity
+@Builder
+@AllArgsConstructor
+@NoArgsConstructor
 public class BlockedUser {
 
     @Id

@@ -6,9 +6,12 @@ package iuh.fit.edu.backend.config;
 
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
-import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
-import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
-import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
+import org.springframework.web.socket.TextMessage;
+import org.springframework.web.socket.WebSocketSession;
+import org.springframework.web.socket.config.annotation.*;
+import org.springframework.web.socket.handler.TextWebSocketHandler;
+
+import java.io.IOException;
 
 /*
  * @description
@@ -24,8 +27,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         // "/ws" là endpoint để React kết nối vào (Handshake)
         registry.addEndpoint("/ws")
-                .setAllowedOriginPatterns("*") // Cho phép React (localhost:3000) kết nối
-                .withSockJS(); // Hỗ trợ fallback nếu trình duyệt không có WebSocket
+                .setAllowedOriginPatterns("*") ;// Cho phép React (localhost:3000) kết nối
+//                .withSockJS(); // Hỗ trợ fallback nếu trình duyệt không có WebSocket
     }
 
     @Override
@@ -38,4 +41,5 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         // /queue -> point-to-point (tin nhắn cá nhân)_
         registry.enableSimpleBroker("/topic", "/queue");
     }
+
 }
