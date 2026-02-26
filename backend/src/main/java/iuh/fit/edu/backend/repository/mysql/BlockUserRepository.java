@@ -12,4 +12,6 @@ public interface BlockUserRepository extends JpaRepository<BlockedUser,Long> {
     List<BlockedUser> findBlockedUsersByBlocker(User blocker);
 
     BlockedUser findBlockedUserByBlocker_IdAndBlocked_Id(Long blockerId, Long blockedId);
+
+    BlockedUser findBlockedUserByBlockerPage_IdAndBlocked_Id(Long blockerPageId, Long blockedId);
 }

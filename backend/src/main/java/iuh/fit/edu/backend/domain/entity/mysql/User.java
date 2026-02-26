@@ -4,6 +4,7 @@
  */
 package iuh.fit.edu.backend.domain.entity.mysql;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import iuh.fit.edu.backend.constant.Gender;
 import jakarta.persistence.*;
 import lombok.*;
@@ -50,9 +51,21 @@ public class User {
     @OneToMany(mappedBy = "user")
     private List<Session> sessions;
 
+    @JsonIgnore
     @OneToOne(mappedBy = "user", cascade = CascadeType.ALL)
     private UserSetting userSetting;
 
     @OneToOne(mappedBy = "user", cascade = CascadeType.ALL)
     private NotificationSetting notificationSetting;
+
+    @JsonIgnore
+    @OneToMany(mappedBy = "user")
+    private List<PageMember> pageMembers;
+
+    @OneToMany(mappedBy = "user")
+    private List<PageFollow> pageFollows;
+
+
+    @OneToMany(mappedBy = "user")
+    private List<PageLike> pageLikes;
 }

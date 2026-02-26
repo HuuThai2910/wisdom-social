@@ -7,7 +7,6 @@ import iuh.fit.edu.backend.dto.response.user.UserResponseConfirmRegister;
 import iuh.fit.edu.backend.dto.response.user.UserResponseLogin;
 import iuh.fit.edu.backend.dto.response.user.UserResponseOTPPassword;
 import iuh.fit.edu.backend.dto.response.user.UserResponseRegister;
-
 import java.util.List;
 
 
@@ -28,4 +27,5 @@ public interface UserService {
     List<User> getAllBlockUser(long id);
     boolean saveBlockUser(FriendRequest friendRequest);
     boolean cancelBlockUser(FriendRequest friendRequest);
+
 }

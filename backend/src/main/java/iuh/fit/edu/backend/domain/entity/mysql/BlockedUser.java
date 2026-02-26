@@ -31,6 +31,10 @@ public class BlockedUser {
     private User blocker;
 
     @ManyToOne
+    @JoinColumn(name = "blocker_page_id")
+    private Page blockerPage;
+
+    @ManyToOne
     @JoinColumn(name = "blocked_id")
     private User blocked;
 }
