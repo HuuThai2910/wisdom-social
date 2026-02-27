@@ -17,10 +17,10 @@ import lombok.Setter;
 @Entity
 @Getter
 @Setter
-@Table(name = "conversation_users", uniqueConstraints = {
+@Table(name = "conversation_members", uniqueConstraints = {
         @UniqueConstraint(columnNames = {"conversation_id", "user_id"})
 })
-public class ConversationUser {
+public class ConversationMember {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -34,11 +34,15 @@ public class ConversationUser {
     @JoinColumn(name = "user_id")
     private User user;
 
-//    Đánh dấu là nhóm trưởng (chỉ có khi là group chat)
+    // Đánh dấu là nhóm trưởng (chỉ có khi là group chat)
     private boolean isAdmin;
     private boolean isMuted;
     private Long lastReadId;
     private String nickname;
+
+    // Số lượng tin nhắn chưa đọc
+    @Column(columnDefinition = "int default 0")
+    private int unreadCount = 0;
 
     @ManyToOne
     @JoinColumn(name = "color_id")

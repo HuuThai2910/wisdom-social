@@ -12,6 +12,7 @@
   "dependencies": {
     "@ant-design/pro-components": "^2.8.10",
     "@reduxjs/toolkit": "^2.11.2",
+    "@stomp/stompjs": "^7.2.1",
     "@tailwindcss/vite": "^4.1.18",
     "antd": "^5.29.3",
     "axios": "^1.13.2",
@@ -22,6 +23,7 @@
     "react-icons": "^5.5.0",
     "react-redux": "^9.2.0",
     "react-router-dom": "^7.12.0",
+    "sockjs-client": "^1.6.1",
     "tailwindcss": "^4.1.18"
   },
   "devDependencies": {
@@ -29,6 +31,7 @@
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
+    "@types/sockjs-client": "^1.5.4",
     "@vitejs/plugin-react-swc": "^4.2.2",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",

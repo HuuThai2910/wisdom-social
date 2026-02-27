@@ -267,7 +267,7 @@ public class UserServiceImpl implements UserService {
                        .avatarUrl(requestUpdate.getAvatarUrl())
                        .birthday(requestUpdate.getBirthday())
                        .username(requestUpdate.getUsername())
-                       .updatedAt(OffsetDateTime.now().toLocalDateTime())
+                       .updatedAt(OffsetDateTime.now())
                        .build();
                userRepository.save(user);
                return true;

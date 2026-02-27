@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+/* Scrollbar hide utility */
+.scrollbar-hide::-webkit-scrollbar {
+    display: none;
+}
+
+.scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+/* Global styles */
+body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue',
+        Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background-color: #fff;
+    color: #262626;
+    transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.dark body {
+    background-color: #000;
+    color: #fff;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+/* Instagram-like button styles */
+button {
+    cursor: pointer;
+    user-select: none;
+}
+
+/* Link styles */
+a {
+    text-decoration: none;
+    color: inherit;
+}
+
+/* Input styles */
+input {
+    outline: none;
+}
+
+input:focus {
+    outline: none;
+}
+
+/* Better scrollbar for webkit browsers */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #fafafa;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #dbdbdb;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #c7c7c7;
+}

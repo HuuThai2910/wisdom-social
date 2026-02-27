@@ -11,6 +11,7 @@ import lombok.*;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.List;
 
 /*
@@ -40,11 +41,12 @@ public class User {
     private String bio;
     private Gender gender;
 
-    private Instant createdAt;
-    private LocalDateTime updatedAt;
+    private OffsetDateTime createdAt;
+    private OffsetDateTime updatedAt;
+
+    private boolean confirmUseAI = false;
 
     // ===== Relations =====
-
     @OneToMany(mappedBy = "user")
     private List<Device> devices;
 
