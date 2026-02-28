@@ -8,11 +8,12 @@ import {
     TouchableOpacity,
     ActivityIndicator,
     TextInput,
+    Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import friendService from '../services/friendService';
-import userService from '../services/userService';
+import blockService from '../services/blockService';
 import websocketService from '../services/websocketService';
 import { User } from '../types';
 
@@ -21,10 +22,10 @@ export default function FriendsListScreen() {
     const params = useLocalSearchParams();
     const userId = params.userId as string;
     const [friends, setFriends] = useState<User[]>([]);
-    const [allUsers, setAllUsers] = useState<User[]>([]);
+    const [blockedUsers, setBlockedUsers] = useState<User[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [isLoading, setIsLoading] = useState(true);
-    const [selectedTab, setSelectedTab] = useState<'friends' | 'requests' | 'find'>('friends');
+    const [selectedTab, setSelectedTab] = useState<'friends' | 'requests' | 'blocked'>('friends');
 
     // Use ref to always have the latest selectedTab in WebSocket handlers
     const selectedTabRef = useRef(selectedTab);
@@ -32,7 +33,7 @@ export default function FriendsListScreen() {
         selectedTabRef.current = selectedTab;
     }, [selectedTab]);
 
-    const loadData = useCallback(async (tab?: 'friends' | 'requests' | 'find') => {
+    const loadData = useCallback(async (tab?: 'friends' | 'requests' | 'blocked') => {
         const currentTab = tab || selectedTabRef.current;
         setIsLoading(true);
         try {
@@ -43,11 +44,8 @@ export default function FriendsListScreen() {
                 const requestsList = await friendService.getFriendRequests(Number(userId));
                 setFriends(requestsList);
             } else {
-                const users = await userService.getAllUsers();
-                const friendsList = await friendService.getFriends(Number(userId));
-                const friendIds = new Set(friendsList.map(f => f.id));
-                const filteredUsers = users.filter(u => u.id !== Number(userId) && !friendIds.has(u.id));
-                setAllUsers(filteredUsers);
+                const blocked = await blockService.getBlockedUsers(Number(userId));
+                setBlockedUsers(blocked);
             }
         } catch (error) {
             console.error('Failed to load data:', error);
@@ -105,11 +103,28 @@ export default function FriendsListScreen() {
     const handleSendRequest = async (receiverId: number) => {
         const success = await friendService.sendFriendRequest(Number(userId), receiverId);
         if (success) {
-            setAllUsers(allUsers.filter(u => u.id !== receiverId));
+            loadData();
         }
     };
 
-    const filteredUsers = allUsers.filter(user => {
+    const handleUnblock = (blockedId: number) => {
+        Alert.alert('Bỏ chặn', 'Bạn có chắc muốn bỏ chặn người dùng này?', [
+            { text: 'Hủy', style: 'cancel' },
+            {
+                text: 'Bỏ chặn', style: 'destructive',
+                onPress: async () => {
+                    const ok = await blockService.unblockUser(Number(userId), blockedId);
+                    if (ok) {
+                        setBlockedUsers(prev => prev.filter(u => u.id !== blockedId));
+                    } else {
+                        Alert.alert('Lỗi', 'Không thể bỏ chặn. Vui lòng thử lại.');
+                    }
+                },
+            },
+        ]);
+    };
+
+    const filteredBlockedUsers = blockedUsers.filter(user => {
         if (!searchQuery) return true;
         const query = searchQuery.toLowerCase();
         return (
@@ -161,23 +176,46 @@ export default function FriendsListScreen() {
                         <Ionicons name="close" size={20} color="#fff" />
                     </TouchableOpacity>
                 </View>
-            ) : (
-                <TouchableOpacity
-                    style={styles.addButton}
-                    onPress={() => handleSendRequest(item.id)}
-                >
-                    <Ionicons name="person-add" size={20} color="#fff" />
-                </TouchableOpacity>
-            )}
+            ) : null}
         </View>
     );
 
+    const renderBlockedUser = ({ item }: { item: User }) => (
+        <View style={styles.friendItem}>
+            <TouchableOpacity style={styles.friendInfo} onPress={() => router.push(`/user-profile?userId=${item.id}` as any)}>
+                {item.avatarUrl ? (
+                    <Image source={{ uri: item.avatarUrl }} style={styles.avatar} />
+                ) : (
+                    <View style={styles.avatarPlaceholder}>
+                        <Ionicons name="person" size={30} color="#9CA3AF" />
+                    </View>
+                )}
+                <View style={styles.textInfo}>
+                    <Text style={styles.name}>
+                        {item.name || item.username || item.phone}
+                    </Text>
+                    {item.username && item.name && (
+                        <Text style={styles.username}>@{item.username}</Text>
+                    )}
+                </View>
+            </TouchableOpacity>
+            <TouchableOpacity
+                style={styles.unblockButton}
+                onPress={() => handleUnblock(item.id)}
+            >
+                <Text style={styles.unblockText}>Bỏ chặn</Text>
+            </TouchableOpacity>
+        </View>
+    );
+
+    
+
     const getHeaderTitle = () => {
         switch (selectedTab) {
-            case 'friends': return 'Friends';
-            case 'requests': return 'Friend Requests';
-            case 'find': return 'Find Friends';
-            default: return 'Friends';
+            case 'friends': return 'Bạn bè';
+            case 'requests': return 'Lời mời kết bạn';
+            case 'blocked': return 'Đã chặn';
+            default: return 'Bạn bè';
         }
     };
 
@@ -199,7 +237,7 @@ export default function FriendsListScreen() {
                     onPress={() => setSelectedTab('friends')}
                 >
                     <Text style={[styles.tabText, selectedTab === 'friends' && styles.tabTextActive]}>
-                        Friends
+                        Bạn bè
                     </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -207,26 +245,26 @@ export default function FriendsListScreen() {
                     onPress={() => setSelectedTab('requests')}
                 >
                     <Text style={[styles.tabText, selectedTab === 'requests' && styles.tabTextActive]}>
-                        Requests
+                        Lời mời
                     </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                    style={[styles.tab, selectedTab === 'find' && styles.tabActive]}
-                    onPress={() => setSelectedTab('find')}
+                    style={[styles.tab, selectedTab === 'blocked' && styles.tabActive]}
+                    onPress={() => setSelectedTab('blocked')}
                 >
-                    <Text style={[styles.tabText, selectedTab === 'find' && styles.tabTextActive]}>
-                        Find
+                    <Text style={[styles.tabText, selectedTab === 'blocked' && styles.tabTextActive]}>
+                        Đã chặn
                     </Text>
                 </TouchableOpacity>
             </View>
 
-            {/* Search Input */}
-            {selectedTab === 'find' && (
+            {/* Search Input for blocked tab */}
+            {selectedTab === 'blocked' && (
                 <View style={styles.searchContainer}>
                     <Ionicons name="search" size={20} color="#9CA3AF" style={styles.searchIcon} />
                     <TextInput
                         style={styles.searchInput}
-                        placeholder="Search by name, username or phone..."
+                        placeholder="Tìm trong danh sách chặn..."
                         value={searchQuery}
                         onChangeText={setSearchQuery}
                         placeholderTextColor="#9CA3AF"
@@ -239,21 +277,21 @@ export default function FriendsListScreen() {
                 </View>
             )}
 
-            {/* Friends List */}
+            {/* Content */}
             {isLoading ? (
                 <View style={styles.loadingContainer}>
                     <ActivityIndicator size="large" color="#3B82F6" />
                 </View>
-            ) : selectedTab === 'find' ? (
+            ) : selectedTab === 'blocked' ? (
                 <FlatList
-                    data={filteredUsers}
-                    renderItem={renderFriend}
+                    data={filteredBlockedUsers}
+                    renderItem={renderBlockedUser}
                     keyExtractor={(item) => item.id.toString()}
                     ListEmptyComponent={
                         <View style={styles.emptyContainer}>
-                            <Ionicons name="people-outline" size={60} color="#D1D5DB" />
+                            <Ionicons name="ban-outline" size={60} color="#D1D5DB" />
                             <Text style={styles.emptyText}>
-                                {searchQuery ? 'No users found' : 'No users available'}
+                                {searchQuery ? 'Không tìm thấy' : 'Chưa chặn ai'}
                             </Text>
                         </View>
                     }
@@ -266,7 +304,7 @@ export default function FriendsListScreen() {
                         color="#D1D5DB"
                     />
                     <Text style={styles.emptyText}>
-                        {selectedTab === 'friends' ? 'No friends yet' : 'No friend requests'}
+                        {selectedTab === 'friends' ? 'Chưa có bạn bè' : 'Không có lời mời'}
                     </Text>
                 </View>
             ) : (
@@ -432,5 +470,16 @@ const styles = StyleSheet.create({
         padding: 10,
         borderRadius: 8,
         backgroundColor: '#3B82F6',
+    },
+    unblockButton: {
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+        borderRadius: 8,
+        backgroundColor: '#FEF2F2',
+    },
+    unblockText: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#EF4444',
     },
 });

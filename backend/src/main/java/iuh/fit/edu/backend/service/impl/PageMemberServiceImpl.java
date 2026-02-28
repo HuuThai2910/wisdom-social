@@ -16,6 +16,7 @@ import iuh.fit.edu.backend.service.impl.user.UserService;
 import org.springframework.stereotype.Service;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 
 @Service
 public class PageMemberServiceImpl implements PageMemberService {
@@ -100,5 +101,10 @@ public class PageMemberServiceImpl implements PageMemberService {
             pageMember.setRole(role);
             pageMemberRepository.save(pageMember);
         }
+    }
+
+    @Override
+    public List<PageMember> getMembersByPageId(long pageId) {
+        return pageMemberRepository.findByPage_Id(pageId);
     }
 }

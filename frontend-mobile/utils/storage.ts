@@ -4,6 +4,7 @@ const TOKEN_KEY = 'accessToken';
 const REFRESH_TOKEN_KEY = 'refreshToken';
 const ID_TOKEN_KEY = 'idToken';
 const USER_KEY = 'user';
+const SETTINGS_KEY = 'appSettings';
 
 // In-memory fallback for when AsyncStorage is not available
 const memoryStorage: { [key: string]: string } = {};
@@ -133,5 +134,24 @@ export const clearStorage = async (): Promise<void> => {
         ]);
     } catch (error) {
         console.error('Error clearing storage:', error);
+    }
+};
+
+// App settings storage
+export const saveSettings = async (settings: any): Promise<void> => {
+    try {
+        await storage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    } catch (error) {
+        console.error('Error saving settings:', error);
+    }
+};
+
+export const getSettings = async (): Promise<any | null> => {
+    try {
+        const settingsJson = await storage.getItem(SETTINGS_KEY);
+        return settingsJson ? JSON.parse(settingsJson) : null;
+    } catch (error) {
+        console.error('Error getting settings:', error);
+        return null;
     }
 };

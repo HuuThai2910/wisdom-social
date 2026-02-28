@@ -17,6 +17,9 @@ import org.bson.types.ObjectId;
 import org.springframework.stereotype.Service;
 
 import java.time.OffsetDateTime;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 @Service
 public class PageServiceImpl implements PageService {
@@ -63,19 +66,18 @@ public class PageServiceImpl implements PageService {
     public boolean updatePage(long id,UserRequestUpdatePage updatePage) {
         Page page=findPageById(id);
         if(page!=null){
-            page=Page.builder()
-                    .id(page.getId())
-                    .username(updatePage.getUsername())
-                    .name(updatePage.getName())
-                    .phone(updatePage.getPhone())
-                    .isVerified(updatePage.getIsVerified())
-                    .description(updatePage.getDescription())
-                    .updatedAt(OffsetDateTime.now())
-                    .address(updatePage.getAddress())
-                    .email(updatePage.getEmail())
-                    .category(updatePage.getCategory())
-                    .avatarUrl(updatePage.getAvatarUrl())
-                    .build();
+            if (updatePage.getName() != null) page.setName(updatePage.getName());
+            if (updatePage.getUsername() != null) page.setUsername(updatePage.getUsername());
+            if (updatePage.getCategory() != null) page.setCategory(updatePage.getCategory());
+            if (updatePage.getDescription() != null) page.setDescription(updatePage.getDescription());
+            if (updatePage.getAvatarUrl() != null) page.setAvatarUrl(updatePage.getAvatarUrl());
+            if (updatePage.getCoverUrl() != null) page.setCoverUrl(updatePage.getCoverUrl());
+            if (updatePage.getPhone() != null) page.setPhone(updatePage.getPhone());
+            if (updatePage.getEmail() != null) page.setEmail(updatePage.getEmail());
+            if (updatePage.getWebsite() != null) page.setWebsite(updatePage.getWebsite());
+            if (updatePage.getAddress() != null) page.setAddress(updatePage.getAddress());
+            if (updatePage.getIsVerified() != null) page.setIsVerified(updatePage.getIsVerified());
+            page.setUpdatedAt(OffsetDateTime.now());
             pageRepository.save(page);
             return true;
         }
@@ -86,6 +88,16 @@ public class PageServiceImpl implements PageService {
     @Override
     public Page findPageById(long id) {
         return pageRepository.findById(id).orElse(null);
+    }
+
+    @Override
+    public List<Page> findAllPages() {
+        return pageRepository.findAll();
+    }
+
+    @Override
+    public List<Page> findPagesByUserId(long userId) {
+        return pageRepository.findByCreatedBy_Id(userId);
     }
 
     @Override
@@ -111,6 +123,10 @@ public class PageServiceImpl implements PageService {
 
     @Override
     public boolean followPageUser(long userId, long pageId) {
+        // Prevent duplicate follow
+        if (pageFollowRepository.existsByUser_IdAndPage_Id(userId, (long) pageId)) {
+            return true;
+        }
         Page page=findPageById(pageId);
         User user=userService.findUserById(userId);
         if (user!=null && page!=null){
@@ -126,6 +142,10 @@ public class PageServiceImpl implements PageService {
 
     @Override
     public boolean likePageUser(long userId, long pageId) {
+        // Prevent duplicate like
+        if (pageLikeRepository.existsByUser_IdAndPage_Id(userId, (long) pageId)) {
+            return true;
+        }
         Page page=findPageById(pageId);
         User user=userService.findUserById(userId);
         if (user!=null && page!=null){
@@ -158,5 +178,15 @@ public class PageServiceImpl implements PageService {
             return true;
         }
         return false;
+    }
+
+    @Override
+    public Map<String, Object> getPageInteractionStatus(long userId, long pageId) {
+        Map<String, Object> status = new HashMap<>();
+        status.put("likeCount", pageLikeRepository.countByPage_Id(pageId));
+        status.put("followCount", pageFollowRepository.countByPage_Id(pageId));
+        status.put("isLiked", pageLikeRepository.existsByUser_IdAndPage_Id(userId, pageId));
+        status.put("isFollowing", pageFollowRepository.existsByUser_IdAndPage_Id(userId, pageId));
+        return status;
     }
 }

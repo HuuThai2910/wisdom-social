@@ -1,5 +1,6 @@
 package iuh.fit.edu.backend.controller;
 
+import iuh.fit.edu.backend.domain.entity.mysql.PageMember;
 import iuh.fit.edu.backend.dto.request.page.UserRequestAuthorizePage;
 import iuh.fit.edu.backend.dto.request.page.UserRequestMemberPage;
 import iuh.fit.edu.backend.dto.request.page.UserRequestPage;
@@ -8,6 +9,8 @@ import iuh.fit.edu.backend.util.anotation.ApiMessage;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/page-member")
@@ -63,5 +66,12 @@ public class PageMemberController {
     public ResponseEntity<String> authorizeMemberPage(@RequestBody UserRequestAuthorizePage requestPage){
         pageMemberService.authorizeMemberPage(requestPage.getUserId(), requestPage.getPageId(), requestPage.getPageRole());
             return ResponseEntity.ok("Authorize member into page successfully");
+    }
+
+    @GetMapping("/list/{pageId}")
+    @ApiMessage("Get page members successfully")
+    public ResponseEntity<List<PageMember>> getPageMembers(@PathVariable long pageId){
+        List<PageMember> members = pageMemberService.getMembersByPageId(pageId);
+        return ResponseEntity.ok(members);
     }
 }

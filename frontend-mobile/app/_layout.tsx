@@ -1,14 +1,19 @@
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { AuthProvider } from "../contexts/AuthContext";
+import { ThemeProvider, useTheme } from "../contexts/ThemeContext";
+import { NotificationProvider } from "../contexts/NotificationContext";
 
-export default function RootLayout() {
+function InnerLayout() {
+  const { colors } = useTheme();
+
   return (
-    <AuthProvider>
-      <StatusBar style="dark" />
+    <>
+      <StatusBar style={colors.statusBar} />
       <Stack
         screenOptions={{
           headerShown: false,
+          contentStyle: { backgroundColor: colors.background },
         }}
       >
         <Stack.Screen name="index" />
@@ -25,7 +30,47 @@ export default function RootLayout() {
             presentation: 'modal',
           }}
         />
+        <Stack.Screen
+          name="settings"
+          options={{
+            headerShown: false,
+            animation: 'slide_from_right',
+          }}
+        />
+        <Stack.Screen
+          name="pages"
+          options={{
+            headerShown: false,
+            animation: 'slide_from_right',
+          }}
+        />
+        <Stack.Screen
+          name="page-detail"
+          options={{
+            headerShown: false,
+            animation: 'slide_from_right',
+          }}
+        />
+        <Stack.Screen
+          name="create-page"
+          options={{
+            headerShown: false,
+            presentation: 'modal',
+          }}
+        />
       </Stack>
+    </>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <AuthProvider>
+      <ThemeProvider>
+        <NotificationProvider>
+          <InnerLayout />
+        </NotificationProvider>
+      </ThemeProvider>
     </AuthProvider>
   );
 }

@@ -1,5 +1,6 @@
 package iuh.fit.edu.backend.domain.entity.mysql;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import iuh.fit.edu.backend.constant.MemberStatus;
 import iuh.fit.edu.backend.constant.PageRole;
 import jakarta.persistence.*;
@@ -19,10 +20,12 @@ public class PageMember {
 
     @ManyToOne
     @JoinColumn(name = "page_id", nullable = false)
+    @JsonIgnoreProperties({"pageMembers", "createdBy"})
     private Page page;
 
     @ManyToOne
     @JoinColumn(name = "user_id", nullable = false)
+    @JsonIgnoreProperties({"password", "roles", "authorities"})
     private User user;
 
     private PageRole role;

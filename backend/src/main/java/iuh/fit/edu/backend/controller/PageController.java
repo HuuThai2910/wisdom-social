@@ -1,27 +1,37 @@
 package iuh.fit.edu.backend.controller;
 
 import iuh.fit.edu.backend.domain.entity.mysql.Page;
+import iuh.fit.edu.backend.domain.entity.mysql.User;
 import iuh.fit.edu.backend.dto.request.page.UserRequestCreatePage;
 import iuh.fit.edu.backend.dto.request.page.UserRequestPage;
 import iuh.fit.edu.backend.dto.request.page.UserRequestUpdatePage;
 import iuh.fit.edu.backend.service.impl.page.PageService;
+import iuh.fit.edu.backend.service.impl.user.UserService;
 import iuh.fit.edu.backend.util.anotation.ApiMessage;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+import java.util.Map;
+
 @RestController
 @RequestMapping("/api/page")
 public class PageController {
     PageService pageService;
-    public PageController(PageService pageService) {
+    UserService userService;
+    public PageController(PageService pageService, UserService userService) {
         this.pageService = pageService;
+        this.userService = userService;
     }
 
     @PostMapping("/create")
     @ApiMessage("Create page successfully")
     public ResponseEntity<String> createPage(@RequestBody UserRequestCreatePage createPage){
-        boolean success= pageService.createPage(20L,createPage);
+        User currentUser = userService.getCurrentUser();
+        if (currentUser == null)
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("User not authenticated");
+        boolean success= pageService.createPage(currentUser.getId(),createPage);
         if (success)
             return ResponseEntity.ok("Create page successfully");
         return ResponseEntity.badRequest().body("Create page failed");
@@ -53,6 +63,23 @@ public class PageController {
             return ResponseEntity.ok(page);
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(null);
+    }
+
+    @GetMapping("/all")
+    @ApiMessage("Get all pages successfully")
+    public ResponseEntity<List<Page>> getAllPages(){
+        List<Page> pages = pageService.findAllPages();
+        return ResponseEntity.ok(pages);
+    }
+
+    @GetMapping("/my-pages")
+    @ApiMessage("Get my pages successfully")
+    public ResponseEntity<List<Page>> getMyPages(){
+        User currentUser = userService.getCurrentUser();
+        if (currentUser == null)
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(null);
+        List<Page> pages = pageService.findPagesByUserId(currentUser.getId());
+        return ResponseEntity.ok(pages);
     }
 
     @PostMapping("/like")
@@ -89,6 +116,16 @@ public class PageController {
         if (success)
             return ResponseEntity.ok("Cancel follow page successfully");
         return ResponseEntity.badRequest().body("Cancel follow page failed");
+    }
+
+    @GetMapping("/{pageId}/interaction-status")
+    @ApiMessage("Get page interaction status")
+    public ResponseEntity<Map<String, Object>> getPageInteractionStatus(@PathVariable long pageId) {
+        User currentUser = userService.getCurrentUser();
+        if (currentUser == null)
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(null);
+        Map<String, Object> status = pageService.getPageInteractionStatus(currentUser.getId(), pageId);
+        return ResponseEntity.ok(status);
     }
 
 }

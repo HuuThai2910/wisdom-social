@@ -26,7 +26,7 @@ public class Page {
     @Column(nullable = false)
     private String name;
 
-    @Column(unique = true)
+    @Column
     private String username;
 
     private String category;

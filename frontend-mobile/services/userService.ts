@@ -56,6 +56,19 @@ class UserService {
         }
     }
 
+    // Get all users excluding those blocked by the given user
+    // GET /api/auth/users/{id} — backend filters out blocked users
+    async getAllUsersExcludingBlocked(userId: number): Promise<User[]> {
+        try {
+            const response = await apiClient.get(`/auth/users/${userId}`);
+            const data = response.data?.data ?? response.data;
+            return Array.isArray(data) ? data : [];
+        } catch (error: any) {
+            this.handleError(error);
+            return [];
+        }
+    }
+
     // Handle errors
     private handleError(error: any): void {
         if (error.response) {

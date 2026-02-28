@@ -66,7 +66,10 @@ class WebSocketService {
     private subscribeToTopics(phone: string) {
         if (!this.client) return;
 
-        const queues = ['friend-request', 'friend-accept', 'friend-cancel', 'friend-reject'];
+        const queues = [
+            'friend-request', 'friend-accept', 'friend-cancel', 'friend-reject',
+            'save-block', 'cancel-block',
+        ];
         queues.forEach(queue => {
             this.client!.subscribe(`/topic/user/${phone}/${queue}`, (message) => {
                 this.notifyHandlers(queue, message.body);
