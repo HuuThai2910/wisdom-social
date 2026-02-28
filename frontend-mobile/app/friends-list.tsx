@@ -121,7 +121,7 @@ export default function FriendsListScreen() {
 
     const renderFriend = ({ item }: { item: User }) => (
         <View style={styles.friendItem}>
-            <TouchableOpacity style={styles.friendInfo}>
+            <TouchableOpacity style={styles.friendInfo} onPress={() => router.push(`/user-profile?userId=${item.id}` as any)}>
                 {item.avatarUrl ? (
                     <Image source={{ uri: item.avatarUrl }} style={styles.avatar} />
                 ) : (

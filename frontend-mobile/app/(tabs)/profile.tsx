@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import {
     View,
     Text,
@@ -6,16 +6,17 @@ import {
     StyleSheet,
     ScrollView,
     TouchableOpacity,
-    FlatList,
     ActivityIndicator,
     Modal,
     TextInput,
     Alert,
     KeyboardAvoidingView,
     Platform,
+    Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../contexts/AuthContext';
 import userService from '../../services/userService';
 import friendService from '../../services/friendService';
@@ -23,14 +24,27 @@ import websocketService from '../../services/websocketService';
 import { mockPosts } from '../../constants/mockData';
 import type { Post } from '../../types';
 
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const GRID_GAP = 2;
+const GRID_ITEM_SIZE = (SCREEN_WIDTH - GRID_GAP * 4) / 3;
+
+const GENDER_OPTIONS = [
+    { label: 'Nam', value: 'MALE' },
+    { label: 'Nữ', value: 'FEMALE' },
+    { label: 'Ẩn', value: 'HIDDEN' },
+];
+
 export default function ProfileScreen() {
     const router = useRouter();
+    const insets = useSafeAreaInsets();
     const { user, logout, updateUser } = useAuth();
     const [selectedTab, setSelectedTab] = useState<'posts' | 'saved'>('posts');
     const [isLoading, setIsLoading] = useState(false);
     const [profileData, setProfileData] = useState<any>(null);
     const [friendsCount, setFriendsCount] = useState(0);
     const [requestsCount, setRequestsCount] = useState(0);
+
+    // Edit modal
     const [showEditModal, setShowEditModal] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [editForm, setEditForm] = useState({
@@ -39,6 +53,7 @@ export default function ProfileScreen() {
         bio: '',
         birthday: '',
         gender: '',
+        avatarUrl: '',
     });
 
     useEffect(() => {
@@ -48,14 +63,11 @@ export default function ProfileScreen() {
 
     useEffect(() => {
         if (!user) return;
-
         const handleFriendUpdate = () => loadFriendsData();
-
         websocketService.on('friend-request', handleFriendUpdate);
         websocketService.on('friend-accept', handleFriendUpdate);
         websocketService.on('friend-cancel', handleFriendUpdate);
         websocketService.on('friend-reject', handleFriendUpdate);
-
         return () => {
             websocketService.off('friend-request', handleFriendUpdate);
             websocketService.off('friend-accept', handleFriendUpdate);
@@ -68,28 +80,23 @@ export default function ProfileScreen() {
         setIsLoading(true);
         try {
             const profile = await userService.getProfile();
-            if (profile) {
-                setProfileData(profile);
-            }
-        } catch (error) {
-            console.error('Failed to load profile:', error);
-        } finally {
-            setIsLoading(false);
-        }
+            if (profile) setProfileData(profile);
+        } catch (_) {}
+        finally { setIsLoading(false); }
     };
 
     const loadFriendsData = async () => {
         try {
-            if (user?.id || profileData?.id) {
-                const userId = profileData?.id || user?.id;
-                const friends = await friendService.getFriends(userId);
-                const requests = await friendService.getFriendRequests(userId);
+            const userId = profileData?.id || user?.id;
+            if (userId) {
+                const [friends, requests] = await Promise.all([
+                    friendService.getFriends(userId),
+                    friendService.getFriendRequests(userId),
+                ]);
                 setFriendsCount(friends.length);
                 setRequestsCount(requests.length);
             }
-        } catch (error) {
-            console.error('Failed to load friends data:', error);
-        }
+        } catch (_) {}
     };
 
     const handleLogout = async () => {
@@ -98,12 +105,14 @@ export default function ProfileScreen() {
     };
 
     const handleEditProfile = () => {
+        const d = displayUser;
         setEditForm({
-            name: displayUser?.name || '',
-            username: displayUser?.username || '',
-            bio: displayUser?.bio || '',
-            birthday: displayUser?.birthday || '',
-            gender: displayUser?.gender || '',
+            name: d?.name || '',
+            username: d?.username || '',
+            bio: d?.bio || '',
+            birthday: d?.birthday || '',
+            gender: d?.gender || '',
+            avatarUrl: d?.avatarUrl || '',
         });
         setShowEditModal(true);
     };
@@ -113,19 +122,21 @@ export default function ProfileScreen() {
         if (!userId) return;
         setIsSaving(true);
         try {
-            const success = await userService.updateProfile(userId, {
-                name: editForm.name || undefined,
-                username: editForm.username || undefined,
-                bio: editForm.bio || undefined,
-                birthday: editForm.birthday || undefined,
-                gender: editForm.gender || undefined,
-            });
+            const payload: any = {};
+            if (editForm.name) payload.name = editForm.name;
+            if (editForm.username) payload.username = editForm.username;
+            payload.bio = editForm.bio || '';
+            if (editForm.birthday) payload.birthday = editForm.birthday;
+            if (editForm.gender) payload.gender = editForm.gender;
+            if (editForm.avatarUrl) payload.avatarUrl = editForm.avatarUrl;
+
+            const success = await userService.updateProfile(userId, payload);
             if (success) {
                 setShowEditModal(false);
                 await loadProfile();
                 await updateUser({ ...displayUser, ...editForm });
             } else {
-                Alert.alert('Error', 'Failed to update profile. Please try again.');
+                Alert.alert('Lỗi', 'Không thể cập nhật hồ sơ. Vui lòng thử lại.');
             }
         } finally {
             setIsSaving(false);
@@ -134,455 +145,422 @@ export default function ProfileScreen() {
 
     const handleViewFriends = () => {
         const userId = profileData?.id || user?.id;
-        if (userId) {
-            router.push(`/friends-list?userId=${userId}` as any);
-        }
+        if (userId) router.push(`/friends-list?userId=${userId}` as any);
     };
 
     const displayUser = profileData || user;
-    
-    // For now, still using mock posts until posts are integrated with backend
-    const userPosts = mockPosts.filter((post: Post) => displayUser && post.user.id === displayUser.id?.toString());
-    const savedPosts = mockPosts.filter((post: Post) => post.isSaved);
-
+    const userPosts = mockPosts.filter((p: Post) => displayUser && p.user.id === displayUser.id?.toString());
+    const savedPosts = mockPosts.filter((p: Post) => p.isSaved);
     const displayPosts = selectedTab === 'posts' ? userPosts : savedPosts;
 
+    /* ---- Loading ---- */
     if (isLoading && !profileData) {
         return (
-            <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#3B82F6" />
-                <Text style={styles.loadingText}>Loading profile...</Text>
+            <View style={styles.centerScreen}>
+                <ActivityIndicator size="large" color="#111827" />
+                <Text style={styles.loadingText}>Đang tải hồ sơ...</Text>
             </View>
         );
     }
 
     if (!displayUser) {
         return (
-            <View style={styles.loadingContainer}>
-                <Text style={styles.errorText}>No user data available</Text>
+            <View style={styles.centerScreen}>
+                <Ionicons name="person-circle-outline" size={64} color="#D1D5DB" />
+                <Text style={styles.errorText}>Không có dữ liệu người dùng</Text>
             </View>
         );
     }
 
+    const genderLabel = GENDER_OPTIONS.find(g => g.value === displayUser.gender)?.label;
+
+    /* ======================== RENDER ======================== */
     return (
         <>
-        <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-            {/* Profile Header */}
-            <View style={styles.header}>
-                <View style={styles.statsContainer}>
-                    <View style={styles.avatarContainer}>
-                        {displayUser.avatarUrl ? (
-                            <Image 
-                                source={{ uri: displayUser.avatarUrl }} 
-                                style={styles.avatar} 
-                            />
-                        ) : (
-                            <View style={styles.avatarPlaceholder}>
-                                <Ionicons name="person" size={50} color="#9CA3AF" />
-                            </View>
-                        )}
-                    </View>
-                    <View style={styles.stats}>
-                        <View style={styles.statItem}>
-                            <Text style={styles.statNumber}>{displayUser.postsCount || 0}</Text>
-                            <Text style={styles.statLabel}>posts</Text>
+            <ScrollView
+                style={styles.screen}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingBottom: 40 }}
+            >
+                {/* ───── PROFILE CARD ───── */}
+                <View style={styles.card}>
+                    {/* Avatar + Stats */}
+                    <View style={styles.topRow}>
+                        <View style={styles.avatarWrap}>
+                            {displayUser.avatarUrl ? (
+                                <Image source={{ uri: displayUser.avatarUrl }} style={styles.avatar} />
+                            ) : (
+                                <View style={styles.avatarFallback}>
+                                    <Ionicons name="person" size={42} color="#9CA3AF" />
+                                </View>
+                            )}
+                            <View style={styles.onlineDot} />
                         </View>
-                        <TouchableOpacity style={styles.statItem} onPress={handleViewFriends}>
-                            <Text style={styles.statNumber}>
-                                {friendsCount}
-                            </Text>
-                            <Text style={styles.statLabel}>friends</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.statItem} onPress={handleViewFriends}>
-                            <View style={styles.statNumberContainer}>
-                                <Text style={styles.statNumber}>{requestsCount}</Text>
-                                {requestsCount > 0 && (
-                                    <View style={styles.redDot} />
-                                )}
-                            </View>
-                            <Text style={styles.statLabel}>requests</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
 
-                <View style={styles.userInfo}>
-                    <View style={styles.nameRow}>
-                        <Text style={styles.fullName}>
+                        <View style={styles.statsRow}>
+                            <StatBlock label="Bài viết" value={displayUser.postsCount || 0} />
+                            <TouchableOpacity onPress={handleViewFriends}>
+                                <StatBlock label="Bạn bè" value={friendsCount} />
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={handleViewFriends}>
+                                <StatBlock label="Lời mời" value={requestsCount} showBadge={requestsCount > 0} />
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+
+                    {/* User info */}
+                    <View style={styles.infoBlock}>
+                        <Text style={styles.displayName}>
                             {displayUser.name || displayUser.username || displayUser.phone}
                         </Text>
                         {displayUser.username && (
-                            <Text style={styles.username}>@{displayUser.username}</Text>
+                            <Text style={styles.handle}>@{displayUser.username}</Text>
                         )}
+                        {displayUser.bio ? <Text style={styles.bio}>{displayUser.bio}</Text> : null}
+
+                        <View style={styles.metaRow}>
+                            {displayUser.birthday ? (
+                                <MetaChip icon="calendar-outline" text={displayUser.birthday} />
+                            ) : null}
+                            {genderLabel ? (
+                                <MetaChip icon="male-female-outline" text={genderLabel} />
+                            ) : null}
+                            {displayUser.phone ? (
+                                <MetaChip icon="call-outline" text={displayUser.phone} />
+                            ) : null}
+                        </View>
                     </View>
-                    {displayUser.bio && <Text style={styles.bio}>{displayUser.bio}</Text>}
-                    {displayUser.birthday && (
-                        <Text style={styles.infoText}>
-                            <Ionicons name="calendar-outline" size={14} color="#6B7280" /> {displayUser.birthday}
+
+                    {/* Buttons */}
+                    <View style={styles.btnRow}>
+                        <TouchableOpacity style={styles.primaryBtn} onPress={handleEditProfile} activeOpacity={0.75}>
+                            <Ionicons name="create-outline" size={17} color="#fff" />
+                            <Text style={styles.primaryBtnText}>Chỉnh sửa hồ sơ</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.dangerBtn} onPress={handleLogout} activeOpacity={0.75}>
+                            <Ionicons name="log-out-outline" size={20} color="#EF4444" />
+                        </TouchableOpacity>
+                    </View>
+                </View>
+
+                {/* ───── TAB BAR ───── */}
+                <View style={styles.tabBar}>
+                    <TouchableOpacity
+                        style={[styles.tab, selectedTab === 'posts' && styles.tabActive]}
+                        onPress={() => setSelectedTab('posts')}
+                    >
+                        <Ionicons name="grid-outline" size={20} color={selectedTab === 'posts' ? '#111827' : '#9CA3AF'} />
+                        <Text style={[styles.tabText, selectedTab === 'posts' && styles.tabTextActive]}>Bài viết</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.tab, selectedTab === 'saved' && styles.tabActive]}
+                        onPress={() => setSelectedTab('saved')}
+                    >
+                        <Ionicons name="bookmark-outline" size={20} color={selectedTab === 'saved' ? '#111827' : '#9CA3AF'} />
+                        <Text style={[styles.tabText, selectedTab === 'saved' && styles.tabTextActive]}>Đã lưu</Text>
+                    </TouchableOpacity>
+                </View>
+
+                {/* ───── GRID / EMPTY ───── */}
+                {displayPosts.length > 0 ? (
+                    <View style={styles.grid}>
+                        {displayPosts.map((post: Post) => (
+                            <TouchableOpacity key={post.id} style={styles.gridItem} activeOpacity={0.85}>
+                                <Image source={{ uri: post.images[0] }} style={styles.gridImage} />
+                            </TouchableOpacity>
+                        ))}
+                    </View>
+                ) : (
+                    <View style={styles.emptyWrap}>
+                        <View style={styles.emptyCircle}>
+                            <Ionicons name="camera-outline" size={40} color="#D1D5DB" />
+                        </View>
+                        <Text style={styles.emptyTitle}>
+                            {selectedTab === 'posts' ? 'Chưa có bài viết' : 'Chưa lưu bài viết'}
                         </Text>
-                    )}
-                </View>
-
-                {/* Action Buttons */}
-                <View style={styles.actionButtons}>
-                    <TouchableOpacity style={styles.editButton} onPress={handleEditProfile}>
-                        <Text style={styles.editButtonText}>Edit Profile</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-                        <Ionicons name="log-out-outline" size={20} color="#EF4444" />
-                    </TouchableOpacity>
-                </View>
-            </View>
-
-            {/* Tabs */}
-            <View style={styles.tabs}>
-                <TouchableOpacity
-                    style={[styles.tab, selectedTab === 'posts' && styles.tabActive]}
-                    onPress={() => setSelectedTab('posts')}
-                >
-                    <Ionicons
-                        name="grid-outline"
-                        size={24}
-                        color={selectedTab === 'posts' ? '#000' : '#737373'}
-                    />
-                </TouchableOpacity>
-                <TouchableOpacity
-                    style={[styles.tab, selectedTab === 'saved' && styles.tabActive]}
-                    onPress={() => setSelectedTab('saved')}
-                >
-                    <Ionicons
-                        name="bookmark-outline"
-                        size={24}
-                        color={selectedTab === 'saved' ? '#000' : '#737373'}
-                    />
-                </TouchableOpacity>
-            </View>
-
-            {/* Posts Grid */}
-            <View style={styles.postsGrid}>
-                {displayPosts.map((post: Post) => (
-                    <TouchableOpacity key={post.id} style={styles.postItem}>
-                        <Image source={{ uri: post.images[0] }} style={styles.postImage} />
-                    </TouchableOpacity>
-                ))}
-            </View>
-
-            {displayPosts.length === 0 && (
-                <View style={styles.emptyState}>
-                    <Ionicons name="camera-outline" size={80} color="#D1D5DB" />
-                    <Text style={styles.emptyText}>
-                        {selectedTab === 'posts' ? 'No posts yet' : 'No saved posts'}
-                    </Text>
-                </View>
-            )}
-        </ScrollView>
-
-        {/* Edit Profile Modal */}
-        <Modal
-            visible={showEditModal}
-            animationType="slide"
-            transparent
-            onRequestClose={() => setShowEditModal(false)}
-        >
-            <KeyboardAvoidingView
-                style={styles.modalOverlay}
-                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            >
-                <View style={styles.modalContainer}>
-                    <View style={styles.modalHeader}>
-                        <TouchableOpacity onPress={() => setShowEditModal(false)}>
-                            <Text style={styles.modalCancel}>Cancel</Text>
-                        </TouchableOpacity>
-                        <Text style={styles.modalTitle}>Edit Profile</Text>
-                        <TouchableOpacity onPress={handleSaveProfile} disabled={isSaving}>
-                            <Text style={[styles.modalSave, isSaving && styles.modalSaveDisabled]}>
-                                {isSaving ? 'Saving...' : 'Save'}
-                            </Text>
-                        </TouchableOpacity>
+                        <Text style={styles.emptySub}>
+                            {selectedTab === 'posts'
+                                ? 'Bài viết bạn tạo sẽ hiển thị ở đây'
+                                : 'Bài viết bạn lưu sẽ hiển thị ở đây'}
+                        </Text>
                     </View>
+                )}
+            </ScrollView>
 
-                    <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
-                        <Text style={styles.fieldLabel}>Name</Text>
-                        <TextInput
-                            style={styles.fieldInput}
-                            value={editForm.name}
-                            onChangeText={(v) => setEditForm(f => ({ ...f, name: v }))}
-                            placeholder="Your name"
-                            placeholderTextColor="#9CA3AF"
-                        />
+            {/* ==================== EDIT MODAL ==================== */}
+            <Modal visible={showEditModal} animationType="slide" transparent onRequestClose={() => setShowEditModal(false)}>
+                <KeyboardAvoidingView style={styles.overlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+                    <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}>
+                        <View style={styles.dragBar} />
 
-                        <Text style={styles.fieldLabel}>Username</Text>
-                        <TextInput
-                            style={styles.fieldInput}
-                            value={editForm.username}
-                            onChangeText={(v) => setEditForm(f => ({ ...f, username: v }))}
-                            placeholder="@username"
-                            placeholderTextColor="#9CA3AF"
-                            autoCapitalize="none"
-                        />
+                        {/* Header */}
+                        <View style={styles.sheetHeader}>
+                            <TouchableOpacity onPress={() => setShowEditModal(false)} hitSlop={12}>
+                                <Text style={styles.sheetCancel}>Hủy</Text>
+                            </TouchableOpacity>
+                            <Text style={styles.sheetTitle}>Chỉnh sửa hồ sơ</Text>
+                            <TouchableOpacity onPress={handleSaveProfile} disabled={isSaving} hitSlop={12}>
+                                <Text style={[styles.sheetSave, isSaving && { color: '#9CA3AF' }]}>
+                                    {isSaving ? 'Đang lưu...' : 'Lưu'}
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
 
-                        <Text style={styles.fieldLabel}>Bio</Text>
-                        <TextInput
-                            style={[styles.fieldInput, styles.fieldInputMultiline]}
-                            value={editForm.bio}
-                            onChangeText={(v) => setEditForm(f => ({ ...f, bio: v }))}
-                            placeholder="Tell something about you"
-                            placeholderTextColor="#9CA3AF"
-                            multiline
-                            numberOfLines={3}
-                        />
+                        <ScrollView style={styles.sheetBody} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                            {/* Avatar preview */}
+                            <View style={styles.avatarPreview}>
+                                {editForm.avatarUrl ? (
+                                    <Image source={{ uri: editForm.avatarUrl }} style={styles.previewImg} />
+                                ) : (
+                                    <View style={[styles.avatarFallback, { width: 76, height: 76, borderRadius: 38 }]}>
+                                        <Ionicons name="person" size={32} color="#9CA3AF" />
+                                    </View>
+                                )}
+                                <Text style={styles.changePhotoLabel}>Thay đổi ảnh</Text>
+                            </View>
 
-                        <Text style={styles.fieldLabel}>Birthday</Text>
-                        <TextInput
-                            style={styles.fieldInput}
-                            value={editForm.birthday}
-                            onChangeText={(v) => setEditForm(f => ({ ...f, birthday: v }))}
-                            placeholder="YYYY-MM-DD"
-                            placeholderTextColor="#9CA3AF"
-                        />
+                            {/* Fields */}
+                            <Field label="Ảnh đại diện (URL)" value={editForm.avatarUrl}
+                                onChange={(v) => setEditForm(f => ({ ...f, avatarUrl: v }))}
+                                placeholder="https://example.com/avatar.jpg" autoCapitalize="none" />
 
-                        <Text style={styles.fieldLabel}>Gender</Text>
-                        <TextInput
-                            style={styles.fieldInput}
-                            value={editForm.gender}
-                            onChangeText={(v) => setEditForm(f => ({ ...f, gender: v }))}
-                            placeholder="male / female / other"
-                            placeholderTextColor="#9CA3AF"
-                            autoCapitalize="none"
-                        />
-                    </ScrollView>
-                </View>
-            </KeyboardAvoidingView>
-        </Modal>
+                            <Field label="Họ tên" value={editForm.name}
+                                onChange={(v) => setEditForm(f => ({ ...f, name: v }))}
+                                placeholder="Nhập họ tên" />
+
+                            <Field label="Tên người dùng" value={editForm.username}
+                                onChange={(v) => setEditForm(f => ({ ...f, username: v }))}
+                                placeholder="@username" autoCapitalize="none" />
+
+                            <View style={styles.fieldGroup}>
+                                <Text style={styles.fieldLabel}>Tiểu sử</Text>
+                                <TextInput
+                                    style={[styles.input, { height: 80, textAlignVertical: 'top' }]}
+                                    value={editForm.bio}
+                                    onChangeText={(v) => setEditForm(f => ({ ...f, bio: v }))}
+                                    placeholder="Giới thiệu bản thân..."
+                                    placeholderTextColor="#9CA3AF"
+                                    multiline numberOfLines={3}
+                                />
+                            </View>
+
+                            <Field label="Ngày sinh" value={editForm.birthday}
+                                onChange={(v) => setEditForm(f => ({ ...f, birthday: v }))}
+                                placeholder="DD/MM/YYYY" />
+
+                            {/* Gender chips */}
+                            <View style={styles.fieldGroup}>
+                                <Text style={styles.fieldLabel}>Giới tính</Text>
+                                <View style={styles.chipRow}>
+                                    {GENDER_OPTIONS.map(opt => {
+                                        const active = editForm.gender === opt.value;
+                                        return (
+                                            <TouchableOpacity
+                                                key={opt.value}
+                                                style={[styles.chip, active && styles.chipActive]}
+                                                onPress={() => setEditForm(f => ({ ...f, gender: opt.value }))}
+                                                activeOpacity={0.7}
+                                            >
+                                                <Text style={[styles.chipText, active && styles.chipTextActive]}>{opt.label}</Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </View>
+                            </View>
+
+                            <View style={{ height: 32 }} />
+                        </ScrollView>
+                    </View>
+                </KeyboardAvoidingView>
+            </Modal>
         </>
     );
 }
 
+/* ─────────── Small components ─────────── */
+
+function StatBlock({ label, value, showBadge }: { label: string; value: number; showBadge?: boolean }) {
+    return (
+        <View style={styles.statBlock}>
+            <View style={{ position: 'relative' }}>
+                <Text style={styles.statNum}>{value}</Text>
+                {showBadge && <View style={styles.badge} />}
+            </View>
+            <Text style={styles.statLabel}>{label}</Text>
+        </View>
+    );
+}
+
+function MetaChip({ icon, text }: { icon: string; text: string }) {
+    return (
+        <View style={styles.metaChip}>
+            <Ionicons name={icon as any} size={13} color="#6B7280" />
+            <Text style={styles.metaText}>{text}</Text>
+        </View>
+    );
+}
+
+function Field({ label, value, onChange, placeholder, autoCapitalize }: {
+    label: string; value: string; onChange: (v: string) => void;
+    placeholder?: string; autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+}) {
+    return (
+        <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>{label}</Text>
+            <TextInput
+                style={styles.input}
+                value={value}
+                onChangeText={onChange}
+                placeholder={placeholder}
+                placeholderTextColor="#9CA3AF"
+                autoCapitalize={autoCapitalize}
+            />
+        </View>
+    );
+}
+
+/* ======================== STYLES ======================== */
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
+    /* ---- Screens ---- */
+    screen: { flex: 1, backgroundColor: '#F5F5F7' },
+    centerScreen: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F5F5F7', gap: 10 },
+    loadingText: { fontSize: 14, color: '#6B7280' },
+    errorText: { fontSize: 15, color: '#9CA3AF', marginTop: 8 },
+
+    /* ---- Card ---- */
+    card: {
         backgroundColor: '#fff',
+        marginHorizontal: 14,
+        marginTop: 10,
+        borderRadius: 20,
+        padding: 20,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 12,
+        elevation: 3,
     },
-    loadingContainer: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        backgroundColor: '#fff',
-    },
-    loadingText: {
-        marginTop: 12,
-        fontSize: 14,
-        color: '#6B7280',
-    },
-    errorText: {
-        fontSize: 16,
-        color: '#EF4444',
-    },
-    header: {
-        padding: 16,
-    },
-    statsContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 16,
-    },
-    avatarContainer: {
-        marginRight: 24,
-    },
+    topRow: { flexDirection: 'row', alignItems: 'center' },
+    avatarWrap: { position: 'relative', marginRight: 18 },
     avatar: {
-        width: 88,
-        height: 88,
-        borderRadius: 44,
+        width: 78, height: 78, borderRadius: 39,
+        borderWidth: 2.5, borderColor: '#E5E7EB',
     },
-    avatarPlaceholder: {
-        width: 88,
-        height: 88,
-        borderRadius: 44,
-        backgroundColor: '#F3F4F6',
-        alignItems: 'center',
-        justifyContent: 'center',
+    avatarFallback: {
+        width: 78, height: 78, borderRadius: 39,
+        backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center',
+        borderWidth: 2.5, borderColor: '#E5E7EB',
     },
-    stats: {
-        flex: 1,
-        flexDirection: 'row',
-        justifyContent: 'space-around',
+    onlineDot: {
+        position: 'absolute', bottom: 2, right: 2,
+        width: 13, height: 13, borderRadius: 7,
+        backgroundColor: '#22C55E', borderWidth: 2.5, borderColor: '#fff',
     },
-    statItem: {
-        alignItems: 'center',
+    statsRow: { flex: 1, flexDirection: 'row', justifyContent: 'space-around' },
+    statBlock: { alignItems: 'center' },
+    statNum: { fontSize: 19, fontWeight: '700', color: '#1F2937' },
+    statLabel: { fontSize: 12, color: '#6B7280', marginTop: 2 },
+    badge: {
+        position: 'absolute', top: -3, right: -10,
+        width: 8, height: 8, borderRadius: 4, backgroundColor: '#EF4444',
     },
-    statNumberContainer: {
-        position: 'relative',
-        alignItems: 'center',
-        justifyContent: 'center',
+
+    /* ---- Info ---- */
+    infoBlock: { marginTop: 16 },
+    displayName: { fontSize: 20, fontWeight: '700', color: '#111827' },
+    handle: { fontSize: 14, color: '#6B7280', fontWeight: '500', marginTop: 2 },
+    bio: { fontSize: 14, color: '#4B5563', lineHeight: 20, marginTop: 8 },
+    metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 10 },
+    metaChip: {
+        flexDirection: 'row', alignItems: 'center', gap: 4,
+        backgroundColor: '#F3F4F6', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20,
     },
-    statNumber: {
-        fontSize: 18,
-        fontWeight: '600',
-        color: '#1F2937',
+    metaText: { fontSize: 12, color: '#6B7280' },
+
+    /* ---- Actions ---- */
+    btnRow: { flexDirection: 'row', marginTop: 18, gap: 10 },
+    primaryBtn: {
+        flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+        gap: 6, backgroundColor: '#111827', paddingVertical: 12, borderRadius: 12,
     },
-    statLabel: {
-        fontSize: 14,
-        color: '#6B7280',
+    primaryBtnText: { color: '#fff', fontWeight: '600', fontSize: 14 },
+    dangerBtn: {
+        backgroundColor: '#FEF2F2', paddingHorizontal: 14, borderRadius: 12,
+        alignItems: 'center', justifyContent: 'center',
     },
-    redDot: {
-        position: 'absolute',
-        top: -2,
-        right: -8,
-        width: 8,
-        height: 8,
-        borderRadius: 4,
-        backgroundColor: '#EF4444',
-    },
-    userInfo: {
-        marginBottom: 16,
-    },
-    nameRow: {
-        marginBottom: 4,
-    },
-    fullName: {
-        fontSize: 18,
-        fontWeight: '700',
-        color: '#1F2937',
-        marginBottom: 2,
-    },
-    username: {
-        fontSize: 14,
-        color: '#6B7280',
-        marginBottom: 8,
-    },
-    bio: {
-        fontSize: 14,
-        color: '#374151',
-        lineHeight: 20,
-        marginBottom: 8,
-    },
-    infoText: {
-        fontSize: 13,
-        color: '#6B7280',
-        marginTop: 4,
-    },
-    actionButtons: {
-        flexDirection: 'row',
-        gap: 8,
-    },
-    editButton: {
-        flex: 1,
-        backgroundColor: '#F3F4F6',
-        padding: 10,
-        borderRadius: 8,
-        alignItems: 'center',
-    },
-    editButtonText: {
-        fontWeight: '600',
-        fontSize: 14,
-        color: '#1F2937',
-    },
-    logoutButton: {
-        backgroundColor: '#FEF2F2',
-        padding: 10,
-        borderRadius: 8,
-        width: 44,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    tabs: {
-        flexDirection: 'row',
-        borderTopWidth: 1,
-        borderTopColor: '#E5E7EB',
+
+    /* ---- Tab bar ---- */
+    tabBar: {
+        flexDirection: 'row', marginHorizontal: 14, marginTop: 14,
+        backgroundColor: '#fff', borderRadius: 14, overflow: 'hidden',
+        shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4, elevation: 2,
     },
     tab: {
-        flex: 1,
-        alignItems: 'center',
-        paddingVertical: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: 'transparent',
+        flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+        gap: 6, paddingVertical: 13,
+        borderBottomWidth: 2.5, borderBottomColor: 'transparent',
     },
-    tabActive: {
-        borderBottomColor: '#1F2937',
+    tabActive: { borderBottomColor: '#111827' },
+    tabText: { fontSize: 13, fontWeight: '500', color: '#9CA3AF' },
+    tabTextActive: { color: '#111827', fontWeight: '600' },
+
+    /* ---- Grid ---- */
+    grid: {
+        flexDirection: 'row', flexWrap: 'wrap',
+        paddingHorizontal: 14, paddingTop: 14, gap: GRID_GAP,
     },
-    postsGrid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        padding: 1,
+    gridItem: {
+        width: GRID_ITEM_SIZE, aspectRatio: 1, borderRadius: 12, overflow: 'hidden',
     },
-    postItem: {
-        width: '33.33%',
-        aspectRatio: 1,
-        padding: 1,
+    gridImage: { width: '100%', height: '100%', backgroundColor: '#E5E7EB' },
+
+    /* ---- Empty ---- */
+    emptyWrap: { alignItems: 'center', paddingVertical: 56 },
+    emptyCircle: {
+        width: 80, height: 80, borderRadius: 40, backgroundColor: '#F3F4F6',
+        alignItems: 'center', justifyContent: 'center', marginBottom: 14,
     },
-    postImage: {
-        width: '100%',
-        height: '100%',
-        backgroundColor: '#F3F4F6',
+    emptyTitle: { fontSize: 16, fontWeight: '600', color: '#6B7280' },
+    emptySub: { fontSize: 13, color: '#9CA3AF', marginTop: 4 },
+
+    /* ======== MODAL ======== */
+    overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+    sheet: {
+        backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '92%',
     },
-    emptyState: {
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingVertical: 60,
+    dragBar: {
+        width: 40, height: 4, borderRadius: 2, backgroundColor: '#D1D5DB',
+        alignSelf: 'center', marginTop: 10, marginBottom: 4,
     },
-    emptyText: {
-        fontSize: 16,
-        color: '#6B7280',
-        marginTop: 16,
+    sheetHeader: {
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+        paddingHorizontal: 20, paddingVertical: 12,
+        borderBottomWidth: 1, borderBottomColor: '#F3F4F6',
     },
-    modalOverlay: {
-        flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.45)',
-        justifyContent: 'flex-end',
+    sheetTitle: { fontSize: 17, fontWeight: '700', color: '#111827' },
+    sheetCancel: { fontSize: 15, color: '#6B7280', fontWeight: '500' },
+    sheetSave: { fontSize: 15, fontWeight: '700', color: '#111827' },
+    sheetBody: { paddingHorizontal: 20 },
+
+    avatarPreview: { alignItems: 'center', paddingVertical: 18 },
+    previewImg: { width: 76, height: 76, borderRadius: 38, borderWidth: 2.5, borderColor: '#E5E7EB' },
+    changePhotoLabel: { fontSize: 13, color: '#111827', fontWeight: '600', marginTop: 8 },
+
+    /* ---- Fields ---- */
+    fieldGroup: { marginTop: 16 },
+    fieldLabel: { fontSize: 13, fontWeight: '600', color: '#374151', marginBottom: 6 },
+    input: {
+        backgroundColor: '#F9FAFB', borderWidth: 1, borderColor: '#E5E7EB',
+        borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12,
+        fontSize: 15, color: '#1F2937',
     },
-    modalContainer: {
-        backgroundColor: '#fff',
-        borderTopLeftRadius: 20,
-        borderTopRightRadius: 20,
-        maxHeight: '85%',
+    chipRow: { flexDirection: 'row', gap: 10 },
+    chip: {
+        flex: 1, paddingVertical: 11, borderRadius: 12,
+        borderWidth: 1.5, borderColor: '#E5E7EB', alignItems: 'center', backgroundColor: '#F9FAFB',
     },
-    modalHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 16,
-        paddingVertical: 14,
-        borderBottomWidth: 1,
-        borderBottomColor: '#E5E7EB',
-    },
-    modalTitle: {
-        fontSize: 16,
-        fontWeight: '700',
-        color: '#1F2937',
-    },
-    modalCancel: {
-        fontSize: 15,
-        color: '#6B7280',
-    },
-    modalSave: {
-        fontSize: 15,
-        fontWeight: '700',
-        color: '#3B82F6',
-    },
-    modalSaveDisabled: {
-        color: '#93C5FD',
-    },
-    modalBody: {
-        padding: 16,
-    },
-    fieldLabel: {
-        fontSize: 13,
-        fontWeight: '600',
-        color: '#374151',
-        marginTop: 12,
-        marginBottom: 4,
-    },
-    fieldInput: {
-        backgroundColor: '#F9FAFB',
-        borderWidth: 1,
-        borderColor: '#E5E7EB',
-        borderRadius: 8,
-        paddingHorizontal: 12,
-        paddingVertical: 10,
-        fontSize: 15,
-        color: '#1F2937',
-    },
-    fieldInputMultiline: {
-        height: 80,
-        textAlignVertical: 'top',
-    },
+    chipActive: { borderColor: '#111827', backgroundColor: '#F3F4F6' },
+    chipText: { fontSize: 14, fontWeight: '500', color: '#6B7280' },
+    chipTextActive: { color: '#111827', fontWeight: '600' },
 });
+

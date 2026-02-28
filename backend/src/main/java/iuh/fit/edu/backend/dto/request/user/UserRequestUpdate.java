@@ -5,6 +5,7 @@ import lombok.Data;
 
 @Data
 public class UserRequestUpdate {
+    private String name;
     private Gender gender;
     private String backgroundUrl;
     private String avatarUrl;

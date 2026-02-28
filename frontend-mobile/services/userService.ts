@@ -8,6 +8,7 @@ export interface UpdateProfileRequest {
     avatarUrl?: string;
     birthday?: string;
     gender?: string;
+    backgroundUrl?: string;
 }
 
 class UserService {

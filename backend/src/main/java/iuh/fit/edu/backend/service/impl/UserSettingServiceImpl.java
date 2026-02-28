@@ -31,7 +31,10 @@ public class UserSettingServiceImpl implements UserSettingService {
         User userCurrent=userService.getCurrentUser();
         UserSetting userSetting=userSettingRepository.findById(user.getId()).orElse(null);
 
-        assert userSetting != null;
+        // No settings row yet → default to PUBLIC
+        if(userSetting == null){
+            return user;
+        }
         if(PrivacyType.PUBLIC.equals(userSetting.getPrivacyProfile())){
             return user;
         } else if (PrivacyType.FRIENDS.equals(userSetting.getPrivacyProfile())) {
@@ -54,7 +57,8 @@ public class UserSettingServiceImpl implements UserSettingService {
         } else if (PrivacyType.ONLY_ME.equals(userSetting.getPrivacyProfile())) {
             return hiddenProfile(id);
         }
-        return null;
+        // Fallback: return user as-is
+        return user;
     }
 
 

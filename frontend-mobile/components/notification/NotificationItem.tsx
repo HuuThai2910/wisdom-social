@@ -43,7 +43,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#fff',
     },
     unread: {
-        backgroundColor: '#EFF6FF',
+        backgroundColor: '#F9FAFB',
     },
     avatar: {
         width: 44,
@@ -67,10 +67,11 @@ const styles = StyleSheet.create({
     postImage: {
         width: 44,
         height: 44,
+        borderRadius: 8,
         marginLeft: 8,
     },
     followButton: {
-        backgroundColor: '#3B82F6',
+        backgroundColor: '#111827',
         paddingHorizontal: 16,
         paddingVertical: 8,
         borderRadius: 8,

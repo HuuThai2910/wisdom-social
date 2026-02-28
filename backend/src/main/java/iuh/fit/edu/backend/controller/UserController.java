@@ -36,8 +36,13 @@ public class UserController {
 
     @PostMapping("/register")
     @ApiMessage("Register User success")
-    public ResponseEntity<UserResponseRegister> registerUser(@RequestBody UserRequestRegister register){
-        UserResponseRegister responseRegister=userService.registerUser(register);
+    public ResponseEntity<UserResponseRegister> registerUser(@RequestBody UserRequestRegister register,
+                                                             HttpServletRequest httpRequest) {
+        if (register.getIpAddress() == null || register.getIpAddress().isBlank()) {
+            String ip = getClientIp(httpRequest);
+            register.setIpAddress(ip);
+        }
+        UserResponseRegister responseRegister = userService.registerUser(register);
         return ResponseEntity.ok(responseRegister);
     }
 
@@ -49,9 +54,22 @@ public class UserController {
 
     @PostMapping("/login")
     @ApiMessage("Login User success")
-    public ResponseEntity<UserResponseLogin> loginUser(@RequestBody UserRequestLogin login){
-        UserResponseLogin responseLogin=userService.loginUser(login);
+    public ResponseEntity<UserResponseLogin> loginUser(@RequestBody UserRequestLogin login,
+                                                       HttpServletRequest httpRequest) {
+        if (login.getIpAddress() == null || login.getIpAddress().isBlank()) {
+            String ip = getClientIp(httpRequest);
+            login.setIpAddress(ip);
+        }
+        UserResponseLogin responseLogin = userService.loginUser(login);
         return ResponseEntity.ok(responseLogin);
+    }
+
+    private String getClientIp(HttpServletRequest request) {
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (forwarded != null && !forwarded.isBlank()) {
+            return forwarded.split(",")[0].trim();
+        }
+        return request.getRemoteAddr();
     }
     @PostMapping("/logout")
     public ResponseEntity<String> logoutUser(HttpServletRequest request){

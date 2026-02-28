@@ -1,10 +1,14 @@
 import apiClient from '../api/apiClient';
 import { saveToken, saveRefreshToken, saveIdToken, saveUser, clearStorage } from '../utils/storage';
+import { getDeviceInfo } from '../utils/deviceInfo';
 
 export interface RegisterRequest {
     phone: string;
     password: string;
     confirmPassword: string;
+    deviceType?: string;
+    deviceName?: string;
+    ipAddress?: string;
 }
 
 export interface ConfirmRegisterRequest {
@@ -15,6 +19,9 @@ export interface ConfirmRegisterRequest {
 export interface LoginRequest {
     phone: string;
     password: string;
+    deviceType?: string;
+    deviceName?: string;
+    ipAddress?: string;
 }
 
 export interface ForgotPasswordRequest {
@@ -55,7 +62,13 @@ class AuthService {
     // Register user
     async register(data: RegisterRequest): Promise<RegisterResponse | null> {
         try {
-            const response = await apiClient.post('/auth/register', data);
+            const device = await getDeviceInfo();
+            const response = await apiClient.post('/auth/register', {
+                ...data,
+                deviceType: device.deviceType,
+                deviceName: device.deviceName,
+                ipAddress: device.ipAddress,
+            });
             return response.data.data;
         } catch (error: any) {
             this.handleError(error);
@@ -77,7 +90,13 @@ class AuthService {
     // Login user
     async login(data: LoginRequest): Promise<LoginResponse | null> {
         try {
-            const response = await apiClient.post('/auth/login', data);
+            const device = await getDeviceInfo();
+            const response = await apiClient.post('/auth/login', {
+                ...data,
+                deviceType: device.deviceType,
+                deviceName: device.deviceName,
+                ipAddress: device.ipAddress,
+            });
             const loginData: LoginResponse = response.data.data;
 
             // Save tokens

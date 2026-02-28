@@ -6,6 +6,7 @@ package iuh.fit.edu.backend.service.impl;
 
 import iuh.fit.edu.backend.domain.entity.mysql.BlackListUser;
 import iuh.fit.edu.backend.domain.entity.mysql.BlockedUser;
+import iuh.fit.edu.backend.domain.entity.mysql.Device;
 import iuh.fit.edu.backend.domain.entity.mysql.User;
 import iuh.fit.edu.backend.dto.request.friend.FriendRequest;
 import iuh.fit.edu.backend.dto.request.user.*;
@@ -15,6 +16,7 @@ import iuh.fit.edu.backend.dto.response.user.UserResponseOTPPassword;
 import iuh.fit.edu.backend.dto.response.user.UserResponseRegister;
 import iuh.fit.edu.backend.mapper.UserMapper;
 import iuh.fit.edu.backend.repository.mysql.BlackListUserRepository;
+import iuh.fit.edu.backend.repository.mysql.DeviceRepository;
 import iuh.fit.edu.backend.repository.mysql.UserRepository;
 import iuh.fit.edu.backend.service.impl.user.BlockUserService;
 import iuh.fit.edu.backend.service.impl.user.UserService;
@@ -49,17 +51,20 @@ public class UserServiceImpl implements UserService {
     BlockUserService blockUserService;
     CognitoIdentityProviderClient cognitoClient;
     SimpMessagingTemplate simpMessagingTemplate;
+    DeviceRepository deviceRepository;
 
     public UserServiceImpl(BlackListUserRepository blackListUserRepository,
                            BlockUserService blockUserService, CognitoIdentityProviderClient cognitoClient,
                            UserMapper userMapper, UserRepository userRepository,
-                           SimpMessagingTemplate simpMessagingTemplate) {
+                           SimpMessagingTemplate simpMessagingTemplate,
+                           DeviceRepository deviceRepository) {
         this.blackListUserRepository = blackListUserRepository;
         this.blockUserService = blockUserService;
         this.cognitoClient = cognitoClient;
         this.userMapper = userMapper;
         this.userRepository = userRepository;
         this.simpMessagingTemplate = simpMessagingTemplate;
+        this.deviceRepository = deviceRepository;
     }
 
     /*Đăng kí tài khoản bằng aws cognito
@@ -87,6 +92,7 @@ public class UserServiceImpl implements UserService {
                         .build();
                 cognitoClient.signUp(request);
                 userRepository.save(user);
+                saveDevice(user, register.getDeviceType(), register.getDeviceName(), register.getIpAddress());
                 return userMapper.UsertoUserRegisterResponse(user);
             }
         }
@@ -132,6 +138,7 @@ public class UserServiceImpl implements UserService {
             String refreshToken = resultType.refreshToken();
             String idToken=resultType.idToken();
             User user= userRepository.findByPhone(login.getPhone());
+            saveDevice(user, login.getDeviceType(), login.getDeviceName(), login.getIpAddress());
             return UserResponseLogin.builder()
                     .phone(user.getPhone())
                     .username(user.getUsername())
@@ -153,6 +160,17 @@ public class UserServiceImpl implements UserService {
                 .refreshToken(refreshToken)
                 .build();
         blackListUserRepository.save(blackListUser);
+    }
+
+    private void saveDevice(User user, String deviceType, String deviceName, String ipAddress) {
+        if (user == null) return;
+        Device device = new Device();
+        device.setUser(user);
+        device.setDeviceType(deviceType != null ? deviceType : "UNKNOWN");
+        device.setNameDevice(deviceName != null ? deviceName : "UNKNOWN");
+        device.setIpAddress(ipAddress != null ? ipAddress : "UNKNOWN");
+        device.setCreateAt(OffsetDateTime.now());
+        deviceRepository.save(device);
     }
 
     @Override
@@ -259,15 +277,13 @@ public class UserServiceImpl implements UserService {
         if(id>0){
            User user=userRepository.findById(id).orElse(null);
            if(user!=null){
-               user=User.builder()
-                       .id(id)
-                       .bio(requestUpdate.getBio())
-                       .gender(requestUpdate.getGender())
-                       .avatarUrl(requestUpdate.getAvatarUrl())
-                       .birthday(requestUpdate.getBirthday())
-                       .username(requestUpdate.getUsername())
-                       .updatedAt(OffsetDateTime.now())
-                       .build();
+               if (requestUpdate.getName() != null) user.setName(requestUpdate.getName());
+               if (requestUpdate.getBio() != null) user.setBio(requestUpdate.getBio());
+               if (requestUpdate.getGender() != null) user.setGender(requestUpdate.getGender());
+               if (requestUpdate.getAvatarUrl() != null) user.setAvatarUrl(requestUpdate.getAvatarUrl());
+               if (requestUpdate.getBirthday() != null) user.setBirthday(requestUpdate.getBirthday());
+               if (requestUpdate.getUsername() != null) user.setUsername(requestUpdate.getUsername());
+               user.setUpdatedAt(OffsetDateTime.now());
                userRepository.save(user);
                return true;
            }
