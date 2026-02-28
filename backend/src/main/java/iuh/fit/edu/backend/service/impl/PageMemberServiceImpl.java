@@ -7,7 +7,6 @@ import iuh.fit.edu.backend.domain.entity.mysql.Page;
 import iuh.fit.edu.backend.domain.entity.mysql.PageMember;
 import iuh.fit.edu.backend.domain.entity.mysql.User;
 import iuh.fit.edu.backend.dto.request.page.UserRequestMemberPage;
-import iuh.fit.edu.backend.dto.request.page.UserRequestPage;
 import iuh.fit.edu.backend.repository.mysql.BlockUserRepository;
 import iuh.fit.edu.backend.repository.mysql.PageMemberRepository;
 import iuh.fit.edu.backend.service.impl.page.PageMemberService;

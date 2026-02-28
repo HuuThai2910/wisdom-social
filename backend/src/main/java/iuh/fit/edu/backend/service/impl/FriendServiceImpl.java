@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -44,16 +45,29 @@ public class FriendServiceImpl implements FriendService {
         String requestKey=buildRequestKey(senderId,receiverId);
 
         if(senderId>0 && receiverId>0){
+            User receiver = userService.findUserById(receiverId);
+            User sender = userService.findUserById(senderId);
+            
             //save redis
             redisTemplate.opsForSet().add(sentKey, String.valueOf(receiverId));
             redisTemplate.opsForSet().add(recievedKey, String.valueOf(senderId));
             redisTemplate.opsForValue().set(requestKey,FriendStatus.PENDING.toString(), Duration.ofDays(7));
-            //push websocket
-            messagingTemplate.convertAndSendToUser(
-                    "+84398723346",
-                    "/queue/friend-request",
-                    "Bạn có lời mời kết bạn"
-            );
+            
+            //push websocket to receiver
+            if(receiver != null && receiver.getPhone() != null) {
+                String receiverPhone = convertToInternationalFormat(receiver.getPhone());
+                String senderName = sender.getName() != null && !sender.getName().isEmpty()
+                    ? sender.getName()
+                    : (sender.getUsername() != null && !sender.getUsername().isEmpty()
+                        ? sender.getUsername()
+                        : sender.getPhone());
+                String message = "Bạn có lời mời kết bạn từ " + senderName;
+                
+                messagingTemplate.convertAndSend(
+                        "/topic/user/" + receiverPhone + "/friend-request",
+                        message
+                );
+            }
 
             return true;
         }
@@ -63,30 +77,53 @@ public class FriendServiceImpl implements FriendService {
     @Override
     public boolean acceptFriendRequest(long senderId, long receiverId) {
         if(senderId>0 && receiverId>0){
-            // 1. Xóa Redis
-            redisTemplate.opsForSet()
-                    .remove(buildReceivedRequestKey(senderId), String.valueOf(receiverId));
+            User sender = userService.findUserById(senderId);
+            User receiver = userService.findUserById(receiverId);
+
+            // Check if already friends
+            Friend existingFriend = friendRepository.findFriendByUserAndFriend(sender, receiver);
+            if(existingFriend == null) {
+                existingFriend = friendRepository.findFriendByUserAndFriend(receiver, sender);
+            }
+            
+            if(existingFriend != null && existingFriend.getStatus().equals(FriendStatus.ACCEPTED)) {
+                return true;
+            }
 
             redisTemplate.opsForSet()
-                    .remove(buildSentRequestKey(receiverId), String.valueOf(senderId));
+                    .remove(buildSentRequestKey(senderId), String.valueOf(receiverId));
 
-            redisTemplate.delete(buildRequestKey(receiverId,senderId));
+            redisTemplate.opsForSet()
+                    .remove(buildReceivedRequestKey(receiverId), String.valueOf(senderId));
 
-            // 2. Lưu DB
-            Friend friend=Friend.builder()
-                    .status(FriendStatus.ACCEPTED)
-                    .user(userService.findUserById(senderId))
-                    .friend(userService.findUserById(receiverId))
-                    .friendAt(OffsetDateTime.now().toLocalDateTime())
-                    .build();
-            friendRepository.save(friend);
+            redisTemplate.delete(buildRequestKey(senderId,receiverId));
+
+            // 2. Lưu DB (only if not exists)
+            if(existingFriend == null) {
+                Friend friend=Friend.builder()
+                        .status(FriendStatus.ACCEPTED)
+                        .user(sender)
+                        .friend(receiver)
+                        .friendAt(OffsetDateTime.now().toLocalDateTime())
+                        .build();
+                friendRepository.save(friend);
+            } else {
+                // Update existing to ACCEPTED
+                existingFriend.setStatus(FriendStatus.ACCEPTED);
+                existingFriend.setFriendAt(OffsetDateTime.now().toLocalDateTime());
+                friendRepository.save(existingFriend);
+            }
 
             // 3. Push realtime cho sender
-            messagingTemplate.convertAndSendToUser(
-                    "+84398723346",
-                    "/queue/friend-accept",
-                    "Lời mời của bạn đã được chấp nhận"
-            );
+            if(sender != null && sender.getPhone() != null) {
+                String senderPhone = convertToInternationalFormat(sender.getPhone());
+                String message = (receiver.getName() != null ? receiver.getName() : receiver.getPhone()) + " đã chấp nhận lời mời kết bạn của bạn";
+                
+                messagingTemplate.convertAndSend(
+                        "/topic/user/" + senderPhone + "/friend-accept",
+                        message
+                );
+            }
             return true;
         }
         return false;
@@ -100,22 +137,38 @@ public class FriendServiceImpl implements FriendService {
                     userService.findUserById(senderId),
                     userService.findUserById(receiverId)
             );
+            
+            if(friend == null) {
+                friend = friendRepository.findFriendByUserAndFriend(
+                        userService.findUserById(receiverId),
+                        userService.findUserById(senderId)
+                );
+            }
 
             if(friend==null){
+                // Only in Redis, remove from cache
                 redisTemplate.opsForSet().remove(buildSentRequestKey(senderId),String.valueOf(receiverId));
                 redisTemplate.opsForSet().remove(buildReceivedRequestKey(receiverId),String.valueOf(senderId));
                 redisTemplate.delete(buildRequestKey(senderId,receiverId));
             }else {
-                if(friend.getStatus().equals(FriendStatus.PENDING)){
+                // In DB, delete both PENDING and ACCEPTED
+                if(friend.getStatus().equals(FriendStatus.PENDING) || 
+                   friend.getStatus().equals(FriendStatus.ACCEPTED)){
                     friendRepository.deleteById(friend.getId());
                 }
             }
 
-            messagingTemplate.convertAndSendToUser(
-                    "+84398723346",
-                    "/queue/friend-cancel",
-                    "Hủy lời mời kết bạn thành công"
-            );
+            // Push notification to receiver about cancellation
+            User receiver = userService.findUserById(receiverId);
+            if(receiver != null && receiver.getPhone() != null) {
+                String receiverPhone = convertToInternationalFormat(receiver.getPhone());
+                String message = "Lời mời kết bạn đã bị hủy";
+                
+                messagingTemplate.convertAndSend(
+                        "/topic/user/" + receiverPhone + "/friend-cancel",
+                        message
+                );
+            }
             return true;
         }
         return false;
@@ -124,26 +177,39 @@ public class FriendServiceImpl implements FriendService {
     @Override
     public boolean rejectFriendRequest(long senderId, long receiverId) {
         if(senderId>0 && receiverId >0){
-            Friend friend=friendRepository.findFriendByFriendAndUser(
-                    userService.findUserById(senderId),
-                    userService.findUserById(receiverId)
-            );
+            User senderUser = userService.findUserById(senderId);
+            User receiverUser = userService.findUserById(receiverId);
+            
+            // Check both directions in DB
+            Friend friend = friendRepository.findFriendByUserAndFriend(senderUser, receiverUser);
+            
+            if(friend == null) {
+                friend = friendRepository.findFriendByUserAndFriend(receiverUser, senderUser);
+            }
 
-            if(friend==null){
-                redisTemplate.opsForSet().remove(buildSentRequestKey(receiverId),String.valueOf(senderId));
-                redisTemplate.opsForSet().remove(buildReceivedRequestKey(senderId),String.valueOf(receiverId));
-                redisTemplate.delete(buildRequestKey(receiverId,senderId));
-            }else {
+            redisTemplate.opsForSet().remove(buildSentRequestKey(senderId), String.valueOf(receiverId));
+            redisTemplate.opsForSet().remove(buildReceivedRequestKey(receiverId), String.valueOf(senderId));
+            redisTemplate.delete(buildRequestKey(senderId, receiverId));
+
+            redisTemplate.opsForSet().remove(buildSentRequestKey(receiverId), String.valueOf(senderId));
+            redisTemplate.opsForSet().remove(buildReceivedRequestKey(senderId), String.valueOf(receiverId));
+            redisTemplate.delete(buildRequestKey(receiverId, senderId));
+
+            if(friend != null) {
                 if(friend.getStatus().equals(FriendStatus.PENDING)){
                     friendRepository.deleteById(friend.getId());
                 }
             }
 
-            messagingTemplate.convertAndSendToUser(
-                    "+84398723346",
-                    "/queue/friend-reject",
-                    "Từ chối kết bạn thành công"
-            );
+            if(senderUser != null && senderUser.getPhone() != null) {
+                String senderPhone = convertToInternationalFormat(senderUser.getPhone());
+                String message = (receiverUser != null && receiverUser.getName() != null ? receiverUser.getName() : "Người dùng") + " đã từ chối lời mời kết bạn";
+                
+                messagingTemplate.convertAndSend(
+                        "/topic/user/" + senderPhone + "/friend-reject",
+                        message
+                );
+            }
             return true;
         }
         return false;
@@ -154,7 +220,7 @@ public class FriendServiceImpl implements FriendService {
     public void syncFriendRequestsToDb() {
         Set<String> keys=redisTemplate.keys("friend:request:*");
 
-        if(keys==null) return;
+        if(keys.isEmpty()) return;
 
         for(String key: keys){
             String[] parts=key.split(":");
@@ -182,33 +248,71 @@ public class FriendServiceImpl implements FriendService {
 
     @Override
     public List<User> getFriendRequestOfUser(long userId) {
-        User user=userService.findUserById(userId);
-        if(user!=null){
-            List<Friend> friends= friendRepository.findFriendsByUser(user);
-            List<User> listUser=new ArrayList<>();
-            for (Friend friend:friends){
-                if(FriendStatus.PENDING.equals(friend.getStatus())){
-                    User temp=userService.findUserById(friend.getFriend().getId());
-                    listUser.add(temp);
+        User user = userService.findUserById(userId);
+        if (user != null) {
+            List<User> listUser = new ArrayList<>();
+            Set<Long> addedUserIds = new HashSet<>();
+            
+            String receivedKey = buildReceivedRequestKey(userId);
+            Set<String> senderIds = redisTemplate.opsForSet().members(receivedKey);
+            
+            if (senderIds != null) {
+                for (String senderIdStr : senderIds) {
+
+                        long senderId = Long.parseLong(senderIdStr);
+                        User sender = userService.findUserById(senderId);
+                        if (sender != null) {
+                            listUser.add(sender);
+                            addedUserIds.add(senderId);
+                        }
                 }
             }
+
+            List<Friend> friends = friendRepository.findFriendsByFriend(user);
+            for (Friend friend : friends) {
+                if (FriendStatus.PENDING.equals(friend.getStatus())) {
+                    long senderId = friend.getUser().getId();
+                    if (!addedUserIds.contains(senderId)) {
+                        User sender = userService.findUserById(senderId);
+                        if (sender != null) {
+                            listUser.add(sender);
+                            addedUserIds.add(senderId);
+                        }
+                    }
+                }
+            }
+            
             return listUser;
         }
-        return null;
+        return new ArrayList<>();
     }
 
     @Override
     public List<User> getFriendsOfUser(long userId) {
         User user=userService.findUserById(userId);
+        List<User> listUser=new ArrayList<>();
         if(user!=null){
             List<Friend> friends= friendRepository.findFriendsByUser(user);
-            List<User> listUser=new ArrayList<>();
-            for (Friend friend:friends){
-                if(FriendStatus.ACCEPTED.equals(friend.getStatus())){
-                    User temp=userService.findUserById(friend.getFriend().getId());
-                    listUser.add(temp);
+            if (!friends.isEmpty()){
+                for (Friend friend:friends){
+                    if(FriendStatus.ACCEPTED.equals(friend.getStatus())){
+                        User temp=userService.findUserById(friend.getFriend().getId());
+                        listUser.add(temp);
+                    }
+                }
+
+            }
+
+            List<Friend> friendsMy= friendRepository.findFriendsByFriend(user);
+            if (!friendsMy.isEmpty()){
+                for (Friend friend:friendsMy){
+                    if(FriendStatus.ACCEPTED.equals(friend.getStatus())){
+                        User temp=userService.findUserById(friend.getUser().getId());
+                        listUser.add(temp);
+                    }
                 }
             }
+
             return listUser;
         }
         return null;
@@ -224,5 +328,22 @@ public class FriendServiceImpl implements FriendService {
 
     private String buildRequestKey(long senderId, long receivedId){
         return "friend:request:"+senderId+":"+receivedId;
+    }
+
+
+    private String convertToInternationalFormat(String phone) {
+        if (phone == null || phone.isEmpty()) {
+            return null;
+        }
+        
+        if (phone.startsWith("+84")) {
+            return phone;
+        }
+        
+        if (phone.startsWith("0")) {
+            return "+84" + phone.substring(1);
+        }
+
+        return "+84" + phone;
     }
 }

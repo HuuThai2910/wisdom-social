@@ -72,7 +72,6 @@ public class UserServiceImpl implements UserService {
     public UserResponseRegister registerUser(UserRequestRegister register) {
         if(register.getPassword().equals(register.getConfirmPassword())){
             String phone="+84"+register.getPhone().substring(1,10);
-            System.out.println(phone);
             User user=userMapper.UserRegistertoUser(register);
             if(user!=null){
                 SignUpRequest request=SignUpRequest.builder()
@@ -135,6 +134,10 @@ public class UserServiceImpl implements UserService {
             User user= userRepository.findByPhone(login.getPhone());
             return UserResponseLogin.builder()
                     .phone(user.getPhone())
+                    .username(user.getUsername())
+                    .gender(user.getGender())
+                    .birthday(user.getBirthday())
+                    .createdAt(user.getCreatedAt() != null ? user.getCreatedAt().toInstant() : null)
                     .token(accessToken)
                     .refreskToken(refreshToken)
                     .idToken(idToken)
@@ -162,10 +165,8 @@ public class UserServiceImpl implements UserService {
                 assert auth != null;
                 String phone= Objects.requireNonNull(auth.getPrincipal()).toString();
                 String phoneFormat="0"+phone.substring(3,12);
-                System.out.println(phoneFormat);
                 return userRepository.findByPhone(phoneFormat);
             }catch(Exception e){
-                System.out.println("Get User failed: "+e.getMessage());
                 return null;
             }
 
@@ -214,7 +215,6 @@ public class UserServiceImpl implements UserService {
                 return responseOTP;
             }
         } catch (Exception e) {
-            System.out.println("Forgot password failed: " + e.getMessage());
             throw new RuntimeException("Failed to send OTP: " + e.getMessage());
         }
         
@@ -241,7 +241,6 @@ public class UserServiceImpl implements UserService {
             
             return response != null;
         } catch (Exception e) {
-            System.out.println("Reset password failed: " + e.getMessage());
             throw new RuntimeException("Failed to reset password: " + e.getMessage());
         }
     }
@@ -312,7 +311,6 @@ public class UserServiceImpl implements UserService {
         for (User u:allUser){
             for (BlockedUser blockedUser:blockedUsers){
                 if(u.getId().equals(blockedUser.getBlocked().getId())){
-                    System.out.println(u.getId());
                     users.add(u);
                 }
             }
@@ -323,15 +321,22 @@ public class UserServiceImpl implements UserService {
     @Override
     public boolean saveBlockUser(FriendRequest friendRequest) {
         if(friendRequest!=null){
+            User blocker = findUserById(friendRequest.getSenderId());
+            User blocked = findUserById(friendRequest.getReceivedId());
             BlockedUser blockedUser= BlockedUser.builder()
-                    .blocker(findUserById(friendRequest.getSenderId()))
-                    .blocked(findUserById(friendRequest.getReceivedId()))
+                    .blocker(blocker)
+                    .blocked(blocked)
                     .build();
             blockUserService.blockUser(blockedUser);
-            simpMessagingTemplate.convertAndSendToUser(
-                    "+84398723346",
-                    "/queue/save-block",
+            String blockerPhone = convertToInternationalFormat(blocker.getPhone());
+            String blockedPhone = convertToInternationalFormat(blocked.getPhone());
+            simpMessagingTemplate.convertAndSend(
+                    "/topic/user/" + blockerPhone + "/save-block",
                     "Người dùng này đã bị chặn"
+            );
+            simpMessagingTemplate.convertAndSend(
+                    "/topic/user/" + blockedPhone + "/save-block",
+                    "Bạn đã bị chặn"
             );
             return true;
         }
@@ -341,16 +346,30 @@ public class UserServiceImpl implements UserService {
     @Override
     public boolean cancelBlockUser(FriendRequest friendRequest) {
         if(friendRequest!=null){
+            User blocker = findUserById(friendRequest.getSenderId());
+            User blocked = findUserById(friendRequest.getReceivedId());
             BlockedUser blockedUser=blockUserService.getBlockUserByBlockerAndBlocked(friendRequest);
             blockUserService.cancelBlockUser(blockedUser);
-            simpMessagingTemplate.convertAndSendToUser(
-                    "+84398723346",
-                    "/queue/cancel-block",
+            String blockerPhone = convertToInternationalFormat(blocker.getPhone());
+            String blockedPhone = convertToInternationalFormat(blocked.getPhone());
+            simpMessagingTemplate.convertAndSend(
+                    "/topic/user/" + blockerPhone + "/cancel-block",
                     "Người dùng này đã được gỡ chặn"
+            );
+            simpMessagingTemplate.convertAndSend(
+                    "/topic/user/" + blockedPhone + "/cancel-block",
+                    "Bạn đã được gỡ chặn"
             );
             return true;
         }
         return false;
+    }
+
+    private String convertToInternationalFormat(String phone) {
+        if (phone != null && phone.startsWith("0")) {
+            return "+84" + phone.substring(1);
+        }
+        return phone;
     }
 
 }

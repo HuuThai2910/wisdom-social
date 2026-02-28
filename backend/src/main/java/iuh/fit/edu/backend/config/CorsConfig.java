@@ -24,10 +24,15 @@ public class CorsConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(Arrays.asList(
-                "http://localhost:5173",
-                "http://localhost:4173"
+                "http://localhost:5173",     // Web frontend (dev)
+                "http://localhost:4173",     // Web frontend (preview)
+                "http://localhost:8081",     // Mobile Expo dev server
+                "http://localhost:19000",    // Expo Go
+                "http://localhost:19006",    // Expo web
+                "http://192.168.1.150:8081", // Mobile Expo from IP
+                "http://192.168.1.150:19000" // Expo Go from IP
         ));
-        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS")); // Allowed methods
+        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH")); // Allowed methods
         configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "Accept", "x-no-retry"));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);

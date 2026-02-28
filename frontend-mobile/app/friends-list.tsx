@@ -1,0 +1,436 @@
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import {
+    View,
+    Text,
+    StyleSheet,
+    FlatList,
+    Image,
+    TouchableOpacity,
+    ActivityIndicator,
+    TextInput,
+} from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import friendService from '../services/friendService';
+import userService from '../services/userService';
+import websocketService from '../services/websocketService';
+import { User } from '../types';
+
+export default function FriendsListScreen() {
+    const router = useRouter();
+    const params = useLocalSearchParams();
+    const userId = params.userId as string;
+    const [friends, setFriends] = useState<User[]>([]);
+    const [allUsers, setAllUsers] = useState<User[]>([]);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [isLoading, setIsLoading] = useState(true);
+    const [selectedTab, setSelectedTab] = useState<'friends' | 'requests' | 'find'>('friends');
+
+    // Use ref to always have the latest selectedTab in WebSocket handlers
+    const selectedTabRef = useRef(selectedTab);
+    useEffect(() => {
+        selectedTabRef.current = selectedTab;
+    }, [selectedTab]);
+
+    const loadData = useCallback(async (tab?: 'friends' | 'requests' | 'find') => {
+        const currentTab = tab || selectedTabRef.current;
+        setIsLoading(true);
+        try {
+            if (currentTab === 'friends') {
+                const friendsList = await friendService.getFriends(Number(userId));
+                setFriends(friendsList);
+            } else if (currentTab === 'requests') {
+                const requestsList = await friendService.getFriendRequests(Number(userId));
+                setFriends(requestsList);
+            } else {
+                const users = await userService.getAllUsers();
+                const friendsList = await friendService.getFriends(Number(userId));
+                const friendIds = new Set(friendsList.map(f => f.id));
+                const filteredUsers = users.filter(u => u.id !== Number(userId) && !friendIds.has(u.id));
+                setAllUsers(filteredUsers);
+            }
+        } catch (error) {
+            console.error('Failed to load data:', error);
+        } finally {
+            setIsLoading(false);
+        }
+    }, [userId]);
+
+    useEffect(() => {
+        loadData(selectedTab);
+    }, [selectedTab, loadData]);
+
+    useEffect(() => {
+        if (!userId) return;
+
+        const handleFriendRequest = () => loadData();
+        const handleFriendAccept = () => loadData();
+        const handleFriendCancel = () => loadData();
+        const handleFriendReject = () => loadData();
+
+        websocketService.on('friend-request', handleFriendRequest);
+        websocketService.on('friend-accept', handleFriendAccept);
+        websocketService.on('friend-cancel', handleFriendCancel);
+        websocketService.on('friend-reject', handleFriendReject);
+
+        return () => {
+            websocketService.off('friend-request', handleFriendRequest);
+            websocketService.off('friend-accept', handleFriendAccept);
+            websocketService.off('friend-cancel', handleFriendCancel);
+            websocketService.off('friend-reject', handleFriendReject);
+        };
+    }, [userId, loadData]);
+
+    const handleAcceptRequest = async (friendId: number) => {
+        const success = await friendService.acceptFriendRequest(friendId, Number(userId));
+        if (success) {
+            loadData(); // Reload list
+        }
+    };
+
+    const handleRejectRequest = async (friendId: number) => {
+        const success = await friendService.rejectFriendRequest(friendId, Number(userId));
+        if (success) {
+            loadData(); // Reload list
+        }
+    };
+
+    const handleUnfriend = async (friendId: number) => {
+        const success = await friendService.cancelFriendRequest(Number(userId), friendId);
+        if (success) {
+            loadData(); // Reload list
+        }
+    };
+
+    const handleSendRequest = async (receiverId: number) => {
+        const success = await friendService.sendFriendRequest(Number(userId), receiverId);
+        if (success) {
+            setAllUsers(allUsers.filter(u => u.id !== receiverId));
+        }
+    };
+
+    const filteredUsers = allUsers.filter(user => {
+        if (!searchQuery) return true;
+        const query = searchQuery.toLowerCase();
+        return (
+            user.name?.toLowerCase().includes(query) ||
+            user.username?.toLowerCase().includes(query) ||
+            user.phone?.includes(query)
+        );
+    });
+
+    const renderFriend = ({ item }: { item: User }) => (
+        <View style={styles.friendItem}>
+            <TouchableOpacity style={styles.friendInfo}>
+                {item.avatarUrl ? (
+                    <Image source={{ uri: item.avatarUrl }} style={styles.avatar} />
+                ) : (
+                    <View style={styles.avatarPlaceholder}>
+                        <Ionicons name="person" size={30} color="#9CA3AF" />
+                    </View>
+                )}
+                <View style={styles.textInfo}>
+                    <Text style={styles.name}>
+                        {item.name || item.username || item.phone}
+                    </Text>
+                    {item.username && item.name && (
+                        <Text style={styles.username}>@{item.username}</Text>
+                    )}
+                </View>
+            </TouchableOpacity>
+
+            {selectedTab === 'friends' ? (
+                <TouchableOpacity
+                    style={styles.unfriendButton}
+                    onPress={() => handleUnfriend(item.id)}
+                >
+                    <Ionicons name="person-remove" size={20} color="#EF4444" />
+                </TouchableOpacity>
+            ) : selectedTab === 'requests' ? (
+                <View style={styles.requestActions}>
+                    <TouchableOpacity
+                        style={styles.acceptButton}
+                        onPress={() => handleAcceptRequest(item.id)}
+                    >
+                        <Ionicons name="checkmark" size={20} color="#fff" />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={styles.rejectButton}
+                        onPress={() => handleRejectRequest(item.id)}
+                    >
+                        <Ionicons name="close" size={20} color="#fff" />
+                    </TouchableOpacity>
+                </View>
+            ) : (
+                <TouchableOpacity
+                    style={styles.addButton}
+                    onPress={() => handleSendRequest(item.id)}
+                >
+                    <Ionicons name="person-add" size={20} color="#fff" />
+                </TouchableOpacity>
+            )}
+        </View>
+    );
+
+    const getHeaderTitle = () => {
+        switch (selectedTab) {
+            case 'friends': return 'Friends';
+            case 'requests': return 'Friend Requests';
+            case 'find': return 'Find Friends';
+            default: return 'Friends';
+        }
+    };
+
+    return (
+        <View style={styles.container}>
+            {/* Header */}
+            <View style={styles.header}>
+                <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+                    <Ionicons name="arrow-back" size={24} color="#1F2937" />
+                </TouchableOpacity>
+                <Text style={styles.headerTitle}>{getHeaderTitle()}</Text>
+                <View style={styles.placeholder} />
+            </View>
+
+            {/* Tabs */}
+            <View style={styles.tabs}>
+                <TouchableOpacity
+                    style={[styles.tab, selectedTab === 'friends' && styles.tabActive]}
+                    onPress={() => setSelectedTab('friends')}
+                >
+                    <Text style={[styles.tabText, selectedTab === 'friends' && styles.tabTextActive]}>
+                        Friends
+                    </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={[styles.tab, selectedTab === 'requests' && styles.tabActive]}
+                    onPress={() => setSelectedTab('requests')}
+                >
+                    <Text style={[styles.tabText, selectedTab === 'requests' && styles.tabTextActive]}>
+                        Requests
+                    </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={[styles.tab, selectedTab === 'find' && styles.tabActive]}
+                    onPress={() => setSelectedTab('find')}
+                >
+                    <Text style={[styles.tabText, selectedTab === 'find' && styles.tabTextActive]}>
+                        Find
+                    </Text>
+                </TouchableOpacity>
+            </View>
+
+            {/* Search Input */}
+            {selectedTab === 'find' && (
+                <View style={styles.searchContainer}>
+                    <Ionicons name="search" size={20} color="#9CA3AF" style={styles.searchIcon} />
+                    <TextInput
+                        style={styles.searchInput}
+                        placeholder="Search by name, username or phone..."
+                        value={searchQuery}
+                        onChangeText={setSearchQuery}
+                        placeholderTextColor="#9CA3AF"
+                    />
+                    {searchQuery.length > 0 && (
+                        <TouchableOpacity onPress={() => setSearchQuery('')}>
+                            <Ionicons name="close-circle" size={20} color="#9CA3AF" />
+                        </TouchableOpacity>
+                    )}
+                </View>
+            )}
+
+            {/* Friends List */}
+            {isLoading ? (
+                <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color="#3B82F6" />
+                </View>
+            ) : selectedTab === 'find' ? (
+                <FlatList
+                    data={filteredUsers}
+                    renderItem={renderFriend}
+                    keyExtractor={(item) => item.id.toString()}
+                    ListEmptyComponent={
+                        <View style={styles.emptyContainer}>
+                            <Ionicons name="people-outline" size={60} color="#D1D5DB" />
+                            <Text style={styles.emptyText}>
+                                {searchQuery ? 'No users found' : 'No users available'}
+                            </Text>
+                        </View>
+                    }
+                />
+            ) : friends.length === 0 ? (
+                <View style={styles.emptyContainer}>
+                    <Ionicons
+                        name={selectedTab === 'friends' ? 'people-outline' : 'person-add-outline'}
+                        size={60}
+                        color="#D1D5DB"
+                    />
+                    <Text style={styles.emptyText}>
+                        {selectedTab === 'friends' ? 'No friends yet' : 'No friend requests'}
+                    </Text>
+                </View>
+            ) : (
+                <FlatList
+                    data={friends}
+                    renderItem={renderFriend}
+                    keyExtractor={(item) => item.id.toString()}
+                />
+            )}
+        </View>
+    );
+}
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: '#fff',
+    },
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 16,
+        paddingTop: 48,
+        paddingBottom: 12,
+        backgroundColor: '#fff',
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB',
+    },
+    backButton: {
+        padding: 8,
+    },
+    headerTitle: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#1F2937',
+    },
+    placeholder: {
+        width: 40,
+    },
+    tabs: {
+        flexDirection: 'row',
+        backgroundColor: '#fff',
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB',
+    },
+    tab: {
+        flex: 1,
+        paddingVertical: 14,
+        alignItems: 'center',
+        borderBottomWidth: 2,
+        borderBottomColor: 'transparent',
+    },
+    tabActive: {
+        borderBottomColor: '#3B82F6',
+    },
+    tabText: {
+        fontSize: 14,
+        fontWeight: '500',
+        color: '#6B7280',
+    },
+    tabTextActive: {
+        color: '#3B82F6',
+        fontWeight: '600',
+    },
+    searchContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#F3F4F6',
+        marginHorizontal: 16,
+        marginVertical: 12,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        borderRadius: 10,
+    },
+    searchIcon: {
+        marginRight: 8,
+    },
+    searchInput: {
+        flex: 1,
+        fontSize: 15,
+        color: '#1F2937',
+    },
+    loadingContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    emptyContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingVertical: 80,
+    },
+    emptyText: {
+        marginTop: 16,
+        fontSize: 15,
+        color: '#6B7280',
+    },
+    friendItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        backgroundColor: '#fff',
+        borderBottomWidth: 1,
+        borderBottomColor: '#F3F4F6',
+    },
+    friendInfo: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flex: 1,
+    },
+    avatar: {
+        width: 50,
+        height: 50,
+        borderRadius: 25,
+        marginRight: 12,
+    },
+    avatarPlaceholder: {
+        width: 50,
+        height: 50,
+        borderRadius: 25,
+        backgroundColor: '#F3F4F6',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: 12,
+    },
+    textInfo: {
+        flex: 1,
+    },
+    name: {
+        fontSize: 15,
+        fontWeight: '600',
+        color: '#1F2937',
+        marginBottom: 2,
+    },
+    username: {
+        fontSize: 13,
+        color: '#6B7280',
+    },
+    unfriendButton: {
+        padding: 10,
+        borderRadius: 8,
+        backgroundColor: '#FEF2F2',
+    },
+    requestActions: {
+        flexDirection: 'row',
+        gap: 8,
+    },
+    acceptButton: {
+        padding: 10,
+        borderRadius: 8,
+        backgroundColor: '#10B981',
+    },
+    rejectButton: {
+        padding: 10,
+        borderRadius: 8,
+        backgroundColor: '#EF4444',
+    },
+    addButton: {
+        padding: 10,
+        borderRadius: 8,
+        backgroundColor: '#3B82F6',
+    },
+});

@@ -48,16 +48,16 @@ public class User {
 
     // ===== Relations =====
     @OneToMany(mappedBy = "user")
+    @JsonIgnore
     private List<Device> devices;
 
-    @OneToMany(mappedBy = "user")
-    private List<Session> sessions;
 
     @JsonIgnore
     @OneToOne(mappedBy = "user", cascade = CascadeType.ALL)
     private UserSetting userSetting;
 
     @OneToOne(mappedBy = "user", cascade = CascadeType.ALL)
+    @JsonIgnore
     private NotificationSetting notificationSetting;
 
     @JsonIgnore
@@ -65,9 +65,11 @@ public class User {
     private List<PageMember> pageMembers;
 
     @OneToMany(mappedBy = "user")
+    @JsonIgnore
     private List<PageFollow> pageFollows;
 
 
     @OneToMany(mappedBy = "user")
+    @JsonIgnore
     private List<PageLike> pageLikes;
 }
