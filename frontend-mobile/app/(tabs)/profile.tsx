@@ -15,6 +15,7 @@ import {
     Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../contexts/AuthContext';
@@ -48,13 +49,14 @@ export default function ProfileScreen() {
     const [friendsCount, setFriendsCount] = useState(0);
     const [requestsCount, setRequestsCount] = useState(0);
 
-    // Blocked users
     const [blockedUsers, setBlockedUsers] = useState<User[]>([]);
     const [isLoadingBlocked, setIsLoadingBlocked] = useState(false);
 
-    // Edit modal
     const [showEditModal, setShowEditModal] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+    const [avatarLocalUri, setAvatarLocalUri] = useState('');
+    const [pendingAvatarAsset, setPendingAvatarAsset] = useState<{ uri: string; mimeType: string; extension: string } | null>(null);
     const [editForm, setEditForm] = useState({
         name: '',
         username: '',
@@ -123,7 +125,27 @@ export default function ProfileScreen() {
             gender: d?.gender || '',
             avatarUrl: d?.avatarUrl || '',
         });
+        setAvatarLocalUri('');
+        setPendingAvatarAsset(null);
         setShowEditModal(true);
+    };
+
+    const pickAvatarImage = async () => {
+        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!perm.granted) {
+            Alert.alert('Quyền truy cập', 'Cần quyền truy cập thư viện ảnh để chọn ảnh.');
+            return;
+        }
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            quality: 0.8,
+        });
+        if (result.canceled || !result.assets[0]) return;
+        const asset = result.assets[0];
+        const mimeType = asset.mimeType ?? 'image/jpeg';
+        const extension = mimeType.split('/')[1].replace('jpeg', 'jpg');
+        setAvatarLocalUri(asset.uri);
+        setPendingAvatarAsset({ uri: asset.uri, mimeType, extension });
     };
 
     const handleSaveProfile = async () => {
@@ -131,24 +153,45 @@ export default function ProfileScreen() {
         if (!userId) return;
         setIsSaving(true);
         try {
+            let finalAvatarUrl = editForm.avatarUrl;
+
+            if (pendingAvatarAsset) {
+                setIsUploadingAvatar(true);
+                const urls = await userService.getAvatarUploadUrl(pendingAvatarAsset.extension);
+                if (!urls) throw new Error();
+                const blob = await fetch(pendingAvatarAsset.uri).then(r => r.blob());
+                const uploadRes = await fetch(urls.uploadUrl, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': pendingAvatarAsset.mimeType },
+                    body: blob,
+                });
+                if (!uploadRes.ok) throw new Error();
+                finalAvatarUrl = `https://cnmt-hk1-amz.s3.ap-southeast-1.amazonaws.com/${urls.imageUrl}`;
+                setIsUploadingAvatar(false);
+            }
+
             const payload: any = {};
             if (editForm.name) payload.name = editForm.name;
             if (editForm.username) payload.username = editForm.username;
             payload.bio = editForm.bio || '';
             if (editForm.birthday) payload.birthday = editForm.birthday;
             if (editForm.gender) payload.gender = editForm.gender;
-            if (editForm.avatarUrl) payload.avatarUrl = editForm.avatarUrl;
+            if (finalAvatarUrl) payload.avatarUrl = finalAvatarUrl;
 
             const success = await userService.updateProfile(userId, payload);
             if (success) {
+                setPendingAvatarAsset(null);
                 setShowEditModal(false);
                 await loadProfile();
-                await updateUser({ ...displayUser, ...editForm });
+                await updateUser({ ...displayUser, ...editForm, avatarUrl: finalAvatarUrl });
             } else {
                 Alert.alert('Lỗi', 'Không thể cập nhật hồ sơ. Vui lòng thử lại.');
             }
+        } catch {
+            Alert.alert('Lỗi', 'Không thể tải ảnh lên. Vui lòng thử lại.');
         } finally {
             setIsSaving(false);
+            setIsUploadingAvatar(false);
         }
     };
 
@@ -192,7 +235,6 @@ export default function ProfileScreen() {
     const savedPosts = mockPosts.filter((p: Post) => p.isSaved);
     const displayPosts = selectedTab === 'posts' ? userPosts : savedPosts;
 
-    /* ---- Loading ---- */
     if (isLoading && !profileData) {
         return (
             <View style={[{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background, gap: 10 }]}>
@@ -213,7 +255,6 @@ export default function ProfileScreen() {
 
     const genderLabel = GENDER_OPTIONS.find(g => g.value === displayUser.gender)?.label;
 
-    /* ======================== RENDER ======================== */
     const ds = createDynamicStyles(colors);
     return (
         <>
@@ -222,9 +263,7 @@ export default function ProfileScreen() {
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingTop: insets.top, paddingBottom: 40 }}
             >
-                {/* ───── PROFILE CARD ───── */}
                 <View style={ds.card}>
-                    {/* Settings button */}
                     <TouchableOpacity
                         style={ds.settingsBtn}
                         onPress={() => router.push('/settings' as any)}
@@ -233,7 +272,6 @@ export default function ProfileScreen() {
                         <Ionicons name="settings-outline" size={22} color={colors.textSecondary} />
                     </TouchableOpacity>
 
-                    {/* Avatar + Stats */}
                     <View style={ds.topRow}>
                         <View style={ds.avatarWrap}>
                             {displayUser.avatarUrl ? (
@@ -257,7 +295,6 @@ export default function ProfileScreen() {
                         </View>
                     </View>
 
-                    {/* User info */}
                     <View style={ds.infoBlock}>
                         <Text style={ds.displayName}>
                             {displayUser.name || displayUser.username || displayUser.phone}
@@ -280,7 +317,6 @@ export default function ProfileScreen() {
                         </View>
                     </View>
 
-                    {/* Buttons */}
                     <View style={ds.btnRow}>
                         <TouchableOpacity style={ds.primaryBtn} onPress={handleEditProfile} activeOpacity={0.75}>
                             <Ionicons name="create-outline" size={17} color={colors.primaryText} />
@@ -292,7 +328,6 @@ export default function ProfileScreen() {
                     </View>
                 </View>
 
-                {/* ───── TAB BAR ───── */}
                 <View style={ds.tabBar}>
                     <TouchableOpacity
                         style={[ds.tab, selectedTab === 'posts' && ds.tabActive]}
@@ -317,9 +352,7 @@ export default function ProfileScreen() {
                     </TouchableOpacity>
                 </View>
 
-                {/* ───── CONTENT BY TAB ───── */}
                 {selectedTab === 'blocked' ? (
-                    /* ─── BLOCKED USERS LIST ─── */
                     isLoadingBlocked ? (
                         <View style={ds.emptyWrap}>
                             <ActivityIndicator size="small" color={colors.text} />
@@ -388,13 +421,11 @@ export default function ProfileScreen() {
                 )}
             </ScrollView>
 
-            {/* ==================== EDIT MODAL ==================== */}
             <Modal visible={showEditModal} animationType="slide" transparent onRequestClose={() => setShowEditModal(false)}>
                 <KeyboardAvoidingView style={ds.overlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
                     <View style={[ds.sheet, { paddingBottom: insets.bottom + 16 }]}>
                         <View style={ds.dragBar} />
 
-                        {/* Header */}
                         <View style={ds.sheetHeader}>
                             <TouchableOpacity onPress={() => setShowEditModal(false)} hitSlop={12}>
                                 <Text style={ds.sheetCancel}>Hủy</Text>
@@ -408,22 +439,30 @@ export default function ProfileScreen() {
                         </View>
 
                         <ScrollView style={ds.sheetBody} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-                            {/* Avatar preview */}
-                            <View style={ds.avatarPreview}>
-                                {editForm.avatarUrl ? (
-                                    <Image source={{ uri: editForm.avatarUrl }} style={ds.previewImg} />
+                            <TouchableOpacity
+                                style={ds.avatarPreview}
+                                onPress={pickAvatarImage}
+                                disabled={isUploadingAvatar || isSaving}
+                                activeOpacity={0.7}
+                            >
+                                {isUploadingAvatar ? (
+                                    <View style={[ds.previewImg, { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.chipBg }]}>
+                                        <ActivityIndicator size="small" color={colors.primary} />
+                                    </View>
+                                ) : (avatarLocalUri || editForm.avatarUrl) ? (
+                                    <Image source={{ uri: avatarLocalUri || editForm.avatarUrl }} style={ds.previewImg} />
                                 ) : (
                                     <View style={[ds.avatarFallback, { width: 76, height: 76, borderRadius: 38 }]}>
                                         <Ionicons name="person" size={32} color={colors.textTertiary} />
                                     </View>
                                 )}
-                                <Text style={ds.changePhotoLabel}>Thay đổi ảnh</Text>
-                            </View>
-
-                            {/* Fields */}
-                            <Field label="Ảnh đại diện (URL)" value={editForm.avatarUrl}
-                                onChange={(v) => setEditForm(f => ({ ...f, avatarUrl: v }))}
-                                placeholder="https://example.com/avatar.jpg" autoCapitalize="none" colors={colors} />
+                                <View style={ds.changePhotoRow}>
+                                    <Ionicons name="camera-outline" size={15} color={colors.primary} />
+                                    <Text style={ds.changePhotoLabel}>
+                                        {avatarLocalUri ? 'Đổi ảnh khác' : 'Thay đổi ảnh'}
+                                    </Text>
+                                </View>
+                            </TouchableOpacity>
 
                             <Field label="Họ tên" value={editForm.name}
                                 onChange={(v) => setEditForm(f => ({ ...f, name: v }))}
@@ -449,7 +488,6 @@ export default function ProfileScreen() {
                                 onChange={(v) => setEditForm(f => ({ ...f, birthday: v }))}
                                 placeholder="DD/MM/YYYY" colors={colors} />
 
-                            {/* Gender chips */}
                             <View style={ds.fieldGroup}>
                                 <Text style={ds.fieldLabel}>Giới tính</Text>
                                 <View style={ds.chipRow}>
@@ -477,8 +515,6 @@ export default function ProfileScreen() {
         </>
     );
 }
-
-/* ─────────── Small components ─────────── */
 
 function StatBlock({ label, value, showBadge, colors }: { label: string; value: number; showBadge?: boolean; colors: ThemeColors }) {
     return (
@@ -525,12 +561,9 @@ function Field({ label, value, onChange, placeholder, autoCapitalize, colors }: 
     );
 }
 
-/* ======================== DYNAMIC STYLES ======================== */
 const createDynamicStyles = (colors: ThemeColors) => StyleSheet.create({
-    /* ---- Screens ---- */
     screen: { flex: 1, backgroundColor: colors.background },
 
-    /* ---- Card ---- */
     card: {
         backgroundColor: colors.card,
         marginHorizontal: 14,
@@ -568,14 +601,12 @@ const createDynamicStyles = (colors: ThemeColors) => StyleSheet.create({
     },
     statsRow: { flex: 1, flexDirection: 'row', justifyContent: 'space-around' },
 
-    /* ---- Info ---- */
     infoBlock: { marginTop: 16 },
     displayName: { fontSize: 20, fontWeight: '700', color: colors.text },
     handle: { fontSize: 14, color: colors.textSecondary, fontWeight: '500', marginTop: 2 },
     bio: { fontSize: 14, color: colors.textSecondary, lineHeight: 20, marginTop: 8 },
     metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 10 },
 
-    /* ---- Actions ---- */
     btnRow: { flexDirection: 'row', marginTop: 18, gap: 10 },
     primaryBtn: {
         flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
@@ -586,7 +617,6 @@ const createDynamicStyles = (colors: ThemeColors) => StyleSheet.create({
         backgroundColor: colors.dangerBg, paddingHorizontal: 14, borderRadius: 12,
         alignItems: 'center', justifyContent: 'center',
     },
-    /* ---- Tab bar ---- */
     tabBar: {
         flexDirection: 'row', marginHorizontal: 14, marginTop: 14,
         backgroundColor: colors.card, borderRadius: 14, overflow: 'hidden',
@@ -601,7 +631,6 @@ const createDynamicStyles = (colors: ThemeColors) => StyleSheet.create({
     tabText: { fontSize: 13, fontWeight: '500', color: colors.textTertiary },
     tabTextActive: { color: colors.tabActive, fontWeight: '600' },
 
-    /* ---- Grid ---- */
     grid: {
         flexDirection: 'row', flexWrap: 'wrap',
         paddingHorizontal: 14, paddingTop: 14, gap: GRID_GAP,
@@ -611,7 +640,6 @@ const createDynamicStyles = (colors: ThemeColors) => StyleSheet.create({
     },
     gridImage: { width: '100%', height: '100%', backgroundColor: colors.border },
 
-    /* ---- Empty ---- */
     emptyWrap: { alignItems: 'center', paddingVertical: 56 },
     emptyCircle: {
         width: 80, height: 80, borderRadius: 40, backgroundColor: colors.chipBg,
@@ -620,7 +648,6 @@ const createDynamicStyles = (colors: ThemeColors) => StyleSheet.create({
     emptyTitle: { fontSize: 16, fontWeight: '600', color: colors.textSecondary },
     emptySub: { fontSize: 13, color: colors.textTertiary, marginTop: 4 },
 
-    /* ======== MODAL ======== */
     overlay: { flex: 1, backgroundColor: colors.overlay, justifyContent: 'flex-end' },
     sheet: {
         backgroundColor: colors.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '92%',
@@ -641,9 +668,9 @@ const createDynamicStyles = (colors: ThemeColors) => StyleSheet.create({
 
     avatarPreview: { alignItems: 'center', paddingVertical: 18 },
     previewImg: { width: 76, height: 76, borderRadius: 38, borderWidth: 2.5, borderColor: colors.border },
-    changePhotoLabel: { fontSize: 13, color: colors.text, fontWeight: '600', marginTop: 8 },
+    changePhotoRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8 },
+    changePhotoLabel: { fontSize: 13, color: colors.primary, fontWeight: '600' },
 
-    /* ---- Fields ---- */
     fieldGroup: { marginTop: 16 },
     fieldLabel: { fontSize: 13, fontWeight: '600', color: colors.textSecondary, marginBottom: 6 },
     input: {
@@ -660,7 +687,6 @@ const createDynamicStyles = (colors: ThemeColors) => StyleSheet.create({
     chipText: { fontSize: 14, fontWeight: '500', color: colors.textSecondary },
     chipTextActive: { color: colors.text, fontWeight: '600' },
 
-    /* ---- Blocked users ---- */
     blockedRow: {
         flexDirection: 'row', alignItems: 'center',
         backgroundColor: colors.card, borderRadius: 14, padding: 14, marginBottom: 10,

@@ -1,7 +1,3 @@
-/**
- * Follow service — stub until a follow feature is added to the backend.
- * All methods fail gracefully so the UI can still render.
- */
 import apiClient from '../api/apiClient';
 
 export type FollowStatus = 'FOLLOWING' | 'NOT_FOLLOWING';
@@ -28,7 +24,7 @@ class FollowService {
     async getFollowStatus(followerId: number, followingId: number): Promise<FollowStatus> {
         try {
             const response = await apiClient.get(`/follows/status/${followerId}/${followingId}`);
-            return response.data.data || 'NOT_FOLLOWING';
+            return response.data.data;
         } catch {
             return 'NOT_FOLLOWING';
         }
@@ -37,7 +33,7 @@ class FollowService {
     async getFollowers(userId: number): Promise<any[]> {
         try {
             const response = await apiClient.get(`/follows/followers/${userId}`);
-            return response.data.data || [];
+            return response.data.data;
         } catch {
             return [];
         }
@@ -46,7 +42,7 @@ class FollowService {
     async getFollowing(userId: number): Promise<any[]> {
         try {
             const response = await apiClient.get(`/follows/following/${userId}`);
-            return response.data.data || [];
+            return response.data.data;
         } catch {
             return [];
         }

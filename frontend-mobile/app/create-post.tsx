@@ -26,7 +26,6 @@ export default function CreatePostScreen() {
 
     return (
         <View style={styles.container}>
-            {/* Header */}
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => router.back()}>
                     <Ionicons name="close" size={28} color="#000" />
@@ -38,18 +37,15 @@ export default function CreatePostScreen() {
             </View>
 
             <ScrollView style={styles.content}>
-                {/* Image Preview */}
                 {selectedImage && (
                     <Image source={{ uri: selectedImage }} style={styles.imagePreview} />
                 )}
 
-                {/* Select Image Button */}
                 <TouchableOpacity style={styles.selectImageButton}>
                     <Ionicons name="images-outline" size={24} color="#3B82F6" />
                     <Text style={styles.selectImageText}>Select Photo</Text>
                 </TouchableOpacity>
 
-                {/* Caption Input */}
                 <TextInput
                     style={styles.captionInput}
                     placeholder="Write a caption..."
@@ -59,7 +55,6 @@ export default function CreatePostScreen() {
                     numberOfLines={4}
                 />
 
-                {/* Additional Options */}
                 <View style={styles.options}>
                     <TouchableOpacity style={styles.optionItem}>
                         <Ionicons name="location-outline" size={24} color="#000" />

@@ -59,7 +59,6 @@ export interface OTPResponse {
 }
 
 class AuthService {
-    // Register user
     async register(data: RegisterRequest): Promise<RegisterResponse | null> {
         try {
             const device = await getDeviceInfo();
@@ -70,24 +69,20 @@ class AuthService {
                 ipAddress: device.ipAddress,
             });
             return response.data.data;
-        } catch (error: any) {
-            this.handleError(error);
+        } catch {
             return null;
         }
     }
 
-    // Confirm registration with OTP
     async confirmRegister(data: ConfirmRegisterRequest): Promise<any> {
         try {
             const response = await apiClient.post('/auth/confirm', data);
             return response.data.data;
-        } catch (error: any) {
-            this.handleError(error);
+        } catch {
             return null;
         }
     }
 
-    // Login user
     async login(data: LoginRequest): Promise<LoginResponse | null> {
         try {
             const device = await getDeviceInfo();
@@ -99,7 +94,6 @@ class AuthService {
             });
             const loginData: LoginResponse = response.data.data;
 
-            // Save tokens
             await saveToken(loginData.token);
             await saveRefreshToken(loginData.refreskToken);
             await saveIdToken(loginData.idToken);
@@ -107,7 +101,6 @@ class AuthService {
             const userProfile = await this.getCurrentUser();
             
             if (userProfile) {
-                // Save complete user profile from backend
                 await saveUser({
                     id: userProfile.id,
                     phone: userProfile.phone,
@@ -124,24 +117,20 @@ class AuthService {
             }
 
             return loginData;
-        } catch (error: any) {
-            this.handleError(error);
+        } catch {
             return null;
         }
     }
 
-    // Logout user
     async logout(): Promise<void> {
         try {
             await apiClient.post('/auth/logout');
             await clearStorage();
-        } catch (error: any) {
+        } catch {
             await clearStorage();
-            this.handleError(error);
         }
     }
 
-    // Forgot password - send OTP
     async forgotPassword(data: ForgotPasswordRequest): Promise<OTPResponse | null> {
         try {
             const requestData = {
@@ -150,13 +139,11 @@ class AuthService {
             };
             const response = await apiClient.post('/auth/forgot-password', requestData);
             return response.data.data;
-        } catch (error: any) {
-            this.handleError(error);
+        } catch {
             return null;
         }
     }
 
-    // Reset password with OTP
     async resetPassword(data: ResetPasswordRequest): Promise<string | null> {
         try {
             const requestData = {
@@ -165,32 +152,17 @@ class AuthService {
             };
             const response = await apiClient.post('/auth/reset-password', requestData);
             return response.data.message || 'Password reset successfully';
-        } catch (error: any) {
-            this.handleError(error);
+        } catch {
             return null;
         }
     }
 
-    // Get current user
     async getCurrentUser(): Promise<any> {
         try {
             const response = await apiClient.get('/auth/me');
             return response.data.data;
-        } catch (error: any) {
-            this.handleError(error);
+        } catch {
             return null;
-        }
-    }
-
-    // Handle errors
-    private handleError(error: any): void {
-        if (error.response) {
-            const message = error.response.data?.message || error.response.data?.error || 'Something went wrong';
-            console.error('API Error:', message);
-        } else if (error.request) {
-            console.error('Network Error: Cannot connect to server');
-        } else {
-            console.error('Error:', error.message || 'An unexpected error occurred');
         }
     }
 }

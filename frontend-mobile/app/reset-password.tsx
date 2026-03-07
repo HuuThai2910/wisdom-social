@@ -30,17 +30,14 @@ export default function ResetPasswordScreen() {
 
     const handleResetPassword = async () => {
         if (!password || !confirmPassword) {
-            console.log('Validation error: Please fill in all fields');
             return;
         }
 
         if (password !== confirmPassword) {
-            console.log('Validation error: Passwords do not match');
             return;
         }
 
         if (password.length < 6) {
-            console.log('Validation error: Password must be at least 6 characters');
             return;
         }
 
@@ -54,13 +51,9 @@ export default function ResetPasswordScreen() {
             });
 
             if (result) {
-                // Navigate to login after successful password reset
                 router.replace('/login');
-            } else {
-                console.error('Failed to reset password: Invalid response');
             }
-        } catch (error: any) {
-            console.error('Failed to reset password:', error.message || 'Failed to reset password');
+        } catch {
         } finally {
             setLoading(false);
         }
@@ -79,12 +72,10 @@ export default function ResetPasswordScreen() {
                     contentContainerStyle={styles.scrollContent}
                     keyboardShouldPersistTaps="handled"
                 >
-                    {/* Logo */}
                     <View style={styles.logoContainer}>
                         <Logo size="medium" showSubtitle={false} />
                     </View>
 
-                    {/* Header */}
                     <View style={styles.iconContainer}>
                         <View style={styles.iconBackground}>
                             <Ionicons name="lock-closed" size={48} color="#3B82F6" />
@@ -95,7 +86,6 @@ export default function ResetPasswordScreen() {
                     <Text style={styles.subtitle}>Enter your new password</Text>
 
                     <View style={styles.form}>
-                        {/* Password Input */}
                         <View style={styles.inputWrapper}>
                             <View style={styles.inputIconContainer}>
                                 <Ionicons name="lock-closed-outline" size={20} color="#9CA3AF" />
@@ -120,7 +110,6 @@ export default function ResetPasswordScreen() {
                             </TouchableOpacity>
                         </View>
 
-                        {/* Confirm Password Input */}
                         <View style={styles.inputWrapper}>
                             <View style={styles.inputIconContainer}>
                                 <Ionicons name="shield-checkmark-outline" size={20} color="#9CA3AF" />
@@ -145,7 +134,6 @@ export default function ResetPasswordScreen() {
                             </TouchableOpacity>
                         </View>
 
-                        {/* Submit Button */}
                         <TouchableOpacity
                             style={[styles.submitButton, loading && styles.disabledButton]}
                             onPress={handleResetPassword}

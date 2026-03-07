@@ -13,6 +13,7 @@ import iuh.fit.edu.backend.repository.mysql.PageLikeRepository;
 import iuh.fit.edu.backend.repository.mysql.PageRepository;
 import iuh.fit.edu.backend.service.impl.page.PageService;
 import iuh.fit.edu.backend.service.impl.user.UserService;
+import iuh.fit.edu.backend.service.s3.S3Service;
 import org.bson.types.ObjectId;
 import org.springframework.stereotype.Service;
 
@@ -28,29 +29,31 @@ public class PageServiceImpl implements PageService {
     PageLikeRepository pageLikeRepository;
     PageMapper pageMapper;
     UserService userService;
+    S3Service s3Service;
 
     public PageServiceImpl(PageFollowRepository pageFollowRepositoryl,
                            PageLikeRepository pageLikeRepository, PageMapper pageMapper,
                            PageRepository pageRepository,
-                           UserService userService) {
+                           UserService userService,S3Service s3Service) {
         this.pageFollowRepository = pageFollowRepositoryl;
         this.pageLikeRepository = pageLikeRepository;
         this.pageMapper = pageMapper;
         this.pageRepository = pageRepository;
         this.userService = userService;
+        this.s3Service = s3Service;
     }
 
     @Override
-    public boolean createPage(long userId, UserRequestCreatePage createPage) {
+    public Page createPage(long userId, UserRequestCreatePage createPage) {
         Page page=pageMapper.CreateRequestPagetoPage(createPage);
         User user=userService.findUserById(userId);
+
         if(page!=null){
             page.setCreatedBy(user);
             page.setCreatedAt(OffsetDateTime.now());
-            pageRepository.save(page);
-            return true;
+            return pageRepository.save(page);
         }
-        return false;
+        return null;
     }
 
     @Override

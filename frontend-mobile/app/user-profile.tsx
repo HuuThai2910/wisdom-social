@@ -1,8 +1,3 @@
-/**
- * Other user's profile screen
- * Route: /user-profile?userId=<id>
- * Shows social actions: Add Friend / Message / Block
- */
 import React, { useState, useEffect, useCallback } from 'react';
 import {
     View, Text, Image, StyleSheet, ScrollView, TouchableOpacity,
@@ -21,7 +16,6 @@ import type { Post } from '../types';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const IMG_SIZE = (SCREEN_WIDTH - 3) / 3;
 
-// Friend status: NONE | SENT | RECEIVED | FRIEND | BLOCKED
 type FriendStatus = 'NONE' | 'SENT' | 'RECEIVED' | 'FRIEND' | 'BLOCKED';
 
 export default function UserProfileScreen() {
@@ -34,7 +28,6 @@ export default function UserProfileScreen() {
     const [isLoading, setIsLoading] = useState(true);
     const [selectedTab, setSelectedTab] = useState<'posts' | 'tagged'>('posts');
 
-    // Social state
     const [friendStatus, setFriendStatus] = useState<FriendStatus>('NONE');
     const [friendsCount, setFriendsCount] = useState(0);
     const [isFriendLoading, setIsFriendLoading] = useState(false);
@@ -68,7 +61,6 @@ export default function UserProfileScreen() {
     useEffect(() => { loadUser(); }, [loadUser]);
     useEffect(() => { if (targetUser) loadSocialData(); }, [targetUser]);
 
-    /* ─── Friend actions ─── */
     const handleFriendAction = async () => {
         if (!myId || !targetId || isFriendLoading) return;
         setIsFriendLoading(true);
@@ -110,7 +102,6 @@ export default function UserProfileScreen() {
         } finally { setIsFriendLoading(false); }
     };
 
-    /* ─── Block action ─── */
     const handleBlock = async () => {
         if (!myId || !targetId) return;
         Alert.alert(
@@ -131,7 +122,6 @@ export default function UserProfileScreen() {
         );
     };
 
-    /* ─── Render helpers ─── */
     const getFriendButtonConfig = () => {
         switch (friendStatus) {
             case 'NONE': return { label: 'Thêm bạn bè', icon: 'person-add-outline', color: '#111827', textColor: '#fff' };
@@ -169,7 +159,6 @@ export default function UserProfileScreen() {
     return (
         <>
             <View style={{ flex: 1, backgroundColor: '#fff' }}>
-                {/* ─── HEADER ─── */}
                 <View style={[styles.header, { paddingTop: insets.top + 4 }]}>
                     <TouchableOpacity onPress={() => router.back()} hitSlop={10} style={styles.headerBack}>
                         <Ionicons name="chevron-back" size={28} color="#111827" />
@@ -181,9 +170,7 @@ export default function UserProfileScreen() {
                 </View>
 
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 32 }}>
-                    {/* ─── PROFILE SECTION ─── */}
                     <View style={styles.profileSection}>
-                        {/* Avatar + stats row */}
                         <View style={styles.statsRow}>
                             <View style={styles.avatarContainer}>
                                 <LinearGradient
@@ -209,7 +196,6 @@ export default function UserProfileScreen() {
                             </View>
                         </View>
 
-                        {/* Name & Bio */}
                         <View style={styles.bioSection}>
                             {targetUser.name ? <Text style={styles.displayName}>{targetUser.name}</Text> : null}
                             {targetUser.bio ? <Text style={styles.bio}>{targetUser.bio}</Text> : null}
@@ -220,10 +206,8 @@ export default function UserProfileScreen() {
                             )}
                         </View>
 
-                        {/* ─── ACTION BUTTONS ─── */}
                         {friendStatus !== 'BLOCKED' ? (
                             <View style={styles.actionRow}>
-                                {/* Friend button */}
                                 <TouchableOpacity
                                     style={[styles.friendBtn, { backgroundColor: friendBtnCfg!.color }]}
                                     onPress={handleFriendAction}
@@ -241,19 +225,16 @@ export default function UserProfileScreen() {
                                     }
                                 </TouchableOpacity>
 
-                                {/* Message button */}
-                                <TouchableOpacity style={styles.msgBtn} activeOpacity={0.75} onPress={() => {/* TODO: open chat */ }}>
+                                <TouchableOpacity style={styles.msgBtn} activeOpacity={0.75} onPress={() => { }}>
                                     <Ionicons name="chatbubble-outline" size={16} color="#111827" />
                                     <Text style={styles.msgBtnText}>Nhắn tin</Text>
                                 </TouchableOpacity>
 
-                                {/* More button */}
                                 <TouchableOpacity style={styles.moreBtn} onPress={() => setShowMoreSheet(true)} activeOpacity={0.75}>
                                     <Ionicons name="chevron-down" size={18} color="#111827" />
                                 </TouchableOpacity>
                             </View>
                         ) : (
-                            /* Blocked state */
                             <View style={styles.blockedBanner}>
                                 <Ionicons name="ban-outline" size={18} color="#EF4444" />
                                 <Text style={styles.blockedText}>Bạn đã chặn người dùng này</Text>
@@ -269,10 +250,8 @@ export default function UserProfileScreen() {
 
                     </View>
 
-                    {/* ─── DIVIDER ─── */}
                     <View style={styles.divider} />
 
-                    {/* ─── TABS ─── */}
                     <View style={styles.tabBar}>
                         <TouchableOpacity
                             style={[styles.tabItem, selectedTab === 'posts' && styles.tabItemActive]}
@@ -288,7 +267,6 @@ export default function UserProfileScreen() {
                         </TouchableOpacity>
                     </View>
 
-                    {/* ─── PHOTO GRID ─── */}
                     {userPosts.length > 0 ? (
                         <View style={styles.grid}>
                             {userPosts.map((post: Post, index: number) => (
@@ -316,7 +294,6 @@ export default function UserProfileScreen() {
                 </ScrollView>
             </View>
 
-            {/* ─── MORE OPTIONS SHEET ─── */}
             <Modal visible={showMoreSheet} transparent animationType="slide" onRequestClose={() => setShowMoreSheet(false)}>
                 <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setShowMoreSheet(false)} />
                 <View style={[styles.moreSheet, { paddingBottom: insets.bottom + 12 }]}>
@@ -344,7 +321,6 @@ export default function UserProfileScreen() {
     );
 }
 
-/* ─── Small components ─── */
 function StatItem({ value, label, onPress }: { value: number; label: string; onPress?: () => void }) {
     const content = (
         <View style={styles.statItem}>
@@ -366,14 +342,12 @@ function SheetAction({ icon, label, onPress, danger }: {
     );
 }
 
-/* ─── Styles ─── */
 const styles = StyleSheet.create({
     center: { flex: 1, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', gap: 12 },
     errorText: { fontSize: 15, color: '#9CA3AF' },
     backBtn: { marginTop: 12, backgroundColor: '#F3F4F6', borderRadius: 10, paddingHorizontal: 20, paddingVertical: 10 },
     backBtnText: { fontSize: 14, fontWeight: '600', color: '#111827' },
 
-    /* Header */
     header: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
         paddingHorizontal: 16, paddingBottom: 10, backgroundColor: '#fff',
@@ -382,7 +356,6 @@ const styles = StyleSheet.create({
     headerBack: { padding: 2 },
     headerUsername: { flex: 1, fontSize: 18, fontWeight: '700', color: '#111827', textAlign: 'center', marginHorizontal: 8 },
 
-    /* Profile */
     profileSection: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8, backgroundColor: '#fff' },
     statsRow: { flexDirection: 'row', alignItems: 'center' },
     avatarContainer: { marginRight: 24 },
@@ -401,13 +374,11 @@ const styles = StyleSheet.create({
     statNum: { fontSize: 18, fontWeight: '700', color: '#111827' },
     statLabel: { fontSize: 11, color: '#6B7280', marginTop: 2, textAlign: 'center' },
 
-    /* Bio */
     bioSection: { marginTop: 12 },
     displayName: { fontSize: 15, fontWeight: '700', color: '#111827' },
     bio: { fontSize: 14, color: '#374151', lineHeight: 20, marginTop: 4 },
     mutualFriends: { fontSize: 13, color: '#6B7280', marginTop: 6 },
 
-    /* Action buttons */
     actionRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14 },
     friendBtn: {
         flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
@@ -427,7 +398,6 @@ const styles = StyleSheet.create({
         borderWidth: 1, borderColor: '#E5E7EB',
     },
 
-    /* Blocked banner */
     blockedBanner: {
         flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14,
         backgroundColor: '#FEF2F2', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#FECACA',
@@ -435,10 +405,8 @@ const styles = StyleSheet.create({
     blockedText: { flex: 1, fontSize: 13, color: '#EF4444', fontWeight: '500' },
     unblockText: { fontSize: 13, fontWeight: '700', color: '#3B82F6' },
 
-    /* Divider */
     divider: { height: StyleSheet.hairlineWidth, backgroundColor: '#E5E7EB', marginTop: 16 },
 
-    /* Tabs */
     tabBar: {
         flexDirection: 'row', backgroundColor: '#fff',
         borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#E5E7EB',
@@ -449,7 +417,6 @@ const styles = StyleSheet.create({
     },
     tabItemActive: { borderBottomColor: '#111827' },
 
-    /* Grid */
     grid: { flexDirection: 'row', flexWrap: 'wrap', backgroundColor: '#fff' },
     gridItem: { width: IMG_SIZE, height: IMG_SIZE, backgroundColor: '#F3F4F6' },
     gridImage: { width: '100%', height: '100%' },
@@ -458,7 +425,6 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(0,0,0,0.35)', borderRadius: 4, padding: 3,
     },
 
-    /* Empty */
     emptyWrap: { alignItems: 'center', paddingVertical: 60, backgroundColor: '#fff' },
     emptyCircle: {
         width: 84, height: 84, borderRadius: 42, borderWidth: 2, borderColor: '#111827',
@@ -467,7 +433,6 @@ const styles = StyleSheet.create({
     emptyTitle: { fontSize: 20, fontWeight: '700', color: '#111827' },
     emptySub: { fontSize: 13, color: '#9CA3AF', marginTop: 6, textAlign: 'center', paddingHorizontal: 32 },
 
-    /* More sheet */
     overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)' },
     moreSheet: {
         backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24,

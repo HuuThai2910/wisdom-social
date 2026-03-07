@@ -11,10 +11,9 @@ import {
     Modal,
     TextInput,
     Pressable,
-    FlatList,
-    Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
@@ -46,15 +45,19 @@ export default function PageDetailScreen() {
     const [followCount, setFollowCount] = useState(0);
     const [activeSection, setActiveSection] = useState<'info' | 'members' | 'posts'>('info');
 
-    // Edit modal state
     const [showEditModal, setShowEditModal] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+    const [avatarLocalUri, setAvatarLocalUri] = useState('');
+    const [isUploadingCover, setIsUploadingCover] = useState(false);
+    const [coverLocalUri, setCoverLocalUri] = useState('');
+    const [pendingAvatarAsset, setPendingAvatarAsset] = useState<{ uri: string; mimeType: string; extension: string } | null>(null);
+    const [pendingCoverAsset, setPendingCoverAsset] = useState<{ uri: string; mimeType: string; extension: string } | null>(null);
     const [editForm, setEditForm] = useState({
         name: '', username: '', category: '', description: '',
         avatarUrl: '', coverUrl: '', phone: '', email: '', website: '', address: '',
     });
 
-    // Add member modal
     const [showMemberModal, setShowMemberModal] = useState(false);
     const [memberUserId, setMemberUserId] = useState('');
     const [memberRole, setMemberRole] = useState<PageRole>('USER');
@@ -80,8 +83,7 @@ export default function PageDetailScreen() {
             setIsFollowing(interactionData.isFollowing);
             setLikeCount(interactionData.likeCount);
             setFollowCount(interactionData.followCount);
-        } catch (err) {
-            console.error('Load page error:', err);
+        } catch {
         } finally {
             setIsLoading(false);
         }
@@ -130,26 +132,104 @@ export default function PageDetailScreen() {
             phone: page.phone || '', email: page.email || '',
             website: page.website || '', address: page.address || '',
         });
+        setAvatarLocalUri('');
+        setCoverLocalUri('');
+        setPendingAvatarAsset(null);
+        setPendingCoverAsset(null);
         setShowEditModal(true);
+    };
+
+    const pickAvatarImage = async () => {
+        if (!page) return;
+        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!perm.granted) {
+            Alert.alert('Quyền truy cập', 'Cần quyền truy cập thư viện ảnh để chọn ảnh.');
+            return;
+        }
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            quality: 0.8,
+        });
+        if (result.canceled || !result.assets[0]) return;
+        const asset = result.assets[0];
+        const mimeType = asset.mimeType ?? 'image/jpeg';
+        const extension = mimeType.split('/')[1].replace('jpeg', 'jpg');
+        setAvatarLocalUri(asset.uri);
+        setPendingAvatarAsset({ uri: asset.uri, mimeType, extension });
+    };
+
+    const pickCoverImage = async () => {
+        if (!page) return;
+        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!perm.granted) {
+            Alert.alert('Quyền truy cập', 'Cần quyền truy cập thư viện ảnh để chọn ảnh.');
+            return;
+        }
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            quality: 0.8,
+        });
+        if (result.canceled || !result.assets[0]) return;
+        const asset = result.assets[0];
+        const mimeType = asset.mimeType ?? 'image/jpeg';
+        const extension = mimeType.split('/')[1].replace('jpeg', 'jpg');
+        setCoverLocalUri(asset.uri);
+        setPendingCoverAsset({ uri: asset.uri, mimeType, extension });
     };
 
     const handleSaveEdit = async () => {
         if (!page) return;
         setIsSaving(true);
         try {
+            let newAvatarUrl: string | undefined = editForm.avatarUrl || undefined;
+            let newCoverUrl: string | undefined = editForm.coverUrl || undefined;
+
+            if (pendingAvatarAsset) {
+                setIsUploadingAvatar(true);
+                const uploadUrl = await pageService.getUpdateUploadUrl('pages', page.id, pendingAvatarAsset.extension);
+                if (!uploadUrl) throw new Error();
+                const blob = await fetch(pendingAvatarAsset.uri).then(r => r.blob());
+                const uploadRes = await fetch(uploadUrl, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': pendingAvatarAsset.mimeType },
+                    body: blob,
+                });
+                if (!uploadRes.ok) throw new Error();
+                const updatedPage = await pageService.findPageById(page.id);
+                newAvatarUrl = updatedPage?.avatarUrl;
+                setIsUploadingAvatar(false);
+            }
+
+            if (pendingCoverAsset) {
+                setIsUploadingCover(true);
+                const urls = await pageService.getUploadUrl('pages', pendingCoverAsset.extension);
+                if (!urls) throw new Error();
+                const blob = await fetch(pendingCoverAsset.uri).then(r => r.blob());
+                const uploadRes = await fetch(urls.uploadUrl, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': pendingCoverAsset.mimeType },
+                    body: blob,
+                });
+                if (!uploadRes.ok) throw new Error();
+                newCoverUrl = `https://cnmt-hk1-amz.s3.ap-southeast-1.amazonaws.com/${urls.imageUrl}`;
+                setIsUploadingCover(false);
+            }
+
             const payload: UpdatePageRequest = {
                 name: editForm.name || undefined,
                 username: editForm.username || undefined,
                 category: editForm.category || undefined,
                 description: editForm.description || undefined,
-                avatarUrl: editForm.avatarUrl || undefined,
-                coverUrl: editForm.coverUrl || undefined,
+                avatarUrl: newAvatarUrl,
+                coverUrl: newCoverUrl,
                 phone: editForm.phone || undefined,
                 email: editForm.email || undefined,
                 website: editForm.website || undefined,
                 address: editForm.address || undefined,
             };
             await pageService.updatePage(page.id, payload);
+            setPendingAvatarAsset(null);
+            setPendingCoverAsset(null);
             setShowEditModal(false);
             await loadAll();
             Alert.alert('Thành công', 'Đã cập nhật trang.');
@@ -157,6 +237,8 @@ export default function PageDetailScreen() {
             Alert.alert('Lỗi', 'Không thể cập nhật trang.');
         } finally {
             setIsSaving(false);
+            setIsUploadingAvatar(false);
+            setIsUploadingCover(false);
         }
     };
 
@@ -236,7 +318,6 @@ export default function PageDetailScreen() {
 
     return (
         <View style={[styles.container, { paddingTop: insets.top }]}>
-            {/* Header */}
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => router.back()} hitSlop={12}>
                     <Ionicons name="arrow-back" size={24} color={colors.text} />
@@ -250,7 +331,6 @@ export default function PageDetailScreen() {
             </View>
 
             <ScrollView style={styles.scrollView} contentContainerStyle={{ paddingBottom: insets.bottom + 40 }} showsVerticalScrollIndicator={false}>
-                {/* Cover */}
                 {page.coverUrl ? (
                     <Image source={{ uri: page.coverUrl }} style={styles.coverImage} />
                 ) : (
@@ -259,11 +339,10 @@ export default function PageDetailScreen() {
                     </View>
                 )}
 
-                {/* Profile card */}
                 <View style={styles.profileCard}>
                     <View style={styles.avatarSection}>
                         {page.avatarUrl ? (
-                            <Image source={{ uri: page.avatarUrl }} style={styles.avatar} />
+                            <Image source={{ uri: `https://cnmt-hk1-amz.s3.ap-southeast-1.amazonaws.com/${page.avatarUrl}` }} style={styles.avatar} />
                         ) : (
                             <View style={styles.avatarFallback}>
                                 <Ionicons name="flag" size={36} color={colors.textTertiary} />
@@ -286,7 +365,6 @@ export default function PageDetailScreen() {
 
                     {page.description ? <Text style={styles.description}>{page.description}</Text> : null}
 
-                    {/* Stats row */}
                     <View style={styles.statsRow}>
                         <View style={styles.statItem}>
                             <Text style={styles.statNumber}>{likeCount}</Text>
@@ -316,7 +394,6 @@ export default function PageDetailScreen() {
                         </View>
                     ) : null}
 
-                    {/* Action buttons */}
                     <View style={styles.actionRow}>
                         <TouchableOpacity
                             style={[styles.actionBtn, isLiked && styles.actionBtnActive]}
@@ -341,7 +418,6 @@ export default function PageDetailScreen() {
                     </View>
                 </View>
 
-                {/* ───── Section Tabs ───── */}
                 <View style={styles.sectionTabs}>
                     {(['info', 'members', 'posts'] as const).map(tab => (
                         <TouchableOpacity
@@ -361,7 +437,6 @@ export default function PageDetailScreen() {
                     ))}
                 </View>
 
-                {/* ───── INFO SECTION ───── */}
                 {activeSection === 'info' && (
                     <>
                         <View style={styles.infoCard}>
@@ -413,7 +488,6 @@ export default function PageDetailScreen() {
                     </>
                 )}
 
-                {/* ───── MEMBERS SECTION ───── */}
                 {activeSection === 'members' && (
                     <View style={styles.infoCard}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -468,7 +542,6 @@ export default function PageDetailScreen() {
                     </View>
                 )}
 
-                {/* ───── POSTS SECTION ───── */}
                 {activeSection === 'posts' && (
                     <View style={styles.infoCard}>
                         <Text style={styles.sectionTitle}>Bài viết của trang</Text>
@@ -490,7 +563,6 @@ export default function PageDetailScreen() {
                 )}
             </ScrollView>
 
-            {/* ═══════ EDIT MODAL ═══════ */}
             <Modal visible={showEditModal} animationType="slide" transparent onRequestClose={() => setShowEditModal(false)}>
                 <View style={styles.overlay}>
                     <Pressable style={styles.overlayBackdrop} onPress={() => setShowEditModal(false)} />
@@ -512,8 +584,42 @@ export default function PageDetailScreen() {
                             <EditField label="Username" value={editForm.username} onChange={v => setEditForm(f => ({ ...f, username: v }))} colors={colors} autoCapitalize="none" />
                             <EditField label="Danh mục" value={editForm.category} onChange={v => setEditForm(f => ({ ...f, category: v }))} colors={colors} />
                             <EditField label="Mô tả" value={editForm.description} onChange={v => setEditForm(f => ({ ...f, description: v }))} colors={colors} multiline />
-                            <EditField label="Avatar URL" value={editForm.avatarUrl} onChange={v => setEditForm(f => ({ ...f, avatarUrl: v }))} colors={colors} autoCapitalize="none" />
-                            <EditField label="Cover URL" value={editForm.coverUrl} onChange={v => setEditForm(f => ({ ...f, coverUrl: v }))} colors={colors} autoCapitalize="none" />
+                            <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textSecondary, marginTop: 14, marginBottom: 8 }}>Avatar trang</Text>
+                            <TouchableOpacity
+                                onPress={pickAvatarImage}
+                                disabled={isUploadingAvatar}
+                                style={[styles.avatarPickerBtn, { borderColor: colors.border, backgroundColor: colors.inputBg }]}
+                                activeOpacity={0.7}
+                            >
+                                {isUploadingAvatar ? (
+                                    <ActivityIndicator size="small" color={colors.primary} />
+                                ) : (avatarLocalUri || editForm.avatarUrl) ? (
+                                    <Image source={{ uri: avatarLocalUri || `https://cnmt-hk1-amz.s3.ap-southeast-1.amazonaws.com/${editForm.avatarUrl}` }} style={styles.avatarPickerImg} />
+                                ) : (
+                                    <Ionicons name="camera-outline" size={28} color={colors.textTertiary} />
+                                )}
+                                <Text style={{ fontSize: 13, color: (avatarLocalUri || editForm.avatarUrl) ? colors.primary : colors.textTertiary, marginTop: 6 }}>
+                                    {isUploadingAvatar ? 'Đang tải lên...' : (avatarLocalUri || editForm.avatarUrl) ? 'Đổi ảnh' : 'Chọn ảnh'}
+                                </Text>
+                            </TouchableOpacity>
+                            <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textSecondary, marginTop: 14, marginBottom: 8 }}>Ảnh bìa trang</Text>
+                            <TouchableOpacity
+                                onPress={pickCoverImage}
+                                disabled={isUploadingCover}
+                                style={[styles.coverPickerBtn, { borderColor: colors.border, backgroundColor: colors.inputBg }]}
+                                activeOpacity={0.7}
+                            >
+                                {isUploadingCover ? (
+                                    <ActivityIndicator size="small" color={colors.primary} />
+                                ) : (coverLocalUri || editForm.coverUrl) ? (
+                                    <Image source={{ uri: coverLocalUri || editForm.coverUrl }} style={styles.coverPickerImg} />
+                                ) : (
+                                    <Ionicons name="image-outline" size={28} color={colors.textTertiary} />
+                                )}
+                                <Text style={{ fontSize: 13, color: (coverLocalUri || editForm.coverUrl) ? colors.primary : colors.textTertiary, marginTop: 6 }}>
+                                    {isUploadingCover ? 'Đang tải lên...' : (coverLocalUri || editForm.coverUrl) ? 'Đổi ảnh bìa' : 'Chọn ảnh bìa'}
+                                </Text>
+                            </TouchableOpacity>
                             <EditField label="Điện thoại" value={editForm.phone} onChange={v => setEditForm(f => ({ ...f, phone: v }))} colors={colors} />
                             <EditField label="Email" value={editForm.email} onChange={v => setEditForm(f => ({ ...f, email: v }))} colors={colors} autoCapitalize="none" />
                             <EditField label="Website" value={editForm.website} onChange={v => setEditForm(f => ({ ...f, website: v }))} colors={colors} autoCapitalize="none" />
@@ -524,7 +630,6 @@ export default function PageDetailScreen() {
                 </View>
             </Modal>
 
-            {/* ═══════ ADD MEMBER MODAL ═══════ */}
             <Modal visible={showMemberModal} animationType="slide" transparent onRequestClose={() => setShowMemberModal(false)}>
                 <View style={styles.overlay}>
                     <Pressable style={styles.overlayBackdrop} onPress={() => setShowMemberModal(false)} />
@@ -583,7 +688,6 @@ export default function PageDetailScreen() {
     );
 }
 
-/* ─── Helper Components ─── */
 function InfoRow({ icon, label, value, colors }: { icon: string; label: string; value: string; colors: ThemeColors }) {
     return (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 }}>
@@ -621,7 +725,6 @@ function EditField({ label, value, onChange, colors, multiline, autoCapitalize, 
     );
 }
 
-/* ═══════════ STYLES ═══════════ */
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     header: {
@@ -682,7 +785,6 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     actionBtnText: { fontSize: 14, fontWeight: '600', color: colors.text },
     actionBtnTextActive: { color: colors.primaryText },
 
-    // Info card
     infoCard: {
         backgroundColor: colors.card, marginHorizontal: 14, marginTop: 14,
         borderRadius: 16, padding: 18,
@@ -705,7 +807,6 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     },
     managementBtnText: { fontSize: 15, fontWeight: '600' },
 
-    // Section tabs
     sectionTabs: {
         flexDirection: 'row', backgroundColor: colors.card, marginHorizontal: 14, marginTop: 14,
         borderRadius: 16, padding: 4,
@@ -719,7 +820,6 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     sectionTabText: { fontSize: 12, fontWeight: '500', color: colors.textTertiary },
     sectionTabTextActive: { fontWeight: '700', color: colors.tabActive },
 
-    // Member row
     memberRow: {
         flexDirection: 'row', alignItems: 'center', gap: 12,
         paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border,
@@ -735,7 +835,6 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     },
     roleBadgeText: { fontSize: 10, fontWeight: '700', color: colors.textTertiary },
 
-    // Modal
     overlay: { flex: 1, justifyContent: 'flex-end' },
     overlayBackdrop: {
         ...StyleSheet.absoluteFillObject,
@@ -756,4 +855,17 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     sheetTitle: { fontSize: 17, fontWeight: '700', color: colors.text },
     sheetCancel: { fontSize: 15, color: colors.textSecondary, fontWeight: '500' },
     sheetSave: { fontSize: 15, fontWeight: '700', color: colors.primary },
+
+    avatarPickerBtn: {
+        alignItems: 'center', justifyContent: 'center',
+        borderWidth: 1.5, borderStyle: 'dashed', borderRadius: 16,
+        paddingVertical: 20, marginBottom: 4,
+    },
+    avatarPickerImg: { width: 80, height: 80, borderRadius: 16 },
+    coverPickerBtn: {
+        alignItems: 'center', justifyContent: 'center',
+        borderWidth: 1.5, borderStyle: 'dashed', borderRadius: 16,
+        paddingVertical: 20, marginBottom: 4,
+    },
+    coverPickerImg: { width: '100%', height: 120, borderRadius: 12 },
 });

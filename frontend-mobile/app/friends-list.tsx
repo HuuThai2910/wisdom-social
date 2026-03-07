@@ -27,7 +27,6 @@ export default function FriendsListScreen() {
     const [isLoading, setIsLoading] = useState(true);
     const [selectedTab, setSelectedTab] = useState<'friends' | 'requests' | 'blocked'>('friends');
 
-    // Use ref to always have the latest selectedTab in WebSocket handlers
     const selectedTabRef = useRef(selectedTab);
     useEffect(() => {
         selectedTabRef.current = selectedTab;
@@ -47,8 +46,7 @@ export default function FriendsListScreen() {
                 const blocked = await blockService.getBlockedUsers(Number(userId));
                 setBlockedUsers(blocked);
             }
-        } catch (error) {
-            console.error('Failed to load data:', error);
+        } catch {
         } finally {
             setIsLoading(false);
         }
@@ -82,26 +80,19 @@ export default function FriendsListScreen() {
     const handleAcceptRequest = async (friendId: number) => {
         const success = await friendService.acceptFriendRequest(friendId, Number(userId));
         if (success) {
-            loadData(); // Reload list
+            loadData();
         }
     };
 
     const handleRejectRequest = async (friendId: number) => {
         const success = await friendService.rejectFriendRequest(friendId, Number(userId));
         if (success) {
-            loadData(); // Reload list
+            loadData();
         }
     };
 
     const handleUnfriend = async (friendId: number) => {
         const success = await friendService.cancelFriendRequest(Number(userId), friendId);
-        if (success) {
-            loadData(); // Reload list
-        }
-    };
-
-    const handleSendRequest = async (receiverId: number) => {
-        const success = await friendService.sendFriendRequest(Number(userId), receiverId);
         if (success) {
             loadData();
         }
@@ -221,7 +212,6 @@ export default function FriendsListScreen() {
 
     return (
         <View style={styles.container}>
-            {/* Header */}
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
                     <Ionicons name="arrow-back" size={24} color="#1F2937" />
@@ -230,7 +220,6 @@ export default function FriendsListScreen() {
                 <View style={styles.placeholder} />
             </View>
 
-            {/* Tabs */}
             <View style={styles.tabs}>
                 <TouchableOpacity
                     style={[styles.tab, selectedTab === 'friends' && styles.tabActive]}
@@ -258,7 +247,6 @@ export default function FriendsListScreen() {
                 </TouchableOpacity>
             </View>
 
-            {/* Search Input for blocked tab */}
             {selectedTab === 'blocked' && (
                 <View style={styles.searchContainer}>
                     <Ionicons name="search" size={20} color="#9CA3AF" style={styles.searchIcon} />
@@ -277,7 +265,6 @@ export default function FriendsListScreen() {
                 </View>
             )}
 
-            {/* Content */}
             {isLoading ? (
                 <View style={styles.loadingContainer}>
                     <ActivityIndicator size="large" color="#3B82F6" />

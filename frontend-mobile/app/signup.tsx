@@ -27,17 +27,14 @@ export default function SignUpScreen() {
 
     const handleSignUp = async () => {
         if (!phone || !password || !confirmPassword) {
-            console.log('Validation error: Please fill in all fields');
             return;
         }
 
         if (password !== confirmPassword) {
-            console.log('Validation error: Passwords do not match');
             return;
         }
 
         if (password.length < 6) {
-            console.log('Validation error: Password must be at least 6 characters');
             return;
         }
 
@@ -45,16 +42,12 @@ export default function SignUpScreen() {
         try {
             const result = await authService.register({ phone, password, confirmPassword });
             if (result) {
-                // Navigate to OTP verification
                 router.push({
                     pathname: '/verify-otp',
                     params: { phone, type: 'register' },
                 });
-            } else {
-                console.error('Registration failed: Invalid response');
             }
-        } catch (error: any) {
-            console.error('Registration failed:', error.message || 'Please try again');
+        } catch {
         } finally {
             setLoading(false);
         }
@@ -74,7 +67,6 @@ export default function SignUpScreen() {
                     keyboardShouldPersistTaps="handled"
                     showsVerticalScrollIndicator={false}
                 >
-                    {/* Logo */}
                     <Logo showSubtitle />
                     
                     <Text style={styles.welcomeText}>
@@ -84,9 +76,7 @@ export default function SignUpScreen() {
                         Sign up with your phone number to get started
                     </Text>
 
-                    {/* Sign Up Form */}
                     <View style={styles.form}>
-                        {/* Phone Input */}
                         <View style={styles.inputWrapper}>
                             <View style={styles.inputIconContainer}>
                                 <Ionicons name="call-outline" size={20} color="#3B82F6" />
@@ -102,7 +92,6 @@ export default function SignUpScreen() {
                             />
                         </View>
 
-                        {/* Password Input */}
                         <View style={styles.inputWrapper}>
                             <View style={styles.inputIconContainer}>
                                 <Ionicons name="lock-closed-outline" size={20} color="#3B82F6" />
@@ -127,7 +116,6 @@ export default function SignUpScreen() {
                             </TouchableOpacity>
                         </View>
 
-                        {/* Confirm Password Input */}
                         <View style={styles.inputWrapper}>
                             <View style={styles.inputIconContainer}>
                                 <Ionicons name="shield-checkmark-outline" size={20} color="#3B82F6" />
@@ -175,7 +163,6 @@ export default function SignUpScreen() {
                         </TouchableOpacity>
                     </View>
 
-                    {/* Terms */}
                     <Text style={styles.terms}>
                         By signing up, you agree to our{' '}
                         <Text style={styles.termsLink}>Terms</Text>,{' '}
@@ -183,7 +170,6 @@ export default function SignUpScreen() {
                         <Text style={styles.termsLink}>Cookies Policy</Text>.
                     </Text>
 
-                    {/* Login Link */}
                     <View style={styles.loginContainer}>
                         <Text style={styles.loginText}>Already have an account? </Text>
                         <Link href="/login" asChild>

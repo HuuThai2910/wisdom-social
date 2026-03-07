@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.Map;
 
 public interface PageService {
-    boolean createPage(long userId, UserRequestCreatePage createPage);
+    Page createPage(long userId, UserRequestCreatePage createPage);
     boolean deletePage(long id);
     boolean updatePage(long pageId, UserRequestUpdatePage updatePage);
     Page findPageById(long id);

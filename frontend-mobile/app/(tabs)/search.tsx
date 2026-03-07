@@ -19,7 +19,6 @@ import pageService, { PageData } from '../../services/pageService';
 import websocketService from '../../services/websocketService';
 import type { User } from '../../types';
 
-/* ── Union type for mixed results ── */
 type SearchItem =
     | { kind: 'user'; data: User }
     | { kind: 'page'; data: PageData };
@@ -33,16 +32,13 @@ export default function SearchScreen() {
     const [searchQuery, setSearchQuery] = useState('');
     const [isLoading, setIsLoading] = useState(false);
 
-    // Raw data
     const [allUsers, setAllUsers] = useState<User[]>([]);
     const [allPages, setAllPages] = useState<PageData[]>([]);
 
-    // Mixed filtered results
     const [results, setResults] = useState<SearchItem[]>([]);
 
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    /* ── Build mixed list: users & pages interleaved ── */
     const buildMixedList = useCallback((users: User[], pages: PageData[]): SearchItem[] => {
         const items: SearchItem[] = [];
         const maxLen = Math.max(users.length, pages.length);
@@ -53,7 +49,6 @@ export default function SearchScreen() {
         return items;
     }, []);
 
-    /* ── Load data ── */
     const loadData = useCallback(async () => {
         const userId = currentUser?.id;
         if (!userId) return;
@@ -67,8 +62,7 @@ export default function SearchScreen() {
             setAllUsers(filteredUsers);
             setAllPages(pages);
             setResults(buildMixedList(filteredUsers, pages));
-        } catch (err) {
-            console.error('[Search] loadData error:', err);
+        } catch {
         } finally {
             setIsLoading(false);
         }
@@ -78,7 +72,6 @@ export default function SearchScreen() {
         loadData();
     }, [loadData]);
 
-    /* ── Reload when someone is blocked/unblocked via WebSocket ── */
     useEffect(() => {
         const handleBlockChange = () => loadData();
         websocketService.on('save-block', handleBlockChange);
@@ -89,7 +82,6 @@ export default function SearchScreen() {
         };
     }, [loadData]);
 
-    /* ── Filter locally with debounce ── */
     const handleSearch = (text: string) => {
         setSearchQuery(text);
         if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -115,7 +107,6 @@ export default function SearchScreen() {
         }, 250);
     };
 
-    /* ── Render a single mixed item ── */
     const renderItem = ({ item }: { item: SearchItem }) => {
         if (item.kind === 'user') {
             const u = item.data;
@@ -126,7 +117,7 @@ export default function SearchScreen() {
                     onPress={() => router.push(`/user-profile?userId=${u.id}` as any)}
                 >
                     {u.avatarUrl ? (
-                        <Image source={{ uri: u.avatarUrl }} style={styles.avatar} />
+                        <Image source={{ uri: `https://cnmt-hk1-amz.s3.ap-southeast-1.amazonaws.com/${u.avatarUrl}` }} style={styles.avatar} />
                     ) : (
                         <View style={styles.avatarFallback}>
                             <Ionicons name="person" size={24} color={colors.textTertiary} />
@@ -151,7 +142,6 @@ export default function SearchScreen() {
             );
         }
 
-        // page
         const p = item.data;
         return (
             <TouchableOpacity
@@ -160,7 +150,7 @@ export default function SearchScreen() {
                 onPress={() => router.push(`/page-detail?pageId=${p.id}` as any)}
             >
                 {p.avatarUrl ? (
-                    <Image source={{ uri: p.avatarUrl }} style={styles.avatar} />
+                    <Image source={{ uri: `https://cnmt-hk1-amz.s3.ap-southeast-1.amazonaws.com/${p.avatarUrl}` }} style={styles.avatar} />
                 ) : (
                     <View style={styles.avatarFallback}>
                         <Ionicons name="flag" size={24} color={colors.textTertiary} />
@@ -189,7 +179,6 @@ export default function SearchScreen() {
 
     return (
         <View style={styles.container}>
-            {/* ── Search Bar ── */}
             <View style={styles.searchBar}>
                 <Ionicons name="search" size={20} color={colors.textTertiary} />
                 <TextInput
@@ -208,14 +197,12 @@ export default function SearchScreen() {
                 )}
             </View>
 
-            {/* ── Results count ── */}
             {!isLoading && results.length > 0 && (
                 <Text style={styles.resultCount}>
                     {results.length} kết quả{searchQuery ? ` cho "${searchQuery}"` : ''}
                 </Text>
             )}
 
-            {/* ── Content ── */}
             {isLoading ? (
                 <View style={styles.centerWrap}>
                     <ActivityIndicator size="large" color={colors.primary} />
@@ -251,11 +238,9 @@ export default function SearchScreen() {
     );
 }
 
-/* ══════════════════ STYLES ══════════════════ */
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
 
-    /* Search bar */
     searchBar: {
         flexDirection: 'row', alignItems: 'center', gap: 8,
         marginHorizontal: 14, marginTop: 10, marginBottom: 4,
@@ -272,7 +257,6 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
         marginHorizontal: 18, marginTop: 8, marginBottom: 2,
     },
 
-    /* List */
     listContent: { padding: 14, paddingBottom: 40 },
     rowCard: {
         flexDirection: 'row', alignItems: 'center',
@@ -305,7 +289,6 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
         marginLeft: 8,
     },
 
-    /* Center / empty */
     centerWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 10 },
     loadingText: { fontSize: 14, color: colors.textSecondary },
     emptyCircle: {

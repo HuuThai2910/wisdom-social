@@ -3,6 +3,7 @@ import { StatusBar } from "expo-status-bar";
 import { AuthProvider } from "../contexts/AuthContext";
 import { ThemeProvider, useTheme } from "../contexts/ThemeContext";
 import { NotificationProvider } from "../contexts/NotificationContext";
+import { AlertProvider } from "../contexts/AlertContext";
 
 function InnerLayout() {
   const { colors } = useTheme();
@@ -67,9 +68,11 @@ export default function RootLayout() {
   return (
     <AuthProvider>
       <ThemeProvider>
-        <NotificationProvider>
-          <InnerLayout />
-        </NotificationProvider>
+        <AlertProvider>
+          <NotificationProvider>
+            <InnerLayout />
+          </NotificationProvider>
+        </AlertProvider>
       </ThemeProvider>
     </AuthProvider>
   );

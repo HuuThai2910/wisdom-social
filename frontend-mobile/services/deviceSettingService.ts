@@ -15,10 +15,6 @@ export interface DeviceSettingDTO {
 }
 
 class DeviceSettingService {
-    /**
-     * Fetch the settings stored on the server for this device.
-     * Returns null when there is no saved record yet.
-     */
     async get(deviceName: string, deviceType: string): Promise<DeviceSettingDTO | null> {
         try {
             const res = await apiClient.get('/device-settings', {
@@ -30,9 +26,6 @@ class DeviceSettingService {
         }
     }
 
-    /**
-     * Create or update the settings for the current user + device.
-     */
     async save(dto: DeviceSettingDTO): Promise<DeviceSettingDTO | null> {
         try {
             const res = await apiClient.put('/device-settings', dto);

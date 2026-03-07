@@ -6,16 +6,13 @@ const ID_TOKEN_KEY = 'idToken';
 const USER_KEY = 'user';
 const SETTINGS_KEY = 'appSettings';
 
-// In-memory fallback for when AsyncStorage is not available
 const memoryStorage: { [key: string]: string } = {};
 
-// Storage wrapper with fallback
 const storage = {
     async setItem(key: string, value: string): Promise<void> {
         try {
             await AsyncStorage.setItem(key, value);
         } catch (error: any) {
-            // Fallback to memory storage if native module fails
             if (error.message?.includes('Native module is null')) {
                 memoryStorage[key] = value;
             } else {
@@ -28,7 +25,6 @@ const storage = {
         try {
             return await AsyncStorage.getItem(key);
         } catch (error: any) {
-            // Fallback to memory storage if native module fails
             if (error.message?.includes('Native module is null')) {
                 return memoryStorage[key] || null;
             } else {
@@ -41,7 +37,6 @@ const storage = {
         try {
             await AsyncStorage.removeItem(key);
         } catch (error: any) {
-            // Fallback to memory storage if native module fails
             if (error.message?.includes('Native module is null')) {
                 delete memoryStorage[key];
             } else {
@@ -51,20 +46,16 @@ const storage = {
     }
 };
 
-// Token storage
 export const saveToken = async (token: string): Promise<void> => {
     try {
         await storage.setItem(TOKEN_KEY, token);
-    } catch (error) {
-        console.error('Error saving token:', error);
-    }
+    } catch {}
 };
 
 export const getToken = async (): Promise<string | null> => {
     try {
         return await storage.getItem(TOKEN_KEY);
-    } catch (error: any) {
-        console.error('Error getting token:', error);
+    } catch {
         return null;
     }
 };
@@ -72,16 +63,13 @@ export const getToken = async (): Promise<string | null> => {
 export const saveRefreshToken = async (token: string): Promise<void> => {
     try {
         await storage.setItem(REFRESH_TOKEN_KEY, token);
-    } catch (error) {
-        console.error('Error saving refresh token:', error);
-    }
+    } catch {}
 };
 
 export const getRefreshToken = async (): Promise<string | null> => {
     try {
         return await storage.getItem(REFRESH_TOKEN_KEY);
-    } catch (error: any) {
-        console.error('Error getting refresh token:', error);
+    } catch {
         return null;
     }
 };
@@ -89,41 +77,32 @@ export const getRefreshToken = async (): Promise<string | null> => {
 export const saveIdToken = async (token: string): Promise<void> => {
     try {
         await storage.setItem(ID_TOKEN_KEY, token);
-    } catch (error) {
-        console.error('Error saving ID token:', error);
-    }
+    } catch {}
 };
 
 export const getIdToken = async (): Promise<string | null> => {
     try {
-        const token = await storage.getItem(ID_TOKEN_KEY);
-        return token;
-    } catch (error: any) {
-        console.error('Error getting ID token:', error);
+        return await storage.getItem(ID_TOKEN_KEY);
+    } catch {
         return null;
     }
 };
 
-// User storage
 export const saveUser = async (user: any): Promise<void> => {
     try {
         await storage.setItem(USER_KEY, JSON.stringify(user));
-    } catch (error) {
-        console.error('Error saving user:', error);
-    }
+    } catch {}
 };
 
 export const getUser = async (): Promise<any | null> => {
     try {
         const userJson = await storage.getItem(USER_KEY);
         return userJson ? JSON.parse(userJson) : null;
-    } catch (error) {
-        console.error('Error getting user:', error);
+    } catch {
         return null;
     }
 };
 
-// Clear all data
 export const clearStorage = async (): Promise<void> => {
     try {
         await Promise.all([
@@ -132,26 +111,20 @@ export const clearStorage = async (): Promise<void> => {
             storage.removeItem(ID_TOKEN_KEY),
             storage.removeItem(USER_KEY)
         ]);
-    } catch (error) {
-        console.error('Error clearing storage:', error);
-    }
+    } catch {}
 };
 
-// App settings storage
 export const saveSettings = async (settings: any): Promise<void> => {
     try {
         await storage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-    } catch (error) {
-        console.error('Error saving settings:', error);
-    }
+    } catch {}
 };
 
 export const getSettings = async (): Promise<any | null> => {
     try {
         const settingsJson = await storage.getItem(SETTINGS_KEY);
         return settingsJson ? JSON.parse(settingsJson) : null;
-    } catch (error) {
-        console.error('Error getting settings:', error);
+    } catch {
         return null;
     }
 };

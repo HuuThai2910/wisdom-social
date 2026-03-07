@@ -9,7 +9,6 @@ export default function FeedScreen() {
             <ScrollView showsVerticalScrollIndicator={false}>
                
 
-                {/* Posts Feed */}
                 <View style={styles.postsContainer}>
                     {mockPosts.map((post) => (
                         <PostCard key={post.id} post={post} />

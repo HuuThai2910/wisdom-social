@@ -1,5 +1,4 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { Platform } from 'react-native';
 import { getSettings, saveSettings } from '../utils/storage';
 import deviceSettingService from '../services/deviceSettingService';
 import { getDeviceInfo } from '../utils/deviceInfo';
@@ -41,7 +40,6 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
     const loadNotificationSettings = async () => {
         try {
-            // Try API first when logged in
             if (user) {
                 const info = await getDeviceInfo();
                 const remote = await deviceSettingService.get(info.deviceName, info.deviceType);
@@ -55,13 +53,11 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
                         pageUpdatesEnabled: remote.pageUpdatesEnabled ?? true,
                     };
                     setNotificationSettings(fromApi);
-                    // Sync to local storage
                     const settings = await getSettings();
                     await saveSettings({ ...settings, notifications: fromApi });
                     return;
                 }
             }
-            // Fallback to local
             const settings = await getSettings();
             if (settings?.notifications) {
                 setNotificationSettings({ ...defaultNotificationSettings, ...settings.notifications });
@@ -69,7 +65,6 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         } catch (_) {}
     };
 
-    /** Helper: persist updated settings both locally and to API */
     const persistSettings = async (updated: NotificationSettings) => {
         try {
             const settings = await getSettings();
@@ -88,13 +83,11 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     const updateNotificationSetting = async (key: keyof NotificationSettings, value: boolean) => {
         const updated = { ...notificationSettings, [key]: value };
         
-        // If turning off pushEnabled, turn off all notifications
         if (key === 'pushEnabled' && !value) {
             Object.keys(updated).forEach(k => {
                 (updated as any)[k] = false;
             });
         }
-        // If turning on any sub-notification, also enable push
         if (key !== 'pushEnabled' && value) {
             updated.pushEnabled = true;
         }

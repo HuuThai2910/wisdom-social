@@ -52,7 +52,6 @@ export default function SettingsScreen() {
 
     return (
         <View style={[styles.container, { paddingTop: insets.top }]}>
-            {/* Header */}
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => router.back()} hitSlop={12}>
                     <Ionicons name="arrow-back" size={24} color={colors.text} />
@@ -66,7 +65,6 @@ export default function SettingsScreen() {
                 contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
                 showsVerticalScrollIndicator={false}
             >
-                {/* ═══════════ GIAO DIỆN ═══════════ */}
                 <Text style={styles.sectionTitle}>Giao diện</Text>
                 <View style={styles.card}>
                     <View style={styles.settingRow}>
@@ -107,7 +105,6 @@ export default function SettingsScreen() {
                     </View>
                 </View>
 
-                {/* ═══════════ THÔNG BÁO ═══════════ */}
                 <Text style={styles.sectionTitle}>Thông báo</Text>
                 <View style={styles.card}>
                     <NotificationSwitch
@@ -198,7 +195,6 @@ export default function SettingsScreen() {
                     />
                 </View>
 
-                {/* ═══════════ TÀI KHOẢN ═══════════ */}
                 <Text style={styles.sectionTitle}>Tài khoản</Text>
                 <View style={styles.card}>
                     <TouchableOpacity style={styles.menuItem} activeOpacity={0.7}>
@@ -245,14 +241,12 @@ export default function SettingsScreen() {
                     </TouchableOpacity>
                 </View>
 
-                {/* Version */}
                 <Text style={styles.versionText}>Wisdom Social v1.0.0</Text>
             </ScrollView>
         </View>
     );
 }
 
-/* ─────────── NotificationSwitch Component ─────────── */
 function NotificationSwitch({
     icon, iconBg, iconColor, label, description, value, onValueChange, disabled, colors, styles,
 }: {
@@ -284,7 +278,6 @@ function NotificationSwitch({
     );
 }
 
-/* ═════════════════ STYLES ═════════════════ */
 const createStyles = (colors: ThemeColors) =>
     StyleSheet.create({
         container: {

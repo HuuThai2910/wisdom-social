@@ -7,11 +7,11 @@ import iuh.fit.edu.backend.dto.request.page.UserRequestPage;
 import iuh.fit.edu.backend.dto.request.page.UserRequestUpdatePage;
 import iuh.fit.edu.backend.service.impl.page.PageService;
 import iuh.fit.edu.backend.service.impl.user.UserService;
+import iuh.fit.edu.backend.service.s3.S3Service;
 import iuh.fit.edu.backend.util.anotation.ApiMessage;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-
 import java.util.List;
 import java.util.Map;
 
@@ -20,9 +20,12 @@ import java.util.Map;
 public class PageController {
     PageService pageService;
     UserService userService;
-    public PageController(PageService pageService, UserService userService) {
+    S3Service s3Service;
+
+    public PageController(PageService pageService, UserService userService, S3Service s3Service) {
         this.pageService = pageService;
         this.userService = userService;
+        this.s3Service = s3Service;
     }
 
     @PostMapping("/create")
@@ -31,9 +34,17 @@ public class PageController {
         User currentUser = userService.getCurrentUser();
         if (currentUser == null)
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("User not authenticated");
-        boolean success= pageService.createPage(currentUser.getId(),createPage);
-        if (success)
+        Page page= pageService.createPage(currentUser.getId(),createPage);
+        if (page!=null){
+            if (createPage.getAvatarUrl()!=null){
+                String key=s3Service.moveUploadUrl("pages", page.getId(), createPage.getAvatarUrl());
+                UserRequestUpdatePage userRequestUpdatePage=new UserRequestUpdatePage();
+                userRequestUpdatePage.setAvatarUrl(key);
+                pageService.updatePage(page.getId(), userRequestUpdatePage);
+            }
             return ResponseEntity.ok("Create page successfully");
+        }
+
         return ResponseEntity.badRequest().body("Create page failed");
     }
 
@@ -128,4 +139,25 @@ public class PageController {
         return ResponseEntity.ok(status);
     }
 
+    @GetMapping("/update/upload-avatar")
+    @ApiMessage("Upload image successfully")
+    public ResponseEntity<String> updateUploadImage(@RequestParam String type,
+                                                          @RequestParam long id,
+                                                          @RequestParam String extension){
+        Page page=pageService.findPageById(id);
+        Map<String,String> image= s3Service.generateUpdateUploadUrl(type,id,extension);
+        if (page!=null){
+            UserRequestUpdatePage update=new UserRequestUpdatePage();
+            update.setAvatarUrl(image.get("imageUrl"));
+            pageService.updatePage(id,update);
+        }
+        return ResponseEntity.ok(image.get("uploadUrl"));
+    }
+
+    @GetMapping("/upload-avatar")
+    @ApiMessage("Upload image successfully")
+    public ResponseEntity<Map<String,String>> uploadImage(@RequestParam String type,
+                                                          @RequestParam String extension){
+        return ResponseEntity.ok(s3Service.generateUploadUrl(type,extension));
+    }
 }

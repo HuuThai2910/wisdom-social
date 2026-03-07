@@ -26,7 +26,6 @@ export default function LoginScreen() {
 
     const handleLogin = async () => {
         if (!phone || !password) {
-            console.log('Validation error: Please fill in all fields');
             return;
         }
 
@@ -34,8 +33,7 @@ export default function LoginScreen() {
         try {
             await login(phone, password);
             router.replace('/(tabs)');
-        } catch (error: any) {
-            console.error('Login failed:', error.message || 'Invalid phone number or password');
+        } catch {
         } finally {
             setLoading(false);
         }
@@ -55,10 +53,8 @@ export default function LoginScreen() {
                     keyboardShouldPersistTaps="handled"
                     showsVerticalScrollIndicator={false}
                 >
-                    {/* Logo */}
                     <Logo showSubtitle />
                     
-                    {/* Welcome Text */}
                     <Text style={styles.welcomeText}>
                         Welcome Back!
                     </Text>
@@ -66,9 +62,7 @@ export default function LoginScreen() {
                         Log in to continue your journey
                     </Text>
 
-                    {/* Login Form */}
                     <View style={styles.form}>
-                        {/* Phone Input */}
                         <View style={styles.inputWrapper}>
                             <View style={styles.inputIconContainer}>
                                 <Ionicons name="call-outline" size={20} color="#3B82F6" />
@@ -84,7 +78,6 @@ export default function LoginScreen() {
                             />
                         </View>
 
-                        {/* Password Input */}
                         <View style={styles.inputWrapper}>
                             <View style={styles.inputIconContainer}>
                                 <Ionicons name="lock-closed-outline" size={20} color="#3B82F6" />
@@ -138,7 +131,6 @@ export default function LoginScreen() {
                         </TouchableOpacity>
                     </View>
 
-                    {/* Sign Up Link */}
                     <View style={styles.signupContainer}>
                         <Text style={styles.signupText}>Don't have an account? </Text>
                         <Link href="/signup" asChild>

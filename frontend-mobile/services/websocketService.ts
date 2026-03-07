@@ -45,21 +45,18 @@ class WebSocketService {
                 this.connected = false;
             };
 
-            this.client.onStompError = (frame) => {
-                console.error('STOMP Error:', frame.headers['message'], frame.body);
+            this.client.onStompError = () => {
             };
 
             this.client.onWebSocketClose = () => {
                 this.connected = false;
             };
 
-            this.client.onWebSocketError = (evt) => {
-                console.error('WebSocket error:', evt);
+            this.client.onWebSocketError = () => {
             };
 
             this.client.activate();
-        } catch (error) {
-            console.error('WebSocket connection error:', error);
+        } catch {
         }
     }
 
@@ -94,8 +91,7 @@ class WebSocketService {
             handlers.forEach(handler => {
                 try {
                     handler(message);
-                } catch (error) {
-                    console.error('WebSocket handler error:', error);
+                } catch {
                 }
             });
         }

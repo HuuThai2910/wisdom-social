@@ -10,8 +10,10 @@ import {
     Alert,
     KeyboardAvoidingView,
     Platform,
+    Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
@@ -37,6 +39,12 @@ export default function CreatePageScreen() {
     const styles = createStyles(colors);
 
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+    const [avatarLocalUri, setAvatarLocalUri] = useState('');
+    const [isUploadingCover, setIsUploadingCover] = useState(false);
+    const [coverLocalUri, setCoverLocalUri] = useState('');
+    const [pendingAvatarAsset, setPendingAvatarAsset] = useState<{ uri: string; mimeType: string; extension: string } | null>(null);
+    const [pendingCoverAsset, setPendingCoverAsset] = useState<{ uri: string; mimeType: string; extension: string } | null>(null);
     const [form, setForm] = useState<CreatePageRequest>({
         name: '',
         username: '',
@@ -55,6 +63,42 @@ export default function CreatePageScreen() {
         setForm(f => ({ ...f, [key]: value }));
     };
 
+    const pickAvatarImage = async () => {
+        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!perm.granted) {
+            Alert.alert('Quyền truy cập', 'Cần quyền truy cập thư viện ảnh để chọn ảnh.');
+            return;
+        }
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            quality: 0.8,
+        });
+        if (result.canceled || !result.assets[0]) return;
+        const asset = result.assets[0];
+        const mimeType = asset.mimeType ?? 'image/jpeg';
+        const extension = mimeType.split('/')[1].replace('jpeg', 'jpg');
+        setAvatarLocalUri(asset.uri);
+        setPendingAvatarAsset({ uri: asset.uri, mimeType, extension });
+    };
+
+    const pickCoverImage = async () => {
+        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!perm.granted) {
+            Alert.alert('Quyền truy cập', 'Cần quyền truy cập thư viện ảnh để chọn ảnh.');
+            return;
+        }
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            quality: 0.8,
+        });
+        if (result.canceled || !result.assets[0]) return;
+        const asset = result.assets[0];
+        const mimeType = asset.mimeType ?? 'image/jpeg';
+        const extension = mimeType.split('/')[1].replace('jpeg', 'jpg');
+        setCoverLocalUri(asset.uri);
+        setPendingCoverAsset({ uri: asset.uri, mimeType, extension });
+    };
+
     const handleSubmit = async () => {
         if (!form.name?.trim()) {
             Alert.alert('Thiếu thông tin', 'Vui lòng nhập tên trang.');
@@ -62,7 +106,40 @@ export default function CreatePageScreen() {
         }
         setIsSubmitting(true);
         try {
-            await pageService.createPage(form);
+            let finalAvatarUrl = form.avatarUrl;
+            let finalCoverUrl = form.coverUrl;
+
+            if (pendingAvatarAsset) {
+                setIsUploadingAvatar(true);
+                const urls = await pageService.getUploadUrl('pages', pendingAvatarAsset.extension);
+                if (!urls) throw new Error();
+                const blob = await fetch(pendingAvatarAsset.uri).then(r => r.blob());
+                const uploadRes = await fetch(urls.uploadUrl, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': pendingAvatarAsset.mimeType },
+                    body: blob,
+                });
+                if (!uploadRes.ok) throw new Error();
+                finalAvatarUrl = urls.uuid + '.' + urls.extension;
+                setIsUploadingAvatar(false);
+            }
+
+            if (pendingCoverAsset) {
+                setIsUploadingCover(true);
+                const urls = await pageService.getUploadUrl('pages', pendingCoverAsset.extension);
+                if (!urls) throw new Error();
+                const blob = await fetch(pendingCoverAsset.uri).then(r => r.blob());
+                const uploadRes = await fetch(urls.uploadUrl, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': pendingCoverAsset.mimeType },
+                    body: blob,
+                });
+                if (!uploadRes.ok) throw new Error();
+                finalCoverUrl = `https://cnmt-hk1-amz.s3.ap-southeast-1.amazonaws.com/${urls.imageUrl}`;
+                setIsUploadingCover(false);
+            }
+
+            await pageService.createPage({ ...form, avatarUrl: finalAvatarUrl, coverUrl: finalCoverUrl });
             Alert.alert('Thành công', 'Đã tạo trang mới!', [
                 { text: 'OK', onPress: () => router.back() },
             ]);
@@ -71,6 +148,8 @@ export default function CreatePageScreen() {
             Alert.alert('Lỗi', msg);
         } finally {
             setIsSubmitting(false);
+            setIsUploadingAvatar(false);
+            setIsUploadingCover(false);
         }
     };
 
@@ -79,7 +158,6 @@ export default function CreatePageScreen() {
             style={[styles.container, { paddingTop: insets.top }]}
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-            {/* Header */}
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => router.back()} hitSlop={12}>
                     <Ionicons name="close" size={24} color={colors.text} />
@@ -104,7 +182,6 @@ export default function CreatePageScreen() {
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
             >
-                {/* Required */}
                 <SectionLabel label="Thông tin cơ bản" colors={colors} />
                 <InputField
                     label="Tên trang *"
@@ -122,7 +199,6 @@ export default function CreatePageScreen() {
                     autoCapitalize="none"
                 />
 
-                {/* Category picker */}
                 <Text style={styles.fieldLabel}>Danh mục</Text>
                 <View style={styles.chipRow}>
                     {CATEGORIES.map(cat => {
@@ -149,7 +225,6 @@ export default function CreatePageScreen() {
                     multiline
                 />
 
-                {/* Status */}
                 <SectionLabel label="Quyền riêng tư" colors={colors} />
                 <View style={{ flexDirection: 'row', gap: 12 }}>
                     {STATUS_OPTIONS.map(opt => {
@@ -172,26 +247,44 @@ export default function CreatePageScreen() {
                     })}
                 </View>
 
-                {/* Media */}
                 <SectionLabel label="Hình ảnh" colors={colors} />
-                <InputField
-                    label="Avatar URL"
-                    value={form.avatarUrl || ''}
-                    onChange={v => update('avatarUrl', v)}
-                    placeholder="https://..."
-                    colors={colors}
-                    autoCapitalize="none"
-                />
-                <InputField
-                    label="Cover URL"
-                    value={form.coverUrl || ''}
-                    onChange={v => update('coverUrl', v)}
-                    placeholder="https://..."
-                    colors={colors}
-                    autoCapitalize="none"
-                />
+                <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textSecondary, marginBottom: 8 }}>Avatar trang</Text>
+                <TouchableOpacity
+                    onPress={pickAvatarImage}
+                    disabled={isUploadingAvatar}
+                    style={[styles.avatarPickerBtn, { borderColor: colors.border, backgroundColor: colors.inputBg }]}
+                    activeOpacity={0.7}
+                >
+                    {isUploadingAvatar ? (
+                        <ActivityIndicator size="small" color={colors.primary} />
+                    ) : avatarLocalUri ? (
+                        <Image source={{ uri: avatarLocalUri }} style={styles.avatarPreview} />
+                    ) : (
+                        <Ionicons name="camera-outline" size={28} color={colors.textTertiary} />
+                    )}
+                    <Text style={{ fontSize: 13, color: avatarLocalUri ? colors.primary : colors.textTertiary, marginTop: 6 }}>
+                        {isUploadingAvatar ? 'Đang tải lên...' : avatarLocalUri ? 'Đổi ảnh' : 'Chọn ảnh'}
+                    </Text>
+                </TouchableOpacity>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textSecondary, marginBottom: 8 }}>Ảnh bìa trang</Text>
+                <TouchableOpacity
+                    onPress={pickCoverImage}
+                    disabled={isUploadingCover}
+                    style={[styles.coverPickerBtn, { borderColor: colors.border, backgroundColor: colors.inputBg }]}
+                    activeOpacity={0.7}
+                >
+                    {isUploadingCover ? (
+                        <ActivityIndicator size="small" color={colors.primary} />
+                    ) : coverLocalUri ? (
+                        <Image source={{ uri: coverLocalUri }} style={styles.coverPreview} />
+                    ) : (
+                        <Ionicons name="image-outline" size={28} color={colors.textTertiary} />
+                    )}
+                    <Text style={{ fontSize: 13, color: coverLocalUri ? colors.primary : colors.textTertiary, marginTop: 6 }}>
+                        {isUploadingCover ? 'Đang tải lên...' : coverLocalUri ? 'Đổi ảnh bìa' : 'Chọn ảnh bìa'}
+                    </Text>
+                </TouchableOpacity>
 
-                {/* Contact */}
                 <SectionLabel label="Liên hệ (tùy chọn)" colors={colors} />
                 <InputField label="Điện thoại" value={form.phone || ''} onChange={v => update('phone', v)} placeholder="+84..." colors={colors} />
                 <InputField label="Email" value={form.email || ''} onChange={v => update('email', v)} placeholder="page@example.com" colors={colors} autoCapitalize="none" />
@@ -202,7 +295,6 @@ export default function CreatePageScreen() {
     );
 }
 
-/* ─── Components ─── */
 function SectionLabel({ label, colors }: { label: string; colors: ThemeColors }) {
     return (
         <Text style={{
@@ -240,7 +332,6 @@ function InputField({ label, value, onChange, placeholder, colors, multiline, au
     );
 }
 
-/* ═══════════ STYLES ═══════════ */
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     header: {
@@ -274,4 +365,17 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     statusCardActive: { backgroundColor: colors.primary, borderColor: colors.primary },
     statusLabel: { fontSize: 14, fontWeight: '600', color: colors.textSecondary },
     statusLabelActive: { color: colors.primaryText },
+
+    avatarPickerBtn: {
+        alignItems: 'center', justifyContent: 'center',
+        borderWidth: 1.5, borderStyle: 'dashed', borderRadius: 16,
+        paddingVertical: 20, marginBottom: 14,
+    },
+    avatarPreview: { width: 80, height: 80, borderRadius: 16 },
+    coverPickerBtn: {
+        alignItems: 'center', justifyContent: 'center',
+        borderWidth: 1.5, borderStyle: 'dashed', borderRadius: 16,
+        paddingVertical: 20, marginBottom: 14,
+    },
+    coverPreview: { width: '100%', height: 120, borderRadius: 12 },
 });

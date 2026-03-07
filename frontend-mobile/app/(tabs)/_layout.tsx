@@ -89,7 +89,6 @@ export default function TabsLayout() {
             />
         </Tabs>
 
-        {/* ═══════ CREATE MENU MODAL ═══════ */}
         <Modal visible={showCreateMenu} transparent animationType="fade" onRequestClose={() => setShowCreateMenu(false)}>
             <Pressable style={menuStyles.backdrop} onPress={() => setShowCreateMenu(false)}>
                 <View style={menuStyles.menu}>

@@ -19,7 +19,6 @@ import pageService from '../services/pageService';
 import type { PageData } from '../services/pageService';
 import type { ThemeColors } from '../contexts/ThemeContext';
 
-// Interaction status cache per page id
 interface PageInteraction {
     isLiked: boolean;
     isFollowing: boolean;
@@ -56,11 +55,9 @@ export default function PagesScreen() {
             setAllPages(allSafe);
             setMyPages(mineSafe);
 
-            // Load interaction status for all unique pages
             const uniquePageIds = [...new Set([...allSafe, ...mineSafe].map(p => p.id))];
             await loadInteractions(uniquePageIds);
-        } catch (error) {
-            console.error('Error loading pages:', error);
+        } catch {
         } finally {
             setIsLoading(false);
         }
@@ -76,8 +73,7 @@ export default function PagesScreen() {
                 map[r.id] = r.data;
             }
             setInteractions(prev => ({ ...prev, ...map }));
-        } catch (err) {
-            console.error('Error loading interactions:', err);
+        } catch {
         }
     };
 
@@ -160,7 +156,6 @@ export default function PagesScreen() {
 
     return (
         <View style={[styles.container, { paddingTop: insets.top }]}>
-            {/* Header */}
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => router.back()} hitSlop={12}>
                     <Ionicons name="arrow-back" size={24} color={colors.text} />
@@ -171,7 +166,6 @@ export default function PagesScreen() {
                 </TouchableOpacity>
             </View>
 
-            {/* Tab bar */}
             <View style={styles.tabBar}>
                 <TouchableOpacity
                     style={[styles.tab, activeTab === 'discover' && styles.tabActive]}
@@ -189,7 +183,6 @@ export default function PagesScreen() {
                 </TouchableOpacity>
             </View>
 
-            {/* Content */}
             {isLoading ? (
                 <View style={styles.centerWrap}>
                     <ActivityIndicator size="large" color={colors.primary} />
@@ -248,7 +241,6 @@ export default function PagesScreen() {
     );
 }
 
-/* ─── Page Card Component ─── */
 function PageCard({
     page, isOwner, interaction, colors, styles, onPress, onToggleLike, onToggleFollow, onDelete,
 }: {
@@ -263,10 +255,9 @@ function PageCard({
 
     return (
         <TouchableOpacity style={styles.pageCard} onPress={onPress} activeOpacity={0.8}>
-            {/* Cover / Avatar row */}
             <View style={styles.pageCardHeader}>
                 {page.avatarUrl ? (
-                    <Image source={{ uri: page.avatarUrl }} style={styles.pageAvatar} />
+                    <Image source={{ uri: `https://cnmt-hk1-amz.s3.ap-southeast-1.amazonaws.com/${page.avatarUrl}` }} style={styles.pageAvatar} />
                 ) : (
                     <View style={styles.pageAvatarFallback}>
                         <Ionicons name="flag" size={28} color={colors.textTertiary} />
@@ -288,12 +279,10 @@ function PageCard({
                 </View>
             </View>
 
-            {/* Description */}
             {page.description ? (
                 <Text style={styles.pageDesc} numberOfLines={2}>{page.description}</Text>
             ) : null}
 
-            {/* Stats row */}
             <View style={styles.statsRow}>
                 <View style={styles.statItem}>
                     <Ionicons name="heart" size={14} color={colors.danger} />
@@ -305,7 +294,6 @@ function PageCard({
                 </View>
             </View>
 
-            {/* Action buttons */}
             <View style={styles.actionRow}>
                 <TouchableOpacity
                     style={[styles.actionBtn, liked && styles.actionBtnActive]}
@@ -343,7 +331,6 @@ function PageCard({
                 )}
             </View>
 
-            {/* Status badge */}
             {page.status && (
                 <View style={[styles.statusBadge, page.status === 'PUBLIC' ? styles.statusPublic : styles.statusPrivate]}>
                     <Text style={styles.statusText}>
@@ -355,7 +342,6 @@ function PageCard({
     );
 }
 
-/* ═══════════ STYLES ═══════════ */
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     header: {
@@ -380,7 +366,6 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     centerWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 10 },
     loadingText: { fontSize: 14, color: colors.textSecondary },
 
-    // Empty state
     emptyWrap: { alignItems: 'center', paddingVertical: 56 },
     emptyCircle: {
         width: 80, height: 80, borderRadius: 40, backgroundColor: colors.chipBg,
@@ -395,7 +380,6 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     },
     createBtnText: { color: colors.primaryText, fontWeight: '600', fontSize: 14 },
 
-    // Page card
     pageCard: {
         backgroundColor: colors.card, borderRadius: 16, padding: 16, marginBottom: 12,
         shadowColor: colors.shadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 10, elevation: 3,

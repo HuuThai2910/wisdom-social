@@ -1,12 +1,9 @@
 import apiClient from '../api/apiClient';
 
-// Matches backend PageStatus enum
 export type PageStatus = 'PUBLIC' | 'PRIVATE' | 'BANNED';
 
-// Matches backend PageRole enum
 export type PageRole = 'ADMIN' | 'EDITOR' | 'MODERATOR' | 'ANALYST' | 'USER';
 
-// Matches backend UserRequestCreatePage DTO
 export interface CreatePageRequest {
     name: string;
     username?: string;
@@ -22,7 +19,6 @@ export interface CreatePageRequest {
     status?: PageStatus;
 }
 
-// Matches backend UserRequestUpdatePage DTO
 export interface UpdatePageRequest {
     name?: string;
     username?: string;
@@ -38,7 +34,6 @@ export interface UpdatePageRequest {
     status?: PageStatus;
 }
 
-// Matches backend Page entity
 export interface PageData {
     id: number;
     name: string;
@@ -64,7 +59,6 @@ export interface PageData {
     updatedAt?: string;
 }
 
-// Matches backend PageMember entity
 export interface PageMemberData {
     id: number;
     user: {
@@ -79,20 +73,17 @@ export interface PageMemberData {
     joinedAt?: string;
 }
 
-// Matches backend UserRequestPage DTO
 export interface PageRequestDTO {
     userId: number;
     pageId: number;
 }
 
-// Matches backend UserRequestMemberPage DTO
 export interface MemberPageRequest {
     userId: number;
     pageId: number;
     pageRole: PageRole;
 }
 
-// Matches backend UserRequestAuthorizePage DTO
 export interface AuthorizePageRequest {
     userId: number;
     pageId: number;
@@ -100,8 +91,6 @@ export interface AuthorizePageRequest {
 }
 
 const pageService = {
-    // ═══════════ Page CRUD ═══════════
-
     createPage: async (data: CreatePageRequest): Promise<string> => {
         const response = await apiClient.post('/page/create', data);
         return response.data.data;
@@ -120,7 +109,7 @@ const pageService = {
     findPageById: async (id: number): Promise<PageData | null> => {
         try {
             const response = await apiClient.get(`/page/${id}`);
-            return response.data?.data ?? response.data ?? null;
+            return response.data.data;
         } catch {
             return null;
         }
@@ -130,7 +119,7 @@ const pageService = {
         try {
             const response = await apiClient.get('/page/all');
             const d = response.data?.data ?? response.data;
-            return Array.isArray(d) ? d : [];
+            return response.data.data;
         } catch {
             return [];
         }
@@ -139,14 +128,11 @@ const pageService = {
     getMyPages: async (): Promise<PageData[]> => {
         try {
             const response = await apiClient.get('/page/my-pages');
-            const d = response.data?.data ?? response.data;
-            return Array.isArray(d) ? d : [];
+            return response.data.data ;
         } catch {
             return [];
         }
     },
-
-    // ═══════════ Page Interactions ═══════════
 
     likePage: async (userId: number, pageId: number): Promise<string> => {
         const response = await apiClient.post('/page/like', { userId, pageId });
@@ -185,8 +171,6 @@ const pageService = {
         }
     },
 
-    // ═══════════ Page Member Management ═══════════
-
     addMember: async (data: MemberPageRequest): Promise<string> => {
         const response = await apiClient.post('/page-member/add', data);
         return response.data.data;
@@ -219,6 +203,24 @@ const pageService = {
             return Array.isArray(d) ? d : [];
         } catch {
             return [];
+        }
+    },
+
+    getUploadUrl: async (type: string, extension: string): Promise<{ uploadUrl: string; imageUrl: string ; uuid: string ,extension: string} | null> => {
+        try {
+            const res = await apiClient.get('page/upload-avatar', { params: { type, extension } });
+            return res.data.data;
+        } catch {
+            return null;
+        }
+    },
+
+    getUpdateUploadUrl: async (type: string, id: number, extension: string): Promise<string | null> => {
+        try {
+            const res = await apiClient.get('page/update/upload-avatar', { params: { type, id, extension } });
+            return  res.data;
+        } catch {
+            return null;
         }
     },
 };

@@ -19,7 +19,6 @@ export default function PostCard({ post }: PostCardProps) {
 
     return (
         <View style={styles.container}>
-            {/* Header */}
             <View style={styles.header}>
                 <View style={styles.userInfo}>
                     <Image source={{ uri: post.user.avatar }} style={styles.avatar} />
@@ -37,10 +36,8 @@ export default function PostCard({ post }: PostCardProps) {
                 </TouchableOpacity>
             </View>
 
-            {/* Image */}
             <Image source={{ uri: post.images[0] }} style={styles.postImage} />
 
-            {/* Actions */}
             <View style={styles.actions}>
                 <View style={styles.leftActions}>
                     <TouchableOpacity onPress={handleLike} style={styles.actionButton}>
@@ -66,10 +63,8 @@ export default function PostCard({ post }: PostCardProps) {
                 </TouchableOpacity>
             </View>
 
-            {/* Likes */}
             <Text style={styles.likes}>{likesCount.toLocaleString()} likes</Text>
 
-            {/* Caption */}
             {post.caption && (
                 <View style={styles.captionContainer}>
                     <Text style={styles.caption}>
@@ -79,7 +74,6 @@ export default function PostCard({ post }: PostCardProps) {
                 </View>
             )}
 
-            {/* Comments */}
             {post.comments.length > 0 && (
                 <TouchableOpacity>
                     <Text style={styles.viewComments}>
@@ -88,7 +82,6 @@ export default function PostCard({ post }: PostCardProps) {
                 </TouchableOpacity>
             )}
 
-            {/* Time */}
             <Text style={styles.time}>{post.createdAt}</Text>
         </View>
     );

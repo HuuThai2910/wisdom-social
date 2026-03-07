@@ -86,7 +86,6 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const systemScheme = useColorScheme();
     const [themeMode, setThemeModeState] = useState<ThemeMode>('system');
-    const [isLoaded, setIsLoaded] = useState(false);
     const { user } = useAuth();
 
     useEffect(() => {
@@ -95,35 +94,28 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const loadTheme = async () => {
         try {
-            // Try API first when logged in
             if (user) {
                 const info = await getDeviceInfo();
                 const remote = await deviceSettingService.get(info.deviceName, info.deviceType);
                 if (remote?.themeMode) {
                     setThemeModeState(remote.themeMode as ThemeMode);
-                    // Also sync to local storage
                     const settings = await getSettings();
                     await saveSettings({ ...settings, themeMode: remote.themeMode });
-                    setIsLoaded(true);
                     return;
                 }
             }
-            // Fallback to local
             const settings = await getSettings();
             if (settings?.themeMode) {
                 setThemeModeState(settings.themeMode as ThemeMode);
             }
         } catch (_) {}
-        setIsLoaded(true);
     };
 
     const setThemeMode = async (mode: ThemeMode) => {
         setThemeModeState(mode);
         try {
-            // Save locally
             const settings = await getSettings();
             await saveSettings({ ...settings, themeMode: mode });
-            // Save to API
             if (user) {
                 const info = await getDeviceInfo();
                 await deviceSettingService.save({

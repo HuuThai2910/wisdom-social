@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import {
     View,
     Text,
@@ -32,7 +32,6 @@ export default function VerifyOTPScreen() {
         newOtp[index] = value;
         setOtp(newOtp);
 
-        // Auto focus next input
         if (value && index < 5) {
             inputRefs.current[index + 1]?.focus();
         }
@@ -47,7 +46,6 @@ export default function VerifyOTPScreen() {
     const handleVerify = async () => {
         const otpCode = otp.join('');
         if (otpCode.length !== 6) {
-            console.log('Validation error: Please enter complete OTP code');
             return;
         }
 
@@ -56,20 +54,15 @@ export default function VerifyOTPScreen() {
             if (type === 'register') {
                 const result = await authService.confirmRegister({ phone, OTP: otpCode });
                 if (result) {
-                    // Navigate to login after successful registration
                     router.replace('/login');
-                } else {
-                    console.error('Verification failed: Invalid response');
                 }
             } else if (type === 'reset-password') {
-                // Store OTP and navigate to reset password screen
                 router.push({
                     pathname: '/reset-password',
                     params: { phone, otp: otpCode },
                 });
             }
-        } catch (error: any) {
-            console.error('Verification failed:', error.message || 'Invalid OTP code');
+        } catch {
         } finally {
             setLoading(false);
         }
@@ -78,15 +71,10 @@ export default function VerifyOTPScreen() {
     const handleResend = async () => {
         setLoading(true);
         try {
-            if (type === 'register') {
-                // Resend registration OTP
-                console.log('Registration OTP resend functionality not available');
-            } else if (type === 'reset-password') {
+            if (type === 'reset-password') {
                 await authService.forgotPassword({ phone });
-                console.log('OTP code has been resent to your phone');
             }
-        } catch (error: any) {
-            console.error('Failed to resend OTP:', error.message || 'Failed to resend OTP');
+        } catch {
         } finally {
             setLoading(false);
         }
@@ -98,12 +86,10 @@ export default function VerifyOTPScreen() {
             style={styles.gradient}
         >
             <View style={styles.container}>
-                {/* Logo */}
                 <View style={styles.logoContainer}>
                     <Logo size="medium" showSubtitle={false} />
                 </View>
 
-                {/* Header */}
                 <View style={styles.iconContainer}>
                     <View style={styles.iconBackground}>
                         <Ionicons name="shield-checkmark" size={48} color="#3B82F6" />

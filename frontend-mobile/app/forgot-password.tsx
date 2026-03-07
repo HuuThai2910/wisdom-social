@@ -22,7 +22,6 @@ export default function ForgotPasswordScreen() {
 
     const handleSubmit = async () => {
         if (!phone) {
-            console.log('Validation error: Please enter your phone number');
             return;
         }
 
@@ -30,16 +29,12 @@ export default function ForgotPasswordScreen() {
         try {
             const result = await authService.forgotPassword({ phone });
             if (result) {
-                // Navigate to OTP verification
                 router.push({
                     pathname: '/verify-otp',
                     params: { phone, type: 'reset-password' },
                 });
-            } else {
-                console.error('Failed to send OTP: Invalid response');
             }
-        } catch (error: any) {
-            console.error('Failed to send OTP:', error.message || 'Failed to send OTP');
+        } catch {
         } finally {
             setLoading(false);
         }
@@ -55,25 +50,20 @@ export default function ForgotPasswordScreen() {
                 style={styles.container}
             >
                 <View style={styles.content}>
-                    {/* Logo */}
                     <Logo showSubtitle />
 
-                    {/* Icon */}
                     <View style={styles.iconContainer}>
                         <View style={styles.iconBackground}>
                             <Ionicons name="key-outline" size={48} color="#3B82F6" />
                         </View>
                     </View>
 
-                    {/* Title */}
                     <Text style={styles.title}>Forgot Password?</Text>
                     
-                    {/* Description */}
                     <Text style={styles.description}>
                         Don't worry! Enter your phone number and we'll send you an OTP code to reset your password.
                     </Text>
 
-                    {/* Phone Input */}
                     <View style={styles.inputWrapper}>
                         <View style={styles.inputIconContainer}>
                             <Ionicons name="call-outline" size={20} color="#3B82F6" />
@@ -89,7 +79,6 @@ export default function ForgotPasswordScreen() {
                         />
                     </View>
 
-                    {/* Submit Button */}
                     <TouchableOpacity
                         style={[styles.submitButton, loading && styles.disabledButton]}
                         onPress={handleSubmit}
@@ -112,7 +101,6 @@ export default function ForgotPasswordScreen() {
                         </LinearGradient>
                     </TouchableOpacity>
 
-                    {/* Back to Login */}
                     <Link href="/login" asChild>
                         <TouchableOpacity style={styles.backButton}>
                             <Ionicons name="arrow-back" size={18} color="#3B82F6" />

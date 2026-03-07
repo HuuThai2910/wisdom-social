@@ -10,6 +10,7 @@ import iuh.fit.edu.backend.dto.response.user.UserResponseRegister;
 import iuh.fit.edu.backend.service.impl.user.BlockUserService;
 import iuh.fit.edu.backend.service.impl.user.UserService;
 import iuh.fit.edu.backend.service.impl.user.UserSettingService;
+import iuh.fit.edu.backend.service.s3.S3Service;
 import iuh.fit.edu.backend.util.anotation.ApiMessage;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
@@ -18,6 +19,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -25,13 +27,15 @@ public class UserController {
     UserService userService;
     UserSettingService userSettingService;
     BlockUserService blockUserService;
+    S3Service s3Service;
 
 
     public UserController(BlockUserService blockUserService, UserService userService,
-                          UserSettingService userSettingService) {
+                          UserSettingService userSettingService, S3Service s3Service) {
         this.blockUserService = blockUserService;
         this.userService = userService;
         this.userSettingService = userSettingService;
+        this.s3Service = s3Service;
     }
 
     @PostMapping("/register")
@@ -192,4 +196,24 @@ public class UserController {
         return ResponseEntity.badRequest().body("Cancel block User failed");
     }
 
+    @GetMapping("/users/update/upload-avatar")
+    @ApiMessage("Upload image successfully")
+    public ResponseEntity<String> updateUploadImage(@RequestParam String type,
+                                           @RequestParam String extension){
+        User user=userService.getCurrentUser();
+        Map<String,String> image= s3Service.generateUpdateUploadUrl(type,user.getId(),extension);
+
+        UserRequestUpdate update=new UserRequestUpdate();
+        update.setAvatarUrl(image.get("imageUrl"));
+        userService.updateUser(user.getId(), update);
+
+        return ResponseEntity.ok(image.get("uploadUrl"));
+    }
+
+    @GetMapping("/upload-avatar")
+    @ApiMessage("Upload image successfully")
+    public ResponseEntity<Map<String,String>> uploadImage(@RequestParam String type,
+                                                          @RequestParam String extension){
+        return ResponseEntity.ok(s3Service.generateUploadUrl(type,extension));
+    }
 }

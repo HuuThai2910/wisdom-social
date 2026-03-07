@@ -7,7 +7,6 @@ export interface DeviceInfo {
     ipAddress: string;
 }
 
-/** Fetch public IP from a free API (best-effort, returns empty string on failure) */
 async function getPublicIp(): Promise<string> {
     try {
         const response = await fetch('https://api.ipify.org?format=json', {
@@ -20,9 +19,8 @@ async function getPublicIp(): Promise<string> {
     }
 }
 
-/** Collect device metadata and public IP to send to the backend */
 export async function getDeviceInfo(): Promise<DeviceInfo> {
-    const os = Platform.OS.toUpperCase();                        // IOS / ANDROID / WEB
+    const os = Platform.OS.toUpperCase();
     const model = Device.modelName ?? Device.deviceName ?? 'Unknown Device';
     const manufacturer = Device.manufacturer ?? '';
     const deviceName = manufacturer ? `${manufacturer} ${model}` : model;

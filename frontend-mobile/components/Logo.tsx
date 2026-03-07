@@ -13,14 +13,12 @@ export default function Logo({ size = 'large', showSubtitle = false }: LogoProps
 
     return (
         <View style={styles.container}>
-            {/* Logo Icon */}
             <View style={styles.iconContainer}>
                 <View style={styles.iconBackground}>
                     <Ionicons name="bulb" size={iconSize} color="#3B82F6" />
                 </View>
             </View>
 
-            {/* App Name */}
             <View style={styles.textContainer}>
                 <Text style={[styles.title, { fontSize: titleSize }]}>
                     Wisdom
@@ -28,7 +26,6 @@ export default function Logo({ size = 'large', showSubtitle = false }: LogoProps
                 </Text>
             </View>
 
-            {/* Subtitle/Tagline */}
             {showSubtitle && (
                 <Text style={styles.subtitle}>Connect. Share. Inspire.</Text>
             )}

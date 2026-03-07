@@ -12,12 +12,10 @@ export default function WelcomeScreen() {
       style={styles.gradient}
     >
       <View style={styles.container}>
-        {/* Logo */}
         <View style={styles.logoSection}>
           <Logo size="large" showSubtitle={true} />
         </View>
         
-        {/* Hero Section */}
         <View style={styles.heroContainer}>
           <View style={styles.featureRow}>
             <View style={styles.featureItem}>
@@ -47,7 +45,6 @@ export default function WelcomeScreen() {
           </Text>
         </View>
 
-        {/* Buttons */}
         <View style={styles.buttonContainer}>
           <Link href="/login" asChild>
             <TouchableOpacity style={styles.loginButton}>

@@ -20,7 +20,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        // Add small delay to ensure AsyncStorage native module is ready
         const timer = setTimeout(() => {
             checkAuth();
         }, 100);
@@ -55,8 +54,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 setUser(userData);
                 await websocketService.connect();
             }
-        } catch (error) {
-            console.error('Login error:', error);
+        } catch {
         }
     };
 
