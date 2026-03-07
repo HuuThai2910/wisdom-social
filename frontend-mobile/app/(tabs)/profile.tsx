@@ -157,16 +157,19 @@ export default function ProfileScreen() {
 
             if (pendingAvatarAsset) {
                 setIsUploadingAvatar(true);
-                const urls = await userService.getAvatarUploadUrl(pendingAvatarAsset.extension);
-                if (!urls) throw new Error();
+                const uploadUrl = await userService.getUpdateProfileUploadUrl(pendingAvatarAsset.extension);
+                if (!uploadUrl) throw new Error();
                 const blob = await fetch(pendingAvatarAsset.uri).then(r => r.blob());
-                const uploadRes = await fetch(urls.uploadUrl, {
+                const uploadRes = await fetch(uploadUrl, {
                     method: 'PUT',
                     headers: { 'Content-Type': pendingAvatarAsset.mimeType },
                     body: blob,
                 });
                 if (!uploadRes.ok) throw new Error();
-                finalAvatarUrl = `https://cnmt-hk1-amz.s3.ap-southeast-1.amazonaws.com/${urls.imageUrl}`;
+                const updated = await userService.getUserById(userId);
+                if (updated?.avatarUrl) {
+                    finalAvatarUrl =  `https://cnmt-hk1-amz.s3.ap-southeast-1.amazonaws.com/${updated.avatarUrl}`;
+                }
                 setIsUploadingAvatar(false);
             }
 
@@ -181,9 +184,13 @@ export default function ProfileScreen() {
             const success = await userService.updateProfile(userId, payload);
             if (success) {
                 setPendingAvatarAsset(null);
+                setAvatarLocalUri('');
                 setShowEditModal(false);
-                await loadProfile();
-                await updateUser({ ...displayUser, ...editForm, avatarUrl: finalAvatarUrl });
+                const fresh = await userService.getProfile();
+                if (fresh) {
+                    setProfileData(fresh);
+                    await updateUser(fresh);
+                }
             } else {
                 Alert.alert('Lỗi', 'Không thể cập nhật hồ sơ. Vui lòng thử lại.');
             }

@@ -66,6 +66,15 @@ class UserService {
             return null;
         }
     }
+
+    async getUpdateProfileUploadUrl(extension: string): Promise<string | null> {
+        try {
+            const res = await apiClient.get('/auth/users/update/upload-avatar', { params: { type: 'users', extension } });
+            return res.data;
+        } catch {
+            return null;
+        }
+    }
 }
 
 export default new UserService();
