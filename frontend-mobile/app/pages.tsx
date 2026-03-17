@@ -26,6 +26,13 @@ interface PageInteraction {
     followCount: number;
 }
 
+const S3_BASE = 'https://cnmt-hk1-amz.s3.ap-southeast-1.amazonaws.com/';
+const buildS3Url = (url?: string) => {
+    if (!url) return undefined;
+    if (url.startsWith('http') || url.startsWith('file://') || url.startsWith('content://')) return url;
+    return S3_BASE + url;
+};
+
 export default function PagesScreen() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
@@ -257,7 +264,7 @@ function PageCard({
         <TouchableOpacity style={styles.pageCard} onPress={onPress} activeOpacity={0.8}>
             <View style={styles.pageCardHeader}>
                 {page.avatarUrl ? (
-                    <Image source={{ uri: `https://cnmt-hk1-amz.s3.ap-southeast-1.amazonaws.com/${page.avatarUrl}` }} style={styles.pageAvatar} />
+                    <Image source={{ uri: buildS3Url(page.avatarUrl) }} style={styles.pageAvatar} />
                 ) : (
                     <View style={styles.pageAvatarFallback}>
                         <Ionicons name="flag" size={28} color={colors.textTertiary} />

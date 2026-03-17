@@ -13,6 +13,7 @@ import iuh.fit.edu.backend.service.impl.page.PageMemberService;
 import iuh.fit.edu.backend.service.impl.page.PageService;
 import iuh.fit.edu.backend.service.impl.user.BlockUserService;
 import iuh.fit.edu.backend.service.impl.user.UserService;
+import jakarta.transaction.Transactional;
 import org.springframework.stereotype.Service;
 
 import java.time.OffsetDateTime;
@@ -55,12 +56,14 @@ public class PageMemberServiceImpl implements PageMemberService {
     }
 
     @Override
+    @Transactional
     public boolean deleteMemberPage(long pageId, long userId) {
         Page page=pageService.findPageById(pageId);
         PageMember pageMember=page.getPageMembers().stream()
                 .filter(x->x.getUser().getId().equals(userId)).findFirst().orElse(null);
         if (pageMember!=null){
-            pageMemberRepository.deleteById(pageMember.getId());
+            page.getPageMembers().remove(pageMember);
+            pageMemberRepository.delete(pageMember);
             return true;
         }
         return false;

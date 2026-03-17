@@ -36,10 +36,16 @@ public class PageController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("User not authenticated");
         Page page= pageService.createPage(currentUser.getId(),createPage);
         if (page!=null){
+            UserRequestUpdatePage userRequestUpdatePage=new UserRequestUpdatePage();
             if (createPage.getAvatarUrl()!=null){
                 String key=s3Service.moveUploadUrl("pages", page.getId(), createPage.getAvatarUrl());
-                UserRequestUpdatePage userRequestUpdatePage=new UserRequestUpdatePage();
                 userRequestUpdatePage.setAvatarUrl(key);
+            }
+            if (createPage.getCoverUrl()!=null){
+                String key=s3Service.moveUploadUrl("pages", page.getId(), createPage.getCoverUrl());
+                userRequestUpdatePage.setCoverUrl(key);
+            }
+            if (userRequestUpdatePage.getAvatarUrl()!=null || userRequestUpdatePage.getCoverUrl()!=null){
                 pageService.updatePage(page.getId(), userRequestUpdatePage);
             }
             return ResponseEntity.ok("Create page successfully");
@@ -149,6 +155,21 @@ public class PageController {
         if (page!=null){
             UserRequestUpdatePage update=new UserRequestUpdatePage();
             update.setAvatarUrl(image.get("imageUrl"));
+            pageService.updatePage(id,update);
+        }
+        return ResponseEntity.ok(image.get("uploadUrl"));
+    }
+
+    @GetMapping("/update/upload-cover")
+    @ApiMessage("Upload cover image successfully")
+    public ResponseEntity<String> updateUploadCoverImage(@RequestParam String type,
+                                                         @RequestParam long id,
+                                                         @RequestParam String extension){
+        Page page=pageService.findPageById(id);
+        Map<String,String> image= s3Service.generateUpdateUploadUrl(type,id,extension);
+        if (page!=null){
+            UserRequestUpdatePage update=new UserRequestUpdatePage();
+            update.setCoverUrl(image.get("imageUrl"));
             pageService.updatePage(id,update);
         }
         return ResponseEntity.ok(image.get("uploadUrl"));

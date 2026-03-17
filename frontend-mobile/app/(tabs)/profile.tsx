@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect, useCallback } from 'react';
 import {
     View,
     Text,
@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import type { ThemeColors } from '../../contexts/ThemeContext';
@@ -38,6 +39,13 @@ const GENDER_OPTIONS = [
     { label: 'Ẩn', value: 'HIDDEN' },
 ];
 
+const S3_BASE = 'https://cnmt-hk1-amz.s3.ap-southeast-1.amazonaws.com/';
+const buildS3Url = (url?: string) => {
+    if (!url) return undefined;
+    if (url.startsWith('http') || url.startsWith('file://') || url.startsWith('content://')) return url;
+    return S3_BASE + url;
+};
+
 export default function ProfileScreen() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
@@ -57,6 +65,9 @@ export default function ProfileScreen() {
     const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
     const [avatarLocalUri, setAvatarLocalUri] = useState('');
     const [pendingAvatarAsset, setPendingAvatarAsset] = useState<{ uri: string; mimeType: string; extension: string } | null>(null);
+    const [isUploadingBackground, setIsUploadingBackground] = useState(false);
+    const [backgroundLocalUri, setBackgroundLocalUri] = useState('');
+    const [pendingBackgroundAsset, setPendingBackgroundAsset] = useState<{ uri: string; mimeType: string; extension: string } | null>(null);
     const [editForm, setEditForm] = useState({
         name: '',
         username: '',
@@ -64,39 +75,19 @@ export default function ProfileScreen() {
         birthday: '',
         gender: '',
         avatarUrl: '',
+        backgroundUrl: '',
     });
 
-    useEffect(() => {
-        loadProfile();
-        loadFriendsData();
-        loadBlockedUsers();
-    }, []);
-
-    useEffect(() => {
-        if (!user) return;
-        const handleFriendUpdate = () => loadFriendsData();
-        websocketService.on('friend-request', handleFriendUpdate);
-        websocketService.on('friend-accept', handleFriendUpdate);
-        websocketService.on('friend-cancel', handleFriendUpdate);
-        websocketService.on('friend-reject', handleFriendUpdate);
-        return () => {
-            websocketService.off('friend-request', handleFriendUpdate);
-            websocketService.off('friend-accept', handleFriendUpdate);
-            websocketService.off('friend-cancel', handleFriendUpdate);
-            websocketService.off('friend-reject', handleFriendUpdate);
-        };
-    }, [user]);
-
-    const loadProfile = async () => {
+    const loadProfile = useCallback(async () => {
         setIsLoading(true);
         try {
             const profile = await userService.getProfile();
             if (profile) setProfileData(profile);
         } catch (_) {}
         finally { setIsLoading(false); }
-    };
+    }, []);
 
-    const loadFriendsData = async () => {
+    const loadFriendsData = useCallback(async () => {
         try {
             const userId = profileData?.id || user?.id;
             if (userId) {
@@ -108,7 +99,55 @@ export default function ProfileScreen() {
                 setRequestsCount(requests.length);
             }
         } catch (_) {}
-    };
+    }, [profileData?.id, user?.id]);
+
+    const loadBlockedUsers = useCallback(async () => {
+        const userId = profileData?.id || user?.id;
+        if (!userId) return;
+        setIsLoadingBlocked(true);
+        try {
+            const list = await blockService.getBlockedUsers(userId);
+            setBlockedUsers(list);
+        } catch (_) {}
+        finally { setIsLoadingBlocked(false); }
+    }, [profileData?.id, user?.id]);
+
+    const refreshAllData = useCallback(async () => {
+        await Promise.all([
+            loadProfile(),
+            loadFriendsData(),
+        ]);
+    }, [loadProfile, loadFriendsData]);
+
+    useEffect(() => {
+        loadProfile();
+        loadFriendsData();
+        loadBlockedUsers();
+    }, [loadProfile, loadFriendsData, loadBlockedUsers]);
+
+    useFocusEffect(
+        useCallback(() => {
+            refreshAllData();
+        }, [refreshAllData])
+    );
+
+    useEffect(() => {
+        if (!user) return;
+        const handleFriendUpdate = () => {
+            loadProfile();
+            loadFriendsData();
+        };
+        websocketService.on('friend-request', handleFriendUpdate);
+        websocketService.on('friend-accept', handleFriendUpdate);
+        websocketService.on('friend-cancel', handleFriendUpdate);
+        websocketService.on('friend-reject', handleFriendUpdate);
+        return () => {
+            websocketService.off('friend-request', handleFriendUpdate);
+            websocketService.off('friend-accept', handleFriendUpdate);
+            websocketService.off('friend-cancel', handleFriendUpdate);
+            websocketService.off('friend-reject', handleFriendUpdate);
+        };
+    }, [user, loadProfile, loadFriendsData]);
 
     const handleLogout = async () => {
         await logout();
@@ -124,9 +163,12 @@ export default function ProfileScreen() {
             birthday: d?.birthday || '',
             gender: d?.gender || '',
             avatarUrl: d?.avatarUrl || '',
+            backgroundUrl: d?.backgroundUrl || '',
         });
         setAvatarLocalUri('');
         setPendingAvatarAsset(null);
+        setBackgroundLocalUri('');
+        setPendingBackgroundAsset(null);
         setShowEditModal(true);
     };
 
@@ -148,12 +190,31 @@ export default function ProfileScreen() {
         setPendingAvatarAsset({ uri: asset.uri, mimeType, extension });
     };
 
+    const pickBackgroundImage = async () => {
+        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!perm.granted) {
+            Alert.alert('Quyền truy cập', 'Cần quyền truy cập thư viện ảnh để chọn ảnh.');
+            return;
+        }
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            quality: 0.8,
+        });
+        if (result.canceled || !result.assets[0]) return;
+        const asset = result.assets[0];
+        const mimeType = asset.mimeType ?? 'image/jpeg';
+        const extension = mimeType.split('/')[1].replace('jpeg', 'jpg');
+        setBackgroundLocalUri(asset.uri);
+        setPendingBackgroundAsset({ uri: asset.uri, mimeType, extension });
+    };
+
     const handleSaveProfile = async () => {
         const userId = displayUser?.id;
         if (!userId) return;
         setIsSaving(true);
         try {
-            let finalAvatarUrl = editForm.avatarUrl;
+            let newAvatarUrl: string | undefined = editForm.avatarUrl || undefined;
+            let newBackgroundUrl: string | undefined = editForm.backgroundUrl || undefined;
 
             if (pendingAvatarAsset) {
                 setIsUploadingAvatar(true);
@@ -166,12 +227,12 @@ export default function ProfileScreen() {
                     body: blob,
                 });
                 if (!uploadRes.ok) throw new Error();
-                const updated = await userService.getUserById(userId);
-                if (updated?.avatarUrl) {
-                    finalAvatarUrl =  `https://cnmt-hk1-amz.s3.ap-southeast-1.amazonaws.com/${updated.avatarUrl}`;
-                }
+                const fresh = await userService.getProfile();
+                newAvatarUrl = fresh?.avatarUrl ?? undefined;
                 setIsUploadingAvatar(false);
             }
+
+            
 
             const payload: any = {};
             if (editForm.name) payload.name = editForm.name;
@@ -179,12 +240,15 @@ export default function ProfileScreen() {
             payload.bio = editForm.bio || '';
             if (editForm.birthday) payload.birthday = editForm.birthday;
             if (editForm.gender) payload.gender = editForm.gender;
-            if (finalAvatarUrl) payload.avatarUrl = finalAvatarUrl;
+            if (newAvatarUrl) payload.avatarUrl = newAvatarUrl;
+            if (newBackgroundUrl) payload.backgroundUrl = newBackgroundUrl;
 
             const success = await userService.updateProfile(userId, payload);
             if (success) {
                 setPendingAvatarAsset(null);
                 setAvatarLocalUri('');
+                setPendingBackgroundAsset(null);
+                setBackgroundLocalUri('');
                 setShowEditModal(false);
                 const fresh = await userService.getProfile();
                 if (fresh) {
@@ -199,23 +263,18 @@ export default function ProfileScreen() {
         } finally {
             setIsSaving(false);
             setIsUploadingAvatar(false);
+            setIsUploadingBackground(false);
         }
     };
 
     const handleViewFriends = () => {
         const userId = profileData?.id || user?.id;
-        if (userId) router.push(`/friends-list?userId=${userId}` as any);
+        if (userId) router.push(`/friends-list?userId=${userId}&tab=friends`);
     };
 
-    const loadBlockedUsers = async () => {
+    const handleViewRequests = () => {
         const userId = profileData?.id || user?.id;
-        if (!userId) return;
-        setIsLoadingBlocked(true);
-        try {
-            const list = await blockService.getBlockedUsers(userId);
-            setBlockedUsers(list);
-        } catch (_) {}
-        finally { setIsLoadingBlocked(false); }
+        if (userId) router.push(`/friends-list?userId=${userId}&tab=requests`);
     };
 
     const handleUnblock = async (blockedId: number) => {
@@ -271,6 +330,9 @@ export default function ProfileScreen() {
                 contentContainerStyle={{ paddingTop: insets.top, paddingBottom: 40 }}
             >
                 <View style={ds.card}>
+                    {displayUser.backgroundUrl ? (
+                        <Image source={{ uri: buildS3Url(displayUser.backgroundUrl) }} style={ds.coverImage} />
+                    ) : null}
                     <TouchableOpacity
                         style={ds.settingsBtn}
                         onPress={() => router.push('/settings' as any)}
@@ -282,7 +344,7 @@ export default function ProfileScreen() {
                     <View style={ds.topRow}>
                         <View style={ds.avatarWrap}>
                             {displayUser.avatarUrl ? (
-                                <Image source={{ uri: displayUser.avatarUrl }} style={ds.avatar} />
+                                <Image source={{ uri: buildS3Url(displayUser.avatarUrl) }} style={ds.avatar} />
                             ) : (
                                 <View style={ds.avatarFallback}>
                                     <Ionicons name="person" size={42} color={colors.textTertiary} />
@@ -296,7 +358,7 @@ export default function ProfileScreen() {
                             <TouchableOpacity onPress={handleViewFriends}>
                                 <StatBlock label="Bạn bè" value={friendsCount} colors={colors} />
                             </TouchableOpacity>
-                            <TouchableOpacity onPress={handleViewFriends}>
+                            <TouchableOpacity onPress={handleViewRequests}>
                                 <StatBlock label="Lời mời" value={requestsCount} showBadge={requestsCount > 0} colors={colors} />
                             </TouchableOpacity>
                         </View>
@@ -370,7 +432,7 @@ export default function ProfileScreen() {
                             {blockedUsers.map((bu) => (
                                 <View key={bu.id} style={ds.blockedRow}>
                                     {bu.avatarUrl ? (
-                                        <Image source={{ uri: bu.avatarUrl }} style={ds.blockedAvatar} />
+                                        <Image source={{ uri: buildS3Url(bu.avatarUrl) }} style={ds.blockedAvatar} />
                                     ) : (
                                         <View style={ds.blockedAvatarFallback}>
                                             <Ionicons name="person" size={22} color={colors.textTertiary} />
@@ -457,7 +519,7 @@ export default function ProfileScreen() {
                                         <ActivityIndicator size="small" color={colors.primary} />
                                     </View>
                                 ) : (avatarLocalUri || editForm.avatarUrl) ? (
-                                    <Image source={{ uri: avatarLocalUri || editForm.avatarUrl }} style={ds.previewImg} />
+                                    <Image source={{ uri: avatarLocalUri || buildS3Url(editForm.avatarUrl) }} style={ds.previewImg} />
                                 ) : (
                                     <View style={[ds.avatarFallback, { width: 76, height: 76, borderRadius: 38 }]}>
                                         <Ionicons name="person" size={32} color={colors.textTertiary} />
@@ -677,6 +739,17 @@ const createDynamicStyles = (colors: ThemeColors) => StyleSheet.create({
     previewImg: { width: 76, height: 76, borderRadius: 38, borderWidth: 2.5, borderColor: colors.border },
     changePhotoRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8 },
     changePhotoLabel: { fontSize: 13, color: colors.primary, fontWeight: '600' },
+
+    coverImage: {
+        width: '100%', height: 110, borderRadius: 14,
+        marginBottom: 12, backgroundColor: colors.border,
+    },
+    backgroundPicker: { alignItems: 'center', paddingBottom: 14 },
+    backgroundPickerImg: {
+        width: '100%', height: 90, borderRadius: 12,
+        borderWidth: 1.5, borderColor: colors.border,
+        overflow: 'hidden',
+    },
 
     fieldGroup: { marginTop: 16 },
     fieldLabel: { fontSize: 13, fontWeight: '600', color: colors.textSecondary, marginBottom: 6 },

@@ -178,12 +178,12 @@ const pageService = {
 
     deleteMember: async (pageId: number, userId: number): Promise<string> => {
         const response = await apiClient.post('/page-member/delete', { pageId, userId });
-        return response.data.data;
+        return response.data;
     },
 
     blockMember: async (pageId: number, userId: number): Promise<string> => {
         const response = await apiClient.post('/page-member/block', { pageId, userId });
-        return response.data.data;
+        return response.data;
     },
 
     cancelBlockMember: async (pageId: number, userId: number): Promise<string> => {
@@ -219,6 +219,15 @@ const pageService = {
         try {
             const res = await apiClient.get('page/update/upload-avatar', { params: { type, id, extension } });
             return  res.data;
+        } catch {
+            return null;
+        }
+    },
+
+    getUpdateCoverUploadUrl: async (type: string, id: number, extension: string): Promise<string | null> => {
+        try {
+            const res = await apiClient.get('page/update/upload-cover', { params: { type, id, extension } });
+            return res.data;
         } catch {
             return null;
         }

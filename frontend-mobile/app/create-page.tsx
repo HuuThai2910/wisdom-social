@@ -135,7 +135,7 @@ export default function CreatePageScreen() {
                     body: blob,
                 });
                 if (!uploadRes.ok) throw new Error();
-                finalCoverUrl = `https://cnmt-hk1-amz.s3.ap-southeast-1.amazonaws.com/${urls.imageUrl}`;
+                finalCoverUrl = urls.uuid + '.' + urls.extension;
                 setIsUploadingCover(false);
             }
 

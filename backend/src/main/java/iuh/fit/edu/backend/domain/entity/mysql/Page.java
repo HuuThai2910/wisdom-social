@@ -51,8 +51,16 @@ public class Page {
     private User createdBy;
 
     @JsonIgnore
-    @OneToMany(mappedBy = "page")
+    @OneToMany(mappedBy = "page", cascade = CascadeType.ALL)
     private List<PageMember> pageMembers;
+
+    @JsonIgnore
+    @OneToMany(mappedBy = "page", cascade = CascadeType.ALL)
+    private List<PageFollow> pageFollows;
+
+    @JsonIgnore
+    @OneToMany(mappedBy = "page", cascade = CascadeType.ALL)
+    private List<PageLike> pageLikes;
 
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;

@@ -10,4 +10,6 @@ import java.util.List;
 public interface PageMemberRepository extends JpaRepository<PageMember,Long> {
     PageMember findPageMemberByPage_IdAndUser_Id(Long pageId, Long userId);
     List<PageMember> findByPage_Id(Long pageId);
+
+    void deletePageMemberById(Long id);
 }

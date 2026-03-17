@@ -16,7 +16,6 @@ import iuh.fit.edu.backend.service.impl.user.UserService;
 import iuh.fit.edu.backend.service.s3.S3Service;
 import org.bson.types.ObjectId;
 import org.springframework.stereotype.Service;
-
 import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.List;
@@ -127,7 +126,7 @@ public class PageServiceImpl implements PageService {
     @Override
     public boolean followPageUser(long userId, long pageId) {
         // Prevent duplicate follow
-        if (pageFollowRepository.existsByUser_IdAndPage_Id(userId, (long) pageId)) {
+        if (pageFollowRepository.existsByUser_IdAndPage_Id(userId, pageId)) {
             return true;
         }
         Page page=findPageById(pageId);
@@ -146,7 +145,7 @@ public class PageServiceImpl implements PageService {
     @Override
     public boolean likePageUser(long userId, long pageId) {
         // Prevent duplicate like
-        if (pageLikeRepository.existsByUser_IdAndPage_Id(userId, (long) pageId)) {
+        if (pageLikeRepository.existsByUser_IdAndPage_Id(userId, pageId)) {
             return true;
         }
         Page page=findPageById(pageId);

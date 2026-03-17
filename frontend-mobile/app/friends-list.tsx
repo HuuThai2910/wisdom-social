@@ -16,21 +16,31 @@ import friendService from '../services/friendService';
 import blockService from '../services/blockService';
 import websocketService from '../services/websocketService';
 import { User } from '../types';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function FriendsListScreen() {
     const router = useRouter();
     const params = useLocalSearchParams();
-    const userId = params.userId as string;
+    const userId = params.userId;
+    const tab= params.tab as 'friends' | 'requests' | 'blocked';
+    const { user: currentUser } = useAuth();
     const [friends, setFriends] = useState<User[]>([]);
     const [blockedUsers, setBlockedUsers] = useState<User[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [isLoading, setIsLoading] = useState(true);
-    const [selectedTab, setSelectedTab] = useState<'friends' | 'requests' | 'blocked'>('friends');
+    const [selectedTab, setSelectedTab] = useState<'friends' | 'requests' | 'blocked'>(tab);
 
     const selectedTabRef = useRef(selectedTab);
     useEffect(() => {
         selectedTabRef.current = selectedTab;
     }, [selectedTab]);
+
+    const S3_BASE = 'https://cnmt-hk1-amz.s3.ap-southeast-1.amazonaws.com/';
+    const buildS3Url = (url?: string) => {
+        if (!url) return undefined;
+        if (url.startsWith('http') || url.startsWith('file://') || url.startsWith('content://')) return url;
+        return S3_BASE + url;
+    };
 
     const loadData = useCallback(async (tab?: 'friends' | 'requests' | 'blocked') => {
         const currentTab = tab || selectedTabRef.current;
@@ -129,7 +139,7 @@ export default function FriendsListScreen() {
         <View style={styles.friendItem}>
             <TouchableOpacity style={styles.friendInfo} onPress={() => router.push(`/user-profile?userId=${item.id}` as any)}>
                 {item.avatarUrl ? (
-                    <Image source={{ uri: item.avatarUrl }} style={styles.avatar} />
+                    <Image source={{ uri: buildS3Url(item.avatarUrl) }} style={styles.avatar} />
                 ) : (
                     <View style={styles.avatarPlaceholder}>
                         <Ionicons name="person" size={30} color="#9CA3AF" />
@@ -175,7 +185,7 @@ export default function FriendsListScreen() {
         <View style={styles.friendItem}>
             <TouchableOpacity style={styles.friendInfo} onPress={() => router.push(`/user-profile?userId=${item.id}` as any)}>
                 {item.avatarUrl ? (
-                    <Image source={{ uri: item.avatarUrl }} style={styles.avatar} />
+                    <Image source={{ uri: buildS3Url(item.avatarUrl) }} style={styles.avatar} />
                 ) : (
                     <View style={styles.avatarPlaceholder}>
                         <Ionicons name="person" size={30} color="#9CA3AF" />
@@ -221,30 +231,45 @@ export default function FriendsListScreen() {
             </View>
 
             <View style={styles.tabs}>
-                <TouchableOpacity
-                    style={[styles.tab, selectedTab === 'friends' && styles.tabActive]}
-                    onPress={() => setSelectedTab('friends')}
-                >
-                    <Text style={[styles.tabText, selectedTab === 'friends' && styles.tabTextActive]}>
-                        Bạn bè
-                    </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                    style={[styles.tab, selectedTab === 'requests' && styles.tabActive]}
-                    onPress={() => setSelectedTab('requests')}
-                >
-                    <Text style={[styles.tabText, selectedTab === 'requests' && styles.tabTextActive]}>
-                        Lời mời
-                    </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                    style={[styles.tab, selectedTab === 'blocked' && styles.tabActive]}
-                    onPress={() => setSelectedTab('blocked')}
-                >
-                    <Text style={[styles.tabText, selectedTab === 'blocked' && styles.tabTextActive]}>
-                        Đã chặn
-                    </Text>
-                </TouchableOpacity>
+                {currentUser?.id === Number(userId) ? (
+                    <>
+                        <TouchableOpacity
+                            style={[styles.tab, selectedTab === 'friends' && styles.tabActive]}
+                            onPress={() => setSelectedTab('friends')}
+                        >
+                            <Text style={[styles.tabText, selectedTab === 'friends' && styles.tabTextActive]}>
+                                Bạn bè
+                            </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[styles.tab, selectedTab === 'requests' && styles.tabActive]}
+                            onPress={() => setSelectedTab('requests')}
+                        >
+                            <Text style={[styles.tabText, selectedTab === 'requests' && styles.tabTextActive]}>
+                                Lời mời
+                            </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[styles.tab, selectedTab === 'blocked' && styles.tabActive]}
+                            onPress={() => setSelectedTab('blocked')}
+                        >
+                            <Text style={[styles.tabText, selectedTab === 'blocked' && styles.tabTextActive]}>
+                                Đã chặn
+                            </Text>
+                        </TouchableOpacity>
+                    </>
+                ):(
+                    <TouchableOpacity
+                            style={[styles.tab, selectedTab === 'friends' && styles.tabActive]}
+                            onPress={() => setSelectedTab('friends')}
+                        >
+                            <Text style={[styles.tabText, selectedTab === 'friends' && styles.tabTextActive]}>
+                                Bạn bè
+                            </Text>
+                    </TouchableOpacity>
+                )
+
+                }
             </View>
 
             {selectedTab === 'blocked' && (

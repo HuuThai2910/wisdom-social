@@ -12,9 +12,17 @@ import userService from '../services/userService';
 import friendService from '../services/friendService';
 import { mockPosts } from '../constants/mockData';
 import type { Post } from '../types';
+import { ThemeColors, useTheme } from '@/contexts/ThemeContext';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const IMG_SIZE = (SCREEN_WIDTH - 3) / 3;
+
+const S3_BASE = 'https://cnmt-hk1-amz.s3.ap-southeast-1.amazonaws.com/';
+const buildS3Url = (url?: string) => {
+    if (!url) return undefined;
+    if (url.startsWith('http') || url.startsWith('file://') || url.startsWith('content://')) return url;
+    return S3_BASE + url;
+};
 
 type FriendStatus = 'NONE' | 'SENT' | 'RECEIVED' | 'FRIEND' | 'BLOCKED';
 
@@ -23,7 +31,7 @@ export default function UserProfileScreen() {
     const insets = useSafeAreaInsets();
     const { user: currentUser } = useAuth();
     const { userId } = useLocalSearchParams<{ userId: string }>();
-
+    const { colors, isDark } = useTheme();
     const [targetUser, setTargetUser] = useState<any>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [selectedTab, setSelectedTab] = useState<'posts' | 'tagged'>('posts');
@@ -94,6 +102,7 @@ export default function UserProfileScreen() {
                         { text: 'Không', style: 'cancel' },
                         { text: 'Hủy kết bạn', style: 'destructive', onPress: async () => {
                             await friendService.removeFriend(myId, targetId);
+                            setFriendsCount(prev => prev - 1);
                             setFriendStatus('NONE');
                         }},
                     ],
@@ -132,6 +141,7 @@ export default function UserProfileScreen() {
         }
     };
 
+    
     const friendBtnCfg = getFriendButtonConfig();
     const userPosts = mockPosts.filter((p: Post) => targetUser && p.user.id === targetUser.id?.toString());
     const headerName = targetUser?.username || targetUser?.name || '';
@@ -155,6 +165,10 @@ export default function UserProfileScreen() {
             </View>
         );
     }
+
+    const handleViewFriends = () => {
+        if (userId) router.push(`/friends-list?userId=${userId}&tab=friends`);
+    };
 
     return (
         <>
@@ -180,7 +194,7 @@ export default function UserProfileScreen() {
                                 >
                                     <View style={styles.avatarInnerRing}>
                                         {targetUser.avatarUrl ? (
-                                            <Image source={{ uri: targetUser.avatarUrl }} style={styles.avatar} />
+                                            <Image source={{ uri: buildS3Url(targetUser.avatarUrl) }} style={styles.avatar} />
                                         ) : (
                                             <View style={styles.avatarFallback}>
                                                 <Ionicons name="person" size={46} color="#9CA3AF" />
@@ -192,7 +206,9 @@ export default function UserProfileScreen() {
 
                             <View style={styles.statsList}>
                                 <StatItem value={targetUser.postsCount || userPosts.length || 0} label="Bài viết" />
-                                <StatItem value={friendsCount} label="Bạn bè" />
+                                <TouchableOpacity onPress={handleViewFriends}>
+                                    <StatItem label="Bạn bè" value={friendsCount} />
+                                </TouchableOpacity>
                             </View>
                         </View>
 

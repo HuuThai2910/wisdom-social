@@ -30,6 +30,13 @@ const PAGE_ROLES: { label: string; value: PageRole }[] = [
     { label: 'User', value: 'USER' },
 ];
 
+const S3_BASE = 'https://cnmt-hk1-amz.s3.ap-southeast-1.amazonaws.com/';
+const buildS3Url = (url?: string) => {
+    if (!url) return undefined;
+    if (url.startsWith('http') || url.startsWith('file://') || url.startsWith('content://')) return url;
+    return S3_BASE + url;
+};
+
 export default function PageDetailScreen() {
     const router = useRouter();
     const { pageId } = useLocalSearchParams<{ pageId: string }>();
@@ -202,16 +209,17 @@ export default function PageDetailScreen() {
 
             if (pendingCoverAsset) {
                 setIsUploadingCover(true);
-                const urls = await pageService.getUploadUrl('pages', pendingCoverAsset.extension);
-                if (!urls) throw new Error();
+                const uploadUrl = await pageService.getUpdateCoverUploadUrl('pages', page.id, pendingCoverAsset.extension);
+                if (!uploadUrl) throw new Error();
                 const blob = await fetch(pendingCoverAsset.uri).then(r => r.blob());
-                const uploadRes = await fetch(urls.uploadUrl, {
+                const uploadRes = await fetch(uploadUrl, {
                     method: 'PUT',
                     headers: { 'Content-Type': pendingCoverAsset.mimeType },
                     body: blob,
                 });
                 if (!uploadRes.ok) throw new Error();
-                newCoverUrl = `https://cnmt-hk1-amz.s3.ap-southeast-1.amazonaws.com/${urls.imageUrl}`;
+                const updatedPage = await pageService.findPageById(page.id);
+                newCoverUrl = updatedPage?.coverUrl;
                 setIsUploadingCover(false);
             }
 
@@ -286,7 +294,7 @@ export default function PageDetailScreen() {
                 text: 'Xóa', style: 'destructive',
                 onPress: async () => {
                     try {
-                        await pageService.deleteMember(page.id, memberId);
+                        const res=await pageService.deleteMember(page.id, memberId);
                         await loadAll();
                     } catch {
                         Alert.alert('Lỗi', 'Không thể xóa thành viên.');
@@ -332,7 +340,7 @@ export default function PageDetailScreen() {
 
             <ScrollView style={styles.scrollView} contentContainerStyle={{ paddingBottom: insets.bottom + 40 }} showsVerticalScrollIndicator={false}>
                 {page.coverUrl ? (
-                    <Image source={{ uri: page.coverUrl }} style={styles.coverImage} />
+                    <Image source={{ uri: buildS3Url(page.coverUrl) }} style={styles.coverImage} />
                 ) : (
                     <View style={styles.coverPlaceholder}>
                         <Ionicons name="image-outline" size={32} color={colors.textTertiary} />
@@ -342,7 +350,7 @@ export default function PageDetailScreen() {
                 <View style={styles.profileCard}>
                     <View style={styles.avatarSection}>
                         {page.avatarUrl ? (
-                            <Image source={{ uri: `https://cnmt-hk1-amz.s3.ap-southeast-1.amazonaws.com/${page.avatarUrl}` }} style={styles.avatar} />
+                            <Image source={{ uri: buildS3Url(page.avatarUrl) }} style={styles.avatar} />
                         ) : (
                             <View style={styles.avatarFallback}>
                                 <Ionicons name="flag" size={36} color={colors.textTertiary} />
@@ -455,7 +463,7 @@ export default function PageDetailScreen() {
                                 <Text style={styles.sectionTitle}>Người tạo</Text>
                                 <View style={styles.ownerRow}>
                                     {page.createdBy.avatarUrl ? (
-                                        <Image source={{ uri: page.createdBy.avatarUrl }} style={styles.ownerAvatar} />
+                                        <Image source={{ uri: buildS3Url(page.createdBy.avatarUrl) }} style={styles.ownerAvatar} />
                                     ) : (
                                         <View style={styles.ownerAvatarFallback}>
                                             <Ionicons name="person" size={16} color={colors.textTertiary} />
@@ -507,7 +515,7 @@ export default function PageDetailScreen() {
                             members.map((member) => (
                                 <View key={member.id} style={styles.memberRow}>
                                     {member.user?.avatarUrl ? (
-                                        <Image source={{ uri: member.user.avatarUrl }} style={styles.memberAvatar} />
+                                        <Image source={{ uri: buildS3Url(member.user.avatarUrl) }} style={styles.memberAvatar} />
                                     ) : (
                                         <View style={styles.memberAvatarFallback}>
                                             <Ionicons name="person" size={18} color={colors.textTertiary} />
@@ -530,7 +538,7 @@ export default function PageDetailScreen() {
                                     </View>
                                     {isOwner && (
                                         <TouchableOpacity
-                                            onPress={() => handleRemoveMember(member.user?.id, member.user?.name || 'thành viên')}
+                                            onPress={() => handleRemoveMember(member.user?.id, member.user?.username || 'thành viên')}
                                             hitSlop={8}
                                         >
                                             <Ionicons name="close-circle-outline" size={22} color={colors.danger} />
@@ -594,7 +602,7 @@ export default function PageDetailScreen() {
                                 {isUploadingAvatar ? (
                                     <ActivityIndicator size="small" color={colors.primary} />
                                 ) : (avatarLocalUri || editForm.avatarUrl) ? (
-                                    <Image source={{ uri: avatarLocalUri || `https://cnmt-hk1-amz.s3.ap-southeast-1.amazonaws.com/${editForm.avatarUrl}` }} style={styles.avatarPickerImg} />
+                                    <Image source={{ uri: avatarLocalUri || buildS3Url(editForm.avatarUrl) }} style={styles.avatarPickerImg} />
                                 ) : (
                                     <Ionicons name="camera-outline" size={28} color={colors.textTertiary} />
                                 )}
@@ -612,7 +620,7 @@ export default function PageDetailScreen() {
                                 {isUploadingCover ? (
                                     <ActivityIndicator size="small" color={colors.primary} />
                                 ) : (coverLocalUri || editForm.coverUrl) ? (
-                                    <Image source={{ uri: coverLocalUri || editForm.coverUrl }} style={styles.coverPickerImg} />
+                                    <Image source={{ uri: coverLocalUri || buildS3Url(editForm.coverUrl) }} style={styles.coverPickerImg} />
                                 ) : (
                                     <Ionicons name="image-outline" size={28} color={colors.textTertiary} />
                                 )}
