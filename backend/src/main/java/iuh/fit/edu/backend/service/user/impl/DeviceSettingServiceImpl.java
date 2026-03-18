@@ -1,4 +1,4 @@
-package iuh.fit.edu.backend.service.impl;
+package iuh.fit.edu.backend.service.user.impl;
 
 import iuh.fit.edu.backend.domain.entity.mysql.DeviceSetting;
 import iuh.fit.edu.backend.domain.entity.mysql.User;
@@ -6,7 +6,7 @@ import iuh.fit.edu.backend.dto.request.user.DeviceSettingRequest;
 import iuh.fit.edu.backend.dto.response.user.DeviceSettingResponse;
 import iuh.fit.edu.backend.repository.mysql.DeviceSettingRepository;
 import iuh.fit.edu.backend.repository.mysql.UserRepository;
-import iuh.fit.edu.backend.service.impl.user.DeviceSettingService;
+import iuh.fit.edu.backend.service.user.DeviceSettingService;
 import org.springframework.stereotype.Service;
 
 @Service

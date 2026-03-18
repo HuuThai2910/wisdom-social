@@ -1,4 +1,4 @@
-package iuh.fit.edu.backend.service.impl.user;
+package iuh.fit.edu.backend.service.user;
 
 import iuh.fit.edu.backend.dto.request.user.DeviceSettingRequest;
 import iuh.fit.edu.backend.dto.response.user.DeviceSettingResponse;

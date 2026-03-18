@@ -1,13 +1,13 @@
-package iuh.fit.edu.backend.service.impl;
+package iuh.fit.edu.backend.service.user.impl;
 
 import iuh.fit.edu.backend.constant.Gender;
 import iuh.fit.edu.backend.constant.PrivacyType;
 import iuh.fit.edu.backend.domain.entity.mysql.User;
 import iuh.fit.edu.backend.domain.entity.mysql.UserSetting;
 import iuh.fit.edu.backend.repository.mysql.UserSettingRepository;
-import iuh.fit.edu.backend.service.impl.user.FriendService;
-import iuh.fit.edu.backend.service.impl.user.UserService;
-import iuh.fit.edu.backend.service.impl.user.UserSettingService;
+import iuh.fit.edu.backend.service.user.FriendService;
+import iuh.fit.edu.backend.service.user.UserService;
+import iuh.fit.edu.backend.service.user.UserSettingService;
 import org.springframework.stereotype.Service;
 
 import java.util.List;

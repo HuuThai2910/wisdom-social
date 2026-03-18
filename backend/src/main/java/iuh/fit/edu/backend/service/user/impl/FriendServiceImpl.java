@@ -1,11 +1,11 @@
-package iuh.fit.edu.backend.service.impl;
+package iuh.fit.edu.backend.service.user.impl;
 
 import iuh.fit.edu.backend.constant.FriendStatus;
 import iuh.fit.edu.backend.domain.entity.mysql.Friend;
 import iuh.fit.edu.backend.domain.entity.mysql.User;
 import iuh.fit.edu.backend.repository.mysql.FriendRepository;
-import iuh.fit.edu.backend.service.impl.user.FriendService;
-import iuh.fit.edu.backend.service.impl.user.UserService;
+import iuh.fit.edu.backend.service.user.FriendService;
+import iuh.fit.edu.backend.service.user.UserService;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Scheduled;

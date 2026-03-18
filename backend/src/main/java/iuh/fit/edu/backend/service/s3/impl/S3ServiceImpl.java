@@ -1,11 +1,5 @@
 package iuh.fit.edu.backend.service.s3.impl;
 
-import iuh.fit.edu.backend.domain.entity.mysql.Page;
-import iuh.fit.edu.backend.domain.entity.mysql.User;
-import iuh.fit.edu.backend.dto.request.page.UserRequestUpdatePage;
-import iuh.fit.edu.backend.dto.request.user.UserRequestUpdate;
-import iuh.fit.edu.backend.service.impl.page.PageService;
-import iuh.fit.edu.backend.service.impl.user.UserService;
 import iuh.fit.edu.backend.service.s3.S3Service;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -26,8 +20,6 @@ import java.util.UUID;
 public class S3ServiceImpl implements S3Service {
     private final S3Presigner s3Presigner;
     private final S3Client s3Client;
-//    private final UserService userService;
-//    private final PageService pageService;
     @Value("${aws.s3.bucket-name}")
     private String bucketName;
     private static final Set<String> ALLOWED_EXTENSIONS=
@@ -37,9 +29,7 @@ public class S3ServiceImpl implements S3Service {
     public S3ServiceImpl( S3Presigner s3Presigner,
                          S3Client s3Client
     ) {
-//        this.pageService = pageService;
         this.s3Presigner = s3Presigner;
-//        this.userService = userService;
         this.s3Client = s3Client;
     }
 

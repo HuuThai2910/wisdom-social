@@ -1,4 +1,4 @@
-package iuh.fit.edu.backend.service.impl.page;
+package iuh.fit.edu.backend.service.page;
 
 import iuh.fit.edu.backend.constant.PageRole;
 import iuh.fit.edu.backend.domain.entity.mysql.PageMember;

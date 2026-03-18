@@ -1,8 +1,6 @@
-package iuh.fit.edu.backend.service.impl.page;
+package iuh.fit.edu.backend.service.page;
 
-import iuh.fit.edu.backend.constant.PageRole;
 import iuh.fit.edu.backend.domain.entity.mysql.Page;
-import iuh.fit.edu.backend.domain.entity.mysql.User;
 import iuh.fit.edu.backend.domain.entity.nosql.Post;
 import iuh.fit.edu.backend.dto.request.page.UserRequestCreatePage;
 import iuh.fit.edu.backend.dto.request.page.UserRequestUpdatePage;

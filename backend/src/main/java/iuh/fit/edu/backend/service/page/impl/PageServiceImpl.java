@@ -1,4 +1,4 @@
-package iuh.fit.edu.backend.service.impl;
+package iuh.fit.edu.backend.service.page.impl;
 
 import iuh.fit.edu.backend.domain.entity.mysql.Page;
 import iuh.fit.edu.backend.domain.entity.mysql.PageFollow;
@@ -11,8 +11,8 @@ import iuh.fit.edu.backend.mapper.PageMapper;
 import iuh.fit.edu.backend.repository.mysql.PageFollowRepository;
 import iuh.fit.edu.backend.repository.mysql.PageLikeRepository;
 import iuh.fit.edu.backend.repository.mysql.PageRepository;
-import iuh.fit.edu.backend.service.impl.page.PageService;
-import iuh.fit.edu.backend.service.impl.user.UserService;
+import iuh.fit.edu.backend.service.page.PageService;
+import iuh.fit.edu.backend.service.user.UserService;
 import iuh.fit.edu.backend.service.s3.S3Service;
 import org.bson.types.ObjectId;
 import org.springframework.stereotype.Service;

@@ -2,7 +2,7 @@
  * @ (#) .java    1.0
  * Copyright (c)  IUH. All rights reserved.
  */
-package iuh.fit.edu.backend.service.impl;
+package iuh.fit.edu.backend.service.user.impl;
 
 import iuh.fit.edu.backend.domain.entity.mysql.BlackListUser;
 import iuh.fit.edu.backend.domain.entity.mysql.BlockedUser;
@@ -18,8 +18,8 @@ import iuh.fit.edu.backend.mapper.UserMapper;
 import iuh.fit.edu.backend.repository.mysql.BlackListUserRepository;
 import iuh.fit.edu.backend.repository.mysql.DeviceRepository;
 import iuh.fit.edu.backend.repository.mysql.UserRepository;
-import iuh.fit.edu.backend.service.impl.user.BlockUserService;
-import iuh.fit.edu.backend.service.impl.user.UserService;
+import iuh.fit.edu.backend.service.user.BlockUserService;
+import iuh.fit.edu.backend.service.user.UserService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.core.Authentication;

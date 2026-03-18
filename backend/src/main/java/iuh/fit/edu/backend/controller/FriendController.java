@@ -2,7 +2,7 @@ package iuh.fit.edu.backend.controller;
 
 import iuh.fit.edu.backend.domain.entity.mysql.User;
 import iuh.fit.edu.backend.dto.request.friend.FriendRequest;
-import iuh.fit.edu.backend.service.impl.user.FriendService;
+import iuh.fit.edu.backend.service.user.FriendService;
 import iuh.fit.edu.backend.util.anotation.ApiMessage;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;

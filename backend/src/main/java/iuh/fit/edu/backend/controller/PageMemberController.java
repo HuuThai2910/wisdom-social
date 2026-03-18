@@ -4,7 +4,7 @@ import iuh.fit.edu.backend.domain.entity.mysql.PageMember;
 import iuh.fit.edu.backend.dto.request.page.UserRequestAuthorizePage;
 import iuh.fit.edu.backend.dto.request.page.UserRequestMemberPage;
 import iuh.fit.edu.backend.dto.request.page.UserRequestPage;
-import iuh.fit.edu.backend.service.impl.page.PageMemberService;
+import iuh.fit.edu.backend.service.page.PageMemberService;
 import iuh.fit.edu.backend.util.anotation.ApiMessage;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;

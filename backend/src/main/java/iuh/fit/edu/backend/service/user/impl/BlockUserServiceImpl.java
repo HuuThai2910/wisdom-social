@@ -1,10 +1,10 @@
-package iuh.fit.edu.backend.service.impl;
+package iuh.fit.edu.backend.service.user.impl;
 
 import iuh.fit.edu.backend.domain.entity.mysql.BlockedUser;
 import iuh.fit.edu.backend.domain.entity.mysql.User;
 import iuh.fit.edu.backend.dto.request.friend.FriendRequest;
 import iuh.fit.edu.backend.repository.mysql.BlockUserRepository;
-import iuh.fit.edu.backend.service.impl.user.BlockUserService;
+import iuh.fit.edu.backend.service.user.BlockUserService;
 import org.springframework.stereotype.Service;
 
 import java.util.List;

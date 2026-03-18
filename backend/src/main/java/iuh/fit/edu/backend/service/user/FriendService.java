@@ -1,8 +1,6 @@
-package iuh.fit.edu.backend.service.impl.user;
+package iuh.fit.edu.backend.service.user;
 
-import iuh.fit.edu.backend.domain.entity.mysql.Friend;
 import iuh.fit.edu.backend.domain.entity.mysql.User;
-import org.springframework.scheduling.annotation.Scheduled;
 
 import java.util.List;
 

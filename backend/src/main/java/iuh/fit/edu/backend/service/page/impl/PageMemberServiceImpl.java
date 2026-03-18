@@ -1,4 +1,4 @@
-package iuh.fit.edu.backend.service.impl;
+package iuh.fit.edu.backend.service.page.impl;
 
 import iuh.fit.edu.backend.constant.MemberStatus;
 import iuh.fit.edu.backend.constant.PageRole;
@@ -9,10 +9,10 @@ import iuh.fit.edu.backend.domain.entity.mysql.User;
 import iuh.fit.edu.backend.dto.request.page.UserRequestMemberPage;
 import iuh.fit.edu.backend.repository.mysql.BlockUserRepository;
 import iuh.fit.edu.backend.repository.mysql.PageMemberRepository;
-import iuh.fit.edu.backend.service.impl.page.PageMemberService;
-import iuh.fit.edu.backend.service.impl.page.PageService;
-import iuh.fit.edu.backend.service.impl.user.BlockUserService;
-import iuh.fit.edu.backend.service.impl.user.UserService;
+import iuh.fit.edu.backend.service.page.PageMemberService;
+import iuh.fit.edu.backend.service.page.PageService;
+import iuh.fit.edu.backend.service.user.BlockUserService;
+import iuh.fit.edu.backend.service.user.UserService;
 import jakarta.transaction.Transactional;
 import org.springframework.stereotype.Service;
 
