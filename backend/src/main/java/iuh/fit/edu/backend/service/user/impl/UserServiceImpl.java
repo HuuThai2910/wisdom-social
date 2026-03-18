@@ -179,15 +179,22 @@ public class UserServiceImpl implements UserService {
                 .getContext()
                 .getAuthentication();
 
-            try{
-                assert auth != null;
-                String phone= Objects.requireNonNull(auth.getPrincipal()).toString();
-                String phoneFormat="0"+phone.substring(3,12);
-                return userRepository.findByPhone(phoneFormat);
-            }catch(Exception e){
-                return null;
+        if (auth == null || auth.getPrincipal() == null) {
+            return null;
+        }
+
+        try {
+            String phone = auth.getPrincipal().toString();
+
+            // Normalize phone (+84 -> 0)
+            if (phone.startsWith("+84")) {
+                phone = "0" + phone.substring(3);
             }
 
+            return userRepository.findByPhone(phone);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     @Override

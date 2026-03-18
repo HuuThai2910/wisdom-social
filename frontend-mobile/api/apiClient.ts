@@ -115,7 +115,7 @@ apiClient.interceptors.request.use(
             }
 
             const cookieParts: string[] = [];
-            if (idToken) cookieParts.push(`idToken=${idToken}`);
+            if (idToken) cookieParts.push(`accessToken=${idToken}`);
             if (refreshToken) cookieParts.push(`refreshToken=${refreshToken}`);
             if (cookieParts.length > 0) {
                 config.headers.Cookie = cookieParts.join('; ');
@@ -140,7 +140,7 @@ apiClient.interceptors.response.use(
                 const newIdToken = await ensureFreshToken();
                 if (newIdToken) {
                     const refreshToken = await getRefreshToken();
-                    originalRequest.headers.Cookie = `idToken=${newIdToken}; refreshToken=${refreshToken || ''}`;
+                    originalRequest.headers.Cookie = `accessToken=${newIdToken}; refreshToken=${refreshToken || ''}`;
                     return apiClient(originalRequest);
                 } else {
                     await clearStorage();
