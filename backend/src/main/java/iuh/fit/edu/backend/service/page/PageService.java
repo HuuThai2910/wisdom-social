@@ -16,9 +16,6 @@ public interface PageService {
     Page findPageById(long id);
     List<Page> findAllPages();
     List<Page> findPagesByUserId(long userId);
-    boolean approvePostPage(long userId,long pageId, ObjectId postId);
-    boolean addPostPage(long userId, long pageId, Post post);
-    boolean removePostPage(long userId, long pageId, ObjectId postId);
     boolean followPageUser(long userId, long pageId);
     boolean likePageUser(long userId, long pageId);
     boolean cancelFollowPageUser(long userId, long pageId);

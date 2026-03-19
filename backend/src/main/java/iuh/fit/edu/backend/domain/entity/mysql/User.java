@@ -46,7 +46,6 @@ public class User {
 
     private boolean confirmUseAI = false;
 
-    // ===== Relations =====
     @OneToMany(mappedBy = "user")
     @JsonIgnore
     private List<Device> devices;

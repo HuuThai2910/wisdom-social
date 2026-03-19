@@ -42,8 +42,6 @@ import java.util.stream.Collectors;
 public class UserServiceImpl implements UserService {
     @Value("${aws.cognito.clientId}")
     private String userClientId;
-    @Value("${aws.cognito.userPoolId}")
-    private String userPoolId;
 
     UserMapper userMapper;
     UserRepository userRepository;

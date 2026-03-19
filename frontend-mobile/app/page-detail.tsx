@@ -21,6 +21,7 @@ import { useAuth } from '../contexts/AuthContext';
 import pageService from '../services/pageService';
 import type { PageData, UpdatePageRequest, PageRole, PageMemberData } from '../services/pageService';
 import type { ThemeColors } from '../contexts/ThemeContext';
+import type { Post } from '../types';
 
 const PAGE_ROLES: { label: string; value: PageRole }[] = [
     { label: 'Admin', value: 'ADMIN' },
@@ -51,6 +52,7 @@ export default function PageDetailScreen() {
     const [likeCount, setLikeCount] = useState(0);
     const [followCount, setFollowCount] = useState(0);
     const [activeSection, setActiveSection] = useState<'info' | 'members' | 'posts'>('info');
+    const [posts, setPosts] = useState<Post[]>([]);
 
     const [showEditModal, setShowEditModal] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
@@ -298,6 +300,51 @@ export default function PageDetailScreen() {
                         await loadAll();
                     } catch {
                         Alert.alert('Lỗi', 'Không thể xóa thành viên.');
+                    }
+                },
+            },
+        ]);
+    };
+
+    const handleApprovePost = async (postId: string) => {
+        if (!user?.id || !page) return;
+        try {
+            await pageService.approvePostPage(user.id, page.id, postId);
+            Alert.alert('Thành công', 'Đã phê duyệt bài viết.');
+            // Reload posts if you have a function to fetch them
+            // await loadPosts();
+        } catch {
+            Alert.alert('Lỗi', 'Không thể phê duyệt bài viết.');
+        }
+    };
+
+    const handleCancelApprovePost = async (postId: string) => {
+        if (!user?.id || !page) return;
+        try {
+            await pageService.cancelApprovePostPage(user.id, page.id, postId);
+            Alert.alert('Thành công', 'Đã hủy phê duyệt bài viết.');
+            // Reload posts if you have a function to fetch them
+            // await loadPosts();
+        } catch {
+            Alert.alert('Lỗi', 'Không thể hủy phê duyệt bài viết.');
+        }
+    };
+
+    const handleRemovePost = (postId: string, postCaption: string) => {
+        if (!user?.id || !page) return;
+        Alert.alert('Xóa bài viết', `Xóa bài viết "${postCaption.slice(0, 30)}..."?`, [
+            { text: 'Hủy', style: 'cancel' },
+            {
+                text: 'Xóa', style: 'destructive',
+                onPress: async () => {
+                    try {
+                        await pageService.removePostPage(user.id, page.id, postId);
+                        Alert.alert('Thành công', 'Đã xóa bài viết.');
+                        // Reload posts if you have a function to fetch them
+                        // await loadPosts();
+                        setPosts(prevPosts => prevPosts.filter(p => p.id !== postId));
+                    } catch {
+                        Alert.alert('Lỗi', 'Không thể xóa bài viết.');
                     }
                 },
             },
@@ -553,20 +600,101 @@ export default function PageDetailScreen() {
                 {activeSection === 'posts' && (
                     <View style={styles.infoCard}>
                         <Text style={styles.sectionTitle}>Bài viết của trang</Text>
-                        <View style={{ alignItems: 'center', paddingVertical: 40 }}>
-                            <View style={{
-                                width: 72, height: 72, borderRadius: 36, backgroundColor: colors.chipBg,
-                                alignItems: 'center', justifyContent: 'center', marginBottom: 12,
-                            }}>
-                                <Ionicons name="newspaper-outline" size={32} color={colors.textTertiary} />
+                        {posts.length === 0 ? (
+                            <View style={{ alignItems: 'center', paddingVertical: 40 }}>
+                                <View style={{
+                                    width: 72, height: 72, borderRadius: 36, backgroundColor: colors.chipBg,
+                                    alignItems: 'center', justifyContent: 'center', marginBottom: 12,
+                                }}>
+                                    <Ionicons name="newspaper-outline" size={32} color={colors.textTertiary} />
+                                </View>
+                                <Text style={{ fontSize: 15, fontWeight: '600', color: colors.textSecondary }}>
+                                    Chưa có bài viết
+                                </Text>
+                                <Text style={{ fontSize: 13, color: colors.textTertiary, marginTop: 4, textAlign: 'center' }}>
+                                    Bài viết của trang sẽ hiển thị tại đây
+                                </Text>
                             </View>
-                            <Text style={{ fontSize: 15, fontWeight: '600', color: colors.textSecondary }}>
-                                Chưa có bài viết
-                            </Text>
-                            <Text style={{ fontSize: 13, color: colors.textTertiary, marginTop: 4, textAlign: 'center' }}>
-                                Bài viết của trang sẽ hiển thị tại đây
-                            </Text>
-                        </View>
+                        ) : (
+                            <View style={{ gap: 12 }}>
+                                {posts.map((post) => (
+                                    <View key={post.id} style={styles.postCard}>
+                                        <View style={styles.postHeader}>
+                                            {post.user?.avatarUrl ? (
+                                                <Image
+                                                    source={{ uri: buildS3Url(post.user.avatarUrl) }}
+                                                    style={styles.postAvatar}
+                                                />
+                                            ) : (
+                                                <View style={[styles.postAvatar, { backgroundColor: colors.chipBg }]}>
+                                                    <Ionicons name="person" size={16} color={colors.textTertiary} />
+                                                </View>
+                                            )}
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={styles.postUserName}>{post.user?.name || 'Unknown'}</Text>
+                                                <Text style={styles.postTime}>
+                                                    {new Date(post.createdAt).toLocaleDateString('vi-VN')}
+                                                </Text>
+                                            </View>
+                                        </View>
+
+                                        {post.caption && (
+                                            <Text style={styles.postCaption}>{post.caption}</Text>
+                                        )}
+
+                                        {post.images && post.images.length > 0 && (
+                                            <Image
+                                                source={{ uri: buildS3Url(post.images[0]) }}
+                                                style={styles.postImage}
+                                            />
+                                        )}
+
+                                        <View style={styles.postStats}>
+                                            <Text style={styles.postStatText}>
+                                                <Ionicons name="heart" size={14} /> {post.likes || 0} lượt thích
+                                            </Text>
+                                            <Text style={styles.postStatText}>
+                                                <Ionicons name="chatbubble" size={14} /> {post.comments?.length || 0} bình luận
+                                            </Text>
+                                        </View>
+
+                                        {isOwner && (
+                                            <View style={styles.postActions}>
+                                                <TouchableOpacity
+                                                    style={[styles.postActionBtn, { backgroundColor: colors.successBg }]}
+                                                    onPress={() => handleApprovePost(post.id)}
+                                                >
+                                                    <Ionicons name="checkmark-circle-outline" size={18} color={colors.success} />
+                                                    <Text style={[styles.postActionText, { color: colors.success }]}>
+                                                        Phê duyệt
+                                                    </Text>
+                                                </TouchableOpacity>
+
+                                                <TouchableOpacity
+                                                    style={[styles.postActionBtn, { backgroundColor: colors.warningBg }]}
+                                                    onPress={() => handleCancelApprovePost(post.id)}
+                                                >
+                                                    <Ionicons name="close-circle-outline" size={18} color={colors.warning} />
+                                                    <Text style={[styles.postActionText, { color: colors.warning }]}>
+                                                        Hủy duyệt
+                                                    </Text>
+                                                </TouchableOpacity>
+
+                                                <TouchableOpacity
+                                                    style={[styles.postActionBtn, { backgroundColor: colors.errorBg }]}
+                                                    onPress={() => handleRemovePost(post.id, post.caption || '')}
+                                                >
+                                                    <Ionicons name="trash-outline" size={18} color={colors.error} />
+                                                    <Text style={[styles.postActionText, { color: colors.error }]}>
+                                                        Xóa
+                                                    </Text>
+                                                </TouchableOpacity>
+                                            </View>
+                                        )}
+                                    </View>
+                                ))}
+                            </View>
+                        )}
                     </View>
                 )}
             </ScrollView>
@@ -876,4 +1004,79 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
         paddingVertical: 20, marginBottom: 4,
     },
     coverPickerImg: { width: '100%', height: 120, borderRadius: 12 },
+
+    postCard: {
+        backgroundColor: colors.inputBg,
+        borderRadius: 12,
+        padding: 14,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    postHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 10,
+    },
+    postAvatar: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        marginRight: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    postUserName: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: colors.text,
+    },
+    postTime: {
+        fontSize: 11,
+        color: colors.textTertiary,
+        marginTop: 2,
+    },
+    postCaption: {
+        fontSize: 14,
+        color: colors.textSecondary,
+        lineHeight: 20,
+        marginBottom: 10,
+    },
+    postImage: {
+        width: '100%',
+        height: 200,
+        borderRadius: 8,
+        marginBottom: 10,
+    },
+    postStats: {
+        flexDirection: 'row',
+        gap: 16,
+        paddingTop: 10,
+        borderTopWidth: 1,
+        borderTopColor: colors.border,
+    },
+    postStatText: {
+        fontSize: 12,
+        color: colors.textTertiary,
+    },
+    postActions: {
+        flexDirection: 'row',
+        gap: 8,
+        marginTop: 10,
+        paddingTop: 10,
+        borderTopWidth: 1,
+        borderTopColor: colors.border,
+    },
+    postActionBtn: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 4,
+        paddingVertical: 8,
+        borderRadius: 8,
+    },
+    postActionText: {
+        fontSize: 12,
+        fontWeight: '600',
+    },
 });

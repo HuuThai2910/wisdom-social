@@ -21,6 +21,11 @@ export interface ThemeColors {
     danger: string;
     dangerBg: string;
     success: string;
+    successBg: string;
+    warning: string;
+    warningBg: string;
+    error: string;
+    errorBg: string;
     badge: string;
     shadow: string;
     chipBg: string;
@@ -43,6 +48,11 @@ const lightColors: ThemeColors = {
     danger: '#EF4444',
     dangerBg: '#FEF2F2',
     success: '#22C55E',
+    successBg: '#F0FDF4',
+    warning: '#F59E0B',
+    warningBg: '#FFFBEB',
+    error: '#EF4444',
+    errorBg: '#FEF2F2',
     badge: '#EF4444',
     shadow: '#000',
     chipBg: '#F3F4F6',
@@ -65,6 +75,11 @@ const darkColors: ThemeColors = {
     danger: '#EF4444',
     dangerBg: '#1E1215',
     success: '#22C55E',
+    successBg: '#052E16',
+    warning: '#F59E0B',
+    warningBg: '#1C1917',
+    error: '#EF4444',
+    errorBg: '#1E1215',
     badge: '#EF4444',
     shadow: '#000',
     chipBg: '#334155',

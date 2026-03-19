@@ -2,13 +2,17 @@ package iuh.fit.edu.backend.controller;
 
 import iuh.fit.edu.backend.domain.entity.mysql.Page;
 import iuh.fit.edu.backend.domain.entity.mysql.User;
+import iuh.fit.edu.backend.domain.entity.nosql.Post;
 import iuh.fit.edu.backend.dto.request.page.UserRequestCreatePage;
 import iuh.fit.edu.backend.dto.request.page.UserRequestPage;
+import iuh.fit.edu.backend.dto.request.page.UserRequestPagePost;
 import iuh.fit.edu.backend.dto.request.page.UserRequestUpdatePage;
 import iuh.fit.edu.backend.service.page.PageService;
+import iuh.fit.edu.backend.service.page.PagePostService;
 import iuh.fit.edu.backend.service.user.UserService;
 import iuh.fit.edu.backend.service.s3.S3Service;
 import iuh.fit.edu.backend.util.anotation.ApiMessage;
+import org.bson.types.ObjectId;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -19,11 +23,13 @@ import java.util.Map;
 @RequestMapping("/api/page")
 public class PageController {
     PageService pageService;
+    PagePostService pagePostService;
     UserService userService;
     S3Service s3Service;
 
-    public PageController(PageService pageService, UserService userService, S3Service s3Service) {
+    public PageController(PageService pageService, PagePostService pagePostService, UserService userService, S3Service s3Service) {
         this.pageService = pageService;
+        this.pagePostService = pagePostService;
         this.userService = userService;
         this.s3Service = s3Service;
     }
@@ -180,5 +186,55 @@ public class PageController {
     public ResponseEntity<Map<String,String>> uploadImage(@RequestParam String type,
                                                           @RequestParam String extension){
         return ResponseEntity.ok(s3Service.generateUploadUrl(type,extension));
+    }
+
+    @PostMapping("/post/approve")
+    @ApiMessage("Approve post successfully")
+    public ResponseEntity<String> approvePostPage(@RequestBody UserRequestPagePost request) {
+        boolean success = pagePostService.approvePostPage(
+                request.getUserId(),
+                request.getPageId(),
+                new ObjectId(request.getPostId())
+        );
+        if (success)
+            return ResponseEntity.ok("Approve post successfully");
+        return ResponseEntity.badRequest().body("Approve post failed");
+    }
+
+    @PostMapping("/post/cancel-approve")
+    @ApiMessage("Cancel approve post successfully")
+    public ResponseEntity<String> cancelApprovePostPage(@RequestBody UserRequestPagePost request) {
+        boolean success = pagePostService.cancelApprovePostPage(
+                request.getUserId(),
+                request.getPageId(),
+                new ObjectId(request.getPostId())
+        );
+        if (success)
+            return ResponseEntity.ok("Cancel approve post successfully");
+        return ResponseEntity.badRequest().body("Cancel approve post failed");
+    }
+
+    @PostMapping("/post/add")
+    @ApiMessage("Add post to page successfully")
+    public ResponseEntity<String> addPostPage(@RequestBody Post post,
+                                               @RequestParam long userId,
+                                               @RequestParam long pageId) {
+        boolean success = pagePostService.addPostPage(userId, pageId, post);
+        if (success)
+            return ResponseEntity.ok("Add post to page successfully");
+        return ResponseEntity.badRequest().body("Add post to page failed");
+    }
+
+    @PostMapping("/post/remove")
+    @ApiMessage("Remove post from page successfully")
+    public ResponseEntity<String> removePostPage(@RequestBody UserRequestPagePost request) {
+        boolean success = pagePostService.removePostPage(
+                request.getUserId(),
+                request.getPageId(),
+                new ObjectId(request.getPostId())
+        );
+        if (success)
+            return ResponseEntity.ok("Remove post from page successfully");
+        return ResponseEntity.badRequest().body("Remove post from page failed");
     }
 }

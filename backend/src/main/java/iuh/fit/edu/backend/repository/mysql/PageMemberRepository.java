@@ -1,9 +1,11 @@
 package iuh.fit.edu.backend.repository.mysql;
 
+import iuh.fit.edu.backend.constant.PageRole;
 import iuh.fit.edu.backend.domain.entity.mysql.PageMember;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
 import java.util.List;
 
 @Repository
@@ -12,4 +14,6 @@ public interface PageMemberRepository extends JpaRepository<PageMember,Long> {
     List<PageMember> findByPage_Id(Long pageId);
 
     void deletePageMemberById(Long id);
+
+    boolean existsByUserIdAndPageIdAndRoleIn(Long userId, Long pageId, Collection<PageRole> roles);
 }

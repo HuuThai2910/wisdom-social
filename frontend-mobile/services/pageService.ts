@@ -90,6 +90,12 @@ export interface AuthorizePageRequest {
     pageRole: PageRole;
 }
 
+export interface PagePostRequest {
+    userId: number;
+    pageId: number;
+    postId: string;
+}
+
 const pageService = {
     createPage: async (data: CreatePageRequest): Promise<string> => {
         const response = await apiClient.post('/page/create', data);
@@ -231,6 +237,28 @@ const pageService = {
         } catch {
             return null;
         }
+    },
+
+    approvePostPage: async (userId: number, pageId: number, postId: string): Promise<string> => {
+        const response = await apiClient.post('/page/post/approve', { userId, pageId, postId });
+        return response.data.data;
+    },
+
+    cancelApprovePostPage: async (userId: number, pageId: number, postId: string): Promise<string> => {
+        const response = await apiClient.post('/page/post/cancel-approve', { userId, pageId, postId });
+        return response.data.data;
+    },
+
+    addPostPage: async (userId: number, pageId: number, post: any): Promise<string> => {
+        const response = await apiClient.post('/page/post/add', post, {
+            params: { userId, pageId }
+        });
+        return response.data.data;
+    },
+
+    removePostPage: async (userId: number, pageId: number, postId: string): Promise<string> => {
+        const response = await apiClient.post('/page/post/remove', { userId, pageId, postId });
+        return response.data.data;
     },
 };
 
