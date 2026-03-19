@@ -9,6 +9,7 @@ import iuh.fit.edu.backend.domain.entity.nosql.Post;
 import iuh.fit.edu.backend.dto.request.CreatePostRequest;
 import iuh.fit.edu.backend.dto.response.ApiResponse;
 import iuh.fit.edu.backend.service.PostService;
+import iuh.fit.edu.backend.service.user.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -31,21 +32,28 @@ public class PostController {
 
     private final PostService postService;
     private final ObjectMapper objectMapper;
+    private final UserService userService;
 
     /**
      * Create a new post with images
      * @param postDataJson JSON string of CreatePostRequest
      * @param images List of image files
-     * @param authorId Author user ID
      * @return Created post
      */
     @PostMapping(consumes = {"multipart/form-data"})
     public ResponseEntity<ApiResponse<Post>> createPost(
             @RequestParam("postData") String postDataJson,
-            @RequestParam(value = "images", required = false) List<MultipartFile> images,
-            @RequestParam("authorId") Long authorId) {
+            @RequestParam(value = "images", required = false) List<MultipartFile> images) {
         
         try {
+            // Get current user
+            var currentUser = userService.getCurrentUser();
+            if (currentUser == null) {
+                return ResponseEntity.badRequest()
+                        .body(ApiResponse.error(401, "Bạn cần đăng nhập để tạo post", null));
+            }
+            
+            Long authorId = currentUser.getId();
             log.info("Creating post for user: {}", authorId);
             log.info("Post data: {}", postDataJson);
             
@@ -102,14 +110,20 @@ public class PostController {
     /**
      * Delete post by ID
      * @param id Post ID
-     * @param userId User ID (for authorization)
      * @return Success message
      */
     @DeleteMapping("/{id}")
     public ResponseEntity<ApiResponse<Void>> deletePost(
-            @PathVariable String id,
-            @RequestParam Long userId) {
+            @PathVariable String id) {
         try {
+            // Get current user
+            var currentUser = userService.getCurrentUser();
+            if (currentUser == null) {
+                return ResponseEntity.badRequest()
+                        .body(ApiResponse.error(401, "Bạn cần đăng nhập để xóa post", null));
+            }
+            
+            Long userId = currentUser.getId();
             log.info("Deleting post {} by user {}", id, userId);
             postService.deletePost(id, userId);
             return ResponseEntity.ok(ApiResponse.success(200, "Xóa post thành công", null));
@@ -125,16 +139,22 @@ public class PostController {
      * @param id Post ID
      * @param postDataJson JSON string of CreatePostRequest
      * @param newImages New image files to upload
-     * @param userId User ID (for authorization)
      * @return Updated post
      */
     @PutMapping(value = "/{id}", consumes = {"multipart/form-data"})
     public ResponseEntity<ApiResponse<Post>> updatePost(
             @PathVariable String id,
             @RequestParam("postData") String postDataJson,
-            @RequestParam(value = "images", required = false) List<MultipartFile> newImages,
-            @RequestParam Long userId) {
+            @RequestParam(value = "images", required = false) List<MultipartFile> newImages) {
         try {
+            // Get current user
+            var currentUser = userService.getCurrentUser();
+            if (currentUser == null) {
+                return ResponseEntity.badRequest()
+                        .body(ApiResponse.error(401, "Bạn cần đăng nhập để cập nhật post", null));
+            }
+            
+            Long userId = currentUser.getId();
             log.info("Updating post {} by user {}", id, userId);
             
             // Parse JSON to CreatePostRequest

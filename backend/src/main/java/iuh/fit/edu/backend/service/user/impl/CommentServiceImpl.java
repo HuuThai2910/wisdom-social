@@ -2,7 +2,7 @@
  * @ (#) CommentServiceImpl.java    1.0
  * Copyright (c)  IUH. All rights reserved.
  */
-package iuh.fit.edu.backend.service.impl;
+package iuh.fit.edu.backend.service.user.impl;
 
 import iuh.fit.edu.backend.constant.StatusType;
 import iuh.fit.edu.backend.constant.TargetType;

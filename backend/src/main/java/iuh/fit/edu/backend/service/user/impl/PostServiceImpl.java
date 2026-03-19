@@ -2,7 +2,7 @@
  * @ (#) PostServiceImpl.java    1.0
  * Copyright (c)  IUH. All rights reserved.
  */
-package iuh.fit.edu.backend.service.impl;
+package iuh.fit.edu.backend.service.user.impl;
 
 import iuh.fit.edu.backend.constant.TargetType;
 import iuh.fit.edu.backend.domain.entity.nosql.Media;
@@ -15,7 +15,7 @@ import iuh.fit.edu.backend.repository.nosql.CommentRepository;
 import iuh.fit.edu.backend.repository.nosql.PostRepository;
 import iuh.fit.edu.backend.repository.nosql.ReactionRepository;
 import iuh.fit.edu.backend.service.PostService;
-import iuh.fit.edu.backend.service.S3Service;
+import iuh.fit.edu.backend.service.s3.S3Service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -25,6 +25,8 @@ import org.springframework.web.multipart.MultipartFile;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -51,12 +53,14 @@ public class PostServiceImpl implements PostService {
     public Post createPost(CreatePostRequest request, List<MultipartFile> images, Long authorId) {
         log.info("Creating post for user: {}", authorId);
         
-        // Upload images to S3
+        // Generate presigned URLs for images
         List<Media> mediaList = new ArrayList<>();
         if (images != null && !images.isEmpty()) {
             for (int i = 0; i < images.size(); i++) {
                 MultipartFile image = images.get(i);
-                String imageUrl = s3Service.uploadFile(image, "posts");
+                String extension = getFileExtension(image.getOriginalFilename());
+                Map<String, String> uploadUrlMap = s3Service.generateUploadUrl("posts", extension);
+                String imageUrl = uploadUrlMap.get("uploadUrl");
                 
                 Media media = Media.builder()
                         .order(i)
@@ -73,16 +77,8 @@ public class PostServiceImpl implements PostService {
         // Extract mentions from content
         List<String> mentions = extractMentions(request.getContent());
         
-        // Get tagged user IDs
-        List<String> taggedUserIds = new ArrayList<>();
-        if (request.getTaggedUsernames() != null) {
-            taggedUserIds = request.getTaggedUsernames().stream()
-                    .map(username -> userRepository.findByUsername(username)
-                            .map(user -> user.getId().toString())
-                            .orElse(null))
-                    .filter(id -> id != null)
-                    .collect(Collectors.toList());
-        }
+        // Convert tagged usernames to IDs
+        List<String> taggedUserIds = convertUsernamesToIds(request.getTaggedUsernames());
         
         // Parse location
         Location location = null;
@@ -93,26 +89,10 @@ public class PostServiceImpl implements PostService {
         }
         
         // Convert specific viewer usernames to IDs (for SPECIFIC privacy)
-        List<String> specificViewerUserIds = new ArrayList<>();
-        if (request.getSpecificViewerUsernames() != null) {
-            specificViewerUserIds = request.getSpecificViewerUsernames().stream()
-                    .map(username -> userRepository.findByUsername(username)
-                            .map(user -> user.getId().toString())
-                            .orElse(null))
-                    .filter(id -> id != null)
-                    .collect(Collectors.toList());
-        }
+        List<String> specificViewerUserIds = convertUsernamesToIds(request.getSpecificViewerUsernames());
         
         // Convert excluded usernames to IDs (for EXCEPT privacy)
-        List<String> excludedUserIds = new ArrayList<>();
-        if (request.getExcludedUsernames() != null) {
-            excludedUserIds = request.getExcludedUsernames().stream()
-                    .map(username -> userRepository.findByUsername(username)
-                            .map(user -> user.getId().toString())
-                            .orElse(null))
-                    .filter(id -> id != null)
-                    .collect(Collectors.toList());
-        }
+        List<String> excludedUserIds = convertUsernamesToIds(request.getExcludedUsernames());
         
         // Create post
         Post post = Post.builder()
@@ -140,7 +120,6 @@ public class PostServiceImpl implements PostService {
                 .updatedAt(Instant.now())
                 .build();
         
-        post = postRepository.save(post);
         log.info("Post created successfully: {}", post.getId());
         
         // Update user's post count
@@ -151,6 +130,25 @@ public class PostServiceImpl implements PostService {
         });
         
         return post;
+    }
+    
+    private String getFileExtension(String filename) {
+        if (filename != null && filename.contains(".")) {
+            return filename.substring(filename.lastIndexOf(".") + 1).toLowerCase();
+        }
+        return "";
+    }
+    
+    private List<String> convertUsernamesToIds(List<String> usernames) {
+        if (usernames == null || usernames.isEmpty()) {
+            return new ArrayList<>();
+        }
+        return usernames.stream()
+                .map(username -> userRepository.findByUsername(username)
+                        .map(user -> user.getId().toString())
+                        .orElse(null))
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
     }
     
     private List<String> extractHashtags(String content) {
@@ -258,37 +256,19 @@ public class PostServiceImpl implements PostService {
         
         // Update tagged users - convert usernames to IDs if provided
         if (request.getTaggedUsernames() != null) {
-            List<String> taggedUserIds = request.getTaggedUsernames().stream()
-                    .map(username -> userRepository.findByUsername(username)
-                            .map(user -> user.getId().toString())
-                            .orElse(null))
-                    .filter(id -> id != null)
-                    .collect(Collectors.toList());
-            post.setTaggedUserIds(taggedUserIds);
+            post.setTaggedUserIds(convertUsernamesToIds(request.getTaggedUsernames()));
         } else if (request.getTaggedUserIds() != null) {
             post.setTaggedUserIds(request.getTaggedUserIds());
         }
         
         // Update specific viewer usernames to IDs (for SPECIFIC privacy)
         if (request.getSpecificViewerUsernames() != null) {
-            List<String> specificViewerUserIds = request.getSpecificViewerUsernames().stream()
-                    .map(username -> userRepository.findByUsername(username)
-                            .map(user -> user.getId().toString())
-                            .orElse(null))
-                    .filter(id -> id != null)
-                    .collect(Collectors.toList());
-            post.setSpecificViewerUserIds(specificViewerUserIds);
+            post.setSpecificViewerUserIds(convertUsernamesToIds(request.getSpecificViewerUsernames()));
         }
         
         // Update excluded usernames to IDs (for EXCEPT privacy)
         if (request.getExcludedUsernames() != null) {
-            List<String> excludedUserIds = request.getExcludedUsernames().stream()
-                    .map(username -> userRepository.findByUsername(username)
-                            .map(user -> user.getId().toString())
-                            .orElse(null))
-                    .filter(id -> id != null)
-                    .collect(Collectors.toList());
-            post.setExcludedUserIds(excludedUserIds);
+            post.setExcludedUserIds(convertUsernamesToIds(request.getExcludedUsernames()));
         }
         
         // Handle media updates
@@ -318,7 +298,9 @@ public class PostServiceImpl implements PostService {
         if (newImages != null && !newImages.isEmpty()) {
             for (int i = 0; i < newImages.size(); i++) {
                 MultipartFile image = newImages.get(i);
-                String imageUrl = s3Service.uploadFile(image, "posts");
+                String extension = getFileExtension(image.getOriginalFilename());
+                Map<String, String> uploadUrlMap = s3Service.generateUploadUrl("posts", extension);
+                String imageUrl = uploadUrlMap.get("uploadUrl");
                 
                 Media media = Media.builder()
                         .order(updatedMediaList.size() + i)
