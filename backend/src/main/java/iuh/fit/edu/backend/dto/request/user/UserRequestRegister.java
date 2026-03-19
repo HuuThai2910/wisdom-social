@@ -18,4 +18,8 @@ public class UserRequestRegister {
     private String phone;
     private String password;
     private String confirmPassword;
+    private String deviceType;
+    private String deviceName;
+    private String ipAddress;
 }
+

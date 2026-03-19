@@ -1,7 +1,3 @@
-/*
- * @ (#) S3Config.java    1.0
- * Copyright (c)  IUH. All rights reserved.
- */
 package iuh.fit.edu.backend.config;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -11,32 +7,36 @@ import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 
-/*
- * @description: AWS S3 Configuration
- * @author: The Bao
- * @date: 31/01/2026
- * @version: 1.0
- */
 @Configuration
 public class S3Config {
-
-    @Value("${aws.s3.access-key}")
+    @Value("${aws.access-key}")
     private String accessKey;
 
-    @Value("${aws.s3.secret-key}")
+    @Value("${aws.secret-key}")
     private String secretKey;
 
-    @Value("${aws.s3.region}")
+    @Value("${aws.region}")
     private String region;
 
     @Bean
-    public S3Client s3Client() {
-        AwsBasicCredentials credentials = AwsBasicCredentials.create(accessKey, secretKey);
-        
+    public S3Presigner s3Presigner(){
+        AwsBasicCredentials awsBasicCredentials=AwsBasicCredentials.create(
+                accessKey,secretKey);
+        return S3Presigner.builder()
+                .region(Region.of(region))
+                .credentialsProvider(StaticCredentialsProvider.create(awsBasicCredentials))
+                .build();
+    }
+
+    @Bean
+    public S3Client s3Client(){
+        AwsBasicCredentials awsBasicCredentials=AwsBasicCredentials.create(
+                accessKey,secretKey);
         return S3Client.builder()
                 .region(Region.of(region))
-                .credentialsProvider(StaticCredentialsProvider.create(credentials))
+                .credentialsProvider(StaticCredentialsProvider.create(awsBasicCredentials))
                 .build();
     }
 }

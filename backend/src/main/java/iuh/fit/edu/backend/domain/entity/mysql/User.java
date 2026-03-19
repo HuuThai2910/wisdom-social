@@ -7,11 +7,11 @@ package iuh.fit.edu.backend.domain.entity.mysql;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import iuh.fit.edu.backend.constant.Gender;
 import jakarta.persistence.*;
-import lombok.Getter;
-import lombok.Setter;
+import lombok.*;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.List;
 
 /*
@@ -24,6 +24,9 @@ import java.util.List;
 @Table(name = "users")
 @Getter
 @Setter
+@Builder
+@AllArgsConstructor
+@NoArgsConstructor
 public class User {
 
     @Id
@@ -38,8 +41,8 @@ public class User {
     private String bio;
     private Gender gender;
 
-    private Instant createdAt;
-    private LocalDateTime updatedAt;
+    private OffsetDateTime createdAt;
+    private OffsetDateTime updatedAt;
 
     private boolean confirmUseAI = false;
 
@@ -51,32 +54,28 @@ public class User {
 
     // ===== Relations =====
     @OneToMany(mappedBy = "user")
+    @JsonIgnore
     private List<Device> devices;
 
-    @OneToMany(mappedBy = "user")
-    private List<Session> sessions;
 
+    @JsonIgnore
     @OneToOne(mappedBy = "user", cascade = CascadeType.ALL)
     private UserSetting userSetting;
 
     @OneToOne(mappedBy = "user", cascade = CascadeType.ALL)
+    @JsonIgnore
     private NotificationSetting notificationSetting;
 
-    // Friend relations
+    @JsonIgnore
+    @OneToMany(mappedBy = "user")
+    private List<PageMember> pageMembers;
+
     @OneToMany(mappedBy = "user")
     @JsonIgnore
-    private List<Friend> friends;
+    private List<PageFollow> pageFollows;
 
-    @OneToMany(mappedBy = "friend")
-    @JsonIgnore
-    private List<Friend> friendOf;
 
-    // Follow relations
-    @OneToMany(mappedBy = "follower")
+    @OneToMany(mappedBy = "user")
     @JsonIgnore
-    private List<Follow> following; // Danh sách người mình đang theo dõi
-
-    @OneToMany(mappedBy = "following")
-    @JsonIgnore
-    private List<Follow> followers; // Danh sách người đang theo dõi mình
+    private List<PageLike> pageLikes;
 }

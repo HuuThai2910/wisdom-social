@@ -4,6 +4,7 @@ import iuh.fit.edu.backend.constant.Gender;
 import lombok.Data;
 
 import java.time.Instant;
+import java.time.OffsetDateTime;
 
 @Data
 public class UserResponseRegister {
@@ -11,5 +12,5 @@ public class UserResponseRegister {
     private String username;
     private Gender gender;
     private String birthday;
-    private Instant createdAt;
+    private OffsetDateTime createdAt;
 }

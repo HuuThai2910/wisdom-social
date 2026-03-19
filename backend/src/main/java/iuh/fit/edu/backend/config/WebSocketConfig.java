@@ -5,10 +5,9 @@
 package iuh.fit.edu.backend.config;
 
 import org.springframework.context.annotation.Configuration;
+import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
-import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
-import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
-import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
+import org.springframework.web.socket.config.annotation.*;
 
 /*
  * @description
@@ -22,20 +21,26 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
-        // "/ws" là endpoint để React kết nối vào (Handshake)
+        // SockJS endpoint for web browsers
         registry.addEndpoint("/ws")
-                .setAllowedOriginPatterns("*") // Cho phép React (localhost:3000) kết nối
-                .withSockJS(); // Hỗ trợ fallback nếu trình duyệt không có WebSocket
+                .setAllowedOriginPatterns("*")
+                .withSockJS();
+        
+        // Raw WebSocket endpoint for React Native
+        registry.addEndpoint("/ws-native")
+                .setAllowedOriginPatterns("*");
     }
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
-        // Prefix cho các tin nhắn từ Client gửi lên Server
         registry.setApplicationDestinationPrefixes("/app");
-
-        // Prefix cho các tin nhắn từ Server đẩy xuống Client
-        // /topic -> broadcast cho nhiều người dùng (group chat)
-        // /queue -> point-to-point (tin nhắn cá nhân)_
         registry.enableSimpleBroker("/topic", "/queue");
+        registry.setUserDestinationPrefix("/user");
     }
+    
+    @Override
+    public void configureClientInboundChannel(ChannelRegistration registration) {
+        registration.interceptors(new WebSocketAuthInterceptor());
+    }
+
 }
