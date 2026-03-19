@@ -77,7 +77,7 @@ public class PagePostServiceImpl implements PagePostService {
 
         // lưu metadata vào SQL
         PagePost pagePost = new PagePost();
-        pagePost.setPostId(savedPost.getId().toHexString());
+        pagePost.setPostId(savedPost.getId());
         pagePost.setPage(pageRepository.getReferenceById(pageId));
         pagePost.setStatus(PostStatus.PENDING);
         pagePost.setCreatedAt(OffsetDateTime.now());

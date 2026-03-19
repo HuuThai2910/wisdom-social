@@ -6,12 +6,12 @@ package iuh.fit.edu.backend.domain.entity.nosql;
 
 import iuh.fit.edu.backend.constant.PrivacyType;
 import iuh.fit.edu.backend.constant.StatusType;
+import iuh.fit.edu.backend.domain.entity.nosql.embeddable.Location;
 import jakarta.persistence.Id;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import org.bson.types.ObjectId;
 import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.index.CompoundIndexes;
 import org.springframework.data.mongodb.core.index.Indexed;
@@ -46,10 +46,10 @@ import java.util.List;
 public class Story {
 
     @Id
-    private ObjectId id;
+    private String id;
 
     @Indexed
-    private ObjectId userId;
+    private String userId;
 
     // Media (image/video)
     private StoryMedia media;
@@ -65,8 +65,8 @@ public class Story {
     private List<Sticker> stickers;
 
     // Tags
-    private List<ObjectId> taggedUserIds;
-    private List<ObjectId> mentions;
+    private List<String> taggedUserIds;
+    private List<String> mentions;
 
     // Location
     private Location location;
@@ -166,16 +166,4 @@ class Sticker {
 class Position {
     private Float x; // percentage
     private Float y; // percentage
-}
-
-@Data
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
-class Location {
-    private String name;
-    private String address;
-    private Double latitude;
-    private Double longitude;
-    private String placeId;
 }
