@@ -7,6 +7,7 @@ import iuh.fit.edu.backend.dto.request.page.UserRequestCreatePage;
 import iuh.fit.edu.backend.dto.request.page.UserRequestPage;
 import iuh.fit.edu.backend.dto.request.page.UserRequestPagePost;
 import iuh.fit.edu.backend.dto.request.page.UserRequestUpdatePage;
+import iuh.fit.edu.backend.dto.response.ApiResponse;
 import iuh.fit.edu.backend.service.page.PageService;
 import iuh.fit.edu.backend.service.page.PagePostService;
 import iuh.fit.edu.backend.service.user.UserService;
@@ -236,5 +237,40 @@ public class PageController {
         if (success)
             return ResponseEntity.ok("Remove post from page successfully");
         return ResponseEntity.badRequest().body("Remove post from page failed");
+    }
+
+    @GetMapping("/post/all/{pageId}")
+    @ApiMessage("Get all posts of page successfully")
+    public ResponseEntity<ApiResponse<List<Post>>> getAllPostsOfPage(@PathVariable long pageId) {
+        List<Post> posts = pagePostService.getAllPostOfPage(pageId);
+        return ResponseEntity.ok(ApiResponse.success(200, "Get all posts of page successfully", posts));
+    }
+
+    @GetMapping("/post/waiting-approve/{pageId}")
+    @ApiMessage("Get all posts waiting for approve successfully")
+    public ResponseEntity<ApiResponse<List<Post>>> getAllPostsWaitingForApprove(@PathVariable long pageId) {
+        User currentUser = userService.getCurrentUser();
+        if (currentUser == null)
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error(401, "Unauthorized", null));
+        List<Post> posts = pagePostService.getAllPostWaitingForApproveOfPage(currentUser.getId(), pageId);
+        return ResponseEntity.ok(ApiResponse.success(200, "Get all posts waiting for approve successfully", posts));
+    }
+
+    @PostMapping("/post/approve-all")
+    @ApiMessage("Approve all posts successfully")
+    public ResponseEntity<String> approveAllPosts(@RequestBody UserRequestPage request) {
+        boolean success = pagePostService.approveAllPostPage(request.getUserId(), request.getPageId());
+        if (success)
+            return ResponseEntity.ok("Approve all posts successfully");
+        return ResponseEntity.badRequest().body("Approve all posts failed");
+    }
+
+    @PostMapping("/post/cancel-all")
+    @ApiMessage("Cancel all posts successfully")
+    public ResponseEntity<String> cancelAllPosts(@RequestBody UserRequestPage request) {
+        boolean success = pagePostService.cancelAllPostPage(request.getUserId(), request.getPageId());
+        if (success)
+            return ResponseEntity.ok("Cancel all posts successfully");
+        return ResponseEntity.badRequest().body("Cancel all posts failed");
     }
 }

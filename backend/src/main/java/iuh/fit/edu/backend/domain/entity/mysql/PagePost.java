@@ -21,9 +21,6 @@ public class PagePost {
     @JoinColumn(name = "page_id", nullable = false)
     private Page page;
 
-    @Column(columnDefinition = "TEXT")
-    private String content;
-
     private PostStatus status;
 
 

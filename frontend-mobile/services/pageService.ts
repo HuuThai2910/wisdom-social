@@ -260,6 +260,34 @@ const pageService = {
         const response = await apiClient.post('/page/post/remove', { userId, pageId, postId });
         return response.data.data;
     },
+
+    getAllPostsOfPage: async (pageId: number): Promise<any[]> => {
+        try {
+            const response = await apiClient.get(`/page/post/all/${pageId}`);
+            return response.data.data || [];
+        } catch {
+            return [];
+        }
+    },
+
+    getAllPostsWaitingForApprove: async (pageId: number): Promise<any[]> => {
+        try {
+            const response = await apiClient.get(`/page/post/waiting-approve/${pageId}`);
+            return response.data.data || [];
+        } catch {
+            return [];
+        }
+    },
+
+    approveAllPosts: async (userId: number, pageId: number): Promise<string> => {
+        const response = await apiClient.post('/page/post/approve-all', { userId, pageId });
+        return response.data.data;
+    },
+
+    cancelAllPosts: async (userId: number, pageId: number): Promise<string> => {
+        const response = await apiClient.post('/page/post/cancel-all', { userId, pageId });
+        return response.data.data;
+    },
 };
 
 export default pageService;

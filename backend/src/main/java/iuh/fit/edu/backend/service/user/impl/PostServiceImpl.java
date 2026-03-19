@@ -153,11 +153,7 @@ public class PostServiceImpl implements PostService {
         }
         
         // Update user's post count
-        userRepository.findById(authorId).ifPresent(user -> {
-            user.setPostCount(user.getPostCount() + 1);
-            userRepository.save(user);
-            log.info("Updated post count for user {}: {}", authorId, user.getPostCount());
-        });
+
         
         return savedPost;
     }
@@ -250,15 +246,7 @@ public class PostServiceImpl implements PostService {
         if (!post.getAuthorId().equals(userId.toString())) {
             throw new RuntimeException("Unauthorized: You can only delete your own posts");
         }
-        
-        // Update user's post count before deleting
-        userRepository.findById(userId).ifPresent(user -> {
-            if (user.getPostCount() > 0) {
-                user.setPostCount(user.getPostCount() - 1);
-                userRepository.save(user);
-                log.info("Updated post count for user {}: {}", userId, user.getPostCount());
-            }
-        });
+
         
         // Delete the post
         postRepository.delete(post);
