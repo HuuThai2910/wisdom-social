@@ -149,7 +149,11 @@ export function useMessagesController() {
             const isViewingThisConversation =
                 latestSelectedConversationId === conversationId;
 
-            if (isViewingThisConversation && !isMyMessage) {
+            // BE set read:true chỉ khi thu hồi, read:false cho tin nhắn mới
+            const isRecallUpdate = lastMessage.read === true;
+
+            // Chỉ markAsRead cho tin nhắn MỚI, không gọi khi thu hồi
+            if (!isRecallUpdate && isViewingThisConversation && !isMyMessage) {
                 // Nếu đang xem conversation này và message đến từ người khác,
                 // ta markAsRead ngay để backend giữ unreadCount = 0.
                 chatService
@@ -169,13 +173,21 @@ export function useMessagesController() {
                         lastName = lastMessage.lastSenderName;
                     }
 
-                    let newUnreadCount = conv.unreadCount || 0;
-                    if (!isMyMessage) {
-                        // Chỉ tăng unread nếu message không phải của mình.
+                    let newUnreadCount: number;
+                    if (isRecallUpdate) {
+                        // Thu hồi: giữ nguyên unreadCount hiện tại.
+                        // - Nếu đang có unread (> 0) → giữ bold, không tăng
+                        // - Nếu không có unread (= 0) → không bold, không tăng
+                        newUnreadCount = conv.unreadCount || 0;
+                    } else if (!isMyMessage) {
+                        // Tin nhắn mới từ người khác:
                         // Đang xem thì reset 0, không xem thì +1.
                         newUnreadCount = isViewingThisConversation
                             ? 0
                             : (conv.unreadCount || 0) + 1;
+                    } else {
+                        // Tin nhắn mới của chính mình: không thay đổi unreadCount
+                        newUnreadCount = conv.unreadCount || 0;
                     }
 
                     return {

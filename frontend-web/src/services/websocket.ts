@@ -37,9 +37,25 @@ export type DomainEventType =
  * 5. Frontend nhận event này và hiển thị tin nhắn real-time
  */
 export interface MessageCreatedEvent {
-    // Loại event - luôn là "MESSAGE_CREATED"
-    type: "MESSAGE_CREATED";
+    domainEventType: "MESSAGE_CREATED";
     messageResponse: Message;
+}
+
+/**
+ * Interface cho MessageRecalledEvent từ backend
+ *
+ * CẤU TRÚC TỪ BACKEND:
+ * - ChatEventListener gửi toàn bộ event qua WebSocket
+ * - Topic: /topic/conversation/{conversationId}
+ * - Payload: { domainEventType: "MESSAGE_RECALLED", messageRecalledResponse: { messageId, conversationId } }
+ */
+export interface MessageRecalledEvent {
+    domainEventType: "MESSAGE_RECALLED";
+    messageRecalledResponse: {
+        messageId: string;
+        conversationId: number;
+        createdAt: string;
+    };
 }
 
 /**
@@ -292,6 +308,7 @@ class WebSocketService {
     subscribeToConversation(
         conversationId: number,
         callback: (message: Message) => void,
+        onRecall?: (messageId: string) => void,
     ) {
         // BƯỚC 1: Kiểm tra client đã kết nối chưa
         // client.connected = true chỉ khi STOMP handshake hoàn tất
@@ -327,19 +344,22 @@ class WebSocketService {
             destination,
             (message: IMessage) => {
                 try {
-                    // Parse JSON body thành MessageCreatedEvent
-                    // Backend gửi: { type: "MESSAGE_CREATED", messageResponse: {...} }
-                    const event: MessageCreatedEvent = JSON.parse(message.body);
+                    const event = JSON.parse(message.body) as
+                        | MessageCreatedEvent
+                        | MessageRecalledEvent;
 
                     console.log("Received message event:", event);
 
-                    // Trích xuất messageResponse từ event
-                    // Đây là object Message chứa đầy đủ thông tin tin nhắn
-                    const payload: Message = event.messageResponse;
-
-                    // Gọi callback - thường là handleNewMessage trong ChatWindow.tsx
-                    // Callback sẽ thêm message vào danh sách messages và hiển thị
-                    callback(payload);
+                    // Phân loại event dựa vào domainEventType (BE field)
+                    if (event.domainEventType === "MESSAGE_RECALLED") {
+                        const { messageId } = (event as MessageRecalledEvent)
+                            .messageRecalledResponse;
+                        onRecall?.(messageId);
+                    } else {
+                        const payload = (event as MessageCreatedEvent)
+                            .messageResponse;
+                        if (payload) callback(payload);
+                    }
                 } catch (error) {
                     console.error("Error parsing message:", error);
                 }

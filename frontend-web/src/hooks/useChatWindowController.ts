@@ -9,6 +9,8 @@ import {
 import chatService, {
     type Conversation,
     type Message,
+    type MessageType,
+    type SendMessageRequest,
 } from "../services/chatService";
 import websocketService from "../services/websocket";
 import { DEFAULT_AVATAR_SMALL_URL, DEFAULT_AVATAR_URL } from "../constants/ui";
@@ -65,8 +67,39 @@ export function useChatWindowController(args: {
     const [conversation, setConversation] = useState<Conversation | null>(null);
     const [loading, setLoading] = useState(true);
     const [sending, setSending] = useState(false);
+    const [uploading, setUploading] = useState(false);
+
+    // ====== Voice recording ======
+    const [isRecording, setIsRecording] = useState(false);
+    const [recordingDuration, setRecordingDuration] = useState(0);
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const audioChunksRef = useRef<Blob[]>([]);
+    const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(
+        null,
+    );
 
     const [error, setError] = useState<string | null>(null);
+
+    // Toast ngắn cho lỗi thu hồi (tự biến mất sau 2 giây)
+    const [recallToast, setRecallToast] = useState<string | null>(null);
+    const recallToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+        null,
+    );
+
+    // Tự động xoá toast sau 2s, dọn timer cũ nếu toast xuất hiện lại sớm
+    useEffect(() => {
+        if (!recallToast) return;
+        if (recallToastTimerRef.current)
+            clearTimeout(recallToastTimerRef.current);
+        recallToastTimerRef.current = setTimeout(() => {
+            setRecallToast(null);
+            recallToastTimerRef.current = null;
+        }, 2000);
+        return () => {
+            if (recallToastTimerRef.current)
+                clearTimeout(recallToastTimerRef.current);
+        };
+    }, [recallToast]);
 
     // UX: nút xuống cuối + số tin mới chưa xem khi user không ở near-bottom.
     const [showScrollToBottomButton, setShowScrollToBottomButton] =
@@ -188,6 +221,7 @@ export function useChatWindowController(args: {
                 const list = Array.isArray(cursorData?.data)
                     ? cursorData!.data
                     : [];
+                console.log(list.at(-1));
 
                 setMessages(list);
                 setNextCursor(cursorData?.nextCursor ?? null);
@@ -301,9 +335,9 @@ export function useChatWindowController(args: {
 
     const handleNewMessage = useCallback(
         (newMessage: Message) => {
-            const currentUserId = userIdRef.current;
+            const isMyMessage =
+                Number(newMessage.senderId) === Number(userIdRef.current);
             const currentlyNearBottom = isNearBottom();
-            const isMyMessage = newMessage.senderId === currentUserId;
 
             setMessages((prev) => {
                 if (prev.some((m) => m.id === newMessage.id)) return prev;
@@ -311,17 +345,49 @@ export function useChatWindowController(args: {
             });
 
             if (isMyMessage || currentlyNearBottom) {
-                // Đang ở gần đáy hoặc là tin của mình => auto-scroll.
+                // Người gửi: luôn cuộn xuống cuối bất kể đang ở đâu
+                // Người nhận: cuộn nếu đang ở gần cuối
                 scrollOnNextRenderRef.current = "smooth";
                 setShowScrollToBottomButton(false);
                 setPendingNewMessages(0);
             } else {
-                // User đang đọc ở giữa => không auto-scroll, hiển thị nút xuống + pending.
+                // Người nhận không ở cuối: chỉ hiện nút + đếm tin chưa xem
                 setShowScrollToBottomButton(true);
                 setPendingNewMessages((c) => c + 1);
             }
         },
         [isNearBottom],
+    );
+    // Nhận socket MESSAGE_RECALLED: set isRecalled=true cho tin nhắn đó
+    const handleMessageRecalled = useCallback((messageId: string) => {
+        setMessages((prev) =>
+            prev.map((m) =>
+                m.id === messageId ? { ...m, isRecalled: true } : m,
+            ),
+        );
+    }, []);
+
+    // Gọi API thu hồi tin nhắn (chỉ người gửi, trong 24h)
+    const handleRecall = useCallback(
+        async (messageId: string) => {
+            // Kiểm tra 24h ở FE trước để tránh round-trip không cần thiết
+            const msg = messages.find((m) => m.id === messageId);
+            if (msg) {
+                const elapsed = Date.now() - new Date(msg.createdAt).getTime();
+                if (elapsed > 24 * 60 * 60 * 1000) {
+                    setRecallToast(
+                        "Chỉ có thể thu hồi tin nhắn trong vòng 24 giờ",
+                    );
+                    return;
+                }
+            }
+            try {
+                await chatService.recallMessage(messageId, userId);
+            } catch {
+                setRecallToast("Không thể thu hồi tin nhắn");
+            }
+        },
+        [messages, userId],
     );
 
     useEffect(() => {
@@ -357,6 +423,7 @@ export function useChatWindowController(args: {
                 websocketService.subscribeToConversation(
                     conversationId,
                     handleNewMessage,
+                    handleMessageRecalled,
                 );
             } catch {
                 // no-op
@@ -368,8 +435,23 @@ export function useChatWindowController(args: {
         return () => {
             // Cleanup tránh leak: khi đổi conversation hoặc unmount.
             websocketService.unsubscribeFromConversation(conversationId);
+            if (mediaRecorderRef.current) {
+                mediaRecorderRef.current.onstop = null;
+                mediaRecorderRef.current.stop();
+                mediaRecorderRef.current = null;
+            }
+            if (recordingTimerRef.current) {
+                clearInterval(recordingTimerRef.current);
+                recordingTimerRef.current = null;
+            }
         };
-    }, [conversationId, handleNewMessage, loadConversation, loadMessages]);
+    }, [
+        conversationId,
+        handleNewMessage,
+        handleMessageRecalled,
+        loadConversation,
+        loadMessages,
+    ]);
 
     const handleScroll = useCallback(() => {
         const container = messagesContainerRef.current;
@@ -423,6 +505,122 @@ export function useChatWindowController(args: {
         }
     }, [conversationId, messageText, userId]);
 
+    // Upload file/image/video/audio: presign → S3 PUT → sendMessage với objectKey
+    const handleFileUpload = useCallback(
+        async (file: File) => {
+            // Tự động xác định loại từ MIME type của file
+            let type: MessageType;
+            if (file.type.startsWith("image/")) type = "IMAGE";
+            else if (file.type.startsWith("video/")) type = "VIDEO";
+            else if (file.type.startsWith("audio/")) type = "AUDIO";
+            else type = "FILE";
+
+            setUploading(true);
+            try {
+                // Bước 1: Xin presigned URL
+                const { presignedUrl, objectKey } =
+                    await chatService.getPresignedUrl(
+                        "CONVERSATION",
+                        conversationId,
+                        type,
+                        file.name,
+                        file.type,
+                    );
+                // Bước 2: Upload thẳng lên S3
+                await chatService.uploadToS3(presignedUrl, file);
+                // Bước 3: Gửi tin nhắn với objectKey làm content (BE tự ghép domain khi trả về)
+                const request: SendMessageRequest = {
+                    content: objectKey,
+                    type,
+                    conversationId,
+                };
+                await chatService.sendMessage(request, userId);
+                scrollOnNextRenderRef.current = "smooth";
+            } catch (err) {
+                const axiosMsg = (
+                    err as { response?: { data?: { message?: string } } }
+                )?.response?.data?.message;
+                setRecallToast(
+                    axiosMsg ?? "Không thể gửi file. Vui lòng thử lại.",
+                );
+            } finally {
+                setUploading(false);
+            }
+        },
+        [conversationId, userId],
+    );
+
+    const startRecording = useCallback(async () => {
+        if (isRecording) return;
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: true,
+            });
+            const mimeType = MediaRecorder.isTypeSupported(
+                "audio/webm;codecs=opus",
+            )
+                ? "audio/webm;codecs=opus"
+                : MediaRecorder.isTypeSupported("audio/webm")
+                  ? "audio/webm"
+                  : "audio/mp4";
+            const recorder = new MediaRecorder(stream, { mimeType });
+            audioChunksRef.current = [];
+
+            recorder.ondataavailable = (e) => {
+                if (e.data.size > 0) audioChunksRef.current.push(e.data);
+            };
+
+            recorder.onstop = async () => {
+                stream.getTracks().forEach((t) => t.stop());
+                const blob = new Blob(audioChunksRef.current, {
+                    type: mimeType,
+                });
+                if (blob.size === 0) return;
+                const ext = mimeType.includes("webm") ? "webm" : "mp4";
+                const file = new File([blob], `voice-message.${ext}`, {
+                    type: mimeType,
+                });
+                await handleFileUpload(file);
+            };
+
+            mediaRecorderRef.current = recorder;
+            recorder.start();
+            setIsRecording(true);
+            setRecordingDuration(0);
+            recordingTimerRef.current = setInterval(() => {
+                setRecordingDuration((d) => d + 1);
+            }, 1000);
+        } catch {
+            setRecallToast("Không thể truy cập microphone");
+        }
+    }, [isRecording, handleFileUpload]);
+
+    const stopRecording = useCallback(() => {
+        if (!mediaRecorderRef.current) return;
+        if (recordingTimerRef.current) {
+            clearInterval(recordingTimerRef.current);
+            recordingTimerRef.current = null;
+        }
+        mediaRecorderRef.current.stop();
+        mediaRecorderRef.current = null;
+        setIsRecording(false);
+        setRecordingDuration(0);
+    }, []);
+
+    const cancelRecording = useCallback(() => {
+        if (!mediaRecorderRef.current) return;
+        if (recordingTimerRef.current) {
+            clearInterval(recordingTimerRef.current);
+            recordingTimerRef.current = null;
+        }
+        mediaRecorderRef.current.onstop = null;
+        audioChunksRef.current = [];
+        mediaRecorderRef.current.stop();
+        mediaRecorderRef.current = null;
+        setIsRecording(false);
+        setRecordingDuration(0);
+    }, []);
+
     const displayInfo = useMemo(() => {
         if (!conversation) {
             return { displayName: "", displayAvatar: null as string | null };
@@ -438,6 +636,7 @@ export function useChatWindowController(args: {
         loadingMore,
         hasMore,
         sending,
+        uploading,
         error,
 
         displayName: displayInfo.displayName,
@@ -456,6 +655,16 @@ export function useChatWindowController(args: {
         handleScroll,
         handleScrollToBottomClick,
         handleSend,
+        handleRecall,
+        handleFileUpload,
+        scrollToBottom,
+        recallToast,
+
+        isRecording,
+        recordingDuration,
+        startRecording,
+        stopRecording,
+        cancelRecording,
 
         defaultAvatarUrl: DEFAULT_AVATAR_URL,
         defaultAvatarSmallUrl: DEFAULT_AVATAR_SMALL_URL,

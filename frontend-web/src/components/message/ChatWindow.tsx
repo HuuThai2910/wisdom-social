@@ -1,6 +1,29 @@
-import { useMemo, type ReactNode } from "react";
-import { Send, Phone, Video, Info, ArrowDown } from "lucide-react";
+import {
+    useCallback,
+    useMemo,
+    useRef,
+    useState,
+    useEffect,
+    type ReactNode,
+} from "react";
+import {
+    Send,
+    Phone,
+    Video,
+    Info,
+    ArrowDown,
+    Plus,
+    X,
+    Mic,
+    Square,
+    Paperclip,
+    StickyNote,
+    Film,
+    Smile,
+    ThumbsUp,
+} from "lucide-react";
 import { useChatWindowController } from "../../hooks/useChatWindowController";
+import { MessageBubble } from "./MessageBubble";
 
 interface ChatWindowProps {
     conversationId: number;
@@ -18,6 +41,7 @@ export default function ChatWindow({
         loadingMore,
         hasMore,
         sending,
+        uploading,
         error,
 
         displayName,
@@ -36,10 +60,56 @@ export default function ChatWindow({
         handleScroll,
         handleScrollToBottomClick,
         handleSend,
+        handleRecall,
+        handleFileUpload,
+        scrollToBottom,
+        recallToast,
+
+        isRecording,
+        recordingDuration,
+        startRecording,
+        stopRecording,
+        cancelRecording,
 
         defaultAvatarUrl,
         defaultAvatarSmallUrl,
     } = useChatWindowController({ conversationId, userId });
+
+    const [plusMenuOpen, setPlusMenuOpen] = useState(false);
+    const plusMenuRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (!plusMenuOpen) return;
+        function handleOutside(e: MouseEvent) {
+            if (
+                plusMenuRef.current &&
+                !plusMenuRef.current.contains(e.target as Node)
+            ) {
+                setPlusMenuOpen(false);
+            }
+        }
+        document.addEventListener("mousedown", handleOutside);
+        return () => document.removeEventListener("mousedown", handleOutside);
+    }, [plusMenuOpen]);
+
+    // Refs cho hidden file inputs (Đính kèm file / Chọn GIF)
+    const attachInputRef = useRef<HTMLInputElement>(null);
+    const gifInputRef = useRef<HTMLInputElement>(null);
+
+    const onFileChange = useCallback(
+        (e: React.ChangeEvent<HTMLInputElement>) => {
+            const file = e.target.files?.[0];
+            if (file) void handleFileUpload(file);
+            e.target.value = ""; // reset để cho phép chọn lại cùng file
+        },
+        [handleFileUpload],
+    );
+
+    const formatDuration = (secs: number) => {
+        const m = Math.floor(secs / 60);
+        const s = secs % 60;
+        return `${m}:${String(s).padStart(2, "0")}`;
+    };
 
     // ====== Render messages theo nhóm ngày (Zalo-style) ======
     // Yêu cầu:
@@ -85,18 +155,21 @@ export default function ChatWindow({
 
         let previousDayKey: string | null = null;
 
-        for (const message of messages) {
+        for (let idx = 0; idx < messages.length; idx++) {
+            const message = messages[idx];
+            const prevMsg = messages[idx - 1];
+            const nextMsg = messages[idx + 1];
+
             const createdAt = new Date(message.createdAt);
             const validDate = Number.isFinite(createdAt.getTime());
             const dayKey = validDate ? getDayKey(createdAt) : "invalid-date";
 
             // Nhãn ngày: chỉ chèn khi "đổi ngày" so với message trước đó.
-            // => đảm bảo 1 ngày chỉ có 1 nhãn, và nhãn xuất hiện trước tin đầu tiên của ngày.
             if (dayKey !== previousDayKey) {
                 items.push(
                     <div
                         key={`date-sep-${message.id}-${dayKey}`}
-                        className="flex justify-center py-2"
+                        className="flex justify-center py-2 mt-4 first:mt-0"
                     >
                         <div className="px-3 py-1 rounded-md bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-100 text-xs">
                             {validDate ? formatDateLabel(createdAt) : ""}
@@ -106,55 +179,56 @@ export default function ChatWindow({
                 previousDayKey = dayKey;
             }
 
-            // Tin nhắn bình thường (giữ nguyên UI cũ), chỉ khác là được xen kẽ với nhãn ngày.
+            // Tính group: cùng người gửi & cùng ngày → gộp nhóm
+            const prevDayKey = prevMsg
+                ? getDayKey(new Date(prevMsg.createdAt))
+                : null;
+            const nextDayKey = nextMsg
+                ? getDayKey(new Date(nextMsg.createdAt))
+                : null;
+
+            const isFirstInGroup =
+                !prevMsg ||
+                prevMsg.senderId !== message.senderId ||
+                prevDayKey !== dayKey;
+
+            const isLastInGroup =
+                !nextMsg ||
+                nextMsg.senderId !== message.senderId ||
+                nextDayKey !== dayKey;
+
+            // Tin nhắn: dùng MessageBubble để handle recalled state + hover menu.
             const isOwn = message.senderId === userId;
             items.push(
                 <div
                     key={message.id}
-                    className={`flex ${isOwn ? "justify-end" : "justify-start"}`}
+                    className={isFirstInGroup ? "mt-3" : "mt-2"}
                 >
-                    {!isOwn && (
-                        <img
-                            src={message.senderAvatar || defaultAvatarSmallUrl}
-                            alt={message.senderName}
-                            className="w-8 h-8 rounded-full mr-2 object-cover"
-                        />
-                    )}
-                    <div
-                        className={`max-w-[70%] px-4 py-2 rounded-2xl ${
-                            isOwn
-                                ? "bg-blue-500 text-white"
-                                : "bg-gray-200 dark:bg-gray-700 text-black dark:text-white"
-                        }`}
-                    >
-                        {!isOwn && conversation?.type === "GROUP" && (
-                            <p className="text-xs font-semibold mb-1 opacity-70">
-                                {message.senderName}
-                            </p>
-                        )}
-                        <p className="text-sm">{message.content}</p>
-                        <p
-                            className={`text-xs mt-1 ${
-                                isOwn
-                                    ? "text-blue-100"
-                                    : "text-gray-500 dark:text-gray-400"
-                            }`}
-                        >
-                            {new Date(message.createdAt).toLocaleTimeString(
-                                "vi-VN",
-                                {
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                },
-                            )}
-                        </p>
-                    </div>
+                    <MessageBubble
+                        message={message}
+                        isOwn={isOwn}
+                        conversationType={conversation?.type}
+                        defaultAvatarSmallUrl={defaultAvatarSmallUrl}
+                        onRecall={handleRecall}
+                        onMediaLoad={
+                            isOwn ? () => scrollToBottom("smooth") : undefined
+                        }
+                        isFirstInGroup={isFirstInGroup}
+                        isLastInGroup={isLastInGroup}
+                    />
                 </div>,
             );
         }
 
         return items;
-    }, [conversation?.type, defaultAvatarSmallUrl, messages, userId]);
+    }, [
+        conversation?.type,
+        defaultAvatarSmallUrl,
+        handleRecall,
+        messages,
+        scrollToBottom,
+        userId,
+    ]);
 
     if (loading) {
         return (
@@ -211,10 +285,18 @@ export default function ChatWindow({
                         {error}
                     </div>
                 )}
+
+                {/* Toast thu hồi: hiện 2s rồi tự biến mất */}
+                {recallToast && (
+                    <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 bg-gray-800 dark:bg-gray-700 text-white text-sm px-4 py-2 rounded-lg shadow-lg pointer-events-none whitespace-nowrap">
+                        {recallToast}
+                    </div>
+                )}
+
                 <div
                     ref={messagesContainerRef}
                     onScroll={handleScroll}
-                    className="h-full overflow-y-auto p-4 pb-4 space-y-4"
+                    className="h-full overflow-y-auto p-4 pb-4 flex flex-col"
                 >
                     {/* Loading more indicator (hiện khi kéo lên load tin cũ) */}
                     {loadingMore && (
@@ -267,27 +349,200 @@ export default function ChatWindow({
             </div>
 
             {/* Input */}
-            <div className="p-4 border-t border-gray-200 dark:border-gray-700">
-                <div className="flex items-center gap-2">
+            <div className="px-3 py-2 border-t border-gray-200 dark:border-gray-700">
+                {/* Hidden file inputs */}
+                <input
+                    ref={attachInputRef}
+                    type="file"
+                    accept="*/*"
+                    className="hidden"
+                    onChange={onFileChange}
+                />
+                <input
+                    ref={gifInputRef}
+                    type="file"
+                    accept="image/*,video/*"
+                    className="hidden"
+                    onChange={onFileChange}
+                />
+
+                {isRecording ? (
+                    /* Recording overlay */
+                    <div className="flex items-center gap-3 px-2 py-1">
+                        {/* Pulsing red dot */}
+                        <span className="shrink-0 h-3 w-3 rounded-full bg-red-500 animate-pulse" />
+
+                        {/* Duration */}
+                        <span className="text-sm font-mono text-red-500 w-12 shrink-0">
+                            {formatDuration(recordingDuration)}
+                        </span>
+
+                        {/* Label */}
+                        <span className="flex-1 text-sm text-gray-500 dark:text-gray-400 truncate">
+                            Đang ghi âm...
+                        </span>
+
+                        {/* Cancel */}
+                        <button
+                            type="button"
+                            onClick={cancelRecording}
+                            title="Huỷ"
+                            className="shrink-0 p-1.5 text-gray-500 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full"
+                        >
+                            <X size={22} />
+                        </button>
+
+                        {/* Stop & send */}
+                        <button
+                            type="button"
+                            onClick={stopRecording}
+                            title="Dừng và gửi"
+                            className="shrink-0 p-1.5 text-white bg-blue-500 hover:bg-blue-600 rounded-full"
+                        >
+                            <Square size={20} fill="currentColor" />
+                        </button>
+                    </div>
+                ) : (
+                <div className="flex items-center gap-1">
+                    {/* Plus / X — mở popup menu */}
+                    <div ref={plusMenuRef} className="relative shrink-0">
+                        <button
+                            type="button"
+                            onClick={() => setPlusMenuOpen((v) => !v)}
+                            disabled={uploading}
+                            className="p-1.5 text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full disabled:opacity-50"
+                        >
+                            {plusMenuOpen ? (
+                                <X size={22} />
+                            ) : (
+                                <Plus size={22} />
+                            )}
+                        </button>
+
+                        {/* Popup menu */}
+                        {plusMenuOpen && (
+                            <div className="absolute bottom-full left-0 mb-2 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-2xl shadow-xl py-1.5 w-72 z-40">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setPlusMenuOpen(false);
+                                        void startRecording();
+                                    }}
+                                    className="flex items-center gap-3 w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700"
+                                >
+                                    <Mic
+                                        size={20}
+                                        className="text-gray-700 dark:text-gray-300 shrink-0"
+                                    />
+                                    <span className="text-sm text-gray-800 dark:text-gray-100">
+                                        Gửi clip âm thanh
+                                    </span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setPlusMenuOpen(false);
+                                        attachInputRef.current?.click();
+                                    }}
+                                    className="flex items-center gap-3 w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700"
+                                >
+                                    <Paperclip
+                                        size={20}
+                                        className="text-gray-700 dark:text-gray-300 shrink-0"
+                                    />
+                                    <span className="text-sm text-gray-800 dark:text-gray-100">
+                                        Đính kèm file (tối đa 100MB)
+                                    </span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setPlusMenuOpen(false)}
+                                    className="flex items-center gap-3 w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700 opacity-50 cursor-not-allowed"
+                                >
+                                    <StickyNote
+                                        size={20}
+                                        className="text-gray-700 dark:text-gray-300 shrink-0"
+                                    />
+                                    <span className="text-sm text-gray-800 dark:text-gray-100">
+                                        Chọn nhãn dán
+                                    </span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setPlusMenuOpen(false);
+                                        gifInputRef.current?.click();
+                                    }}
+                                    className="flex items-center gap-3 w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700"
+                                >
+                                    <Film
+                                        size={20}
+                                        className="text-gray-700 dark:text-gray-300 shrink-0"
+                                    />
+                                    <span className="text-sm text-gray-800 dark:text-gray-100">
+                                        Chọn file GIF / Ảnh / Video
+                                    </span>
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Input text */}
                     <input
                         type="text"
                         value={messageText}
                         onChange={(e) => setMessageText(e.target.value)}
                         onKeyDown={(e) =>
-                            e.key === "Enter" && !sending && void handleSend()
+                            e.key === "Enter" &&
+                            !sending &&
+                            !uploading &&
+                            void handleSend()
                         }
-                        placeholder="Nhập tin nhắn..."
-                        disabled={sending}
-                        className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-full focus:outline-none focus:border-gray-400 dark:bg-gray-800 dark:text-white disabled:opacity-50"
+                        placeholder={
+                            uploading
+                                ? "Đang tải file lên..."
+                                : "Nhập tin nhắn..."
+                        }
+                        disabled={sending || uploading}
+                        className="flex-1 min-w-0 px-4 py-2 bg-gray-100 dark:bg-gray-800 rounded-full focus:outline-none text-sm dark:text-white disabled:opacity-50"
                     />
-                    <button
-                        onClick={() => void handleSend()}
-                        disabled={!messageText.trim() || sending}
-                        className="text-blue-500 font-semibold disabled:text-blue-300"
-                    >
-                        <Send size={20} />
-                    </button>
+
+                    {/* Uploading spinner */}
+                    {uploading && (
+                        <span className="shrink-0 h-5 w-5 rounded-full border-2 border-gray-300 dark:border-gray-600 border-t-gray-700 dark:border-t-gray-200 animate-spin" />
+                    )}
+
+                    {/* Emoji — luôn hiện (trừ khi đang upload) */}
+                    {!uploading && (
+                        <button
+                            type="button"
+                            className="shrink-0 p-1.5 text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full"
+                        >
+                            <Smile size={22} />
+                        </button>
+                    )}
+
+                    {/* Thumbs up khi trống, Send khi có text */}
+                    {!uploading &&
+                        (messageText.trim() ? (
+                            <button
+                                type="button"
+                                onClick={() => void handleSend()}
+                                disabled={sending}
+                                className="shrink-0 p-1.5 text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full disabled:opacity-50"
+                            >
+                                <Send size={22} />
+                            </button>
+                        ) : (
+                            <button
+                                type="button"
+                                className="shrink-0 p-1.5 text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full"
+                            >
+                                <ThumbsUp size={22} />
+                            </button>
+                        ))}
                 </div>
+                )}
             </div>
         </div>
     );

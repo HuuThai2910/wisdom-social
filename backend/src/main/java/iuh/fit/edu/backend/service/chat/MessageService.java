@@ -11,6 +11,7 @@ package iuh.fit.edu.backend.service.chat;/*
 
 import iuh.fit.edu.backend.dto.request.SendMessageRequest;
 import iuh.fit.edu.backend.dto.response.CursorResponse;
+import iuh.fit.edu.backend.dto.response.message.MessageRecalledResponse;
 import iuh.fit.edu.backend.dto.response.message.MessageResponse;
 import org.springframework.data.domain.Pageable;
 
@@ -21,7 +22,7 @@ public interface MessageService {
     MessageResponse sendMessage(SendMessageRequest sendMessageRequest, Long userId);
 
 
-
+    MessageRecalledResponse recallMessage(String messageId, Long userId);
 
     CursorResponse<List<MessageResponse>> getMessagesByConversation(
             Long conversationId,

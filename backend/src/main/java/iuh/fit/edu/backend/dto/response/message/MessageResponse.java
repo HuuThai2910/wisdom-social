@@ -4,6 +4,7 @@
  */
 package iuh.fit.edu.backend.dto.response.message;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import iuh.fit.edu.backend.constant.MessageType;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -31,5 +32,7 @@ public class MessageResponse {
     private String senderName;
     private String senderAvatar;
     private boolean isActive;
+    @JsonProperty("isRecalled")
+    private boolean isRecalled = false;
 
 }

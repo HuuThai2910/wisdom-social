@@ -2,13 +2,11 @@
  * @ (#) .java    1.0
  * Copyright (c)  IUH. All rights reserved.
  */
-package iuh.fit.edu.backend.domain.event;
+package iuh.fit.edu.backend.event.payload;
 
-import iuh.fit.edu.backend.constant.event.DomainEventType;
-import iuh.fit.edu.backend.domain.entity.nosql.Message;
+import iuh.fit.edu.backend.event.type.DomainEventType;
 import iuh.fit.edu.backend.dto.response.message.MessageResponse;
 import lombok.Getter;
-import org.springframework.context.ApplicationEvent;
 
 /*
  * @description

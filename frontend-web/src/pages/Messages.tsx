@@ -17,8 +17,7 @@ export default function Messages() {
     } = useMessagesController();
 
     return (
-        <div className="w-full mx-auto px-4 py-4">
-            <div className="bg-white dark:bg-black border border-gray-200 dark:border-[#262626] rounded-lg h-[calc(100vh-140px)] flex overflow-hidden shadow-sm">
+        <div className="fixed inset-0 left-0 md:left-[245px] lg:left-[335px] xl:right-[383px] bottom-16 md:bottom-0 flex overflow-hidden bg-white dark:bg-black border-r border-gray-200 dark:border-[#262626]">
                 {/* Left Sidebar - Chat List */}
                 <div className="w-full md:w-96 border-r border-gray-200 dark:border-[#262626] flex flex-col">
                     {/* Header */}
@@ -206,7 +205,6 @@ export default function Messages() {
                         </div>
                     )}
                 </div>
-            </div>
         </div>
     );
 }

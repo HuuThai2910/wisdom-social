@@ -4,6 +4,7 @@
  */
 package iuh.fit.edu.backend.service.chat.impl;
 
+import iuh.fit.edu.backend.dto.response.message.MessageRecalledResponse;
 import iuh.fit.edu.backend.dto.response.message.MessageResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,6 +23,7 @@ import java.util.Optional;
  * @date:
  * @version: 1.0
  */
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -34,7 +36,7 @@ public class MessageCacheServiceImpl implements iuh.fit.edu.backend.service.chat
     // Tin nhắn sẽ tự hủy sau 1 ngày
     private static final Duration TTL = Duration.ofDays(1);
 
-    private String getKey(Long conversationId){
+    private String getKey(Long conversationId) {
         return "chat:messages:" + conversationId;
     }
 
@@ -42,7 +44,7 @@ public class MessageCacheServiceImpl implements iuh.fit.edu.backend.service.chat
      * Dùng để lưu tin nhắn mới nhất vào cache (dùng khi sendMessage)
      */
     @Override
-    public void cacheNewMessage(MessageResponse message){
+    public void cacheNewMessage(MessageResponse message) {
         String key = getKey(message.getConversationId());
         log.info("Push message to cache {}", message);
 
@@ -56,21 +58,63 @@ public class MessageCacheServiceImpl implements iuh.fit.edu.backend.service.chat
         redisTemplate.expire(key, TTL);
     }
 
+    public void updateMessage(MessageRecalledResponse message) {
+        String key = getKey(message.getConversationId());
+
+
+        // Kiểm tra xem cache của phòng chat này có đang tồn tại không
+        if (Boolean.FALSE.equals(redisTemplate.hasKey(key))) {
+            return; // Cache trống hoặc đã hết hạn -> Bỏ qua
+        }
+        // Lấy phần tử cuối cùng trong Redis (Tin nhắn cũ nhất của Cache)
+        MessageResponse lastObj = redisTemplate.opsForList().index(key, -1);
+        if (lastObj != null) {
+            log.info("Alo");
+            // Nếu tin nhắn bị thu hồi có thời gian CŨ HƠN tin cũ nhất trong Cache
+            // => Chắc chắn nó không nằm trong Cache. Dừng luôn, không cần lấy List về!
+            if (message.getCreatedAt().isBefore(lastObj.getCreatedAt())) {
+                log.info("Tin nhắn thu hồi quá cũ, không nằm trong Cache. Bỏ qua tìm kiếm.");
+                return;
+            }
+            // Lấy toàn bộ List từ Redis về RAM
+            List<MessageResponse> objects = redisTemplate.opsForList().range(key, 0, -1);
+            if (objects == null || objects.isEmpty()) return;
+
+            // 3. Tìm vị trí (index) của tin nhắn cần thu hồi
+            for (int i = 0; i < objects.size(); i++) {
+                MessageResponse cachedMsg = objects.get(i);
+                // So sánh ID để tìm đúng tin nhắn
+                if (cachedMsg.getId().equals(message.getMessageId())) {
+
+                    // Cập nhật dữ liệu tin nhắn: Xóa nội dung, bật cờ isRecalled
+                    cachedMsg.setContent("");
+                    cachedMsg.setRecalled(true);
+
+                    redisTemplate.opsForList().set(key, i, cachedMsg);
+
+                    log.info("Đã cập nhật tin nhắn thu hồi trong Redis tại index: {}", i);
+                    break;
+                }
+            }
+        }
+    }
+
+
     /**
      * Lấy danh sách tin nhắn từ cache (dùng khi load trang đầu hoặc scroll nếu vẫn còn dữ liệu trong redis)
      * Giúp tăng tốc độ thay vì cứ phải truy vấn xuống db
      */
     @Override
-    public List<MessageResponse> getListMessage(Long conversationId, Instant cursor, int limit){
+    public List<MessageResponse> getListMessage(Long conversationId, Instant cursor, int limit) {
         String key = getKey(conversationId);
         List<MessageResponse> objects;
         // Case 1: Lấy trang đầu từ 0 đến limit - 1
-        if(cursor == null){
+        if (cursor == null) {
             objects = redisTemplate.opsForList().range(key, 0, limit - 1);
             return objects == null ? Collections.emptyList() : objects;
         } else {
-            // Case 2: Load lịch sử tin nhắn trong trường hợp vẫn chứa lấy hết 50 tin từ cache
-            objects = redisTemplate.opsForList().range(key, 0, - 1);
+            // Case 2: Load lịch sử tin nhắn trong trường hợp vẫn chứa lấy hết 60 tin từ cache
+            objects = redisTemplate.opsForList().range(key, 0, -1);
             List<MessageResponse> allCached = objects == null ? Collections.emptyList() : objects;
 
             // Tìm vị trí của Cursor trong danh sách
@@ -110,11 +154,11 @@ public class MessageCacheServiceImpl implements iuh.fit.edu.backend.service.chat
      * Giúp tăng tốc độ thay vì cứ phải truy vấn xuống db
      */
     @Override
-    public void cacheListMessage(Long conversationId, List<MessageResponse> messageResponses, Instant cursor){
-        if(messageResponses.isEmpty()) return;
+    public void cacheListMessage(Long conversationId, List<MessageResponse> messageResponses, Instant cursor) {
+        if (messageResponses.isEmpty()) return;
         String key = getKey(conversationId);
         // Case 1: Load trang lần đầu
-        if(cursor == null){
+        if (cursor == null) {
             // Xóa cũ để đảm bảo không bị dư thừa hay trùng lặp dữ liệu không mong muốn
             redisTemplate.delete(key);
             // Push vào
@@ -151,19 +195,17 @@ public class MessageCacheServiceImpl implements iuh.fit.edu.backend.service.chat
                     }
                 }
                 Long currentSize = redisTemplate.opsForList().size(key);
-                // Nếu trong redis đã đủ 50 dữ liệu rồi thì không push thêm vào nữa
+                // Nếu trong redis đã đủ 60 dữ liệu rồi thì không push thêm vào nữa
                 if (currentSize != null && currentSize < CACHE_SIZE) {
                     redisTemplate.opsForList().rightPushAll(key, messageResponses);
 
-                    // Sau khi push, nếu tổng vượt quá 50 thì mới trim
+                    // Sau khi push, nếu tổng vượt quá 60 thì mới trim
                     if (currentSize + messageResponses.size() > CACHE_SIZE) {
                         redisTemplate.opsForList().trim(key, 0, CACHE_SIZE - 1);
                     }
                     redisTemplate.expire(key, TTL);
                     log.info("Append messages, size redis: {} ", Optional.ofNullable(redisTemplate.opsForList().size(key)).orElse(0L));
                 }
-
-
             }
         }
     }

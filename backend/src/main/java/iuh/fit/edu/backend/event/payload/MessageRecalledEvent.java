@@ -2,9 +2,10 @@
  * @ (#) .java    1.0
  * Copyright (c)  IUH. All rights reserved.
  */
-package iuh.fit.edu.backend.domain.event;
+package iuh.fit.edu.backend.event.payload;
 
-import iuh.fit.edu.backend.constant.event.DomainEventType;
+import iuh.fit.edu.backend.dto.response.message.MessageRecalledResponse;
+import iuh.fit.edu.backend.event.type.DomainEventType;
 import lombok.Getter;
 
 /*
@@ -15,11 +16,11 @@ import lombok.Getter;
  */
 @Getter
 public class MessageRecalledEvent{
-    private final String id;
+    private final MessageRecalledResponse messageRecalledResponse;
     private final DomainEventType domainEventType;
 
-    protected MessageRecalledEvent(String id) {
-        this.id = id;
+    public MessageRecalledEvent(MessageRecalledResponse messageRecalledResponse) {
+        this.messageRecalledResponse = messageRecalledResponse;
         this.domainEventType = DomainEventType.MESSAGE_RECALLED;
     }
 }

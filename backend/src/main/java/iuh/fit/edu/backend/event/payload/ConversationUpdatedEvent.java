@@ -2,7 +2,7 @@
  * @ (#) .java    1.0
  * Copyright (c)  IUH. All rights reserved.
  */
-package iuh.fit.edu.backend.domain.event;
+package iuh.fit.edu.backend.event.payload;
 
 /*
  * @description
@@ -12,7 +12,7 @@ package iuh.fit.edu.backend.domain.event;
  */
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import iuh.fit.edu.backend.constant.event.DomainEventType;
+import iuh.fit.edu.backend.event.type.DomainEventType;
 import iuh.fit.edu.backend.dto.response.message.LastMessageResponse;
 import lombok.Getter;
 

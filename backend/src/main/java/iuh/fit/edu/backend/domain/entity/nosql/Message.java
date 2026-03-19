@@ -49,6 +49,8 @@ public class Message {
     @Field(name = "conversation_id")
     private Long conversationId;
 
+    private boolean isRecalled = false;
+
     // Tham chiếu tới conversation_user để lấy ra được biệt danh của user
     @Field(name = "sender_id")
     private Long senderId;

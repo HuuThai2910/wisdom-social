@@ -2,10 +2,11 @@
  * @ (#) .java    1.0
  * Copyright (c)  IUH. All rights reserved.
  */
-package iuh.fit.edu.backend.event;
+package iuh.fit.edu.backend.event.listener;
 
-import iuh.fit.edu.backend.domain.event.MessageCreatedEvent;
-import iuh.fit.edu.backend.domain.event.MessageRecalledEvent;
+import iuh.fit.edu.backend.dto.response.message.MessageRecalledResponse;
+import iuh.fit.edu.backend.event.payload.MessageCreatedEvent;
+import iuh.fit.edu.backend.event.payload.MessageRecalledEvent;
 import iuh.fit.edu.backend.dto.response.message.MessageResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -38,8 +39,7 @@ public class ChatEventListener {
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void handleMessageRecalled(MessageRecalledEvent event){
-        MessageResponse payload = event.getMessageResponse();
-
+        MessageRecalledResponse payload = event.getMessageRecalledResponse();
         // Bắn socket: update realtime cho user đăng ký kênh này
         String destination = "/topic/conversation/" + payload.getConversationId();
         messagingTemplate.convertAndSend(destination, event);
