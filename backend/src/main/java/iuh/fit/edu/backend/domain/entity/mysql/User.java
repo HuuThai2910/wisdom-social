@@ -46,12 +46,6 @@ public class User {
 
     private boolean confirmUseAI = false;
 
-    // ===== Statistics =====
-    private Integer friendCount = 0; // Số bạn bè
-    private Integer followerCount = 0; // Số người theo dõi
-    private Integer followingCount = 0; // Số người đang theo dõi
-    private Integer postCount = 0; // Số bài viết
-
     // ===== Relations =====
     @OneToMany(mappedBy = "user")
     @JsonIgnore

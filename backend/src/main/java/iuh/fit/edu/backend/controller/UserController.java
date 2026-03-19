@@ -7,6 +7,7 @@ import iuh.fit.edu.backend.dto.response.user.UserResponseConfirmRegister;
 import iuh.fit.edu.backend.dto.response.user.UserResponseLogin;
 import iuh.fit.edu.backend.dto.response.user.UserResponseOTPPassword;
 import iuh.fit.edu.backend.dto.response.user.UserResponseRegister;
+import iuh.fit.edu.backend.dto.response.user.UserProfileResponse;
 import iuh.fit.edu.backend.service.user.BlockUserService;
 import iuh.fit.edu.backend.service.user.UserService;
 import iuh.fit.edu.backend.service.user.UserSettingService;
@@ -160,7 +161,7 @@ public class UserController {
 
     @GetMapping("/user/{id}")
     @ApiMessage("Get profile User")
-    public ResponseEntity<User> getProfileUser(@PathVariable long id){
+    public ResponseEntity<UserProfileResponse> getProfileUser(@PathVariable long id){
         return ResponseEntity.ok(userSettingService.getProfileUser(id));
     }
 
