@@ -19,18 +19,19 @@ import lombok.Getter;
 import java.util.Set;
 
 @Getter
-public class ConversationUpdatedEvent extends DomainEventPayload{
+public class ConversationUpdatedEvent{
     private final Long conversationId;
     private final LastMessageResponse lastMessage;
+    private final DomainEventType domainEventType;
 
     // Field này chỉ dùng để Server biết gửi cho ai, không gửi xuống Client
     @JsonIgnore
     private final Set<Long> memberIds;
 
     public ConversationUpdatedEvent(Long conversationId, LastMessageResponse lastMessage, Set<Long> memberIds) {
-        super(DomainEventType.ROOM_UPDATED);
         this.conversationId = conversationId;
         this.lastMessage = lastMessage;
+        this.domainEventType = DomainEventType.ROOM_UPDATED;
         this.memberIds = memberIds;
     }
 }

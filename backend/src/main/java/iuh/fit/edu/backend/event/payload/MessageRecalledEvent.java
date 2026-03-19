@@ -4,7 +4,6 @@
  */
 package iuh.fit.edu.backend.domain.event;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
 import iuh.fit.edu.backend.constant.event.DomainEventType;
 import lombok.Getter;
 
@@ -15,11 +14,12 @@ import lombok.Getter;
  * @version: 1.0
  */
 @Getter
-public abstract class DomainEventPayload {
-    @JsonProperty("type")
+public class MessageRecalledEvent{
+    private final String id;
     private final DomainEventType domainEventType;
 
-    protected DomainEventPayload(DomainEventType domainEventType) {
-        this.domainEventType = domainEventType;
+    protected MessageRecalledEvent(String id) {
+        this.id = id;
+        this.domainEventType = DomainEventType.MESSAGE_RECALLED;
     }
 }

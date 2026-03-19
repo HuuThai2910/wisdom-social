@@ -5,6 +5,7 @@
 package iuh.fit.edu.backend.event;
 
 import iuh.fit.edu.backend.domain.event.MessageCreatedEvent;
+import iuh.fit.edu.backend.domain.event.MessageRecalledEvent;
 import iuh.fit.edu.backend.dto.response.message.MessageResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,4 +35,16 @@ public class ChatEventListener {
         messagingTemplate.convertAndSend(destination, event);
         log.info("Send new message to {}", destination);
     }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void handleMessageRecalled(MessageRecalledEvent event){
+        MessageResponse payload = event.getMessageResponse();
+
+        // Bắn socket: update realtime cho user đăng ký kênh này
+        String destination = "/topic/conversation/" + payload.getConversationId();
+        messagingTemplate.convertAndSend(destination, event);
+        log.info("Recall message to {}", destination);
+    }
+
+
 }

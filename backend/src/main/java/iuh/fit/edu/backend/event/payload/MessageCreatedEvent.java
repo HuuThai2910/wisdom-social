@@ -17,10 +17,11 @@ import org.springframework.context.ApplicationEvent;
  * @version: 1.0
  */
 @Getter
-public class MessageCreatedEvent extends DomainEventPayload {
+public class MessageCreatedEvent{
     private final MessageResponse messageResponse;
-    public MessageCreatedEvent( MessageResponse messageResponse) {
-        super(DomainEventType.MESSAGE_CREATED);
+    private final DomainEventType domainEventType;
+    public MessageCreatedEvent(MessageResponse messageResponse) {
         this.messageResponse = messageResponse;
+        this.domainEventType = DomainEventType.MESSAGE_CREATED;
     }
 }
