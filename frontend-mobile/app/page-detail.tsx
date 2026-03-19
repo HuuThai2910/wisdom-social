@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
     View,
     Text,
@@ -11,6 +11,9 @@ import {
     Modal,
     TextInput,
     Pressable,
+    KeyboardAvoidingView,
+    Platform,
+    Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -38,6 +41,9 @@ const buildS3Url = (url?: string) => {
     if (url.startsWith('http') || url.startsWith('file://') || url.startsWith('content://')) return url;
     return S3_BASE + url;
 };
+
+const { width: screenWidth } = Dimensions.get('window');
+const POST_IMAGE_WIDTH = screenWidth * 0.75; // 75% màn hình cho mỗi ảnh
 
 export default function PageDetailScreen() {
     const router = useRouter();
@@ -100,63 +106,70 @@ export default function PageDetailScreen() {
         }
     }, [pageId, activeSection, isOwner]);
 
-    const getUserInfo = async (authorId: string): Promise<User|null> => {
+    const getUserInfo = useCallback(async (authorId: string): Promise<User|null> => {
         const profile = await userService.getUserById(Number(authorId));
         return profile||null;
-    };
+    }, []);
 
+    // Optimize: Memoize user fetching để tránh fetch lại khi đã có data
     useEffect(() => {
-    const fetchUsers = async () => {
-        const uniqueIds = [...new Set(posts.map(p => p.authorId))];
+        const fetchUsers = async () => {
+            const uniqueIds = [...new Set(posts.map(p => p.authorId))];
+            const idsToFetch = uniqueIds.filter(id => !userMap[id]);
 
-        const results = await Promise.all(
-            uniqueIds.map(id => getUserInfo(id))
-        );
+            if (idsToFetch.length === 0) return;
 
-        const map: Record<string, User> = {};
-        uniqueIds.forEach((id, index) => {
-            if (results[index]) {
-                map[id] = results[index]!;
-            }
-        });
+            const results = await Promise.all(
+                idsToFetch.map(id => getUserInfo(id))
+            );
 
-        setUserMap(map);
-    };
+            const newMap: Record<string, User> = { ...userMap };
+            idsToFetch.forEach((id, index) => {
+                if (results[index]) {
+                    newMap[id] = results[index]!;
+                }
+            });
 
-        fetchUsers();
-    }, [posts]);
+            setUserMap(newMap);
+        };
+
+        if (posts.length > 0) {
+            fetchUsers();
+        }
+    }, [posts, getUserInfo]);
 
 
-    const fetchPagePosts = async (postId: string,pageId:number) => {
+    const fetchPagePosts = useCallback(async (postId: string, pageId: number) => {
         if (!pageId) return;
-
-        const data = await pageService.getPagePostByIdandPostId(postId,pageId);
+        const data = await pageService.getPagePostByIdandPostId(postId, pageId);
         return data;
-    };
+    }, []);
 
+    // Fix: Đổi dependency từ postsWaiting thành posts để fetch đúng data
     useEffect(() => {
-    const fetchPostsApproval = async () => {
-        const uniqueIds = [...new Set(posts.map(p => p.id))];
+        const fetchPostsApproval = async () => {
+            const uniqueIds = [...new Set(posts.map(p => p.id))];
+            const idsToFetch = uniqueIds.filter(id => !postApproveMap[id]);
 
-        const results = await Promise.all(
-        uniqueIds.map(id => fetchPagePosts(id,Number(pageId))));
+            if (idsToFetch.length === 0) return;
 
-        const map: Record<string, PagePost> = {};
-        uniqueIds.forEach((id, index) => {
-            if (results[index]) {
-                map[id] = results[index]!;
-            }
-        });
-        setPostApproveMap(map);
+            const results = await Promise.all(
+                idsToFetch.map(id => fetchPagePosts(id, Number(pageId)))
+            );
 
-        console.log("uniqueIds", uniqueIds);
-        console.log("results", results);
-        console.log("map", map);
-    };
+            const newMap: Record<string, PagePost> = { ...postApproveMap };
+            idsToFetch.forEach((id, index) => {
+                if (results[index]) {
+                    newMap[id] = results[index]!;
+                }
+            });
+            setPostApproveMap(newMap);
+        };
 
-        fetchPostsApproval();
-
-    }, [postsWaiting]);
+        if (posts.length > 0 && pageId) {
+            fetchPostsApproval();
+        }
+    }, [posts, pageId, fetchPagePosts]);
 
     const loadAll = async () => {
         setIsLoading(true);
@@ -835,13 +848,23 @@ export default function PageDetailScreen() {
                                                 </View>
                                                 {post.content && <Text style={styles.postContent}>{post.content}</Text>}
                                                 {media && media.length > 0 && (
-                                                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8, marginHorizontal: -12 }}>
+                                                    <ScrollView
+                                                        horizontal
+                                                        showsHorizontalScrollIndicator={false}
+                                                        style={{ marginTop: 8 }}
+                                                        contentContainerStyle={{ paddingHorizontal: 12, gap: 8 }}
+                                                    >
                                                         {media.map((item: any, idx: number) => (
                                                             item?.url && (
                                                                 <Image
                                                                     key={idx}
                                                                     source={{ uri: buildS3Url(item.url) }}
-                                                                    style={[styles.postImage, { marginLeft: idx === 0 ? 12 : 8 }]}
+                                                                    style={{
+                                                                        width: POST_IMAGE_WIDTH,
+                                                                        height: 250,
+                                                                        borderRadius: 12,
+                                                                    }}
+                                                                    resizeMode="cover"
                                                                 />
                                                             )
                                                         ))}
@@ -963,8 +986,6 @@ export default function PageDetailScreen() {
                                     const media = post.media || [];
                                     const userInfo = userMap[post.authorId];
                                     const pagePostInfo = postApproveMap[post.id];
-                                    console.log('postApproveMap', postApproveMap);
-                                    console.log('pagePostInfo', pagePostInfo);
 
                                     return (
                                     <View key={post.id} style={styles.postCard}>
@@ -995,13 +1016,23 @@ export default function PageDetailScreen() {
                                         </View>
                                         {post.content && <Text style={styles.postContent}>{post.content}</Text>}
                                         {media && media.length > 0 && (
-                                            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8, marginHorizontal: -12 }}>
+                                            <ScrollView
+                                                horizontal
+                                                showsHorizontalScrollIndicator={false}
+                                                style={{ marginTop: 8 }}
+                                                contentContainerStyle={{ paddingHorizontal: 12, gap: 8 }}
+                                            >
                                                 {media.map((item: any, idx: number) => (
                                                     item?.url && (
                                                         <Image
                                                             key={idx}
                                                             source={{ uri: buildS3Url(item.url) }}
-                                                            style={[styles.postImage, { marginLeft: idx === 0 ? 12 : 8 }]}
+                                                            style={{
+                                                                width: POST_IMAGE_WIDTH,
+                                                                height: 250,
+                                                                borderRadius: 12,
+                                                            }}
+                                                            resizeMode="cover"
                                                         />
                                                     )
                                                 ))}
@@ -1153,83 +1184,92 @@ export default function PageDetailScreen() {
             </Modal>
 
             <Modal visible={showCreatePostModal} animationType="slide" transparent onRequestClose={() => setShowCreatePostModal(false)}>
-                <View style={styles.overlay}>
-                    <Pressable style={styles.overlayBackdrop} onPress={() => setShowCreatePostModal(false)} />
-                    <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}>
-                        <View style={styles.dragBar} />
-                        <View style={styles.sheetHeader}>
-                            <TouchableOpacity onPress={() => setShowCreatePostModal(false)} hitSlop={12}>
-                                <Text style={styles.sheetCancel}>Hủy</Text>
-                            </TouchableOpacity>
-                            <Text style={styles.sheetTitle}>Tạo bài viết</Text>
-                            <TouchableOpacity onPress={handleCreatePost} disabled={isCreatingPost} hitSlop={12}>
-                                <Text style={[styles.sheetSave, isCreatingPost && { color: colors.textTertiary }]}>
-                                    {isCreatingPost ? 'Đang đăng...' : 'Đăng'}
-                                </Text>
-                            </TouchableOpacity>
-                        </View>
-                        <ScrollView style={{ paddingHorizontal: 20 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-                            <View style={{ marginTop: 14 }}>
-                                <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textSecondary, marginBottom: 6 }}>
-                                    Nội dung bài viết
-                                </Text>
-                                <TextInput
-                                    style={{
-                                        backgroundColor: colors.inputBg, borderWidth: 1, borderColor: colors.border,
-                                        borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12,
-                                        fontSize: 15, color: colors.text,
-                                        height: 120, textAlignVertical: 'top',
-                                    }}
-                                    value={postContent}
-                                    onChangeText={setPostContent}
-                                    placeholder="Bạn đang nghĩ gì?"
-                                    placeholderTextColor={colors.textTertiary}
-                                    multiline
-                                />
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    style={{ flex: 1 }}
+                >
+                    <View style={styles.overlay}>
+                        <Pressable style={styles.overlayBackdrop} onPress={() => setShowCreatePostModal(false)} />
+                        <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}>
+                            <View style={styles.dragBar} />
+                            <View style={styles.sheetHeader}>
+                                <TouchableOpacity onPress={() => setShowCreatePostModal(false)} hitSlop={12}>
+                                    <Text style={styles.sheetCancel}>Hủy</Text>
+                                </TouchableOpacity>
+                                <Text style={styles.sheetTitle}>Tạo bài viết</Text>
+                                <TouchableOpacity onPress={handleCreatePost} disabled={isCreatingPost} hitSlop={12}>
+                                    <Text style={[styles.sheetSave, isCreatingPost && { color: colors.textTertiary }]}>
+                                        {isCreatingPost ? 'Đang đăng...' : 'Đăng'}
+                                    </Text>
+                                </TouchableOpacity>
                             </View>
-
-                            <TouchableOpacity
-                                onPress={pickPostImages}
-                                style={{
-                                    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-                                    gap: 8, marginTop: 16, paddingVertical: 14, borderRadius: 12,
-                                    backgroundColor: colors.chipBg, borderWidth: 1.5, borderStyle: 'dashed',
-                                    borderColor: colors.border,
-                                }}
+                            <ScrollView
+                                style={{ paddingHorizontal: 20 }}
+                                keyboardShouldPersistTaps="handled"
+                                showsVerticalScrollIndicator={false}
                             >
-                                <Ionicons name="images-outline" size={22} color={colors.primary} />
-                                <Text style={{ fontSize: 14, fontWeight: '600', color: colors.primary }}>
-                                    Chọn hình ảnh
-                                </Text>
-                            </TouchableOpacity>
-
-                            {postImages.length > 0 && (
-                                <View style={{ marginTop: 16, gap: 10 }}>
-                                    {postImages.map((img, idx) => (
-                                        <View key={idx} style={{ position: 'relative' }}>
-                                            <Image
-                                                source={{ uri: img.uri }}
-                                                style={{ width: '100%', height: 200, borderRadius: 12 }}
-                                            />
-                                            <TouchableOpacity
-                                                onPress={() => removePostImage(idx)}
-                                                style={{
-                                                    position: 'absolute', top: 8, right: 8,
-                                                    backgroundColor: colors.overlay, borderRadius: 20,
-                                                    padding: 6,
-                                                }}
-                                            >
-                                                <Ionicons name="close" size={18} color="#FFF" />
-                                            </TouchableOpacity>
-                                        </View>
-                                    ))}
+                                <View style={{ marginTop: 14 }}>
+                                    <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textSecondary, marginBottom: 6 }}>
+                                        Nội dung bài viết
+                                    </Text>
+                                    <TextInput
+                                        style={{
+                                            backgroundColor: colors.inputBg, borderWidth: 1, borderColor: colors.border,
+                                            borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12,
+                                            fontSize: 15, color: colors.text,
+                                            height: 120, textAlignVertical: 'top',
+                                        }}
+                                        value={postContent}
+                                        onChangeText={setPostContent}
+                                        placeholder="Bạn đang nghĩ gì?"
+                                        placeholderTextColor={colors.textTertiary}
+                                        multiline
+                                    />
                                 </View>
-                            )}
 
-                            <View style={{ height: 20 }} />
-                        </ScrollView>
+                                <TouchableOpacity
+                                    onPress={pickPostImages}
+                                    style={{
+                                        flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+                                        gap: 8, marginTop: 16, paddingVertical: 14, borderRadius: 12,
+                                        backgroundColor: colors.chipBg, borderWidth: 1.5, borderStyle: 'dashed',
+                                        borderColor: colors.border,
+                                    }}
+                                >
+                                    <Ionicons name="images-outline" size={22} color={colors.primary} />
+                                    <Text style={{ fontSize: 14, fontWeight: '600', color: colors.primary }}>
+                                        Chọn hình ảnh
+                                    </Text>
+                                </TouchableOpacity>
+
+                                {postImages.length > 0 && (
+                                    <View style={{ marginTop: 16, gap: 10 }}>
+                                        {postImages.map((img, idx) => (
+                                            <View key={idx} style={{ position: 'relative' }}>
+                                                <Image
+                                                    source={{ uri: img.uri }}
+                                                    style={{ width: '100%', height: 200, borderRadius: 12 }}
+                                                />
+                                                <TouchableOpacity
+                                                    onPress={() => removePostImage(idx)}
+                                                    style={{
+                                                        position: 'absolute', top: 8, right: 8,
+                                                        backgroundColor: colors.overlay, borderRadius: 20,
+                                                        padding: 6,
+                                                    }}
+                                                >
+                                                    <Ionicons name="close" size={18} color="#FFF" />
+                                                </TouchableOpacity>
+                                            </View>
+                                        ))}
+                                    </View>
+                                )}
+
+                                <View style={{ height: 20 }} />
+                            </ScrollView>
+                        </View>
                     </View>
-                </View>
+                </KeyboardAvoidingView>
             </Modal>
         </View>
     );
