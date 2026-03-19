@@ -8,10 +8,7 @@ import iuh.fit.edu.backend.constant.PrivacyType;
 import iuh.fit.edu.backend.constant.StatusType;
 import iuh.fit.edu.backend.domain.entity.nosql.embeddable.Location;
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.index.CompoundIndexes;
 import org.springframework.data.mongodb.core.index.Indexed;
@@ -30,6 +27,7 @@ import java.util.List;
  */
 @Document(collection = "posts")
 @Data
+@ToString
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor

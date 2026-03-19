@@ -96,6 +96,13 @@ export interface PagePostRequest {
     postId: string;
 }
 
+export interface PagePost{
+    id:number;
+    approvedAt?: string;
+    postId: string;
+    pageId: number;
+}
+
 const pageService = {
     createPage: async (data: CreatePageRequest): Promise<string> => {
         const response = await apiClient.post('/page/create', data);
@@ -249,9 +256,28 @@ const pageService = {
         return response.data.data;
     },
 
-    addPostPage: async (userId: number, pageId: number, post: any): Promise<string> => {
-        const response = await apiClient.post('/page/post/add', post, {
-            params: { userId, pageId }
+    addPostPage: async (pageId: number, postData: any, images?: { uri: string; name: string; type: string }[]): Promise<string> => {
+        const formData = new FormData();
+
+        // Thêm postData dưới dạng JSON string (React Native không cần Blob wrapper)
+        formData.append('postData', JSON.stringify(postData));
+
+        // Thêm images nếu có (React Native format)
+        if (images && images.length > 0) {
+            images.forEach((image) => {
+                formData.append('images', {
+                    uri: image.uri,
+                    name: image.name,
+                    type: image.type,
+                } as any);
+            });
+        }
+
+        const response = await apiClient.post('/page/post/add', formData, {
+            params: { pageId },
+            headers: {
+                'Content-Type': 'multipart/form-data',
+            },
         });
         return response.data.data;
     },
@@ -286,6 +312,11 @@ const pageService = {
 
     cancelAllPosts: async (userId: number, pageId: number): Promise<string> => {
         const response = await apiClient.post('/page/post/cancel-all', { userId, pageId });
+        return response.data.data;
+    },
+
+    getPagePostByIdandPostId: async (postId: string, pageId: number): Promise<PagePost| null> => {
+        const response = await apiClient.get(`/page/post/${postId}/${pageId}`);
         return response.data.data;
     },
 };

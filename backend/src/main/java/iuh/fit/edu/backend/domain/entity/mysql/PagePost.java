@@ -1,5 +1,6 @@
 package iuh.fit.edu.backend.domain.entity.mysql;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import iuh.fit.edu.backend.constant.PostStatus;
 import iuh.fit.edu.backend.domain.entity.nosql.Post;
 import jakarta.persistence.*;
@@ -19,6 +20,7 @@ public class PagePost {
 
     @ManyToOne
     @JoinColumn(name = "page_id", nullable = false)
+    @JsonIgnore
     private Page page;
 
     private PostStatus status;
@@ -26,6 +28,7 @@ public class PagePost {
 
     @ManyToOne
     @JoinColumn(name = "approved_by")
+    @JsonIgnore
     private User approvedBy;
     private OffsetDateTime approvedAt;
 

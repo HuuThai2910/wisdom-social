@@ -11,4 +11,6 @@ import java.util.List;
 public interface PagePostRepository extends JpaRepository<PagePost,Long> {
     PagePost findByPostIdAndPage_Id(String postId, Long pageId);
     List<PagePost> findByPage_IdAndStatus(Long pageId, PostStatus status);
+
+    PagePost findPagePostByPage_IdAndPostId(Long pageId, String postId);
 }

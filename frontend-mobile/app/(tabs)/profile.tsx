@@ -297,7 +297,7 @@ export default function ProfileScreen() {
     };
 
     const displayUser = profileData || user;
-    const userPosts = mockPosts.filter((p: Post) => displayUser && p.user.id === displayUser.id?.toString());
+    const userPosts = mockPosts.filter((p: Post) => displayUser && p.authorId === displayUser.id?.toString());
     const savedPosts = mockPosts.filter((p: Post) => p.isSaved);
     const displayPosts = selectedTab === 'posts' ? userPosts : savedPosts;
 

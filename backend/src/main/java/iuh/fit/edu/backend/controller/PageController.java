@@ -1,13 +1,18 @@
 package iuh.fit.edu.backend.controller;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import iuh.fit.edu.backend.domain.entity.mysql.Page;
+import iuh.fit.edu.backend.domain.entity.mysql.PagePost;
 import iuh.fit.edu.backend.domain.entity.mysql.User;
 import iuh.fit.edu.backend.domain.entity.nosql.Post;
+import iuh.fit.edu.backend.dto.request.CreatePostRequest;
 import iuh.fit.edu.backend.dto.request.page.UserRequestCreatePage;
 import iuh.fit.edu.backend.dto.request.page.UserRequestPage;
 import iuh.fit.edu.backend.dto.request.page.UserRequestPagePost;
 import iuh.fit.edu.backend.dto.request.page.UserRequestUpdatePage;
 import iuh.fit.edu.backend.dto.response.ApiResponse;
+import iuh.fit.edu.backend.service.PostService;
 import iuh.fit.edu.backend.service.page.PageService;
 import iuh.fit.edu.backend.service.page.PagePostService;
 import iuh.fit.edu.backend.service.user.UserService;
@@ -17,6 +22,8 @@ import org.bson.types.ObjectId;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+
 import java.util.List;
 import java.util.Map;
 
@@ -27,12 +34,18 @@ public class PageController {
     PagePostService pagePostService;
     UserService userService;
     S3Service s3Service;
+    PostService postService;
+    ObjectMapper objectMapper;
 
-    public PageController(PageService pageService, PagePostService pagePostService, UserService userService, S3Service s3Service) {
-        this.pageService = pageService;
+    public PageController(ObjectMapper objectMapper, PagePostService pagePostService,
+                          PageService pageService, PostService postService,
+                          S3Service s3Service, UserService userService) {
+        this.objectMapper = objectMapper;
         this.pagePostService = pagePostService;
-        this.userService = userService;
+        this.pageService = pageService;
+        this.postService = postService;
         this.s3Service = s3Service;
+        this.userService = userService;
     }
 
     @PostMapping("/create")
@@ -215,15 +228,27 @@ public class PageController {
         return ResponseEntity.badRequest().body("Cancel approve post failed");
     }
 
-    @PostMapping("/post/add")
+    @PostMapping(path = "/post/add",consumes = {"multipart/form-data"})
     @ApiMessage("Add post to page successfully")
-    public ResponseEntity<String> addPostPage(@RequestBody Post post,
-                                               @RequestParam long userId,
-                                               @RequestParam long pageId) {
-        boolean success = pagePostService.addPostPage(userId, pageId, post);
+    public ResponseEntity<String> addPostPage(@RequestParam("postData") String postDataJson,
+                                              @RequestParam(value = "images", required = false) List<MultipartFile> images,
+                                               @RequestParam long pageId) throws JsonProcessingException {
+
+        User user=userService.getCurrentUser();
+        CreatePostRequest request = objectMapper.readValue(postDataJson, CreatePostRequest.class);
+        Post post = postService.createPost(request, images, user.getId());
+
+        boolean success = pagePostService.addPostPage(user.getId(), pageId, post);
         if (success)
             return ResponseEntity.ok("Add post to page successfully");
         return ResponseEntity.badRequest().body("Add post to page failed");
+    }
+
+    @GetMapping("/post/{postId}/{pageId}")
+    @ApiMessage("get All post page successfully")
+    public ResponseEntity<PagePost> getPagePostByIdandPostId(@PathVariable  ObjectId postId,
+                                                @PathVariable  long pageId) {
+        return ResponseEntity.ok(pagePostService.getPagePostByIdandPostId(pageId,postId));
     }
 
     @PostMapping("/post/remove")

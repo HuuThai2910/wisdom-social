@@ -19,8 +19,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import pageService from '../services/pageService';
-import type { PageData, UpdatePageRequest, PageRole, PageMemberData } from '../services/pageService';
+import type { PageData, UpdatePageRequest, PageRole, PageMemberData, PagePost } from '../services/pageService';
 import type { ThemeColors } from '../contexts/ThemeContext';
+import userService from '../services/userService';
+import { Post, User } from '@/types';
 
 const PAGE_ROLES: { label: string; value: PageRole }[] = [
     { label: 'Admin', value: 'ADMIN' },
@@ -52,7 +54,7 @@ export default function PageDetailScreen() {
     const [followCount, setFollowCount] = useState(0);
     const [activeSection, setActiveSection] = useState<'info' | 'members' | 'posts'>('info');
     const [posts, setPosts] = useState<any[]>([]);
-    const [postsWaiting, setPostsWaiting] = useState<any[]>([]);
+    const [postsWaiting, setPostsWaiting] = useState<Post[]>([]);
     const [isLoadingPosts, setIsLoadingPosts] = useState(false);
     const [isLoadingWaitingPosts, setIsLoadingWaitingPosts] = useState(false);
     const [usersCache, setUsersCache] = useState<Map<string, any>>(new Map());
@@ -82,6 +84,9 @@ export default function PageDetailScreen() {
     const styles = createStyles(colors);
     const isOwner = page?.createdBy?.id === user?.id;
 
+    const [userMap, setUserMap] = useState<Record<string, User>>({});
+    const [postApproveMap, setPostApproveMap] = useState<Record<string, PagePost>>({});
+
     useEffect(() => {
         if (pageId) loadAll();
     }, [pageId]);
@@ -94,6 +99,64 @@ export default function PageDetailScreen() {
             loadWaitingPosts();
         }
     }, [pageId, activeSection, isOwner]);
+
+    const getUserInfo = async (authorId: string): Promise<User|null> => {
+        const profile = await userService.getUserById(Number(authorId));
+        return profile||null;
+    };
+
+    useEffect(() => {
+    const fetchUsers = async () => {
+        const uniqueIds = [...new Set(posts.map(p => p.authorId))];
+
+        const results = await Promise.all(
+            uniqueIds.map(id => getUserInfo(id))
+        );
+
+        const map: Record<string, User> = {};
+        uniqueIds.forEach((id, index) => {
+            if (results[index]) {
+                map[id] = results[index]!;
+            }
+        });
+
+        setUserMap(map);
+    };
+
+        fetchUsers();
+    }, [posts]);
+
+
+    const fetchPagePosts = async (postId: string,pageId:number) => {
+        if (!pageId) return;
+
+        const data = await pageService.getPagePostByIdandPostId(postId,pageId);
+        return data;
+    };
+
+    useEffect(() => {
+    const fetchPostsApproval = async () => {
+        const uniqueIds = [...new Set(posts.map(p => p.id))];
+
+        const results = await Promise.all(
+        uniqueIds.map(id => fetchPagePosts(id,Number(pageId))));
+
+        const map: Record<string, PagePost> = {};
+        uniqueIds.forEach((id, index) => {
+            if (results[index]) {
+                map[id] = results[index]!;
+            }
+        });
+        setPostApproveMap(map);
+
+        console.log("uniqueIds", uniqueIds);
+        console.log("results", results);
+        console.log("map", map);
+    };
+
+        fetchPostsApproval();
+
+    }, [postsWaiting]);
 
     const loadAll = async () => {
         setIsLoading(true);
@@ -170,15 +233,7 @@ export default function PageDetailScreen() {
         setUsersCache(newCache);
     };
 
-    const getUserInfo = (authorId?: string) => {
-        if (!authorId) return { name: 'Người dùng', username: 'unknown', avatarUrl: undefined };
-        return usersCache.get(authorId) || {
-            id: Number(authorId),
-            name: `User #${authorId}`,
-            username: `user${authorId}`,
-            avatarUrl: undefined,
-        };
-    };
+
 
     const handleLike = async () => {
         if (!user?.id || !page) return;
@@ -506,7 +561,7 @@ export default function PageDetailScreen() {
                 allowShares: true,
             };
 
-            await pageService.addPostPage(user.id, page.id, postData, postImages);
+            await pageService.addPostPage(page.id, postData, postImages);
             Alert.alert('Thành công', 'Đã tạo bài viết.');
             setShowCreatePostModal(false);
             setPostContent('');
@@ -751,12 +806,12 @@ export default function PageDetailScreen() {
                                     <View style={{ gap: 12 }}>
                                         {postsWaiting.map((post) => {
                                             const media = post.media || [];
-                                            const userInfo = getUserInfo(post.authorId);
+                                            const userInfo = userMap[post.authorId||''];
 
                                             return (
                                             <View key={post.id} style={[styles.postCard, { backgroundColor: colors.warningBg }]}>
                                                 <View style={styles.postHeader}>
-                                                    {userInfo.avatarUrl ? (
+                                                    {userInfo?.avatarUrl ? (
                                                         <Image source={{ uri: buildS3Url(userInfo.avatarUrl) }} style={styles.postAvatar} />
                                                     ) : (
                                                         <View style={styles.postAvatarFallback}>
@@ -765,7 +820,7 @@ export default function PageDetailScreen() {
                                                     )}
                                                     <View style={{ flex: 1 }}>
                                                         <Text style={styles.postAuthorName}>
-                                                            {userInfo.name || 'Người dùng'}
+                                                            {userInfo?.username || 'Người dùng'}
                                                         </Text>
                                                         <Text style={styles.postDate}>
                                                             {post.createdAt ? new Date(post.createdAt).toLocaleDateString('vi-VN', {
@@ -904,14 +959,17 @@ export default function PageDetailScreen() {
                             </View>
                         ) : (
                             <View style={{ gap: 12 }}>
-                                {posts.map((post) => {
+                                {posts.map( (post) => {
                                     const media = post.media || [];
-                                    const userInfo = getUserInfo(post.authorId);
+                                    const userInfo = userMap[post.authorId];
+                                    const pagePostInfo = postApproveMap[post.id];
+                                    console.log('postApproveMap', postApproveMap);
+                                    console.log('pagePostInfo', pagePostInfo);
 
                                     return (
                                     <View key={post.id} style={styles.postCard}>
                                         <View style={styles.postHeader}>
-                                            {userInfo.avatarUrl ? (
+                                            {userInfo?.avatarUrl ? (
                                                 <Image source={{ uri: buildS3Url(userInfo.avatarUrl) }} style={styles.postAvatar} />
                                             ) : (
                                                 <View style={styles.postAvatarFallback}>
@@ -920,10 +978,10 @@ export default function PageDetailScreen() {
                                             )}
                                             <View style={{ flex: 1 }}>
                                                 <Text style={styles.postAuthorName}>
-                                                    {userInfo.name || 'Người dùng'}
+                                                    {userInfo?.username || 'Người dùng'}
                                                 </Text>
                                                 <Text style={styles.postDate}>
-                                                    {post.createdAt ? new Date(post.createdAt).toLocaleDateString('vi-VN', {
+                                                    {pagePostInfo?.approvedAt ? new Date(pagePostInfo.approvedAt).toLocaleDateString('vi-VN', {
                                                         year: 'numeric', month: '2-digit', day: '2-digit',
                                                         hour: '2-digit', minute: '2-digit'
                                                     }) : 'Không rõ'}
@@ -1446,5 +1504,33 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     bulkActionText: {
         fontSize: 13,
         fontWeight: '600',
+    },
+    postAvatarFallback: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        backgroundColor: colors.border,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    postAuthorName: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: colors.text,
+    },
+    postDate: {
+        fontSize: 11,
+        color: colors.textTertiary,
+        marginTop: 2,
+        marginBottom: 10,
+    },
+    postContent: {
+        fontSize: 14,
+        color: colors.textSecondary,
+        lineHeight: 20,
+    },
+    postStat: {
+        fontSize: 12,
+        color: colors.textTertiary,
     },
 });

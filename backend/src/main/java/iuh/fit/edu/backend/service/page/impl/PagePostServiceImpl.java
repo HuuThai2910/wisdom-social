@@ -12,6 +12,8 @@ import iuh.fit.edu.backend.repository.nosql.PostRepository;
 import iuh.fit.edu.backend.service.page.PagePostService;
 import org.bson.types.ObjectId;
 import org.springframework.stereotype.Service;
+
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.List;
 
@@ -73,6 +75,8 @@ public class PagePostServiceImpl implements PagePostService {
         if (!pageRepository.existsById(pageId)) return false;
 
         // lưu post vào Mongo
+        post.setAuthorId(String.valueOf(userId));
+        post.setCreatedAt(Instant.now());
         Post savedPost = postRepository.save(post);
 
         // lưu metadata vào SQL
@@ -108,9 +112,12 @@ public class PagePostServiceImpl implements PagePostService {
         List<PagePost> pagePostList = pagePostRepository
                 .findByPage_IdAndStatus(pageId, PostStatus.APPROVED);
 
+        pagePostList.stream()
+                .map(pagePost -> postRepository.findById(pagePost.getPostId()).orElse(null))
+                .toList().forEach(System.out::println);
+
         return pagePostList.stream()
                 .map(pagePost -> postRepository.findById(pagePost.getPostId()).orElse(null))
-                .filter(post -> post != null)
                 .toList();
     }
 
@@ -123,7 +130,6 @@ public class PagePostServiceImpl implements PagePostService {
 
         return pagePostList.stream()
                 .map(pagePost -> postRepository.findById(pagePost.getPostId()).orElse(null))
-                .filter(post -> post != null)
                 .toList();
     }
 
@@ -159,6 +165,11 @@ public class PagePostServiceImpl implements PagePostService {
         });
 
         return !pagePostList.isEmpty();
+    }
+
+    @Override
+    public PagePost getPagePostByIdandPostId(long pageId, ObjectId postId) {
+        return pagePostRepository.findPagePostByPage_IdAndPostId(pageId,postId.toString());
     }
 
     private boolean isPageAdminOrMorderator(long userId, long pageId) {
