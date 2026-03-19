@@ -96,7 +96,8 @@ public class DataSeeder implements CommandLineRunner {
 
     private List<User> createUsers() {
         List<User> users = new ArrayList<>();
-        LocalDateTime now = LocalDateTime.now();
+        Instant now = Instant.now();
+        LocalDateTime localNow = LocalDateTime.now();
 
         User user1 = new User();
         user1.setPhone("0901234567");
@@ -106,7 +107,7 @@ public class DataSeeder implements CommandLineRunner {
         user1.setBio("Yêu thích công nghệ và lập trình");
         user1.setGender(Gender.MALE);
         user1.setCreatedAt(now);
-        user1.setUpdatedAt(now);
+        user1.setUpdatedAt(localNow);
         user1.setConfirmUseAI(true);
         users.add(user1);
 
@@ -118,7 +119,7 @@ public class DataSeeder implements CommandLineRunner {
         user2.setBio("Đam mê thiết kế và nghệ thuật");
         user2.setGender(Gender.FEMALE);
         user2.setCreatedAt(now);
-        user2.setUpdatedAt(now);
+        user2.setUpdatedAt(localNow);
         user2.setConfirmUseAI(false);
         users.add(user2);
 
@@ -130,7 +131,7 @@ public class DataSeeder implements CommandLineRunner {
         user3.setBio("Sinh viên IT, thích đọc sách");
         user3.setGender(Gender.MALE);
         user3.setCreatedAt(now);
-        user3.setUpdatedAt(now);
+        user3.setUpdatedAt(localNow);
         user3.setConfirmUseAI(true);
         users.add(user3);
 
@@ -142,7 +143,7 @@ public class DataSeeder implements CommandLineRunner {
         user4.setBio("Yêu thích du lịch và nhiếp ảnh");
         user4.setGender(Gender.FEMALE);
         user4.setCreatedAt(now);
-        user4.setUpdatedAt(now);
+        user4.setUpdatedAt(localNow);
         user4.setConfirmUseAI(true);
         users.add(user4);
 

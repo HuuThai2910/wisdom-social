@@ -28,11 +28,13 @@ export default function Login() {
   };
 
   const handleGoogleLogin = async () => {
-    // Mock Google login - use first user from DB
+    // Mock Google login - dùng user đầu tiên từ DB
     setLoading(true);
-    const success = await login("john_doe");
+    const success = await login("nguyen_van_an");
     if (success) {
       window.location.href = "/";
+    } else {
+      setError("Đăng nhập thất bại. Vui lòng thử lại.");
     }
     setLoading(false);
   };

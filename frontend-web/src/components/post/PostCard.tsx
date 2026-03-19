@@ -490,67 +490,69 @@ export default function PostCard({ post }: PostCardProps) {
       </div>
 
       {/* Image Carousel */}
-      <div className="relative w-full group">
-        <Link
-          to={`/post/${post.id}`}
-          state={{ from: location.pathname }}
-          className="block w-full h-[500px] bg-black"
-        >
-          <img
-            src={post.images[currentImageIndex]}
-            alt={post.caption}
-            className="w-full h-full object-contain cursor-pointer"
-          />
-        </Link>
+      {totalImages > 0 && (
+        <div className="relative w-full group">
+          <Link
+            to={`/post/${post.id}`}
+            state={{ from: location.pathname }}
+            className="block w-full h-[500px] bg-black"
+          >
+            <img
+              src={post.images[currentImageIndex]}
+              alt={post.caption}
+              className="w-full h-full object-contain cursor-pointer"
+            />
+          </Link>
 
-        {/* Navigation arrows - Only show if multiple images */}
-        {totalImages > 1 && (
-          <>
-            {/* Previous button */}
-            <button
-              onClick={handlePrevImage}
-              className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity"
-              aria-label="Previous image"
-            >
-              <ChevronLeft size={20} />
-            </button>
+          {/* Navigation arrows - Only show if multiple images */}
+          {totalImages > 1 && (
+            <>
+              {/* Previous button */}
+              <button
+                onClick={handlePrevImage}
+                className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                aria-label="Previous image"
+              >
+                <ChevronLeft size={20} />
+              </button>
 
-            {/* Next button */}
-            <button
-              onClick={handleNextImage}
-              className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity"
-              aria-label="Next image"
-            >
-              <ChevronRight size={20} />
-            </button>
+              {/* Next button */}
+              <button
+                onClick={handleNextImage}
+                className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                aria-label="Next image"
+              >
+                <ChevronRight size={20} />
+              </button>
 
-            {/* Dots indicator */}
-            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
-              {post.images.map((_, index) => (
-                <button
-                  key={index}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setCurrentImageIndex(index);
-                  }}
-                  className={`w-1.5 h-1.5 rounded-full transition-all ${
-                    index === currentImageIndex
-                      ? "bg-blue-500 w-2 h-2"
-                      : "bg-gray-300/70 hover:bg-gray-300"
-                  }`}
-                  aria-label={`Go to image ${index + 1}`}
-                />
-              ))}
-            </div>
+              {/* Dots indicator */}
+              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
+                {post.images.map((_, index) => (
+                  <button
+                    key={index}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setCurrentImageIndex(index);
+                    }}
+                    className={`w-1.5 h-1.5 rounded-full transition-all ${
+                      index === currentImageIndex
+                        ? "bg-blue-500 w-2 h-2"
+                        : "bg-gray-300/70 hover:bg-gray-300"
+                    }`}
+                    aria-label={`Go to image ${index + 1}`}
+                  />
+                ))}
+              </div>
 
-            {/* Image counter */}
-            <div className="absolute top-3 right-3 bg-black/50 text-white text-xs px-2 py-1 rounded-full">
-              {currentImageIndex + 1} / {totalImages}
-            </div>
-          </>
-        )}
-      </div>
+              {/* Image counter */}
+              <div className="absolute top-3 right-3 bg-black/50 text-white text-xs px-2 py-1 rounded-full">
+                {currentImageIndex + 1} / {totalImages}
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Actions */}
       <div className="px-4">

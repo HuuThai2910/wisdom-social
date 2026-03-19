@@ -35,7 +35,6 @@ interface OutletContext {
 }
 
 export default function ProfileTaggedPost() {
-  const { username } = useParams();
   const { user, isOwnProfile } = useOutletContext<OutletContext>();
   const [posts, setPosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);

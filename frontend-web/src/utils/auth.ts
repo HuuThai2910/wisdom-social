@@ -5,11 +5,18 @@ const AUTH_KEY = 'authed';
 const USER_KEY = 'current_user';
 const API_BASE_URL = 'http://localhost:8080/api';
 
+// Callback để thông báo khi auth state thay đổi
+let authChangeCallback: (() => void) | null = null;
+
+export const setAuthChangeCallback = (callback: () => void) => {
+    authChangeCallback = callback;
+};
+
 export const login = async (username: string): Promise<boolean> => {
     try {
-        // Call API to login with username only (no password needed)
-        const response = await axios.post(`${API_BASE_URL}/auth/login`, {
-            username: username
+        // Call test-login API (no password needed)
+        const response = await axios.get(`${API_BASE_URL}/auth/test-login`, {
+            params: { username }
         });
 
         console.log('Login response:', response.data);
@@ -25,6 +32,10 @@ export const login = async (username: string): Promise<boolean> => {
                 bio: userData.bio,
                 phone: userData.phone
             }));
+            // Trigger callback để cập nhật AuthContext
+            if (authChangeCallback) {
+                authChangeCallback();
+            }
             return true;
         }
         return false;
@@ -37,6 +48,10 @@ export const login = async (username: string): Promise<boolean> => {
 export const logout = (): void => {
     localStorage.removeItem(AUTH_KEY);
     localStorage.removeItem(USER_KEY);
+    // Trigger callback để cập nhật AuthContext
+    if (authChangeCallback) {
+        authChangeCallback();
+    }
 };
 
 export const isAuthenticated = (): boolean => {

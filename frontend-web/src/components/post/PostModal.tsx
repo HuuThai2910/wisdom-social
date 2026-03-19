@@ -1,9 +1,8 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate as _useNavigate } from "react-router-dom";
 import {
   X,
   Heart,
-  MessageCircle,
   Send,
   Bookmark,
   MoreHorizontal,
@@ -12,13 +11,13 @@ import {
   Link as LinkIcon,
   MapPin,
   Users,
-  Image as ImageIcon,
   Globe,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
 import axiosClient from "../../api/axiosClient";
 import FriendSelectorModal from "./FriendSelectorModal";
+import EditPostModal from "./EditPostModal";
 import { useAuth } from "../../contexts/AuthContext";
 
 interface PostModalProps {
@@ -66,7 +65,6 @@ interface CommentData {
 }
 
 export default function PostModal({ postId, onClose }: PostModalProps) {
-  const navigate = useNavigate();
   const { currentUser } = useAuth();
   const [post, setPost] = useState<PostData | null>(null);
   const [author, setAuthor] = useState<UserData | null>(null);
@@ -77,24 +75,16 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
   const [commentInput, setCommentInput] = useState("");
   const [submittingComment, setSubmittingComment] = useState(false);
   const [showReactions, setShowReactions] = useState(false);
+  const reactionsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
   const [currentReaction, setCurrentReaction] = useState<string | null>(null);
   const [reactCount, setReactCount] = useState(0);
   const [isSaved, setIsSaved] = useState(false);
   const [showMentionDropdown, setShowMentionDropdown] = useState(false);
-  const [mentionSearch, setMentionSearch] = useState("");
   const [mentionUsers, setMentionUsers] = useState<UserData[]>([]);
   const [mentionCursorPos, setMentionCursorPos] = useState(0);
   const [isEditing, setIsEditing] = useState(false);
-  const [editContent, setEditContent] = useState("");
-  const [isUpdating, setIsUpdating] = useState(false);
-  const [editImages, setEditImages] = useState<File[]>([]);
-  const [editExistingMedia, setEditExistingMedia] = useState<any[]>([]);
-  const [editLocation, setEditLocation] = useState("");
-  const [editTaggedUsers, setEditTaggedUsers] = useState<UserData[]>([]);
-  const [editPrivacy, setEditPrivacy] = useState<string>("PUBLIC");
-  const [showTagSearch, setShowTagSearch] = useState(false);
-  const [tagSearchQuery, setTagSearchQuery] = useState("");
-  const [tagSearchResults, setTagSearchResults] = useState<UserData[]>([]);
   const [showPrivacyMenu, setShowPrivacyMenu] = useState(false);
   const [showSpecificModal, setShowSpecificModal] = useState(false);
   const [showExcludedModal, setShowExcludedModal] = useState(false);
@@ -219,9 +209,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
   const handleEdit = () => {
     if (!post) return;
     setShowMenu(false);
-    console.log("Navigating to edit post:", postId);
-    // Don't call onClose() - let the route change handle unmounting
-    navigate(`/edit-post/${postId}`);
+    setIsEditing(true);
   };
 
   const handleChangePrivacy = async (
@@ -271,86 +259,6 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
     } catch (error) {
       console.error("Error updating privacy:", error);
       alert("Failed to update privacy.");
-    }
-  };
-
-  const handleCancelEdit = () => {
-    setIsEditing(false);
-    setEditContent("");
-    setEditImages([]);
-    setEditExistingMedia([]);
-    setEditLocation("");
-    setEditTaggedUsers([]);
-    setEditPrivacy("PUBLIC");
-    setShowTagSearch(false);
-    setTagSearchQuery("");
-  };
-
-  const handleSaveEdit = async () => {
-    if (!post || !editContent.trim()) return;
-
-    try {
-      setIsUpdating(true);
-      const currentUser = { id: 1 }; // TODO: Get from auth context
-
-      // Prepare form data
-      const formData = new FormData();
-
-      const postData = {
-        content: editContent.trim(),
-        privacy: editPrivacy,
-        location: editLocation || null,
-        taggedUserIds: editTaggedUsers.map((u) => u.id.toString()),
-        existingMediaUrls: editExistingMedia.map((m) => m.url),
-      };
-
-      formData.append("postData", JSON.stringify(postData));
-      formData.append("userId", currentUser.id.toString());
-
-      // Append new images
-      editImages.forEach((image) => {
-        formData.append("images", image);
-      });
-
-      const response = await axiosClient.put(`/posts/${postId}`, formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      });
-
-      // Update post state with edited content
-      setPost(response.data.data);
-
-      // Refresh tagged users
-      const updatedPost = response.data.data;
-      if (updatedPost.taggedUserIds && updatedPost.taggedUserIds.length > 0) {
-        const taggedUsersPromises = updatedPost.taggedUserIds.map(
-          (userId: string) =>
-            axiosClient.get(`/auth/user/id/${userId}`).catch(() => null)
-        );
-        const taggedUsersResponses = await Promise.all(taggedUsersPromises);
-        const fetchedTaggedUsers = taggedUsersResponses
-          .filter((res) => res !== null)
-          .map((res) => res!.data.data);
-        setTaggedUsers(fetchedTaggedUsers);
-      } else {
-        setTaggedUsers([]);
-      }
-
-      setIsEditing(false);
-      setEditContent("");
-      setEditImages([]);
-      setEditExistingMedia([]);
-      setEditLocation("");
-      setEditTaggedUsers([]);
-      alert("Cập nhật bài viết thành công!");
-    } catch (error) {
-      console.error("Error updating post:", error);
-      alert(
-        "Không thể cập nhật bài viết. Bạn chỉ có thể sửa bài viết của mình."
-      );
-    } finally {
-      setIsUpdating(false);
     }
   };
 
@@ -458,7 +366,6 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
       const afterAt = textBeforeCursor.substring(atIndex + 1);
       // Check if there's no space after @
       if (!afterAt.includes(" ")) {
-        setMentionSearch(afterAt);
         setShowMentionDropdown(true);
 
         // Search users if query is not empty
@@ -517,8 +424,8 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
         },
       });
 
-      // If response.data is null, reaction was removed
-      if (response.data.data === null) {
+      // If response.data.data is null/undefined, reaction was removed
+      if (response.data.data == null) {
         setCurrentReaction(null);
         setReactCount((prev) => Math.max(0, prev - 1));
       } else {
@@ -871,267 +778,19 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
                 className="w-8 h-8 rounded-full shrink-0"
               />
               <div className="flex-1">
-                {isEditing ? (
-                  <div className="space-y-3">
-                    {/* Content textarea */}
-                    <textarea
-                      value={editContent}
-                      onChange={(e) => setEditContent(e.target.value)}
-                      className="w-full p-3 border dark:border-gray-700 rounded-lg text-sm dark:bg-gray-800 dark:text-white resize-none"
-                      rows={4}
-                      placeholder="Nội dung bài viết..."
-                    />
-
-                    {/* Existing images with delete option */}
-                    {editExistingMedia.length > 0 && (
-                      <div className="space-y-2">
-                        <p className="text-xs text-gray-600 dark:text-gray-400">
-                          Ảnh hiện tại:
-                        </p>
-                        <div className="grid grid-cols-3 gap-2">
-                          {editExistingMedia.map((media, index) => (
-                            <div key={index} className="relative group">
-                              <img
-                                src={media.url}
-                                alt=""
-                                className="w-full h-24 object-cover rounded-lg"
-                              />
-                              <button
-                                onClick={() =>
-                                  setEditExistingMedia(
-                                    editExistingMedia.filter(
-                                      (_, i) => i !== index
-                                    )
-                                  )
-                                }
-                                className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* New images preview */}
-                    {editImages.length > 0 && (
-                      <div className="space-y-2">
-                        <p className="text-xs text-gray-600 dark:text-gray-400">
-                          Ảnh mới:
-                        </p>
-                        <div className="grid grid-cols-3 gap-2">
-                          {editImages.map((file, index) => (
-                            <div key={index} className="relative group">
-                              <img
-                                src={URL.createObjectURL(file)}
-                                alt=""
-                                className="w-full h-24 object-cover rounded-lg"
-                              />
-                              <button
-                                onClick={() =>
-                                  setEditImages(
-                                    editImages.filter((_, i) => i !== index)
-                                  )
-                                }
-                                className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Upload images button */}
-                    <label className="flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-700 rounded-lg cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-600 text-sm">
-                      <ImageIcon className="w-4 h-4" />
-                      <span>Thêm ảnh</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        multiple
-                        className="hidden"
-                        onChange={(e) => {
-                          const files = Array.from(e.target.files || []);
-                          setEditImages([...editImages, ...files]);
-                        }}
-                      />
-                    </label>
-
-                    {/* Location input */}
-                    <div className="flex items-center gap-2">
-                      <MapPin className="w-4 h-4 text-gray-500" />
-                      <input
-                        type="text"
-                        value={editLocation}
-                        onChange={(e) => setEditLocation(e.target.value)}
-                        placeholder="Thêm địa điểm..."
-                        className="flex-1 px-3 py-2 text-sm border dark:border-gray-700 rounded-lg dark:bg-gray-800 dark:text-white"
-                      />
-                    </div>
-
-                    {/* Tagged users */}
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <Users className="w-4 h-4 text-gray-500" />
-                        <button
-                          onClick={() => setShowTagSearch(!showTagSearch)}
-                          className="text-sm text-blue-500 hover:underline"
-                        >
-                          {editTaggedUsers.length > 0
-                            ? `Đã tag ${editTaggedUsers.length} người`
-                            : "Tag bạn bè"}
-                        </button>
-                      </div>
-
-                      {editTaggedUsers.length > 0 && (
-                        <div className="flex flex-wrap gap-2">
-                          {editTaggedUsers.map((user) => (
-                            <div
-                              key={user.id}
-                              className="flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900 rounded-full text-xs"
-                            >
-                              <span>{user.username}</span>
-                              <button
-                                onClick={() =>
-                                  setEditTaggedUsers(
-                                    editTaggedUsers.filter(
-                                      (u) => u.id !== user.id
-                                    )
-                                  )
-                                }
-                                className="text-gray-600 dark:text-gray-400 hover:text-red-500"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {showTagSearch && (
-                        <div className="relative">
-                          <input
-                            type="text"
-                            value={tagSearchQuery}
-                            onChange={async (e) => {
-                              setTagSearchQuery(e.target.value);
-                              if (e.target.value.trim()) {
-                                try {
-                                  const currentUser = { id: 1 };
-                                  const response = await axiosClient.get(
-                                    `/auth/users/search?userId=${currentUser.id}&query=${e.target.value}`
-                                  );
-                                  setTagSearchResults(response.data.data || []);
-                                } catch (error) {
-                                  console.error(
-                                    "Error searching users:",
-                                    error
-                                  );
-                                }
-                              } else {
-                                setTagSearchResults([]);
-                              }
-                            }}
-                            placeholder="Tìm bạn bè..."
-                            className="w-full px-3 py-2 text-sm border dark:border-gray-700 rounded-lg dark:bg-gray-800 dark:text-white"
-                          />
-                          {tagSearchResults.length > 0 && (
-                            <div className="absolute z-10 w-full mt-1 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                              {tagSearchResults.map((user) => (
-                                <button
-                                  key={user.id}
-                                  onClick={() => {
-                                    if (
-                                      !editTaggedUsers.find(
-                                        (u) => u.id === user.id
-                                      )
-                                    ) {
-                                      setEditTaggedUsers([
-                                        ...editTaggedUsers,
-                                        user,
-                                      ]);
-                                    }
-                                    setTagSearchQuery("");
-                                    setTagSearchResults([]);
-                                  }}
-                                  className="w-full px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
-                                >
-                                  <img
-                                    src={
-                                      user.avatarUrl ||
-                                      "https://i.pravatar.cc/150"
-                                    }
-                                    alt={user.username}
-                                    className="w-6 h-6 rounded-full"
-                                  />
-                                  <div className="text-sm">
-                                    <div className="font-semibold dark:text-white">
-                                      {user.name || user.username}
-                                    </div>
-                                    <div className="text-gray-500 text-xs">
-                                      @{user.username}
-                                    </div>
-                                  </div>
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Privacy selector */}
-                    <div className="flex items-center gap-2">
-                      <Globe className="w-4 h-4 text-gray-500" />
-                      <select
-                        value={editPrivacy}
-                        onChange={(e) => setEditPrivacy(e.target.value)}
-                        className="flex-1 px-3 py-2 text-sm border dark:border-gray-700 rounded-lg dark:bg-gray-800 dark:text-white"
-                      >
-                        <option value="PUBLIC">Công khai</option>
-                        <option value="FRIENDS">Bạn bè</option>
-                        <option value="PRIVATE">Chỉ mình tôi</option>
-                      </select>
-                    </div>
-
-                    {/* Action buttons */}
-                    <div className="flex gap-2 pt-2">
-                      <button
-                        onClick={handleSaveEdit}
-                        disabled={isUpdating || !editContent.trim()}
-                        className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg text-sm font-semibold hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {isUpdating ? "Đang lưu..." : "Lưu thay đổi"}
-                      </button>
-                      <button
-                        onClick={handleCancelEdit}
-                        disabled={isUpdating}
-                        className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg text-sm font-semibold hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        Hủy
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-sm dark:text-white">
-                    <span className="font-semibold mr-2">
-                      {author.username}
-                    </span>
-                    {post.content.split(/(#\w+)/).map((part, index) => {
-                      if (part.startsWith("#")) {
-                        return (
-                          <span key={index} className="text-blue-500">
-                            {part}
-                          </span>
-                        );
-                      }
-                      return part;
-                    })}
-                  </p>
-                )}
+                <p className="text-sm dark:text-white">
+                  <span className="font-semibold mr-2">{author.username}</span>
+                  {post.content.split(/(#\w+)/).map((part, index) => {
+                    if (part.startsWith("#")) {
+                      return (
+                        <span key={index} className="text-blue-500">
+                          {part}
+                        </span>
+                      );
+                    }
+                    return part;
+                  })}
+                </p>
                 {/* Tagged users */}
                 {taggedUsers.length > 0 && (
                   <div className="flex items-center gap-1 mt-2 text-sm text-gray-600 dark:text-gray-400">
@@ -1181,15 +840,24 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
                 {/* Reaction button with picker */}
                 <div
                   className="relative"
-                  onMouseEnter={() => setShowReactions(true)}
-                  onMouseLeave={() => setShowReactions(false)}
+                  onMouseEnter={() => {
+                    if (reactionsTimeoutRef.current)
+                      clearTimeout(reactionsTimeoutRef.current);
+                    setShowReactions(true);
+                  }}
+                  onMouseLeave={() => {
+                    reactionsTimeoutRef.current = setTimeout(
+                      () => setShowReactions(false),
+                      300
+                    );
+                  }}
                 >
                   <button
                     onClick={() => {
                       if (!currentReaction) {
                         handleReaction("LIKE");
                       } else {
-                        setCurrentReaction(null);
+                        handleReaction(currentReaction);
                       }
                     }}
                     className="hover:scale-110 transition-transform"
@@ -1219,7 +887,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
 
                   {/* Reaction picker */}
                   {showReactions && (
-                    <div className="absolute bottom-full left-0 mb-1 bg-white dark:bg-gray-800 rounded-full shadow-2xl border dark:border-gray-700 px-4 py-3 flex gap-2 z-50 animate-in fade-in zoom-in duration-200">
+                    <div className="absolute bottom-full left-0 mb-0 pb-2 bg-white dark:bg-gray-800 rounded-full shadow-2xl border dark:border-gray-700 px-4 py-3 flex gap-2 z-50 animate-in fade-in zoom-in duration-200">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -1419,6 +1087,20 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
         description="Selected friends won't be able to see this post"
         initialSelected={excludedUsers}
       />
+
+      {/* Edit Post Modal */}
+      {isEditing && post && (
+        <EditPostModal
+          postId={postId}
+          post={post}
+          taggedUsers={taggedUsers}
+          onClose={() => setIsEditing(false)}
+          onSaved={(updatedPost) => {
+            setPost(updatedPost as PostData);
+            setIsEditing(false);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -1605,7 +1287,7 @@ function CommentItem({
         },
       });
 
-      if (response.data.data === null) {
+      if (response.data.data == null) {
         // Reaction removed
         setCurrentReaction(null);
         setReactCount((prev) => Math.max(0, prev - 1));

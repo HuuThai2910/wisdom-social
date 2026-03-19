@@ -44,8 +44,13 @@ public class Note {
 
     @Indexed
     private String userId;
-    
+
     private String content;
+
+    private String emoji;
+
+    // Location tag
+    private String location;
 
     // Background theme
     private NoteTheme theme;
@@ -85,18 +90,6 @@ class NoteTheme {
     private String fontFamily;
     private String fontSize;
     private String textAlign;
-}
-
-@Data
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
-class NoteMusic {
-    private String trackId;
-    private String title;
-    private String artist;
-    private String coverUrl;
-    private String previewUrl;
 }
 
 @Data

@@ -6,7 +6,7 @@ package iuh.fit.edu.backend.repository.mysql;
 
 import iuh.fit.edu.backend.constant.FriendStatus;
 import iuh.fit.edu.backend.domain.entity.mysql.Friend;
-import iuh.fit.edu.backend.domain.entity.mysql.User;
+
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
