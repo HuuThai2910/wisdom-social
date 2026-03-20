@@ -68,13 +68,6 @@ public class UserController {
         return ResponseEntity.ok(responseLogin);
     }
 
-    private String getClientIp(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
-        }
-        return request.getRemoteAddr();
-    }
     @PostMapping("/logout")
     public ResponseEntity<String> logoutUser(HttpServletRequest request){
         String idToken = null;
@@ -170,6 +163,12 @@ public class UserController {
         return ResponseEntity.ok(userService.getAllForUser(id));
     }
 
+    @GetMapping("/users/username/{keyword}")
+    @ApiMessage("Get all User by keyword")
+    public ResponseEntity<List<User>> getAllByUsername(@PathVariable String keyword){
+        return ResponseEntity.ok(userService.searchUserByUsername(keyword));
+    }
+
     @GetMapping("/users/blocked/{id}")
     @ApiMessage("Get all User")
     public ResponseEntity<List<User>> getBlockUser(@PathVariable long id){
@@ -215,5 +214,13 @@ public class UserController {
     public ResponseEntity<Map<String,String>> uploadImage(@RequestParam String type,
                                                           @RequestParam String extension){
         return ResponseEntity.ok(s3Service.generateUploadUrl(type,extension));
+    }
+
+    private String getClientIp(HttpServletRequest request) {
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (forwarded != null && !forwarded.isBlank()) {
+            return forwarded.split(",")[0].trim();
+        }
+        return request.getRemoteAddr();
     }
 }

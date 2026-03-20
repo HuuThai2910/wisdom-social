@@ -65,9 +65,6 @@ export default function ProfileScreen() {
     const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
     const [avatarLocalUri, setAvatarLocalUri] = useState('');
     const [pendingAvatarAsset, setPendingAvatarAsset] = useState<{ uri: string; mimeType: string; extension: string } | null>(null);
-    const [isUploadingBackground, setIsUploadingBackground] = useState(false);
-    const [backgroundLocalUri, setBackgroundLocalUri] = useState('');
-    const [pendingBackgroundAsset, setPendingBackgroundAsset] = useState<{ uri: string; mimeType: string; extension: string } | null>(null);
     const [editForm, setEditForm] = useState({
         name: '',
         username: '',
@@ -167,8 +164,6 @@ export default function ProfileScreen() {
         });
         setAvatarLocalUri('');
         setPendingAvatarAsset(null);
-        setBackgroundLocalUri('');
-        setPendingBackgroundAsset(null);
         setShowEditModal(true);
     };
 
@@ -204,8 +199,6 @@ export default function ProfileScreen() {
         const asset = result.assets[0];
         const mimeType = asset.mimeType ?? 'image/jpeg';
         const extension = mimeType.split('/')[1].replace('jpeg', 'jpg');
-        setBackgroundLocalUri(asset.uri);
-        setPendingBackgroundAsset({ uri: asset.uri, mimeType, extension });
     };
 
     const handleSaveProfile = async () => {
@@ -241,14 +234,11 @@ export default function ProfileScreen() {
             if (editForm.birthday) payload.birthday = editForm.birthday;
             if (editForm.gender) payload.gender = editForm.gender;
             if (newAvatarUrl) payload.avatarUrl = newAvatarUrl;
-            if (newBackgroundUrl) payload.backgroundUrl = newBackgroundUrl;
 
             const success = await userService.updateProfile(userId, payload);
             if (success) {
                 setPendingAvatarAsset(null);
                 setAvatarLocalUri('');
-                setPendingBackgroundAsset(null);
-                setBackgroundLocalUri('');
                 setShowEditModal(false);
                 const fresh = await userService.getProfile();
                 if (fresh) {
@@ -263,7 +253,6 @@ export default function ProfileScreen() {
         } finally {
             setIsSaving(false);
             setIsUploadingAvatar(false);
-            setIsUploadingBackground(false);
         }
     };
 

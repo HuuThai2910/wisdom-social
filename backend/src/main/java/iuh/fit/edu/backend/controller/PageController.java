@@ -2,17 +2,16 @@ package iuh.fit.edu.backend.controller;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import iuh.fit.edu.backend.constant.PageRole;
 import iuh.fit.edu.backend.domain.entity.mysql.Page;
 import iuh.fit.edu.backend.domain.entity.mysql.PagePost;
 import iuh.fit.edu.backend.domain.entity.mysql.User;
 import iuh.fit.edu.backend.domain.entity.nosql.Post;
 import iuh.fit.edu.backend.dto.request.CreatePostRequest;
-import iuh.fit.edu.backend.dto.request.page.UserRequestCreatePage;
-import iuh.fit.edu.backend.dto.request.page.UserRequestPage;
-import iuh.fit.edu.backend.dto.request.page.UserRequestPagePost;
-import iuh.fit.edu.backend.dto.request.page.UserRequestUpdatePage;
+import iuh.fit.edu.backend.dto.request.page.*;
 import iuh.fit.edu.backend.dto.response.ApiResponse;
 import iuh.fit.edu.backend.service.PostService;
+import iuh.fit.edu.backend.service.page.PageMemberService;
 import iuh.fit.edu.backend.service.page.PageService;
 import iuh.fit.edu.backend.service.page.PagePostService;
 import iuh.fit.edu.backend.service.user.UserService;
@@ -32,6 +31,7 @@ import java.util.Map;
 public class PageController {
     PageService pageService;
     PagePostService pagePostService;
+    PageMemberService pageMemberService;
     UserService userService;
     S3Service s3Service;
     PostService postService;
@@ -39,13 +39,15 @@ public class PageController {
 
     public PageController(ObjectMapper objectMapper, PagePostService pagePostService,
                           PageService pageService, PostService postService,
-                          S3Service s3Service, UserService userService) {
+                          S3Service s3Service, UserService userService,
+                          PageMemberService pageMemberService) {
         this.objectMapper = objectMapper;
         this.pagePostService = pagePostService;
         this.pageService = pageService;
         this.postService = postService;
         this.s3Service = s3Service;
         this.userService = userService;
+        this.pageMemberService = pageMemberService;
     }
 
     @PostMapping("/create")
@@ -55,7 +57,12 @@ public class PageController {
         if (currentUser == null)
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("User not authenticated");
         Page page= pageService.createPage(currentUser.getId(),createPage);
+
         if (page!=null){
+
+            UserRequestMemberPage userMemberPage=new UserRequestMemberPage(currentUser.getId(),page.getId(), PageRole.ADMIN);
+            pageMemberService.addMemberPage(userMemberPage);
+
             UserRequestUpdatePage userRequestUpdatePage=new UserRequestUpdatePage();
             if (createPage.getAvatarUrl()!=null){
                 String key=s3Service.moveUploadUrl("pages", page.getId(), createPage.getAvatarUrl());

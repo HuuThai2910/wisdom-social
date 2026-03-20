@@ -76,7 +76,15 @@ public class UserServiceImpl implements UserService {
         if(register.getPassword().equals(register.getConfirmPassword())){
             String phone="+84"+register.getPhone().substring(1,10);
             User user=userMapper.UserRegistertoUser(register);
+
             if(user!=null){
+                String username=randomUsernameGenerator();
+                if (userRepository.existsUserByUsername(username)){
+                    username=randomUsernameGenerator();
+                }
+                user.setUsername(username);
+                user.setName("Không rõ");
+
                 SignUpRequest request=SignUpRequest.builder()
                         .clientId(userClientId)
                         .username(phone)
@@ -386,11 +394,32 @@ public class UserServiceImpl implements UserService {
         return false;
     }
 
+    @Override
+    public List<User> searchUserByUsername(String keyword) {
+        return userRepository.findUsersByUsernameContaining(keyword);
+    }
+
     private String convertToInternationalFormat(String phone) {
         if (phone != null && phone.startsWith("0")) {
             return "+84" + phone.substring(1);
         }
         return phone;
+    }
+
+    private String randomUsernameGenerator(){
+        String[] words1 = {"cool", "real", "baby", "mr", "miss", "its", "the", "not", "just"};
+        String[] words2 = {"cat", "boy", "girl", "king", "queen", "vibe", "zone", "life", "mood"};
+        Random random = new Random();
+
+        String part1 = words1[random.nextInt(words1.length)];
+        String part2 = words2[random.nextInt(words2.length)];
+
+        int number = random.nextInt(999);
+
+        String[] separators = {"", "_", "."};
+        String sep = separators[random.nextInt(separators.length)];
+
+        return part1 + sep + part2 + number;
     }
 
 }

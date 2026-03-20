@@ -27,5 +27,6 @@ public interface UserService {
     List<User> getAllBlockUser(long id);
     boolean saveBlockUser(FriendRequest friendRequest);
     boolean cancelBlockUser(FriendRequest friendRequest);
+    List<User> searchUserByUsername(String keyword);
 
 }

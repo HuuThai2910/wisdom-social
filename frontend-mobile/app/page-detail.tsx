@@ -84,8 +84,11 @@ export default function PageDetailScreen() {
     });
 
     const [showMemberModal, setShowMemberModal] = useState(false);
-    const [memberUserId, setMemberUserId] = useState('');
+    const [memberUsername, setMemberUsername] = useState('');
     const [memberRole, setMemberRole] = useState<PageRole>('USER');
+    const [searchResults, setSearchResults] = useState<User[]>([]);
+    const [isSearching, setIsSearching] = useState(false);
+    const [selectedUsers, setSelectedUsers] = useState<User[]>([]);
 
     const styles = createStyles(colors);
     const isOwner = page?.createdBy?.id === user?.id;
@@ -96,6 +99,36 @@ export default function PageDetailScreen() {
     useEffect(() => {
         if (pageId) loadAll();
     }, [pageId]);
+
+    // Tìm kiếm user khi nhập username
+    useEffect(() => {
+        const searchUsers = async () => {
+            if (!memberUsername || memberUsername.length < 2) {
+                setSearchResults([]);
+                return;
+            }
+
+            setIsSearching(true);
+            try {
+                const results = await userService.getUserByUsername(memberUsername);
+                if (results && Array.isArray(results)) {
+                    // Lọc bỏ những user đã là thành viên của page
+                    const memberIds = members.map(m => m.user.id);
+                    const filteredResults = results.filter(u => !memberIds.includes(u.id));
+                    setSearchResults(filteredResults);
+                } else {
+                    setSearchResults([]);
+                }
+            } catch (error) {
+                setSearchResults([]);
+            } finally {
+                setIsSearching(false);
+            }
+        };
+
+        const timeoutId = setTimeout(searchUsers, 300);
+        return () => clearTimeout(timeoutId);
+    }, [memberUsername, members]);
 
     useEffect(() => {
         if (pageId && activeSection === 'posts') {
@@ -421,18 +454,35 @@ export default function PageDetailScreen() {
         ]);
     };
 
+
+
     const handleAddMember = async () => {
-        if (!page || !memberUserId) return;
+        if (!page || selectedUsers.length === 0) {
+            Alert.alert('Lỗi', 'Vui lòng chọn ít nhất một người dùng.');
+            return;
+        }
+
         try {
-            await pageService.addMember({
-                userId: Number(memberUserId),
-                pageId: page.id,
-                pageRole: memberRole,
-            });
+            // Thêm tất cả người dùng đã chọn
+            await Promise.all(
+                selectedUsers.map(user =>
+                    pageService.addMember({
+                        userId: Number(user.id),
+                        pageId: page.id,
+                        pageRole: memberRole,
+                    })
+                )
+            );
+
             setShowMemberModal(false);
-            setMemberUserId('');
+            setMemberUsername('');
+            setSearchResults([]);
+            setSelectedUsers([]);
             await loadAll();
-            Alert.alert('Thành công', 'Đã thêm thành viên vào trang.');
+            Alert.alert(
+                'Thành công',
+                `Đã thêm ${selectedUsers.length} thành viên vào trang.`
+            );
         } catch {
             Alert.alert('Lỗi', 'Không thể thêm thành viên.');
         }
@@ -762,7 +812,7 @@ export default function PageDetailScreen() {
                         {isOwner && (
                             <View style={styles.infoCard}>
                                 <Text style={styles.sectionTitle}>Quản lý trang</Text>
-                                <TouchableOpacity style={styles.managementBtn} onPress={() => { setMemberUserId(''); setMemberRole('USER'); setShowMemberModal(true); }} activeOpacity={0.7}>
+                                <TouchableOpacity style={styles.managementBtn} onPress={() => { setMemberUsername(''); setMemberRole('USER'); setShowMemberModal(true); }} activeOpacity={0.7}>
                                     <Ionicons name="person-add-outline" size={20} color={colors.primary} />
                                     <Text style={[styles.managementBtnText, { color: colors.primary }]}>Thêm thành viên</Text>
                                 </TouchableOpacity>
@@ -901,7 +951,7 @@ export default function PageDetailScreen() {
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                             <Text style={styles.sectionTitle}>Danh sách thành viên</Text>
                             {isOwner && (
-                                <TouchableOpacity onPress={() => { setMemberUserId(''); setMemberRole('USER'); setShowMemberModal(true); }} hitSlop={8}>
+                                <TouchableOpacity onPress={() => { setMemberUsername(''); setMemberRole('USER'); setShowMemberModal(true); }} hitSlop={8}>
                                     <Ionicons name="person-add" size={22} color={colors.primary} />
                                 </TouchableOpacity>
                             )}
@@ -923,7 +973,7 @@ export default function PageDetailScreen() {
                                     )}
                                     <View style={{ flex: 1 }}>
                                         <Text style={styles.memberName}>
-                                            {member.user?.name || member.user?.username || member.user?.phone || `User #${member.user?.id}`}
+                                            { member.user?.username}
                                         </Text>
                                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
                                             <View style={[styles.roleBadge, member.role === 'ADMIN' && { backgroundColor: colors.primary + '20' }]}>
@@ -1129,58 +1179,232 @@ export default function PageDetailScreen() {
             </Modal>
 
             <Modal visible={showMemberModal} animationType="slide" transparent onRequestClose={() => setShowMemberModal(false)}>
-                <View style={styles.overlay}>
-                    <Pressable style={styles.overlayBackdrop} onPress={() => setShowMemberModal(false)} />
-                    <View style={[styles.sheet, { paddingBottom: insets.bottom + 16, maxHeight: '60%' }]}>
-                        <View style={styles.dragBar} />
-                        <View style={styles.sheetHeader}>
-                            <TouchableOpacity onPress={() => setShowMemberModal(false)} hitSlop={12}>
-                                <Text style={styles.sheetCancel}>Hủy</Text>
-                            </TouchableOpacity>
-                            <Text style={styles.sheetTitle}>Thêm thành viên</Text>
-                            <TouchableOpacity onPress={handleAddMember} hitSlop={12}>
-                                <Text style={styles.sheetSave}>Thêm</Text>
-                            </TouchableOpacity>
-                        </View>
-                        <View style={{ paddingHorizontal: 20, paddingTop: 16 }}>
-                            <EditField
-                                label="User ID"
-                                value={memberUserId}
-                                onChange={setMemberUserId}
-                                colors={colors}
-                                placeholder="Nhập ID người dùng"
-                            />
-                            <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textSecondary, marginTop: 16, marginBottom: 8 }}>
-                                Vai trò
-                            </Text>
-                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                                {PAGE_ROLES.map(role => {
-                                    const active = memberRole === role.value;
-                                    return (
-                                        <TouchableOpacity
-                                            key={role.value}
-                                            onPress={() => setMemberRole(role.value)}
-                                            style={{
-                                                paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10,
-                                                borderWidth: 1.5,
-                                                borderColor: active ? colors.primary : colors.border,
-                                                backgroundColor: active ? colors.primary : colors.inputBg,
-                                            }}
-                                            activeOpacity={0.7}
-                                        >
-                                            <Text style={{
-                                                fontSize: 13, fontWeight: active ? '600' : '500',
-                                                color: active ? colors.primaryText : colors.textSecondary,
-                                            }}>
-                                                {role.label}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    );
-                                })}
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    style={{ flex: 1 }}
+                >
+                    <View style={styles.overlay}>
+                        <Pressable style={styles.overlayBackdrop} onPress={() => setShowMemberModal(false)} />
+                        <View style={[styles.sheet, { paddingBottom: insets.bottom + 16, maxHeight: '80%' }]}>
+                            <View style={styles.dragBar} />
+                            <View style={styles.sheetHeader}>
+                                <TouchableOpacity onPress={() => {
+                                    setShowMemberModal(false);
+                                    setMemberUsername('');
+                                    setSearchResults([]);
+                                    setSelectedUsers([]);
+                                }} hitSlop={12}>
+                                    <Text style={styles.sheetCancel}>Hủy</Text>
+                                </TouchableOpacity>
+                                <Text style={styles.sheetTitle}>Thêm thành viên</Text>
+                                <TouchableOpacity
+                                    onPress={handleAddMember}
+                                    hitSlop={12}
+                                    disabled={selectedUsers.length === 0}
+                                >
+                                    <Text style={[
+                                        styles.sheetSave,
+                                        selectedUsers.length === 0 && { color: colors.textTertiary }
+                                    ]}>
+                                        Thêm ({selectedUsers.length})
+                                    </Text>
+                                </TouchableOpacity>
                             </View>
+                            <ScrollView
+                                style={{ paddingHorizontal: 20, paddingTop: 16 }}
+                                keyboardShouldPersistTaps="handled"
+                                showsVerticalScrollIndicator={false}
+                            >
+                                <EditField
+                                    label="Tìm kiếm người dùng"
+                                    value={memberUsername}
+                                    onChange={setMemberUsername}
+                                    colors={colors}
+                                    placeholder="Nhập username để tìm kiếm"
+                                />
+
+                                {/* Danh sách kết quả tìm kiếm */}
+                                {isSearching && (
+                                    <View style={{ padding: 20, alignItems: 'center' }}>
+                                        <ActivityIndicator size="small" color={colors.primary} />
+                                    </View>
+                                )}
+
+                                {!isSearching && searchResults.length > 0 && (
+                                    <View style={{ marginTop: 16 }}>
+                                        <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textSecondary, marginBottom: 8 }}>
+                                            Kết quả tìm kiếm ({searchResults.length})
+                                        </Text>
+                                        {searchResults.map(user => {
+                                            const isSelected = selectedUsers.some(u => u.id === user.id);
+                                            return (
+                                                <TouchableOpacity
+                                                    key={user.id}
+                                                    onPress={() => {
+                                                        if (isSelected) {
+                                                            setSelectedUsers(prev => prev.filter(u => u.id !== user.id));
+                                                        } else {
+                                                            setSelectedUsers(prev => [...prev, user]);
+                                                        }
+                                                    }}
+                                                    style={{
+                                                        flexDirection: 'row',
+                                                        alignItems: 'center',
+                                                        padding: 12,
+                                                        backgroundColor: colors.inputBg,
+                                                        borderRadius: 12,
+                                                        marginBottom: 8,
+                                                        borderWidth: 1.5,
+                                                        borderColor: isSelected ? colors.primary : colors.border,
+                                                    }}
+                                                    activeOpacity={0.7}
+                                                >
+                                                    {/* Checkbox */}
+                                                    <View style={{
+                                                        width: 24,
+                                                        height: 24,
+                                                        borderRadius: 6,
+                                                        borderWidth: 2,
+                                                        borderColor: isSelected ? colors.primary : colors.border,
+                                                        backgroundColor: isSelected ? colors.primary : 'transparent',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        marginRight: 12,
+                                                    }}>
+                                                        {isSelected && (
+                                                            <Ionicons name="checkmark" size={16} color={colors.primaryText} />
+                                                        )}
+                                                    </View>
+
+                                                    {/* Avatar */}
+                                                    <Image
+                                                        source={{ uri: user.avatarUrl ? buildS3Url(user.avatarUrl): 'https://via.placeholder.com/24' }}
+                                                        style={{
+                                                            width: 40,
+                                                            height: 40,
+                                                            borderRadius: 20,
+                                                            marginRight: 12,
+                                                        }}
+                                                    />
+
+                                                    {/* User info */}
+                                                    <View style={{ flex: 1 }}>
+                                                        <Text style={{
+                                                            fontSize: 15,
+                                                            fontWeight: '600',
+                                                            color: colors.text,
+                                                            marginBottom: 2,
+                                                        }}>
+                                                            {user.name}
+                                                        </Text>
+                                                        <Text style={{
+                                                            fontSize: 13,
+                                                            color: colors.textSecondary,
+                                                        }}>
+                                                            @{user.username}
+                                                        </Text>
+                                                    </View>
+                                                </TouchableOpacity>
+                                            );
+                                        })}
+                                    </View>
+                                )}
+
+                                {!isSearching && memberUsername.length >= 2 && searchResults.length === 0 && (
+                                    <View style={{ padding: 20, alignItems: 'center' }}>
+                                        <Ionicons name="search-outline" size={48} color={colors.textTertiary} />
+                                        <Text style={{ fontSize: 14, color: colors.textSecondary, marginTop: 8 }}>
+                                            Không tìm thấy người dùng
+                                        </Text>
+                                    </View>
+                                )}
+
+                                {/* Danh sách người dùng đã chọn */}
+                                {selectedUsers.length > 0 && (
+                                    <View style={{ marginTop: 16 }}>
+                                        <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textSecondary, marginBottom: 8 }}>
+                                            Đã chọn ({selectedUsers.length})
+                                        </Text>
+                                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                                            {selectedUsers.map(user => (
+                                                <View
+                                                    key={user.id}
+                                                    style={{
+                                                        flexDirection: 'row',
+                                                        alignItems: 'center',
+                                                        paddingLeft: 8,
+                                                        paddingRight: 4,
+                                                        paddingVertical: 6,
+                                                        backgroundColor: colors.primary + '20',
+                                                        borderRadius: 20,
+                                                        borderWidth: 1,
+                                                        borderColor: colors.primary,
+                                                    }}
+                                                >
+                                                    <Image
+                                                        source={{ uri: user.avatarUrl? buildS3Url(user.avatarUrl): 'https://via.placeholder.com/24' }}
+                                                        style={{
+                                                            width: 24,
+                                                            height: 24,
+                                                            borderRadius: 12,
+                                                            marginRight: 6,
+                                                        }}
+                                                    />
+                                                    <Text style={{
+                                                        fontSize: 13,
+                                                        fontWeight: '500',
+                                                        color: colors.primary,
+                                                        marginRight: 4,
+                                                    }}>
+                                                        {user.username}/ {user.name}
+                                                    </Text>
+                                                    <TouchableOpacity
+                                                        onPress={() => {
+                                                            setSelectedUsers(prev => prev.filter(u => u.id !== user.id));
+                                                        }}
+                                                        hitSlop={8}
+                                                    >
+                                                        <Ionicons name="close-circle" size={20} color={colors.primary} />
+                                                    </TouchableOpacity>
+                                                </View>
+                                            ))}
+                                        </View>
+                                    </View>
+                                )}
+
+                                <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textSecondary, marginTop: 16, marginBottom: 8 }}>
+                                    Vai trò
+                                </Text>
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                                    {PAGE_ROLES.map(role => {
+                                        const active = memberRole === role.value;
+                                        return (
+                                            <TouchableOpacity
+                                                key={role.value}
+                                                onPress={() => setMemberRole(role.value)}
+                                                style={{
+                                                    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10,
+                                                    borderWidth: 1.5,
+                                                    borderColor: active ? colors.primary : colors.border,
+                                                    backgroundColor: active ? colors.primary : colors.inputBg,
+                                                }}
+                                                activeOpacity={0.7}
+                                            >
+                                                <Text style={{
+                                                    fontSize: 13, fontWeight: active ? '600' : '500',
+                                                    color: active ? colors.primaryText : colors.textSecondary,
+                                                }}>
+                                                    {role.label}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </View>
+                                <View style={{ height: 20 }} />
+                            </ScrollView>
                         </View>
                     </View>
-                </View>
+                </KeyboardAvoidingView>
             </Modal>
 
             <Modal visible={showCreatePostModal} animationType="slide" transparent onRequestClose={() => setShowCreatePostModal(false)}>
