@@ -4,6 +4,8 @@ export type PageStatus = 'PUBLIC' | 'PRIVATE' | 'BANNED';
 
 export type PageRole = 'ADMIN' | 'EDITOR' | 'MODERATOR' | 'ANALYST' | 'USER';
 
+export type MemberStatus = 'PENDING' | 'ACTIVE' | 'REMOVED' | 'REJECTED';
+
 export interface CreatePageRequest {
     name: string;
     username?: string;
@@ -101,6 +103,24 @@ export interface PagePost{
     approvedAt?: string;
     postId: string;
     pageId: number;
+}
+
+export interface PageJoinRequest {
+    userId: number;
+    pageId: number;
+    message?: string;
+}
+
+export interface PendingJoinRequestData {
+    id: number;
+    user: {
+        id: number;
+        name?: string;
+        username?: string;
+        avatarUrl?: string;
+    };
+    status: string;
+    joinedAt?: string;
 }
 
 const pageService = {
@@ -318,6 +338,67 @@ const pageService = {
     getPagePostByIdandPostId: async (postId: string, pageId: number): Promise<PagePost| null> => {
         const response = await apiClient.get(`/page/post/${postId}/${pageId}`);
         return response.data.data;
+    },
+
+    // Join request feature methods
+    requestJoinPage: async (userId: number, pageId: number, message?: string): Promise<string> => {
+        const response = await apiClient.post('/page-member/request-join', {
+            userId,
+            pageId,
+            message
+        });
+        return response.data.data;
+    },
+
+    approveJoinRequest: async (pageId: number, userId: number): Promise<string> => {
+        const response = await apiClient.post('/page-member/approve-join', {
+            pageId,
+            userId
+        });
+        return response.data.data;
+    },
+
+    rejectJoinRequest: async (pageId: number, userId: number): Promise<string> => {
+        const response = await apiClient.post('/page-member/reject-join', {
+            pageId,
+            userId
+        });
+        return response.data.data;
+    },
+
+    getPendingJoinRequests: async (pageId: number): Promise<PendingJoinRequestData[]> => {
+        try {
+            const response = await apiClient.get(`/page-member/pending-requests/${pageId}`);
+            return response.data.data || [];
+        } catch {
+            return [];
+        }
+    },
+
+    getMemberStatus: async (pageId: number, userId: number): Promise<MemberStatus | null> => {
+        try {
+            const response = await apiClient.get(`/page-member/member-status/${pageId}/${userId}`);
+            return response.data.data;
+        } catch {
+            return null;
+        }
+    },
+
+    cancelJoinRequest: async (pageId: number, userId: number): Promise<string> => {
+        const response = await apiClient.post('/page-member/cancel-join', {
+            pageId,
+            userId
+        });
+        return response.data.data;
+    },
+
+    getMemberCount: async (pageId: number): Promise<number> => {
+        try {
+            const response = await apiClient.get(`/page-member/member-count/${pageId}`);
+            return response.data.data || 0;
+        } catch {
+            return 0;
+        }
     },
 };
 

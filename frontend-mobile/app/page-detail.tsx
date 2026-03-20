@@ -22,7 +22,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import pageService from '../services/pageService';
-import type { PageData, UpdatePageRequest, PageRole, PageMemberData, PagePost } from '../services/pageService';
+import type { PageData, UpdatePageRequest, PageRole, PageMemberData, PagePost, MemberStatus, PendingJoinRequestData } from '../services/pageService';
 import type { ThemeColors } from '../contexts/ThemeContext';
 import userService from '../services/userService';
 import { Post, User } from '@/types';
@@ -96,6 +96,11 @@ export default function PageDetailScreen() {
     const [userMap, setUserMap] = useState<Record<string, User>>({});
     const [postApproveMap, setPostApproveMap] = useState<Record<string, PagePost>>({});
 
+    // Join request feature states
+    const [memberStatus, setMemberStatus] = useState<MemberStatus | null>(null);
+    const [pendingRequests, setPendingRequests] = useState<PendingJoinRequestData[]>([]);
+    const [isLoadingPendingRequests, setIsLoadingPendingRequests] = useState(false);
+
     useEffect(() => {
         if (pageId) loadAll();
     }, [pageId]);
@@ -138,6 +143,20 @@ export default function PageDetailScreen() {
             loadWaitingPosts();
         }
     }, [pageId, activeSection, isOwner]);
+
+    // Load member status when pageId or user changes
+    useEffect(() => {
+        if (pageId && user?.id) {
+            loadMemberStatus();
+        }
+    }, [pageId, user?.id]);
+
+    // Load pending requests if user is owner/admin
+    useEffect(() => {
+        if (pageId && isOwner) {
+            loadPendingRequests();
+        }
+    }, [pageId, isOwner]);
 
     const getUserInfo = useCallback(async (authorId: string): Promise<User|null> => {
         const profile = await userService.getUserById(Number(authorId));
@@ -277,6 +296,29 @@ export default function PageDetailScreen() {
             }
         }
         setUsersCache(newCache);
+    };
+
+    const loadMemberStatus = async () => {
+        if (!pageId || !user?.id) return;
+        try {
+            const status = await pageService.getMemberStatus(Number(pageId), user.id);
+            setMemberStatus(status);
+        } catch (error) {
+            console.error('Error loading member status:', error);
+        }
+    };
+
+    const loadPendingRequests = async () => {
+        if (!pageId) return;
+        setIsLoadingPendingRequests(true);
+        try {
+            const requests = await pageService.getPendingJoinRequests(Number(pageId));
+            setPendingRequests(requests);
+        } catch (error) {
+            console.error('Error loading pending requests:', error);
+        } finally {
+            setIsLoadingPendingRequests(false);
+        }
     };
 
 
@@ -588,6 +630,100 @@ export default function PageDetailScreen() {
         ]);
     };
 
+    // Join request handlers
+    const handleRequestJoin = async () => {
+        if (!user?.id || !page) return;
+
+        try {
+            await pageService.requestJoinPage(user.id, page.id);
+            // Reload member status
+            await loadMemberStatus();
+            if (page.status === 'PUBLIC') {
+                Alert.alert('Thành công', 'Bạn đã tham gia trang.');
+            } else {
+                Alert.alert('Thành công', 'Đã gửi yêu cầu tham gia trang. Vui lòng chờ duyệt.');
+            }
+        } catch (error: any) {
+            const message = error?.response?.data?.message || 'Không thể gửi yêu cầu.';
+            Alert.alert('Lỗi', message);
+        }
+    };
+
+    const handleApproveJoinRequest = async (userId: number, userName: string) => {
+        if (!page) return;
+
+        Alert.alert(
+            'Duyệt yêu cầu',
+            `Chấp nhận ${userName} vào trang?`,
+            [
+                { text: 'Hủy', style: 'cancel' },
+                {
+                    text: 'Duyệt',
+                    onPress: async () => {
+                        try {
+                            await pageService.approveJoinRequest(page.id, userId);
+                            Alert.alert('Thành công', 'Đã duyệt yêu cầu.');
+                            await loadPendingRequests();
+                            await loadAll();
+                        } catch {
+                            Alert.alert('Lỗi', 'Không thể duyệt yêu cầu.');
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
+    const handleRejectJoinRequest = async (userId: number, userName: string) => {
+        if (!page) return;
+
+        Alert.alert(
+            'Từ chối yêu cầu',
+            `Từ chối ${userName}?`,
+            [
+                { text: 'Hủy', style: 'cancel' },
+                {
+                    text: 'Từ chối',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            await pageService.rejectJoinRequest(page.id, userId);
+                            Alert.alert('Thành công', 'Đã từ chối yêu cầu.');
+                            await loadPendingRequests();
+                        } catch {
+                            Alert.alert('Lỗi', 'Không thể từ chối yêu cầu.');
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
+    const handleCancelJoinRequest = async () => {
+        if (!user?.id || !page) return;
+
+        Alert.alert(
+            'Hủy yêu cầu tham gia',
+            'Bạn có chắc muốn hủy yêu cầu tham gia trang này?',
+            [
+                { text: 'Không', style: 'cancel' },
+                {
+                    text: 'Hủy yêu cầu',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            await pageService.cancelJoinRequest(page.id, user.id);
+                            setMemberStatus(null);
+                            Alert.alert('Thành công', 'Đã hủy yêu cầu tham gia.');
+                        } catch {
+                            Alert.alert('Lỗi', 'Không thể hủy yêu cầu.');
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
     const pickPostImages = async () => {
         const result = await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ['images'],
@@ -756,6 +892,38 @@ export default function PageDetailScreen() {
                                 {isFollowing ? 'Đang theo dõi' : 'Theo dõi'}
                             </Text>
                         </TouchableOpacity>
+                        {/* Join button for non-owner users */}
+                        {!isOwner && memberStatus === null && (
+                            <TouchableOpacity
+                                style={styles.actionBtn}
+                                onPress={handleRequestJoin}
+                                activeOpacity={0.75}
+                            >
+                                <Ionicons name="person-add-outline" size={20} color={colors.primary} />
+                                <Text style={styles.actionBtnText}>
+                                    {page?.status === 'PUBLIC' ? 'Tham gia' : 'Xin tham gia'}
+                                </Text>
+                            </TouchableOpacity>
+                        )}
+                        {!isOwner && memberStatus === 'PENDING' && (
+                            <TouchableOpacity
+                                style={[styles.actionBtn, { borderColor: colors.warning, backgroundColor: colors.warningBg }]}
+                                onPress={handleCancelJoinRequest}
+                                activeOpacity={0.75}
+                            >
+                                <Ionicons name="time-outline" size={20} color={colors.warning} />
+                                <Text style={[styles.actionBtnText, { color: colors.warning }]}>
+                                    Hủy yêu cầu
+                                </Text>
+                            </TouchableOpacity>
+                        )}
+                        {!isOwner && memberStatus === 'ACTIVE' && (
+                            <View style={[styles.actionBtn, styles.actionBtnActive]}>
+                                <Ionicons name="checkmark-circle" size={20} color="#fff" />
+                                <Text style={styles.actionBtnTextActive}>Đã tham gia</Text>
+                            </View>
+                        )}
+                        
                     </View>
                 </View>
 
@@ -824,6 +992,83 @@ export default function PageDetailScreen() {
                                     <Ionicons name="trash-outline" size={20} color={colors.danger} />
                                     <Text style={[styles.managementBtnText, { color: colors.danger }]}>Xóa trang</Text>
                                 </TouchableOpacity>
+                            </View>
+                        )}
+
+                        {/* Pending Join Requests Section */}
+                        {isOwner && pendingRequests.length > 0 && (
+                            <View style={styles.infoCard}>
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                                    <Text style={styles.sectionTitle}>
+                                        Yêu cầu tham gia ({pendingRequests.length})
+                                    </Text>
+                                </View>
+
+                                {isLoadingPendingRequests ? (
+                                    <ActivityIndicator size="small" color={colors.primary} />
+                                ) : (
+                                    <View style={{ gap: 12 }}>
+                                        {pendingRequests.map((request) => (
+                                            <View key={request.id} style={[styles.postCard, { backgroundColor: colors.warningBg, borderColor: colors.warning + '40' }]}>
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                                                    {request.user?.avatarUrl ? (
+                                                        <Image
+                                                            source={{ uri: buildS3Url(request.user.avatarUrl) }}
+                                                            style={styles.memberAvatar}
+                                                        />
+                                                    ) : (
+                                                        <View style={styles.memberAvatarFallback}>
+                                                            <Ionicons name="person" size={18} color={colors.textTertiary} />
+                                                        </View>
+                                                    )}
+
+                                                    <View style={{ flex: 1, marginLeft: 12 }}>
+                                                        <Text style={styles.memberName}>
+                                                            {request.user?.name || request.user?.username || 'Người dùng'}
+                                                        </Text>
+                                                        <Text style={{ fontSize: 12, color: colors.textTertiary }}>
+                                                            @{request.user?.username || 'unknown'}
+                                                        </Text>
+                                                        <Text style={{ fontSize: 11, color: colors.textTertiary, marginTop: 2 }}>
+                                                            {request.joinedAt
+                                                                ? new Date(request.joinedAt).toLocaleDateString('vi-VN')
+                                                                : 'Vừa xong'
+                                                            }
+                                                        </Text>
+                                                    </View>
+                                                </View>
+
+                                                <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+                                                    <TouchableOpacity
+                                                        style={[styles.postActionBtn, { flex: 1, backgroundColor: colors.successBg }]}
+                                                        onPress={() => handleApproveJoinRequest(
+                                                            request.user.id,
+                                                            request.user.name || request.user.username || 'người dùng'
+                                                        )}
+                                                    >
+                                                        <Ionicons name="checkmark" size={16} color={colors.success} />
+                                                        <Text style={[styles.postActionText, { color: colors.success }]}>
+                                                            Duyệt
+                                                        </Text>
+                                                    </TouchableOpacity>
+
+                                                    <TouchableOpacity
+                                                        style={[styles.postActionBtn, { flex: 1, backgroundColor: colors.errorBg }]}
+                                                        onPress={() => handleRejectJoinRequest(
+                                                            request.user.id,
+                                                            request.user.name || request.user.username || 'người dùng'
+                                                        )}
+                                                    >
+                                                        <Ionicons name="close" size={16} color={colors.error} />
+                                                        <Text style={[styles.postActionText, { color: colors.error }]}>
+                                                            Từ chối
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                </View>
+                                            </View>
+                                        ))}
+                                    </View>
+                                )}
                             </View>
                         )}
 
@@ -1004,11 +1249,11 @@ export default function PageDetailScreen() {
                     <View style={styles.infoCard}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                             <Text style={styles.sectionTitle}>Bài viết của trang</Text>
-                            {isOwner && (
+                            
                                 <TouchableOpacity onPress={() => setShowCreatePostModal(true)} hitSlop={8}>
                                     <Ionicons name="add-circle" size={24} color={colors.primary} />
                                 </TouchableOpacity>
-                            )}
+                            
                         </View>
 
                         {isLoadingPosts ? (
@@ -1586,11 +1831,12 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
         flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 12,
     },
     statusText: { fontSize: 13, color: colors.textSecondary },
-    actionRow: { flexDirection: 'row', gap: 12, marginTop: 18, justifyContent: 'center' },
+    actionRow: { flexDirection: 'row', gap: 12, marginTop: 18, justifyContent: 'center', flexWrap: 'wrap' },
     actionBtn: {
-        flexDirection: 'row', alignItems: 'center', gap: 6,
-        paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12,
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+        paddingHorizontal: 16, paddingVertical: 12, borderRadius: 12,
         borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.inputBg,
+        minWidth: 100, flexGrow: 1,
     },
     actionBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
     actionBtnText: { fontSize: 14, fontWeight: '600', color: colors.text },

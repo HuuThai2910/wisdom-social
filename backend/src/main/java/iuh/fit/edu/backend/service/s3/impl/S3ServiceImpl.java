@@ -13,7 +13,6 @@ import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignReques
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -22,9 +21,6 @@ public class S3ServiceImpl implements S3Service {
     private final S3Client s3Client;
     @Value("${aws.s3.bucket-name}")
     private String bucketName;
-    private static final Set<String> ALLOWED_EXTENSIONS=
-            Set.of("png","jpg","jpeg");
-
 
     public S3ServiceImpl( S3Presigner s3Presigner,
                          S3Client s3Client
@@ -35,8 +31,6 @@ public class S3ServiceImpl implements S3Service {
 
     @Override
     public Map<String, String> generateUpdateUploadUrl(String type,long id,String extension) {
-
-        validateExtension(extension);
         String contentType=getContentType(extension);
 
         String uuid= UUID.randomUUID().toString();
@@ -66,7 +60,6 @@ public class S3ServiceImpl implements S3Service {
 
     @Override
     public Map<String, String> generateUploadUrl(String type, String extension) {
-        validateExtension(extension);
         String contentType=getContentType(extension);
 
         String uuid=UUID.randomUUID().toString();
@@ -119,16 +112,7 @@ public class S3ServiceImpl implements S3Service {
         return "images/avatars/"+type+"/" + id + "/" + uuid + "."+extension;
     }
 
-    public void validateExtension(String extension){
-        if(!ALLOWED_EXTENSIONS.contains(extension)){
-            throw new RuntimeException("Invalid file type");
-        }
-    }
-
     public String getContentType(String extension) {
-        if (extension.equalsIgnoreCase("png")) {
-            return "image/png";
-        }
-        return "image/jpeg";
+        return "image/" + extension.toLowerCase();
     }
 }

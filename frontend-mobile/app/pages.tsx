@@ -16,7 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import pageService from '../services/pageService';
-import type { PageData } from '../services/pageService';
+import type { PageData, MemberStatus } from '../services/pageService';
 import type { ThemeColors } from '../contexts/ThemeContext';
 
 interface PageInteraction {
@@ -24,6 +24,8 @@ interface PageInteraction {
     isFollowing: boolean;
     likeCount: number;
     followCount: number;
+    memberCount: number;
+    memberStatus: MemberStatus | null;
 }
 
 const S3_BASE = 'https://cnmt-hk1-amz.s3.ap-southeast-1.amazonaws.com/';
@@ -71,9 +73,17 @@ export default function PagesScreen() {
     };
 
     const loadInteractions = async (pageIds: number[]) => {
+        if (!user?.id) return;
         try {
             const results = await Promise.all(
-                pageIds.map(id => pageService.getPageInteractionStatus(id).then(data => ({ id, data })))
+                pageIds.map(async (id) => {
+                    const [data, memberStatus, memberCount] = await Promise.all([
+                        pageService.getPageInteractionStatus(id),
+                        pageService.getMemberStatus(id, user.id),
+                        pageService.getMemberCount(id),
+                    ]);
+                    return { id, data: { ...data, memberStatus, memberCount } };
+                })
             );
             const map: Record<number, PageInteraction> = {};
             for (const r of results) {
@@ -152,6 +162,56 @@ export default function PagesScreen() {
                             Alert.alert('Thành công', 'Đã xóa trang.');
                         } catch {
                             Alert.alert('Lỗi', 'Không thể xóa trang.');
+                        }
+                    },
+                },
+            ]
+        );
+    };
+
+    const handleRequestJoin = async (pageId: number, pageStatus: string) => {
+        if (!user?.id) return;
+        try {
+            await pageService.requestJoinPage(user.id, pageId);
+            const [data, memberStatus, memberCount] = await Promise.all([
+                pageService.getPageInteractionStatus(pageId),
+                pageService.getMemberStatus(pageId, user.id),
+                pageService.getMemberCount(pageId),
+            ]);
+            setInteractions(prev => ({
+                ...prev,
+                [pageId]: { ...data, memberStatus, memberCount },
+            }));
+            if (pageStatus === 'PUBLIC') {
+                Alert.alert('Thành công', 'Bạn đã tham gia trang.');
+            } else {
+                Alert.alert('Thành công', 'Đã gửi yêu cầu tham gia.');
+            }
+        } catch {
+            Alert.alert('Lỗi', 'Không thể gửi yêu cầu.');
+        }
+    };
+
+    const handleCancelJoin = async (pageId: number) => {
+        if (!user?.id) return;
+        Alert.alert(
+            'Hủy yêu cầu',
+            'Bạn có chắc muốn hủy yêu cầu tham gia?',
+            [
+                { text: 'Không', style: 'cancel' },
+                {
+                    text: 'Hủy yêu cầu',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            await pageService.cancelJoinRequest(pageId, user.id);
+                            setInteractions(prev => ({
+                                ...prev,
+                                [pageId]: { ...prev[pageId], memberStatus: null },
+                            }));
+                            Alert.alert('Thành công', 'Đã hủy yêu cầu tham gia.');
+                        } catch {
+                            Alert.alert('Lỗi', 'Không thể hủy yêu cầu.');
                         }
                     },
                 },
@@ -239,6 +299,8 @@ export default function PagesScreen() {
                                 onToggleLike={() => handleToggleLike(page.id)}
                                 onToggleFollow={() => handleToggleFollow(page.id)}
                                 onDelete={() => handleDeletePage(page.id)}
+                                onRequestJoin={() => handleRequestJoin(page.id, page.status || 'PUBLIC')}
+                                onCancelJoin={() => handleCancelJoin(page.id)}
                             />
                         ))
                     )}
@@ -249,32 +311,97 @@ export default function PagesScreen() {
 }
 
 function PageCard({
-    page, isOwner, interaction, colors, styles, onPress, onToggleLike, onToggleFollow, onDelete,
+    page, isOwner, interaction, colors, styles, onPress, onToggleLike, onToggleFollow, onDelete, onRequestJoin, onCancelJoin,
 }: {
     page: PageData; isOwner: boolean; interaction?: PageInteraction;
     colors: ThemeColors; styles: any;
     onPress: () => void; onToggleLike: () => void; onToggleFollow: () => void; onDelete: () => void;
+    onRequestJoin: () => void; onCancelJoin: () => void;
 }) {
     const liked = interaction?.isLiked ?? false;
     const following = interaction?.isFollowing ?? false;
     const likeCount = interaction?.likeCount ?? 0;
     const followCount = interaction?.followCount ?? 0;
+    const memberCount = interaction?.memberCount ?? 0;
+    const memberStatus = interaction?.memberStatus ?? null;
+
+    // Determine which action buttons to show on the right side
+    const renderMemberAction = () => {
+        if (isOwner) {
+            return (
+                <TouchableOpacity
+                    style={[styles.actionBtnSecondary, styles.actionBtnDanger]}
+                    onPress={onDelete}
+                    activeOpacity={0.7}
+                >
+                    <Ionicons name="trash-outline" size={15} color={colors.danger} />
+                    <Text style={[styles.actionBtnSecondaryText, { color: colors.danger }]}>Xóa</Text>
+                </TouchableOpacity>
+            );
+        }
+
+        if (memberStatus === 'ACTIVE') {
+            return (
+                <View style={[styles.actionBtnSecondary, styles.actionBtnFilled]}>
+                    <Ionicons name="checkmark-circle" size={15} color="#fff" />
+                    <Text style={[styles.actionBtnSecondaryText, { color: '#fff' }]}>Đã tham gia</Text>
+                </View>
+            );
+        }
+
+        if (memberStatus === 'PENDING') {
+            return (
+                <TouchableOpacity
+                    style={[styles.actionBtnSecondary, styles.actionBtnWarning]}
+                    onPress={onCancelJoin}
+                    activeOpacity={0.7}
+                >
+                    <Ionicons name="time-outline" size={15} color={colors.warning} />
+                    <Text style={[styles.actionBtnSecondaryText, { color: colors.warning }]}>Hủy y/c</Text>
+                </TouchableOpacity>
+            );
+        }
+
+        // memberStatus === null, not owner
+        return (
+            <TouchableOpacity
+                style={[styles.actionBtnSecondary, styles.actionBtnOutline]}
+                onPress={onRequestJoin}
+                activeOpacity={0.7}
+            >
+                <Ionicons name="person-add-outline" size={15} color={colors.primary} />
+                <Text style={[styles.actionBtnSecondaryText, { color: colors.primary }]}>
+                    {page.status === 'PUBLIC' ? 'Tham gia' : 'Xin tham gia'}
+                </Text>
+            </TouchableOpacity>
+        );
+    };
 
     return (
         <TouchableOpacity style={styles.pageCard} onPress={onPress} activeOpacity={0.8}>
+            {/* Status badge */}
+            {page.status && (
+                <View style={[styles.statusBadge, page.status === 'PUBLIC' ? styles.statusPublic : styles.statusPrivate]}>
+                    <Text style={[styles.statusText, { color: page.status === 'PUBLIC' ? '#166534' : '#92400E' }]}>
+                        {page.status === 'PUBLIC' ? 'Công khai' : page.status === 'PRIVATE' ? 'Riêng tư' : page.status}
+                    </Text>
+                </View>
+            )}
+
+            {/* Header: avatar + info */}
             <View style={styles.pageCardHeader}>
                 {page.avatarUrl ? (
                     <Image source={{ uri: buildS3Url(page.avatarUrl) }} style={styles.pageAvatar} />
                 ) : (
                     <View style={styles.pageAvatarFallback}>
-                        <Ionicons name="flag" size={28} color={colors.textTertiary} />
+                        <Ionicons name="flag" size={26} color={colors.textTertiary} />
                     </View>
                 )}
                 <View style={styles.pageInfo}>
                     <View style={styles.pageNameRow}>
                         <Text style={styles.pageName} numberOfLines={1}>{page.name}</Text>
                         {page.isVerified && (
-                            <Ionicons name="checkmark-circle" size={16} color="#3B82F6" style={{ marginLeft: 4 }} />
+                            <Ionicons name="checkmark-circle" size={15} color="#3B82F6" style={{ marginLeft: 4 }} />
                         )}
                     </View>
                     {page.username && <Text style={styles.pageUsername}>@{page.username}</Text>}
@@ -286,65 +413,68 @@ function PageCard({
                 </View>
             </View>
 
+            {/* Description */}
             {page.description ? (
                 <Text style={styles.pageDesc} numberOfLines={2}>{page.description}</Text>
             ) : null}
 
+            {/* Stats row */}
             <View style={styles.statsRow}>
                 <View style={styles.statItem}>
-                    <Ionicons name="heart" size={14} color={colors.danger} />
+                    <Ionicons name="heart" size={13} color={colors.danger} />
                     <Text style={styles.statText}>{likeCount}</Text>
                 </View>
+                <View style={styles.statDivider} />
                 <View style={styles.statItem}>
-                    <Ionicons name="people" size={14} color={colors.primary} />
+                    <Ionicons name="people" size={13} color={colors.primary} />
+                    <Text style={styles.statText}>{memberCount}</Text>
+                </View>
+                <View style={styles.statDivider} />
+                <View style={styles.statItem}>
+                    <Ionicons name="eye" size={13} color={colors.success} />
                     <Text style={styles.statText}>{followCount}</Text>
                 </View>
             </View>
 
+            {/* Action row: Like (left, flex) | Follow + Member (right) */}
             <View style={styles.actionRow}>
+                {/* Like button - takes up left side */}
                 <TouchableOpacity
-                    style={[styles.actionBtn, liked && styles.actionBtnActive]}
+                    style={[styles.actionBtnLike, liked && styles.actionBtnLikeActive]}
                     onPress={onToggleLike}
                     activeOpacity={0.7}
                 >
                     <Ionicons
                         name={liked ? 'heart' : 'heart-outline'}
-                        size={18}
+                        size={15}
                         color={liked ? '#fff' : colors.danger}
                     />
-                    <Text style={[styles.actionBtnText, { color: liked ? '#fff' : colors.danger }]}>
+                    <Text style={[styles.actionBtnLikeText, { color: liked ? '#fff' : colors.danger }]}>
                         {liked ? 'Đã thích' : 'Thích'}
                     </Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                    style={[styles.actionBtn, following && styles.actionBtnActiveFollow]}
-                    onPress={onToggleFollow}
-                    activeOpacity={0.7}
-                >
-                    <Ionicons
-                        name={following ? 'checkmark-circle' : 'add-circle-outline'}
-                        size={18}
-                        color={following ? '#fff' : colors.primary}
-                    />
-                    <Text style={[styles.actionBtnText, { color: following ? '#fff' : colors.primary }]}>
-                        {following ? 'Đang theo dõi' : 'Theo dõi'}
-                    </Text>
-                </TouchableOpacity>
-                {isOwner && (
-                    <TouchableOpacity style={styles.actionBtn} onPress={onDelete} activeOpacity={0.7}>
-                        <Ionicons name="trash-outline" size={18} color={colors.danger} />
-                        <Text style={[styles.actionBtnText, { color: colors.danger }]}>Xóa</Text>
-                    </TouchableOpacity>
-                )}
-            </View>
 
-            {page.status && (
-                <View style={[styles.statusBadge, page.status === 'PUBLIC' ? styles.statusPublic : styles.statusPrivate]}>
-                    <Text style={styles.statusText}>
-                        {page.status === 'PUBLIC' ? 'Công khai' : page.status === 'PRIVATE' ? 'Riêng tư' : page.status}
-                    </Text>
+                {/* Right side: follow + member action */}
+                <View style={styles.actionRight}>
+                    {/* Follow button */}
+                    <TouchableOpacity
+                        style={[styles.actionBtnSecondary, following && styles.actionBtnFilled]}
+                        onPress={onToggleFollow}
+                        activeOpacity={0.7}
+                    >
+                        <Ionicons
+                            name={following ? 'checkmark-circle' : 'add-circle-outline'}
+                            size={15}
+                            color={following ? '#fff' : colors.primary}
+                        />
+                        <Text style={[styles.actionBtnSecondaryText, { color: following ? '#fff' : colors.primary }]}>
+                            {following ? 'Đang theo dõi' : 'Theo dõi'}
+                        </Text>
+                    </TouchableOpacity>
+
+                    {renderMemberAction()}
                 </View>
-            )}
+            </View>
         </TouchableOpacity>
     );
 }
@@ -388,65 +518,77 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     createBtnText: { color: colors.primaryText, fontWeight: '600', fontSize: 14 },
 
     pageCard: {
-        backgroundColor: colors.card, borderRadius: 16, padding: 16, marginBottom: 12,
+        backgroundColor: colors.card, borderRadius: 16, padding: 14, marginBottom: 12,
         shadowColor: colors.shadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 10, elevation: 3,
-        position: 'relative',
     },
-    pageCardHeader: { flexDirection: 'row', alignItems: 'center' },
-    pageAvatar: { width: 56, height: 56, borderRadius: 16, borderWidth: 2, borderColor: colors.border },
-    pageAvatarFallback: {
-        width: 56, height: 56, borderRadius: 16, backgroundColor: colors.chipBg,
-        alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: colors.border,
-    },
-    pageInfo: { flex: 1, marginLeft: 14 },
-    pageNameRow: { flexDirection: 'row', alignItems: 'center' },
-    pageName: { fontSize: 17, fontWeight: '700', color: colors.text, flex: 1 },
-    pageUsername: { fontSize: 13, color: colors.textSecondary, marginTop: 2 },
-    categoryChip: {
-        alignSelf: 'flex-start', backgroundColor: colors.chipBg,
-        paddingHorizontal: 10, paddingVertical: 3, borderRadius: 10, marginTop: 6,
-    },
-    categoryText: { fontSize: 11, color: colors.textSecondary, fontWeight: '500' },
-
-    pageDesc: { fontSize: 14, color: colors.textSecondary, lineHeight: 20, marginTop: 12 },
-
-    contactRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
-    contactChip: {
-        flexDirection: 'row', alignItems: 'center', gap: 4,
-        backgroundColor: colors.chipBg, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8,
-    },
-    contactText: { fontSize: 11, color: colors.textSecondary, maxWidth: 140 },
-
-    actionRow: {
-        flexDirection: 'row', gap: 12, marginTop: 14, paddingTop: 14,
-        borderTopWidth: 1, borderTopColor: colors.border,
-    },
-    actionBtn: {
-        flexDirection: 'row', alignItems: 'center', gap: 4,
-        paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10,
-        backgroundColor: colors.chipBg,
-    },
-    actionBtnActive: {
-        backgroundColor: colors.danger,
-    },
-    actionBtnActiveFollow: {
-        backgroundColor: colors.primary,
-    },
-    actionBtnText: { fontSize: 13, fontWeight: '600' },
-
-    statsRow: {
-        flexDirection: 'row', gap: 16, marginTop: 10, paddingHorizontal: 2,
-    },
-    statItem: {
-        flexDirection: 'row', alignItems: 'center', gap: 4,
-    },
-    statText: { fontSize: 12, color: colors.textSecondary, fontWeight: '500' },
 
     statusBadge: {
-        position: 'absolute', top: 12, right: 12,
+        alignSelf: 'flex-end', marginBottom: 8,
         paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8,
     },
     statusPublic: { backgroundColor: '#DCFCE7' },
     statusPrivate: { backgroundColor: '#FEF3C7' },
-    statusText: { fontSize: 10, fontWeight: '600', color: '#374151' },
+    statusText: { fontSize: 10, fontWeight: '700' },
+
+    pageCardHeader: { flexDirection: 'row', alignItems: 'center' },
+    pageAvatar: { width: 52, height: 52, borderRadius: 14, borderWidth: 1.5, borderColor: colors.border },
+    pageAvatarFallback: {
+        width: 52, height: 52, borderRadius: 14, backgroundColor: colors.chipBg,
+        alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: colors.border,
+    },
+    pageInfo: { flex: 1, marginLeft: 12 },
+    pageNameRow: { flexDirection: 'row', alignItems: 'center' },
+    pageName: { fontSize: 15, fontWeight: '700', color: colors.text, flex: 1 },
+    pageUsername: { fontSize: 12, color: colors.textSecondary, marginTop: 1 },
+    categoryChip: {
+        alignSelf: 'flex-start', backgroundColor: colors.chipBg,
+        paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8, marginTop: 5,
+    },
+    categoryText: { fontSize: 11, color: colors.textSecondary, fontWeight: '500' },
+
+    pageDesc: { fontSize: 13, color: colors.textSecondary, lineHeight: 19, marginTop: 10 },
+
+    statsRow: {
+        flexDirection: 'row', alignItems: 'center',
+        marginTop: 10, paddingTop: 10,
+        borderTopWidth: 1, borderTopColor: colors.border,
+    },
+    statItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    statDivider: { width: 1, height: 12, backgroundColor: colors.border, marginHorizontal: 10 },
+    statText: { fontSize: 12, color: colors.textSecondary, fontWeight: '500' },
+
+    actionRow: {
+        flexDirection: 'row', alignItems: 'center',
+        marginTop: 10, paddingTop: 10,
+        borderTopWidth: 1, borderTopColor: colors.border,
+        gap: 8,
+    },
+
+    actionBtnLike: {
+        flex: 1,
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5,
+        paddingVertical: 8, borderRadius: 10,
+        backgroundColor: colors.chipBg,
+        borderWidth: 1, borderColor: colors.border,
+    },
+    actionBtnLikeActive: {
+        backgroundColor: colors.danger,
+        borderColor: colors.danger,
+    },
+    actionBtnLikeText: { fontSize: 13, fontWeight: '600' },
+
+    actionRight: { flexDirection: 'row', gap: 6 },
+
+    actionBtnSecondary: {
+        flexDirection: 'row', alignItems: 'center', gap: 4,
+        paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10,
+        backgroundColor: colors.chipBg,
+        borderWidth: 1, borderColor: colors.border,
+    },
+    actionBtnSecondaryText: { fontSize: 12, fontWeight: '600' },
+
+    actionBtnFilled: { backgroundColor: colors.primary, borderColor: colors.primary },
+    actionBtnOutline: { borderColor: colors.primary },
+    actionBtnDanger: { borderColor: colors.danger },
+    actionBtnWarning: { borderColor: colors.warning, backgroundColor: colors.warningBg },
 });
