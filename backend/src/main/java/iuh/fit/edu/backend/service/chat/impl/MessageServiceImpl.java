@@ -4,10 +4,14 @@
  */
 package iuh.fit.edu.backend.service.chat.impl;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import iuh.fit.edu.backend.constant.MessageType;
 import iuh.fit.edu.backend.domain.entity.mysql.Conversation;
 import iuh.fit.edu.backend.domain.entity.mysql.User;
 import iuh.fit.edu.backend.domain.entity.nosql.Message;
+import iuh.fit.edu.backend.dto.request.SendCallMessageRequest;
 import iuh.fit.edu.backend.dto.response.message.MessageRecalledResponse;
 import iuh.fit.edu.backend.event.payload.ConversationUpdatedEvent;
 import iuh.fit.edu.backend.event.payload.MessageCreatedEvent;
@@ -62,6 +66,7 @@ public class MessageServiceImpl implements MessageService {
     private final ConversationMemberRepository conversationMemberRepository;
     private final MessageCacheService messageCacheService;
     private final S3Service s3Service;
+    private final ObjectMapper objectMapper;
 
     @Override
     @Transactional
@@ -71,7 +76,8 @@ public class MessageServiceImpl implements MessageService {
                 .orElseThrow(() -> new RuntimeException("Không tim thấy cuộc trò chuyện"));
 
         // Lấy ra thông tin của người gửi (lần đầu tiên thì lấy từ db, những lần khác còn trong thời gian thì lấy từ redis cache)
-        ConversationMemberResponse senderInfo = conversationMemberService.getMemberInfo(sendMessageRequest.getConversationId(), userId);
+        ConversationMemberResponse senderInfo = conversationMemberService
+                .getMemberInfo(sendMessageRequest.getConversationId(), userId);
         if (senderInfo == null) {
             throw new RuntimeException("Bạn không phải thành viên của cuộc trò chuyện");
         }
@@ -90,7 +96,11 @@ public class MessageServiceImpl implements MessageService {
         conversation.setLastMessageContent(sidebarPreview);
         conversation.setLastMessageAt(savedMessage.getCreatedAt());
         conversation.setLastSenderId(savedMessage.getSenderId());
-        conversation.setLastMessageType(savedMessage.getMessageType());
+        // Snapshot sidebar dùng type tương thích DB cũ; nội dung vẫn thể hiện cuộc gọi rõ ràng.
+        MessageType sidebarMessageType = savedMessage.getMessageType() == MessageType.CALL
+                ? MessageType.TEXT
+                : savedMessage.getMessageType();
+        conversation.setLastMessageType(sidebarMessageType);
         Conversation savedConversation = this.conversationRepository.save(conversation);
 
         // Tăng unreadCount cho các thành viên khác trong DB
@@ -115,26 +125,75 @@ public class MessageServiceImpl implements MessageService {
 
         // Event 2: Cho side bar của user
         Set<Long> memberIds = this.conversationMemberService.getAllMemberId(conversation.getId());
-        this.eventPublisher.publishEvent(new ConversationUpdatedEvent(conversation.getId(), lastMessageResponse, memberIds));
+        this.eventPublisher
+                .publishEvent(new ConversationUpdatedEvent(conversation.getId(), lastMessageResponse, memberIds));
 
         return messageResponse;
     }
 
+    @Override
+    @Transactional
+    public MessageResponse sendCallMessage(SendCallMessageRequest sendCallMessageRequest, Long userId) {
+        SendMessageRequest request = new SendMessageRequest();
+        request.setConversationId(sendCallMessageRequest.getConversationId());
+        request.setType(MessageType.CALL);
+        request.setContent(buildCallMessageContent(sendCallMessageRequest));
+        return sendMessage(request, userId);
+    }
 
     /**
      * Format nội dung hiển thị ở danh sách Chat bên ngoài
      */
     private String getSidebarPreview(MessageType type, String content) {
-        if (type == null) return content;
+        if (type == null)
+            return content;
 
         return switch (type) {
             case IMAGE -> "[Hình ảnh]";
             case VIDEO -> "[Video]";
             case FILE -> "[Tệp đính kèm]";
             case AUDIO -> "[Tin nhắn thoại]";
+            case CALL -> getCallPreview(content);
             case TEXT -> content; // Text thì in ra bình thường
             default -> "Đã gửi một tin nhắn";
         };
+    }
+
+    private String getCallPreview(String content) {
+        try {
+            Map<String, Object> payload = objectMapper.readValue(content, new TypeReference<>() {
+            });
+            String callType = String.valueOf(payload.getOrDefault("callType", "audio")).toLowerCase();
+            Object durationObj = payload.getOrDefault("durationSeconds", 0);
+            Number durationSecondsRaw = durationObj instanceof Number ? (Number) durationObj : 0;
+            long durationSeconds = Math.max(0, durationSecondsRaw.longValue());
+
+            String text = "video".equals(callType) ? "Cuộc gọi video" : "Cuộc gọi thoại";
+            return text + " - " + formatDuration(durationSeconds);
+        } catch (Exception e) {
+            return "Cuộc gọi";
+        }
+    }
+
+    private String formatDuration(long totalSeconds) {
+        long minutes = totalSeconds / 60;
+        long seconds = totalSeconds % 60;
+        return String.format("%02d:%02d", minutes, seconds);
+    }
+
+    private String buildCallMessageContent(SendCallMessageRequest sendCallMessageRequest) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("callType",
+                Optional.ofNullable(sendCallMessageRequest.getCallType()).orElse("audio").toLowerCase());
+        payload.put("status", Optional.ofNullable(sendCallMessageRequest.getStatus()).orElse("ended").toLowerCase());
+        payload.put("durationSeconds",
+                Math.max(0, Optional.ofNullable(sendCallMessageRequest.getDurationSeconds()).orElse(0L)));
+
+        try {
+            return objectMapper.writeValueAsString(payload);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Không thể tạo nội dung cuộc gọi", e);
+        }
     }
 
     @Transactional
@@ -172,8 +231,7 @@ public class MessageServiceImpl implements MessageService {
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy cuộc trò chuyện"));
 
         // CHỈ THỰC HIỆN NẾU ĐÂY LÀ TIN NHẮN MỚI NHẤT
-        if (message.getCreatedAt().toEpochMilli() ==
-                conversation.getLastMessageAt().toEpochMilli()) {
+        if (message.getCreatedAt().toEpochMilli() == conversation.getLastMessageAt().toEpochMilli()) {
 
             // Cập nhật Database MySQL
             // Backend lưu 1 chuỗi chung chung, không chứa chữ "Bạn"
@@ -186,13 +244,15 @@ public class MessageServiceImpl implements MessageService {
 
             // Lấy tên người gửi (có thể lấy từ Service hoặc Cache nếu cần thiết)
             // Nếu Frontend của bạn không hiện tên khi thu hồi thì có thể bỏ qua dòng setLastSenderName
-            ConversationMemberResponse senderInfo = conversationMemberService.getMemberInfo(conversation.getId(), userId);
+            ConversationMemberResponse senderInfo = conversationMemberService.getMemberInfo(conversation.getId(),
+                    userId);
             sidebarResponse.setLastSenderName(senderInfo.getNickname());
             sidebarResponse.setRead(true);
 
             // Bắn Socket Event Cập nhật Sidebar cho TẤT CẢ thành viên
             Set<Long> memberIds = this.conversationMemberService.getAllMemberId(conversation.getId());
-            this.eventPublisher.publishEvent(new ConversationUpdatedEvent(conversation.getId(), sidebarResponse, memberIds));
+            this.eventPublisher
+                    .publishEvent(new ConversationUpdatedEvent(conversation.getId(), sidebarResponse, memberIds));
         }
         return messageRecalledResponse;
     }
@@ -206,8 +266,7 @@ public class MessageServiceImpl implements MessageService {
             Long conversationId,
             Long userId,
             Instant before,
-            int limit
-    ) {
+            int limit) {
         // Check member
         if (conversationMemberService.getMemberInfo(conversationId, userId) == null) {
             throw new RuntimeException("Bạn không phải thành viên của cuộc trò chuyện");
@@ -282,8 +341,7 @@ public class MessageServiceImpl implements MessageService {
             return messageRepository.findByConversationIdOrderByCreatedAtDesc(conversationId, pageable);
         } else {
             return messageRepository.findByConversationIdAndCreatedAtLessThanOrderByCreatedAtDesc(
-                    conversationId, before, pageable
-            );
+                    conversationId, before, pageable);
         }
     }
 
@@ -292,7 +350,8 @@ public class MessageServiceImpl implements MessageService {
      * Logic Bulk Query tối ưu N+1
      */
     private List<MessageResponse> enrichMessageResponses(Long conversationId, List<Message> messages) {
-        if (messages.isEmpty()) return Collections.emptyList();
+        if (messages.isEmpty())
+            return Collections.emptyList();
 
         // Lấy ra toàn bộ id của thành viên trong nhóm và không trùng
         Set<Long> senderIds = messages.stream()
@@ -300,8 +359,8 @@ public class MessageServiceImpl implements MessageService {
                 .collect(Collectors.toSet());
 
         // Lấy thành viên hiện tại
-        Map<Long, ConversationMemberResponse> currentMembers =
-                conversationMemberService.getMembersMap(conversationId, senderIds);
+        Map<Long, ConversationMemberResponse> currentMembers = conversationMemberService.getMembersMap(conversationId,
+                senderIds);
 
         // Lọc ra những thành viên không còn trong nhóm nhưng vẫn còn tin nhắn
         Map<Long, User> leftUsers = senderIds.stream()
@@ -311,8 +370,7 @@ public class MessageServiceImpl implements MessageService {
                         ids -> ids.isEmpty()
                                 ? Map.of()
                                 : userRepository.findAllById(ids).stream()
-                                .collect(Collectors.toMap(User::getId, u -> u))
-                ));
+                                        .collect(Collectors.toMap(User::getId, u -> u))));
 
         return messages.stream()
                 .map(message -> {

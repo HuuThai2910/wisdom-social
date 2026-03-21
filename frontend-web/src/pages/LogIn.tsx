@@ -22,31 +22,33 @@ export default function Login() {
     };
 
     return (
-        <div className="bg-white border border-gray-200 rounded-lg p-10">
+        <div className="bg-white dark:bg-[#111] border border-gray-200 dark:border-[#2a2a2a] rounded-lg p-10 text-gray-900 dark:text-gray-100">
             {/* Social Login Buttons */}
             <button
                 onClick={handleGoogleLogin}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-300 rounded-lg hover:bg-gray-50 mb-3"
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-300 dark:border-[#3a3a3a] rounded-lg hover:bg-gray-50 dark:hover:bg-[#1c1c1c] mb-3"
             >
-                <span className="text-sm font-semibold text-gray-700">
+                <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">
                     Log in with Google
                 </span>
             </button>
 
             <Link
                 to="/login/email"
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-300 rounded-lg hover:bg-gray-50 mb-6"
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-300 dark:border-[#3a3a3a] rounded-lg hover:bg-gray-50 dark:hover:bg-[#1c1c1c] mb-6"
             >
-                <span className="text-sm font-semibold text-gray-700">
+                <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">
                     Log in with Email
                 </span>
             </Link>
 
             {/* Divider */}
             <div className="flex items-center gap-4 mb-6">
-                <div className="flex-1 h-px bg-gray-300"></div>
-                <span className="text-sm text-gray-500">OR</span>
-                <div className="flex-1 h-px bg-gray-300"></div>
+                <div className="flex-1 h-px bg-gray-300 dark:bg-[#3a3a3a]"></div>
+                <span className="text-sm text-gray-500 dark:text-gray-400">
+                    OR
+                </span>
+                <div className="flex-1 h-px bg-gray-300 dark:bg-[#3a3a3a]"></div>
             </div>
 
             {/* Login Form */}
@@ -56,7 +58,7 @@ export default function Login() {
                     placeholder="Email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-gray-400"
+                    className="w-full px-4 py-2.5 border border-gray-300 dark:border-[#3a3a3a] bg-white dark:bg-[#0b0b0b] rounded-lg focus:outline-none focus:border-gray-400 dark:focus:border-gray-500"
                     required
                 />
 
@@ -65,7 +67,7 @@ export default function Login() {
                     placeholder="Password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-gray-400"
+                    className="w-full px-4 py-2.5 border border-gray-300 dark:border-[#3a3a3a] bg-white dark:bg-[#0b0b0b] rounded-lg focus:outline-none focus:border-gray-400 dark:focus:border-gray-500"
                     required
                 />
 
@@ -87,7 +89,7 @@ export default function Login() {
             </form>
 
             {/* Sign Up Link */}
-            <p className="text-center text-sm text-gray-600 mt-6">
+            <p className="text-center text-sm text-gray-600 dark:text-gray-300 mt-6">
                 Don't have an account?{" "}
                 <Link
                     to="/signup"

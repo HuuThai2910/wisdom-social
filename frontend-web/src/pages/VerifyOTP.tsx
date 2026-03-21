@@ -8,11 +8,11 @@ export default function VerifyOTP() {
     const [otp4, setOtp4] = useState("");
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-black text-gray-900 dark:text-gray-100">
             <div className="max-w-md w-full space-y-8 p-8">
                 <div className="text-center">
                     <h2 className="text-3xl font-bold">Verify OTP</h2>
-                    <p className="mt-2 text-gray-600">
+                    <p className="mt-2 text-gray-600 dark:text-gray-300">
                         Enter the code we sent to your email
                     </p>
                 </div>
@@ -23,28 +23,28 @@ export default function VerifyOTP() {
                             maxLength={1}
                             value={otp1}
                             onChange={(e) => setOtp1(e.target.value)}
-                            className="w-14 h-14 text-center text-2xl border rounded-lg"
+                            className="w-14 h-14 text-center text-2xl border border-gray-300 dark:border-[#3a3a3a] bg-white dark:bg-[#0b0b0b] rounded-lg"
                         />
                         <input
                             type="text"
                             maxLength={1}
                             value={otp2}
                             onChange={(e) => setOtp2(e.target.value)}
-                            className="w-14 h-14 text-center text-2xl border rounded-lg"
+                            className="w-14 h-14 text-center text-2xl border border-gray-300 dark:border-[#3a3a3a] bg-white dark:bg-[#0b0b0b] rounded-lg"
                         />
                         <input
                             type="text"
                             maxLength={1}
                             value={otp3}
                             onChange={(e) => setOtp3(e.target.value)}
-                            className="w-14 h-14 text-center text-2xl border rounded-lg"
+                            className="w-14 h-14 text-center text-2xl border border-gray-300 dark:border-[#3a3a3a] bg-white dark:bg-[#0b0b0b] rounded-lg"
                         />
                         <input
                             type="text"
                             maxLength={1}
                             value={otp4}
                             onChange={(e) => setOtp4(e.target.value)}
-                            className="w-14 h-14 text-center text-2xl border rounded-lg"
+                            className="w-14 h-14 text-center text-2xl border border-gray-300 dark:border-[#3a3a3a] bg-white dark:bg-[#0b0b0b] rounded-lg"
                         />
                     </div>
                     <button

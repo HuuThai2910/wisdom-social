@@ -138,7 +138,9 @@ export default function Sidebar() {
                                     <Moon size={20} />
                                 )}
                                 <span className="text-sm">
-                                    Switch appearance
+                                    {isDark
+                                        ? "Switch to light mode"
+                                        : "Switch to dark mode"}
                                 </span>
                             </button>
                             <button className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-100 dark:hover:bg-[#363636] dark:text-white border-t border-gray-200 dark:border-[#363636]">
@@ -151,7 +153,6 @@ export default function Sidebar() {
                             <button className="w-full text-left px-4 py-3 hover:bg-gray-100 dark:hover:bg-[#363636] dark:text-white">
                                 <span className="text-sm">Switch accounts</span>
                             </button>
-                            <div className="border-t-8 border-gray-100 dark:border-[#000]" />
                             <button className="w-full text-left px-4 py-3 hover:bg-gray-100 dark:hover:bg-[#363636] dark:text-white">
                                 <span className="text-sm">Log out</span>
                             </button>

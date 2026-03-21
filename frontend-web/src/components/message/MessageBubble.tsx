@@ -12,6 +12,10 @@ import {
     Paperclip,
     Play,
     Pause,
+    Phone,
+    PhoneOff,
+    Video,
+    VideoOff,
 } from "lucide-react";
 import type { Message } from "../../services/chatService";
 
@@ -25,7 +29,9 @@ function AudioPlayer({ src, isOwn }: { src: string; isOwn: boolean }) {
 
     // Fake waveform bars — seeded by URL so they're consistent per message
     const bars = useMemo(() => {
-        let s = src.split("").reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 17);
+        let s = src
+            .split("")
+            .reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 17);
         return Array.from({ length: 30 }, () => {
             s = (Math.imul(s, 1664525) + 1013904223) | 0;
             return 15 + (Math.abs(s) % 70); // 15–85 %
@@ -118,9 +124,7 @@ function AudioPlayer({ src, isOwn }: { src: string; isOwn: boolean }) {
             {/* Time */}
             <span
                 className={`text-xs shrink-0 font-mono tabular-nums ${
-                    isOwn
-                        ? "text-blue-100"
-                        : "text-gray-700 dark:text-gray-300"
+                    isOwn ? "text-blue-100" : "text-gray-700 dark:text-gray-300"
                 }`}
             >
                 {currentTime > 0 ? fmt(currentTime) : fmt(duration)}
@@ -137,6 +141,7 @@ export interface MessageBubbleProps {
     conversationType?: "DIRECT" | "GROUP";
     defaultAvatarSmallUrl: string;
     onRecall: (messageId: string) => void;
+    onRecallCall?: (callType: "audio" | "video") => void;
     onMediaLoad?: () => void;
     isFirstInGroup?: boolean;
     isLastInGroup?: boolean;
@@ -148,6 +153,7 @@ export function MessageBubble({
     conversationType,
     defaultAvatarSmallUrl,
     onRecall,
+    onRecallCall,
     onMediaLoad,
     isFirstInGroup = true,
     isLastInGroup = true,
@@ -182,15 +188,19 @@ export function MessageBubble({
     const menuItemBase =
         "flex items-center gap-3 w-full px-4 py-2.5 text-sm text-left hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors";
 
-    const timeStr = new Date(message.createdAt).toLocaleTimeString("vi-VN", {
-        hour: "2-digit",
-        minute: "2-digit",
-    });
+    const messageDate = new Date(message.createdAt);
+    const validMessageDate = Number.isFinite(messageDate.getTime());
+    const timeStr = validMessageDate
+        ? messageDate.toLocaleTimeString("vi-VN", {
+              hour: "2-digit",
+              minute: "2-digit",
+          })
+        : "";
 
     // Tooltip giờ có ngữ cảnh: hôm nay → giờ, hôm qua → "Hôm qua HH:MM", cũ → "D Tháng M, YYYY HH:MM"
     const tooltipTimeStr = (() => {
         const date = new Date(message.createdAt);
-        if (!Number.isFinite(date.getTime())) return timeStr;
+        if (!Number.isFinite(date.getTime())) return "";
         const now = new Date();
         const diffDays = Math.round(
             (Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) -
@@ -209,6 +219,72 @@ export function MessageBubble({
 
     const fileNameFromUrl =
         message.content?.split("/").pop()?.split("?")[0] ?? "Tệp đính kèm";
+
+    const callMeta = useMemo(() => {
+        if (message.type !== "CALL") return null;
+
+        const formatDuration = (seconds: number) => {
+            const total = Math.max(0, seconds);
+            if (total < 60) return `${total} giây`;
+            const minutes = Math.floor(total / 60);
+            const remain = total % 60;
+            if (!remain) return `${minutes} phút`;
+            return `${minutes} phút ${remain} giây`;
+        };
+
+        try {
+            const parsed = JSON.parse(message.content) as {
+                callType?: "audio" | "video";
+                status?:
+                    | "calling"
+                    | "ringing"
+                    | "accepted"
+                    | "rejected"
+                    | "ended";
+                durationSeconds?: number;
+            };
+
+            const callType: "audio" | "video" =
+                parsed.callType === "video" ? "video" : "audio";
+            const duration = Math.max(0, Number(parsed.durationSeconds ?? 0));
+            const status = parsed.status;
+            const isMissed =
+                duration === 0 &&
+                (status === "rejected" ||
+                    status === "ringing" ||
+                    status === "calling" ||
+                    status === "ended");
+
+            const baseLabel =
+                callType === "video" ? "cuộc gọi video" : "cuộc gọi thoại";
+
+            return {
+                callType,
+                isMissed,
+                title: isMissed
+                    ? `Đã bỏ lỡ ${baseLabel}`
+                    : callType === "video"
+                      ? "Cuộc gọi video"
+                      : "Cuộc gọi thoại",
+                subtitle: isMissed ? timeStr : formatDuration(duration),
+            };
+        } catch {
+            const inferredType: "audio" | "video" = message.content
+                .toLowerCase()
+                .includes("video")
+                ? "video"
+                : "audio";
+            return {
+                callType: inferredType,
+                isMissed: false,
+                title:
+                    inferredType === "video"
+                        ? "Cuộc gọi video"
+                        : "Cuộc gọi thoại",
+                subtitle: timeStr,
+            };
+        }
+    }, [message.content, message.type, timeStr]);
 
     const timeColorInside = message.isRecalled
         ? "text-gray-400 dark:text-gray-500"
@@ -379,9 +455,11 @@ export function MessageBubble({
                     className={`overflow-hidden rounded-2xl ${
                         message.isRecalled
                             ? "bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700"
-                            : isOwn
-                              ? "bg-blue-500 text-white"
-                              : "bg-gray-200 dark:bg-gray-700 text-black dark:text-white"
+                            : message.type === "CALL"
+                              ? "bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-gray-100"
+                              : isOwn
+                                ? "bg-blue-500 text-white"
+                                : "bg-gray-200 dark:bg-gray-700 text-black dark:text-white"
                     }`}
                 >
                     {message.isRecalled ? (
@@ -390,7 +468,9 @@ export function MessageBubble({
                                 Tin nhắn đã được thu hồi
                             </p>
                             {isLastInGroup && (
-                                <p className={`px-3 pb-1.5 text-xs text-right ${timeColorInside}`}>
+                                <p
+                                    className={`px-3 pb-1.5 text-xs text-right ${timeColorInside}`}
+                                >
                                     {timeStr}
                                 </p>
                             )}
@@ -428,6 +508,56 @@ export function MessageBubble({
                                 </span>
                             </a>
                         </div>
+                    ) : message.type === "CALL" ? (
+                        <button
+                            type="button"
+                            onClick={() =>
+                                callMeta && onRecallCall?.(callMeta.callType)
+                            }
+                            className="w-full px-3 py-2.5 text-left hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer"
+                            title="Gọi lại"
+                        >
+                            <div className="flex items-center gap-2.5">
+                                <span className="w-9 h-9 rounded-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 flex items-center justify-center shrink-0">
+                                    {callMeta?.isMissed ? (
+                                        callMeta.callType === "video" ? (
+                                            <VideoOff
+                                                size={18}
+                                                className="text-gray-900 dark:text-gray-100"
+                                            />
+                                        ) : (
+                                            <PhoneOff
+                                                size={18}
+                                                className="text-gray-900 dark:text-gray-100"
+                                            />
+                                        )
+                                    ) : callMeta?.callType === "video" ? (
+                                        <Video
+                                            size={18}
+                                            className="text-gray-900 dark:text-gray-100"
+                                        />
+                                    ) : (
+                                        <Phone
+                                            size={18}
+                                            className="text-gray-900 dark:text-gray-100"
+                                        />
+                                    )}
+                                </span>
+
+                                <span className="min-w-0">
+                                    <span className="block text-sm leading-5 font-semibold text-gray-900 dark:text-gray-100 break-words">
+                                        {callMeta?.title}
+                                    </span>
+                                    <span className="block mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                                        {callMeta?.subtitle}
+                                    </span>
+                                </span>
+                            </div>
+
+                            <span className="mt-2 block rounded-xl bg-gray-200 dark:bg-gray-700 py-1.5 text-center text-base font-semibold text-gray-900 dark:text-gray-100">
+                                Gọi lại
+                            </span>
+                        </button>
                     ) : (
                         <p className="px-4 py-2 text-sm">{message.content}</p>
                     )}

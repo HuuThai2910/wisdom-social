@@ -3,10 +3,13 @@ import Sidebar from "../nav/Sidebar";
 import BottomNav from "../nav/BottomNav";
 import { suggestedUsers, currentUser } from "../../api/mockData";
 import { Link } from "react-router-dom";
+import GlobalIncomingCallNotifier from "../message/GlobalIncomingCallNotifier";
 
 export default function MainLayout() {
     return (
         <div className="min-h-screen bg-[#fafafa] dark:bg-[#000]">
+            <GlobalIncomingCallNotifier />
+
             {/* Sidebar for desktop */}
             <Sidebar />
 

@@ -38,8 +38,13 @@ public abstract class MessageMapper {
     // 3. Logic tùy biến chạy NGAY SAU KHI MapStruct map xong
     @AfterMapping
     protected void customizeContent(Message message, @MappingTarget MessageResponse response) {
-        // Nếu không phải TEXT và content không rỗng (chưa bị thu hồi)
-        if (message.getMessageType() != MessageType.TEXT &&
+        // Chỉ nối CDN cho các loại media/file lưu bằng object key.
+        boolean shouldPrefixCdn = message.getMessageType() == MessageType.IMAGE
+                || message.getMessageType() == MessageType.VIDEO
+                || message.getMessageType() == MessageType.FILE
+                || message.getMessageType() == MessageType.AUDIO;
+
+        if (shouldPrefixCdn &&
                 message.getContent() != null &&
                 !message.getContent().isEmpty()) {
 

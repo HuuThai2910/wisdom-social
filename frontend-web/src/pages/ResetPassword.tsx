@@ -6,11 +6,11 @@ export default function ResetPassword() {
     const [confirmPassword, setConfirmPassword] = useState("");
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-black text-gray-900 dark:text-gray-100">
             <div className="max-w-md w-full space-y-8 p-8">
                 <div className="text-center">
                     <h2 className="text-3xl font-bold">Reset Password</h2>
-                    <p className="mt-2 text-gray-600">
+                    <p className="mt-2 text-gray-600 dark:text-gray-300">
                         Enter your new password
                     </p>
                 </div>
@@ -21,7 +21,7 @@ export default function ResetPassword() {
                             placeholder="New Password"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
-                            className="w-full px-4 py-3 border rounded-lg"
+                            className="w-full px-4 py-3 border border-gray-300 dark:border-[#3a3a3a] bg-white dark:bg-[#0b0b0b] rounded-lg"
                         />
                     </div>
                     <div>
@@ -30,7 +30,7 @@ export default function ResetPassword() {
                             placeholder="Confirm Password"
                             value={confirmPassword}
                             onChange={(e) => setConfirmPassword(e.target.value)}
-                            className="w-full px-4 py-3 border rounded-lg"
+                            className="w-full px-4 py-3 border border-gray-300 dark:border-[#3a3a3a] bg-white dark:bg-[#0b0b0b] rounded-lg"
                         />
                     </div>
                     <button

@@ -37,7 +37,7 @@ function getConversationDisplayInfo(
         conversation.type === "GROUP"
             ? conversation.name
             : conversation.members?.find((m) => m.userId !== userId)
-                  ?.nickname || "Unknown";
+                ?.nickname || "Unknown";
 
     const displayAvatar =
         conversation.type === "GROUP"
@@ -561,8 +561,8 @@ export function useChatWindowController(args: {
             )
                 ? "audio/webm;codecs=opus"
                 : MediaRecorder.isTypeSupported("audio/webm")
-                  ? "audio/webm"
-                  : "audio/mp4";
+                    ? "audio/webm"
+                    : "audio/mp4";
             const recorder = new MediaRecorder(stream, { mimeType });
             audioChunksRef.current = [];
 
@@ -657,6 +657,7 @@ export function useChatWindowController(args: {
         handleSend,
         handleRecall,
         handleFileUpload,
+        appendRealtimeMessage: handleNewMessage,
         scrollToBottom,
         recallToast,
 

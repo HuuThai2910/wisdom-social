@@ -8,6 +8,33 @@ import { Client, type IMessage } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
 import type { Message } from "./chatService";
 
+export type CallStatus =
+    | "calling"
+    | "ringing"
+    | "accepted"
+    | "rejected"
+    | "ended";
+
+export type CallSignalEvent =
+    | "call-user"
+    | "incoming-call"
+    | "answer-call"
+    | "ice-candidate"
+    | "reject-call"
+    | "end-call";
+
+export interface CallSignalPayload {
+    event: CallSignalEvent;
+    conversationId: number;
+    callId: string;
+    callType: "audio" | "video";
+    fromUserId: number;
+    targetUserId: number;
+    sdp?: RTCSessionDescriptionInit;
+    candidate?: RTCIceCandidateInit;
+    timestamp?: string;
+}
+
 /**
  * Type định nghĩa các loại event từ backend
  * Tương ứng với DomainEventType enum trong backend
@@ -84,7 +111,7 @@ export interface ConversationUpdatedEvent {
     // LƯU Ý: Backend không gửi conversationId trong lastMessage
     lastMessage: {
         lastMessageContent: string; // Nội dung tin nhắn
-        lastMessageType: "TEXT" | "IMAGE" | "FILE"; // Loại tin nhắn
+        lastMessageType: "TEXT" | "IMAGE" | "FILE" | "VIDEO" | "AUDIO" | "CALL"; // Loại tin nhắn
         lastSenderId: number; // ID người gửi
         lastSenderName: string; // Tên người gửi
         lastMessageAt: string; // Thời điểm gửi (ISO string)
@@ -120,6 +147,11 @@ class WebSocketService {
      */
     private subscriptions: Map<string, any> = new Map();
 
+    private callEventListeners: Map<
+        number,
+        Set<(event: CallSignalPayload) => void>
+    > = new Map();
+
     /**
      * Promise theo dõi trạng thái kết nối
      * - null: chưa kết nối hoặc đã kết nối xong
@@ -152,7 +184,7 @@ class WebSocketService {
         // BƯỚC 2: Kiểm tra nếu đã kết nối rồi
         // client.connected = true nghĩa là STOMP handshake đã hoàn tất
         if (this.client?.connected) {
-            console.log("WebSocket already connected");
+            // console.log("WebSocket already connected");
             onConnect?.();
             return Promise.resolve();
         }
@@ -172,8 +204,8 @@ class WebSocketService {
                  * debug: Hàm log để debug STOMP protocol
                  * Hiển thị các STOMP frame: CONNECT, CONNECTED, SUBSCRIBE, MESSAGE, etc.
                  */
-                debug: (str) => {
-                    console.log("STOMP: " + str);
+                debug: (_str) => {
+                    // console.log("STOMP: " + str);
                 },
 
                 /**
@@ -202,7 +234,7 @@ class WebSocketService {
                  * Lúc này có thể bắt đầu subscribe các topic
                  */
                 onConnect: () => {
-                    console.log("Connected to WebSocket");
+                    // console.log("Connected to WebSocket");
                     this.connectPromise = null; // Reset promise
                     onConnect?.(); // Gọi callback của caller
                     resolve(); // Resolve promise để caller biết đã kết nối xong
@@ -268,7 +300,7 @@ class WebSocketService {
             // Deactivate client (gửi DISCONNECT, đóng WebSocket)
             this.client.deactivate();
             this.client = null;
-            console.log("Disconnected from WebSocket");
+            // console.log("Disconnected from WebSocket");
         }
     }
 
@@ -323,7 +355,7 @@ class WebSocketService {
         // BƯỚC 3: Kiểm tra đã subscribe destination này chưa để tránh duplicate
         const existingSubscription = this.subscriptions.get(destination);
         if (existingSubscription) {
-            console.log(`Already subscribed to ${destination}`);
+            // console.log(`Already subscribed to ${destination}`);
             return;
         }
 
@@ -348,7 +380,7 @@ class WebSocketService {
                         | MessageCreatedEvent
                         | MessageRecalledEvent;
 
-                    console.log("Received message event:", event);
+                    // console.log("Received message event:", event);
 
                     // Phân loại event dựa vào domainEventType (BE field)
                     if (event.domainEventType === "MESSAGE_RECALLED") {
@@ -368,7 +400,7 @@ class WebSocketService {
 
         // BƯỚC 5: Lưu subscription vào Map để có thể unsubscribe sau
         this.subscriptions.set(destination, subscription);
-        console.log(`Subscribed to ${destination}`);
+        // console.log(`Subscribed to ${destination}`);
     }
 
     /**
@@ -393,7 +425,7 @@ class WebSocketService {
 
             // Xóa khỏi Map
             this.subscriptions.delete(destination);
-            console.log(`Unsubscribed from ${destination}`);
+            // console.log(`Unsubscribed from ${destination}`);
         }
     }
 
@@ -443,7 +475,7 @@ class WebSocketService {
         // Tránh tạo duplicate subscription cho cùng một destination
         const existingSubscription = this.subscriptions.get(destination);
         if (existingSubscription) {
-            console.log(`Already subscribed to ${destination}`);
+            // console.log(`Already subscribed to ${destination}`);
             return;
         }
 
@@ -485,7 +517,7 @@ class WebSocketService {
 
         // BƯỚC 5: Lưu subscription vào Map để có thể unsubscribe sau này
         this.subscriptions.set(destination, subscription);
-        console.log(`Subscribed to ${destination}`);
+        // console.log(`Subscribed to ${destination}`);
     }
 
     /**
@@ -518,6 +550,81 @@ class WebSocketService {
             this.subscriptions.delete(destination);
             console.log(`Unsubscribed from ${destination}`);
         }
+    }
+
+    subscribeToCallEvents(
+        userId: number,
+        callback: (event: CallSignalPayload) => void,
+    ) {
+        if (!this.client?.connected) {
+            console.error(
+                "WebSocket not connected, cannot subscribe to call events",
+            );
+            return;
+        }
+
+        const existingListeners = this.callEventListeners.get(userId);
+        if (existingListeners) {
+            existingListeners.add(callback);
+        } else {
+            this.callEventListeners.set(userId, new Set([callback]));
+        }
+
+        const destination = `/topic/user/${userId}/calls`;
+        const existingSubscription = this.subscriptions.get(destination);
+        if (existingSubscription) return;
+
+        const subscription = this.client.subscribe(
+            destination,
+            (message: IMessage) => {
+                try {
+                    const payload: CallSignalPayload = JSON.parse(message.body);
+                    const listeners = this.callEventListeners.get(userId);
+                    listeners?.forEach((listener) => listener(payload));
+                } catch (error) {
+                    console.error("Error parsing call signal event:", error);
+                }
+            },
+        );
+
+        this.subscriptions.set(destination, subscription);
+    }
+
+    unsubscribeFromCallEvents(
+        userId: number,
+        callback?: (event: CallSignalPayload) => void,
+    ) {
+        const listeners = this.callEventListeners.get(userId);
+
+        if (callback && listeners) {
+            listeners.delete(callback);
+            if (listeners.size > 0) return;
+        }
+
+        if (!callback) {
+            this.callEventListeners.delete(userId);
+        } else if (!listeners || listeners.size === 0) {
+            this.callEventListeners.delete(userId);
+        }
+
+        const destination = `/topic/user/${userId}/calls`;
+        const subscription = this.subscriptions.get(destination);
+        if (subscription) {
+            subscription.unsubscribe();
+            this.subscriptions.delete(destination);
+        }
+    }
+
+    sendCallSignal(payload: CallSignalPayload) {
+        if (!this.client?.connected) {
+            console.error("WebSocket not connected, cannot send call signal");
+            return;
+        }
+
+        this.client.publish({
+            destination: "/app/call.signal",
+            body: JSON.stringify(payload),
+        });
     }
 
     /**

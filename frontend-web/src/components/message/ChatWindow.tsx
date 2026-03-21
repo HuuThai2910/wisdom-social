@@ -24,6 +24,9 @@ import {
 } from "lucide-react";
 import { useChatWindowController } from "../../hooks/useChatWindowController";
 import { MessageBubble } from "./MessageBubble";
+import { useCall } from "../../hooks/useCall";
+import IncomingCallModal from "./IncomingCallModal";
+import CallScreen from "./CallScreen";
 
 interface ChatWindowProps {
     conversationId: number;
@@ -62,6 +65,7 @@ export default function ChatWindow({
         handleSend,
         handleRecall,
         handleFileUpload,
+        appendRealtimeMessage,
         scrollToBottom,
         recallToast,
 
@@ -74,6 +78,66 @@ export default function ChatWindow({
         defaultAvatarUrl,
         defaultAvatarSmallUrl,
     } = useChatWindowController({ conversationId, userId });
+
+    const otherMember = useMemo(
+        () => conversation?.members?.find((m) => m.userId !== userId),
+        [conversation?.members, userId],
+    );
+
+    const targetMemberIds = useMemo(
+        () =>
+            (conversation?.members ?? [])
+                .filter((m) => m.userId !== userId)
+                .map((m) => m.userId),
+        [conversation?.members, userId],
+    );
+
+    const {
+        incomingCall,
+        activeCall,
+        localStream,
+        remoteStream,
+        remoteStreams,
+        callDurationText,
+        micEnabled,
+        cameraEnabled,
+        isScreenSharing,
+        canToggleCamera,
+        canShareScreen,
+        startCall,
+        acceptIncomingCall,
+        rejectIncomingCall,
+        endCall,
+        toggleMic,
+        toggleCamera,
+        toggleScreenShare,
+    } = useCall({
+        conversationId,
+        userId,
+        targetUserIds: targetMemberIds,
+        targetUserId: otherMember?.userId,
+        targetName: otherMember?.nickname,
+        targetAvatar: otherMember?.avatar,
+        onCallMessageSaved: appendRealtimeMessage,
+    });
+
+    const callParticipants = useMemo(() => {
+        if (!activeCall || conversation?.type !== "GROUP") return [];
+
+        const callMemberIds = new Set<number>(activeCall.remoteUserIds);
+
+        if (!activeCall.isCaller) {
+            callMemberIds.add(userId);
+        }
+
+        return (conversation.members ?? [])
+            .filter((member) => callMemberIds.has(member.userId))
+            .map((member) => ({
+                userId: member.userId,
+                name: member.nickname || member.username,
+                avatar: member.avatar,
+            }));
+    }, [activeCall, conversation?.members, conversation?.type, userId]);
 
     const [plusMenuOpen, setPlusMenuOpen] = useState(false);
     const plusMenuRef = useRef<HTMLDivElement>(null);
@@ -159,6 +223,9 @@ export default function ChatWindow({
             const message = messages[idx];
             const prevMsg = messages[idx - 1];
             const nextMsg = messages[idx + 1];
+            const stableMessageKey =
+                message.id ||
+                `${message.senderId}-${message.createdAt || "unknown"}-${idx}`;
 
             const createdAt = new Date(message.createdAt);
             const validDate = Number.isFinite(createdAt.getTime());
@@ -168,7 +235,7 @@ export default function ChatWindow({
             if (dayKey !== previousDayKey) {
                 items.push(
                     <div
-                        key={`date-sep-${message.id}-${dayKey}`}
+                        key={`date-sep-${stableMessageKey}-${dayKey}`}
                         className="flex justify-center py-2 mt-4 first:mt-0"
                     >
                         <div className="px-3 py-1 rounded-md bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-100 text-xs">
@@ -201,7 +268,7 @@ export default function ChatWindow({
             const isOwn = message.senderId === userId;
             items.push(
                 <div
-                    key={message.id}
+                    key={stableMessageKey}
                     className={isFirstInGroup ? "mt-3" : "mt-2"}
                 >
                     <MessageBubble
@@ -210,6 +277,7 @@ export default function ChatWindow({
                         conversationType={conversation?.type}
                         defaultAvatarSmallUrl={defaultAvatarSmallUrl}
                         onRecall={handleRecall}
+                        onRecallCall={(callType) => void startCall(callType)}
                         onMediaLoad={
                             isOwn ? () => scrollToBottom("smooth") : undefined
                         }
@@ -266,10 +334,20 @@ export default function ChatWindow({
                     </div>
                 </div>
                 <div className="flex items-center gap-4">
-                    <button className="hover:text-gray-600 dark:text-white">
+                    <button
+                        className="hover:text-gray-600 dark:text-white disabled:opacity-40"
+                        onClick={() => void startCall("audio")}
+                        disabled={!otherMember}
+                        title="Gọi thoại"
+                    >
                         <Phone size={20} />
                     </button>
-                    <button className="hover:text-gray-600 dark:text-white">
+                    <button
+                        className="hover:text-gray-600 dark:text-white disabled:opacity-40"
+                        onClick={() => void startCall("video")}
+                        disabled={!otherMember}
+                        title="Gọi video"
+                    >
                         <Video size={20} />
                     </button>
                     <button className="hover:text-gray-600 dark:text-white">
@@ -403,147 +481,186 @@ export default function ChatWindow({
                         </button>
                     </div>
                 ) : (
-                <div className="flex items-center gap-1">
-                    {/* Plus / X — mở popup menu */}
-                    <div ref={plusMenuRef} className="relative shrink-0">
-                        <button
-                            type="button"
-                            onClick={() => setPlusMenuOpen((v) => !v)}
-                            disabled={uploading}
-                            className="p-1.5 text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full disabled:opacity-50"
-                        >
-                            {plusMenuOpen ? (
-                                <X size={22} />
-                            ) : (
-                                <Plus size={22} />
-                            )}
-                        </button>
-
-                        {/* Popup menu */}
-                        {plusMenuOpen && (
-                            <div className="absolute bottom-full left-0 mb-2 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-2xl shadow-xl py-1.5 w-72 z-40">
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setPlusMenuOpen(false);
-                                        void startRecording();
-                                    }}
-                                    className="flex items-center gap-3 w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700"
-                                >
-                                    <Mic
-                                        size={20}
-                                        className="text-gray-700 dark:text-gray-300 shrink-0"
-                                    />
-                                    <span className="text-sm text-gray-800 dark:text-gray-100">
-                                        Gửi clip âm thanh
-                                    </span>
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setPlusMenuOpen(false);
-                                        attachInputRef.current?.click();
-                                    }}
-                                    className="flex items-center gap-3 w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700"
-                                >
-                                    <Paperclip
-                                        size={20}
-                                        className="text-gray-700 dark:text-gray-300 shrink-0"
-                                    />
-                                    <span className="text-sm text-gray-800 dark:text-gray-100">
-                                        Đính kèm file (tối đa 100MB)
-                                    </span>
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setPlusMenuOpen(false)}
-                                    className="flex items-center gap-3 w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700 opacity-50 cursor-not-allowed"
-                                >
-                                    <StickyNote
-                                        size={20}
-                                        className="text-gray-700 dark:text-gray-300 shrink-0"
-                                    />
-                                    <span className="text-sm text-gray-800 dark:text-gray-100">
-                                        Chọn nhãn dán
-                                    </span>
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setPlusMenuOpen(false);
-                                        gifInputRef.current?.click();
-                                    }}
-                                    className="flex items-center gap-3 w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700"
-                                >
-                                    <Film
-                                        size={20}
-                                        className="text-gray-700 dark:text-gray-300 shrink-0"
-                                    />
-                                    <span className="text-sm text-gray-800 dark:text-gray-100">
-                                        Chọn file GIF / Ảnh / Video
-                                    </span>
-                                </button>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Input text */}
-                    <input
-                        type="text"
-                        value={messageText}
-                        onChange={(e) => setMessageText(e.target.value)}
-                        onKeyDown={(e) =>
-                            e.key === "Enter" &&
-                            !sending &&
-                            !uploading &&
-                            void handleSend()
-                        }
-                        placeholder={
-                            uploading
-                                ? "Đang tải file lên..."
-                                : "Nhập tin nhắn..."
-                        }
-                        disabled={sending || uploading}
-                        className="flex-1 min-w-0 px-4 py-2 bg-gray-100 dark:bg-gray-800 rounded-full focus:outline-none text-sm dark:text-white disabled:opacity-50"
-                    />
-
-                    {/* Uploading spinner */}
-                    {uploading && (
-                        <span className="shrink-0 h-5 w-5 rounded-full border-2 border-gray-300 dark:border-gray-600 border-t-gray-700 dark:border-t-gray-200 animate-spin" />
-                    )}
-
-                    {/* Emoji — luôn hiện (trừ khi đang upload) */}
-                    {!uploading && (
-                        <button
-                            type="button"
-                            className="shrink-0 p-1.5 text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full"
-                        >
-                            <Smile size={22} />
-                        </button>
-                    )}
-
-                    {/* Thumbs up khi trống, Send khi có text */}
-                    {!uploading &&
-                        (messageText.trim() ? (
+                    <div className="flex items-center gap-1">
+                        {/* Plus / X — mở popup menu */}
+                        <div ref={plusMenuRef} className="relative shrink-0">
                             <button
                                 type="button"
-                                onClick={() => void handleSend()}
-                                disabled={sending}
-                                className="shrink-0 p-1.5 text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full disabled:opacity-50"
+                                onClick={() => setPlusMenuOpen((v) => !v)}
+                                disabled={uploading}
+                                className="p-1.5 text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full disabled:opacity-50"
                             >
-                                <Send size={22} />
+                                {plusMenuOpen ? (
+                                    <X size={22} />
+                                ) : (
+                                    <Plus size={22} />
+                                )}
                             </button>
-                        ) : (
+
+                            {/* Popup menu */}
+                            {plusMenuOpen && (
+                                <div className="absolute bottom-full left-0 mb-2 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-2xl shadow-xl py-1.5 w-72 z-40">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setPlusMenuOpen(false);
+                                            void startRecording();
+                                        }}
+                                        className="flex items-center gap-3 w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700"
+                                    >
+                                        <Mic
+                                            size={20}
+                                            className="text-gray-700 dark:text-gray-300 shrink-0"
+                                        />
+                                        <span className="text-sm text-gray-800 dark:text-gray-100">
+                                            Gửi clip âm thanh
+                                        </span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setPlusMenuOpen(false);
+                                            attachInputRef.current?.click();
+                                        }}
+                                        className="flex items-center gap-3 w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700"
+                                    >
+                                        <Paperclip
+                                            size={20}
+                                            className="text-gray-700 dark:text-gray-300 shrink-0"
+                                        />
+                                        <span className="text-sm text-gray-800 dark:text-gray-100">
+                                            Đính kèm file (tối đa 100MB)
+                                        </span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setPlusMenuOpen(false)}
+                                        className="flex items-center gap-3 w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700 opacity-50 cursor-not-allowed"
+                                    >
+                                        <StickyNote
+                                            size={20}
+                                            className="text-gray-700 dark:text-gray-300 shrink-0"
+                                        />
+                                        <span className="text-sm text-gray-800 dark:text-gray-100">
+                                            Chọn nhãn dán
+                                        </span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setPlusMenuOpen(false);
+                                            gifInputRef.current?.click();
+                                        }}
+                                        className="flex items-center gap-3 w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700"
+                                    >
+                                        <Film
+                                            size={20}
+                                            className="text-gray-700 dark:text-gray-300 shrink-0"
+                                        />
+                                        <span className="text-sm text-gray-800 dark:text-gray-100">
+                                            Chọn file GIF / Ảnh / Video
+                                        </span>
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Input text */}
+                        <input
+                            type="text"
+                            value={messageText}
+                            onChange={(e) => setMessageText(e.target.value)}
+                            onKeyDown={(e) =>
+                                e.key === "Enter" &&
+                                !sending &&
+                                !uploading &&
+                                void handleSend()
+                            }
+                            placeholder={
+                                uploading
+                                    ? "Đang tải file lên..."
+                                    : "Nhập tin nhắn..."
+                            }
+                            disabled={sending || uploading}
+                            className="flex-1 min-w-0 px-4 py-2 bg-gray-100 dark:bg-gray-800 rounded-full focus:outline-none text-sm dark:text-white disabled:opacity-50"
+                        />
+
+                        {/* Uploading spinner */}
+                        {uploading && (
+                            <span className="shrink-0 h-5 w-5 rounded-full border-2 border-gray-300 dark:border-gray-600 border-t-gray-700 dark:border-t-gray-200 animate-spin" />
+                        )}
+
+                        {/* Emoji — luôn hiện (trừ khi đang upload) */}
+                        {!uploading && (
                             <button
                                 type="button"
                                 className="shrink-0 p-1.5 text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full"
                             >
-                                <ThumbsUp size={22} />
+                                <Smile size={22} />
                             </button>
-                        ))}
-                </div>
+                        )}
+
+                        {/* Thumbs up khi trống, Send khi có text */}
+                        {!uploading &&
+                            (messageText.trim() ? (
+                                <button
+                                    type="button"
+                                    onClick={() => void handleSend()}
+                                    disabled={sending}
+                                    className="shrink-0 p-1.5 text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full disabled:opacity-50"
+                                >
+                                    <Send size={22} />
+                                </button>
+                            ) : (
+                                <button
+                                    type="button"
+                                    className="shrink-0 p-1.5 text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full"
+                                >
+                                    <ThumbsUp size={22} />
+                                </button>
+                            ))}
+                    </div>
                 )}
             </div>
+
+            <IncomingCallModal
+                open={Boolean(incomingCall)}
+                callerName={
+                    conversation?.members?.find(
+                        (m) => m.userId === incomingCall?.fromUserId,
+                    )?.nickname ||
+                    `Người dùng ${incomingCall?.fromUserId ?? ""}`
+                }
+                callType={incomingCall?.callType || "audio"}
+                onAccept={() => void acceptIncomingCall()}
+                onReject={rejectIncomingCall}
+            />
+
+            <CallScreen
+                open={Boolean(activeCall)}
+                callType={activeCall?.callType || "audio"}
+                remoteName={
+                    activeCall?.remoteName ||
+                    otherMember?.nickname ||
+                    "Người dùng"
+                }
+                remoteAvatar={activeCall?.remoteAvatar || otherMember?.avatar}
+                status={activeCall?.status || "calling"}
+                durationText={callDurationText}
+                localStream={localStream}
+                remoteStream={remoteStream}
+                remoteStreams={remoteStreams}
+                participants={callParticipants}
+                micEnabled={micEnabled}
+                cameraEnabled={cameraEnabled}
+                isScreenSharing={isScreenSharing}
+                canToggleCamera={canToggleCamera}
+                canShareScreen={canShareScreen}
+                onToggleMic={toggleMic}
+                onToggleCamera={toggleCamera}
+                onToggleScreenShare={() => void toggleScreenShare()}
+                onEndCall={() => void endCall()}
+            />
         </div>
     );
 }
