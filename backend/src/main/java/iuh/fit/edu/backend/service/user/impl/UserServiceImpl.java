@@ -4,16 +4,10 @@
  */
 package iuh.fit.edu.backend.service.user.impl;
 
-import iuh.fit.edu.backend.domain.entity.mysql.BlackListUser;
-import iuh.fit.edu.backend.domain.entity.mysql.BlockedUser;
-import iuh.fit.edu.backend.domain.entity.mysql.Device;
-import iuh.fit.edu.backend.domain.entity.mysql.User;
+import iuh.fit.edu.backend.domain.entity.mysql.*;
 import iuh.fit.edu.backend.dto.request.friend.FriendRequest;
 import iuh.fit.edu.backend.dto.request.user.*;
-import iuh.fit.edu.backend.dto.response.user.UserResponseConfirmRegister;
-import iuh.fit.edu.backend.dto.response.user.UserResponseLogin;
-import iuh.fit.edu.backend.dto.response.user.UserResponseOTPPassword;
-import iuh.fit.edu.backend.dto.response.user.UserResponseRegister;
+import iuh.fit.edu.backend.dto.response.user.*;
 import iuh.fit.edu.backend.mapper.UserMapper;
 import iuh.fit.edu.backend.repository.mysql.BlackListUserRepository;
 import iuh.fit.edu.backend.repository.mysql.DeviceRepository;
@@ -50,6 +44,7 @@ public class UserServiceImpl implements UserService {
     CognitoIdentityProviderClient cognitoClient;
     SimpMessagingTemplate simpMessagingTemplate;
     DeviceRepository deviceRepository;
+
 
     public UserServiceImpl(BlackListUserRepository blackListUserRepository,
                            BlockUserService blockUserService, CognitoIdentityProviderClient cognitoClient,
@@ -167,8 +162,8 @@ public class UserServiceImpl implements UserService {
                 .build();
         blackListUserRepository.save(blackListUser);
     }
-
-    private void saveDevice(User user, String deviceType, String deviceName, String ipAddress) {
+    @Override
+    public void saveDevice(User user, String deviceType, String deviceName, String ipAddress) {
         if (user == null) return;
         Device device = new Device();
         device.setUser(user);
@@ -225,7 +220,7 @@ public class UserServiceImpl implements UserService {
         if (resultType == null || resultType.accessToken() == null) {
             throw new RuntimeException("Refresh token invalid or expired");
         }
-        return resultType.idToken();
+        return resultType.accessToken();
     }
 
     @Override
@@ -398,6 +393,7 @@ public class UserServiceImpl implements UserService {
     public List<User> searchUserByUsername(String keyword) {
         return userRepository.findUsersByUsernameContaining(keyword);
     }
+
 
     private String convertToInternationalFormat(String phone) {
         if (phone != null && phone.startsWith("0")) {
