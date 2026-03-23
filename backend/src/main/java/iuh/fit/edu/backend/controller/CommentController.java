@@ -6,9 +6,9 @@ package iuh.fit.edu.backend.controller;
 
 import iuh.fit.edu.backend.constant.TargetType;
 import iuh.fit.edu.backend.domain.entity.nosql.Comment;
-import iuh.fit.edu.backend.dto.request.CreateCommentRequest;
+import iuh.fit.edu.backend.dto.request.post.CreateCommentRequest;
 import iuh.fit.edu.backend.dto.response.ApiResponse;
-import iuh.fit.edu.backend.service.CommentService;
+import iuh.fit.edu.backend.service.post.CommentService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;

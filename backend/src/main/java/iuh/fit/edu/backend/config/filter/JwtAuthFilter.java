@@ -41,6 +41,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
         String token = null;
 
+        // Try to get token from cookies first
         if (request.getCookies() != null) {
             for (Cookie cookie : request.getCookies()) {
                 if ("accessToken".equals(cookie.getName())) {
@@ -50,11 +51,16 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             }
         }
 
+        // If no token in cookies, check Authorization header
+        if (token == null) {
+            String authHeader = request.getHeader("Authorization");
+            if (authHeader != null && authHeader.startsWith("Bearer ")) {
+                token = authHeader.substring(7); // Remove "Bearer " prefix
+            }
+        }
+
         if (token != null) {
             try {
-
-
-
                 DecodedJWT decodedJWT = JWT.decode(token);
                 String keyId = decodedJWT.getKeyId();
 
@@ -81,7 +87,6 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                         new UsernamePasswordAuthenticationToken(
                                 phone, null, List.of()
                         );
-
 
                 SecurityContextHolder.getContext().setAuthentication(auth);
 

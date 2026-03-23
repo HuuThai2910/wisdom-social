@@ -8,6 +8,7 @@ import iuh.fit.edu.backend.dto.response.user.UserResponseLogin;
 import iuh.fit.edu.backend.dto.response.user.UserResponseOTPPassword;
 import iuh.fit.edu.backend.dto.response.user.UserResponseRegister;
 import iuh.fit.edu.backend.dto.response.user.UserProfileResponse;
+import iuh.fit.edu.backend.dto.response.ApiResponse;
 import iuh.fit.edu.backend.service.user.BlockUserService;
 import iuh.fit.edu.backend.service.user.UserService;
 import iuh.fit.edu.backend.service.user.UserSettingService;
@@ -110,8 +111,13 @@ public class UserController {
     }
 
     @GetMapping("/me")
-    public ResponseEntity<User> me() {
-        return ResponseEntity.ok(userService.getCurrentUser());
+    public ResponseEntity<ApiResponse<User>> me() {
+        User currentUser = userService.getCurrentUser();
+        if (currentUser == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "Unauthorized - No authenticated user found", null));
+        }
+        return ResponseEntity.ok(ApiResponse.success(200, "Get current user successfully", currentUser));
     }
 
     @PostMapping("/forgot-password")

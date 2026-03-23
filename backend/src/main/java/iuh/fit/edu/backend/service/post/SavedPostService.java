@@ -2,7 +2,7 @@
  * @ (#) SavedPostService.java    1.0
  * Copyright (c)  IUH. All rights reserved.
  */
-package iuh.fit.edu.backend.service;
+package iuh.fit.edu.backend.service.post;
 
 import iuh.fit.edu.backend.domain.entity.nosql.SavedPost;
 

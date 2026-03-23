@@ -140,8 +140,12 @@ public class UserServiceImpl implements UserService {
             User user= userRepository.findByPhone(login.getPhone());
             saveDevice(user, login.getDeviceType(), login.getDeviceName(), login.getIpAddress());
             return UserResponseLogin.builder()
+                    .id(user.getId())
                     .phone(user.getPhone())
                     .username(user.getUsername())
+                    .name(user.getName())
+                    .avatarUrl(user.getAvatarUrl())
+                    .bio(user.getBio())
                     .gender(user.getGender())
                     .birthday(user.getBirthday())
                     .createdAt(user.getCreatedAt() != null ? user.getCreatedAt().toInstant() : null)

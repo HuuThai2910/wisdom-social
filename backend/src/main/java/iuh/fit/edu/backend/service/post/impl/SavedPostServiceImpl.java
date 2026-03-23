@@ -2,12 +2,12 @@
  * @ (#) SavedPostServiceImpl.java    1.0
  * Copyright (c)  IUH. All rights reserved.
  */
-package iuh.fit.edu.backend.service.user.impl;
+package iuh.fit.edu.backend.service.post.impl;
 
 import iuh.fit.edu.backend.constant.TargetType;
 import iuh.fit.edu.backend.domain.entity.nosql.SavedPost;
 import iuh.fit.edu.backend.repository.nosql.SavedPostRepository;
-import iuh.fit.edu.backend.service.SavedPostService;
+import iuh.fit.edu.backend.service.post.SavedPostService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;

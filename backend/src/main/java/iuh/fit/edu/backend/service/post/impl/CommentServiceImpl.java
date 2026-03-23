@@ -2,16 +2,15 @@
  * @ (#) CommentServiceImpl.java    1.0
  * Copyright (c)  IUH. All rights reserved.
  */
-package iuh.fit.edu.backend.service.user.impl;
+package iuh.fit.edu.backend.service.post.impl;
 
 import iuh.fit.edu.backend.constant.StatusType;
 import iuh.fit.edu.backend.constant.TargetType;
 import iuh.fit.edu.backend.domain.entity.nosql.Comment;
-import iuh.fit.edu.backend.domain.entity.nosql.Post;
-import iuh.fit.edu.backend.dto.request.CreateCommentRequest;
+import iuh.fit.edu.backend.dto.request.post.CreateCommentRequest;
 import iuh.fit.edu.backend.repository.nosql.CommentRepository;
 import iuh.fit.edu.backend.repository.nosql.PostRepository;
-import iuh.fit.edu.backend.service.CommentService;
+import iuh.fit.edu.backend.service.post.CommentService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;

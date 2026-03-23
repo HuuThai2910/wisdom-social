@@ -2,11 +2,11 @@
  * @ (#) CommentService.java    1.0
  * Copyright (c)  IUH. All rights reserved.
  */
-package iuh.fit.edu.backend.service;
+package iuh.fit.edu.backend.service.post;
 
 import iuh.fit.edu.backend.constant.TargetType;
 import iuh.fit.edu.backend.domain.entity.nosql.Comment;
-import iuh.fit.edu.backend.dto.request.CreateCommentRequest;
+import iuh.fit.edu.backend.dto.request.post.CreateCommentRequest;
 
 import java.util.List;
 

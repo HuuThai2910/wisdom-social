@@ -2,7 +2,7 @@
  * @ (#) CreateCommentRequest.java    1.0
  * Copyright (c)  IUH. All rights reserved.
  */
-package iuh.fit.edu.backend.dto.request;
+package iuh.fit.edu.backend.dto.request.post;
 
 import iuh.fit.edu.backend.constant.TargetType;
 import jakarta.validation.constraints.NotBlank;

@@ -4,14 +4,13 @@
  */
 package iuh.fit.edu.backend.domain.entity.nosql;
 
-import jakarta.persistence.Id;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.index.CompoundIndexes;
-import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
@@ -50,8 +49,4 @@ public class StoryView {
 
     // Thời điểm xem
     private Instant createdAt;
-
-    // TTL - Tự động xóa sau 48 giờ (config via MongoConfig)
-    @Indexed
-    private Instant expireAt;
 }

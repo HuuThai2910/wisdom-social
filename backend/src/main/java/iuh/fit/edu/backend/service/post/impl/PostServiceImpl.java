@@ -2,35 +2,30 @@
  * @ (#) PostServiceImpl.java    1.0
  * Copyright (c)  IUH. All rights reserved.
  */
-package iuh.fit.edu.backend.service.user.impl;
+package iuh.fit.edu.backend.service.post.impl;
 
 import iuh.fit.edu.backend.constant.TargetType;
 import iuh.fit.edu.backend.domain.entity.nosql.Media;
 import iuh.fit.edu.backend.domain.entity.nosql.Post;
 import iuh.fit.edu.backend.domain.entity.nosql.Stats;
 import iuh.fit.edu.backend.domain.entity.nosql.embeddable.Location;
-import iuh.fit.edu.backend.dto.request.CreatePostRequest;
+import iuh.fit.edu.backend.dto.request.post.CreatePostRequest;
 import iuh.fit.edu.backend.repository.mysql.UserRepository;
 import iuh.fit.edu.backend.repository.nosql.CommentRepository;
 import iuh.fit.edu.backend.repository.nosql.PostRepository;
 import iuh.fit.edu.backend.repository.nosql.ReactionRepository;
-import iuh.fit.edu.backend.service.PostService;
 import iuh.fit.edu.backend.service.s3.S3Service;
+import iuh.fit.edu.backend.service.post.PostService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.multipart.MultipartFile;
-import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.PutObjectRequest;
-import software.amazon.awssdk.core.sync.RequestBody;
 
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -49,17 +44,14 @@ public class PostServiceImpl implements PostService {
     private final PostRepository postRepository;
     private final UserRepository userRepository;
     private final S3Service s3Service;
-    private final S3Client s3Client;
     private final ReactionRepository reactionRepository;
     private final CommentRepository commentRepository;
     
-    @Value("${aws.s3.bucket-name}")
-    private String bucketName;
-    
     @Override
     @Transactional
-    public Post createPost(CreatePostRequest request, List<MultipartFile> images, Long authorId) {
+    public Post createPost(CreatePostRequest request, List<String> imageUrls, Long authorId) {
         log.info("Creating post for user: {}", authorId);
+        log.info("Image URLs received: {}", imageUrls);
         
         // First, create and save post to get ID
         List<Media> mediaList = new ArrayList<>();
@@ -117,60 +109,47 @@ public class PostServiceImpl implements PostService {
         Post savedPost = postRepository.save(post);
         log.info("Post saved to MongoDB successfully: {}", savedPost.getId());
         
-        // Now upload images if provided and update post
-        if (images != null && !images.isEmpty()) {
-            for (int i = 0; i < images.size(); i++) {
-                MultipartFile image = images.get(i);
-                try {
-                    String extension = getFileExtension(image.getOriginalFilename());
-                    String s3Key = "images/avatars/posts/" + savedPost.getId() + "/" + i + "." + extension;
+        // Move images from temp to final location if provided and update post
+        if (imageUrls != null && !imageUrls.isEmpty()) {
+            log.info("Processing {} images to move from temp to final location", imageUrls.size());
+            try {
+                // Create Media objects for uploaded images
+                for (int i = 0; i < imageUrls.size(); i++) {
+                    String tempUrl = imageUrls.get(i);
+                    log.info("Processing image {}: {}", i, tempUrl);
                     
-                    // Upload file directly to S3
-                    PutObjectRequest putObjectRequest = PutObjectRequest.builder()
-                            .bucket(bucketName)
-                            .key(s3Key)
-                            .contentType(getContentType(extension))
-                            .contentLength(image.getSize())
-                            .build();
-                    
-                    s3Client.putObject(putObjectRequest, RequestBody.fromInputStream(image.getInputStream(), image.getSize()));
+                    // Move from temp to final location using MongoDB ID (String)
+                    String finalUrl = s3Service.moveUploadUrl("posts", savedPost.getId(), tempUrl);
+                    log.info("Successfully moved image {} to final location: {}", i, finalUrl);
                     
                     Media media = Media.builder()
                             .order(i)
-                            .url(s3Key)
+                            .url(finalUrl)
                             .type("image")
                             .build();
                     mediaList.add(media);
-                    log.info("Uploaded image to S3: {}", s3Key);
-                } catch (Exception e) {
-                    log.error("Error uploading image to S3", e);
+                    log.info("Created media object for image {}", i);
                 }
+                
+                // Update post with final media list
+                if (!mediaList.isEmpty()) {
+                    log.info("Saving post with {} media items", mediaList.size());
+                    savedPost.setMedia(mediaList);
+                    savedPost = postRepository.save(savedPost);
+                    log.info("Post updated with media successfully");
+                } else {
+                    log.warn("No media items to save");
+                }
+            } catch (Exception e) {
+                log.error("Error moving images from temp to final location: {}", e.getMessage());
+                log.error("Stack trace:", e);
+                throw new RuntimeException("Failed to process images: " + e.getMessage(), e);
             }
-            
-            // Update post with final media list
-            savedPost.setMedia(mediaList);
-            savedPost = postRepository.save(savedPost);
+        } else {
+            log.info("No image URLs provided");
         }
         
         return savedPost;
-    }
-    
-    private String getFileExtension(String filename) {
-        if (filename != null && filename.contains(".")) {
-            return filename.substring(filename.lastIndexOf(".") + 1).toLowerCase();
-        }
-        return "";
-    }
-    
-    private String getContentType(String extension) {
-        if (extension.equalsIgnoreCase("png")) {
-            return "image/png";
-        } else if (extension.equalsIgnoreCase("gif")) {
-            return "image/gif";
-        } else if (extension.equalsIgnoreCase("webp")) {
-            return "image/webp";
-        }
-        return "image/jpeg"; // Default to JPEG
     }
     
     private List<String> convertUsernamesToIds(List<String> usernames) {
@@ -220,14 +199,25 @@ public class PostServiceImpl implements PostService {
     @Override
     public List<Post> getPostsByUserId(Long userId) {
         log.info("Getting posts for user: {}", userId);
-        return postRepository.findByAuthorIdOrderByCreatedAtDesc(userId.toString());
+        List<Post> posts = postRepository.findByAuthorIdOrderByCreatedAtDesc(userId.toString());
+        log.info("Found {} posts for user {}", posts.size(), userId);
+        posts.forEach(post -> {
+            int mediaCount = post.getMedia() != null ? post.getMedia().size() : 0;
+            log.info("Post {}: {} media items", post.getId(), mediaCount);
+        });
+        return posts;
     }
 
     @Override
     public Post getPostById(String postId) {
         log.info("Getting post by ID: {}", postId);
-        return postRepository.findById(postId)
+        Post post = postRepository.findById(postId)
                 .orElseThrow(() -> new RuntimeException("Post not found with id: " + postId));
+        log.info("Post found. Media items: {}", post.getMedia() != null ? post.getMedia().size() : 0);
+        if (post.getMedia() != null) {
+            post.getMedia().forEach(media -> log.info("Media: {}", media.getUrl()));
+        }
+        return post;
     }
 
     @Override
@@ -251,7 +241,7 @@ public class PostServiceImpl implements PostService {
 
     @Override
     @Transactional
-    public Post updatePost(String postId, CreatePostRequest request, List<MultipartFile> newImages, Long userId) {
+    public Post updatePost(String postId, CreatePostRequest request, List<String> newImageUrls, Long userId) {
         log.info("Updating post {} by user {}", postId, userId);
         
         // Get post to check authorization
@@ -298,7 +288,6 @@ public class PostServiceImpl implements PostService {
         
         // Handle media updates
         List<Media> updatedMediaList = new ArrayList<>();
-        List<String> tempImageUrls = new ArrayList<>(); // Store temp URLs to move later
         
         // If existingMediaUrls is provided, use it to filter what to keep
         // If not provided, keep all existing media (user is not modifying images)
@@ -323,34 +312,25 @@ public class PostServiceImpl implements PostService {
         // Track the index where new media starts
         int newMediaStartIndex = updatedMediaList.size();
         
-        // Upload and add new images
-        if (newImages != null && !newImages.isEmpty()) {
-            for (int i = 0; i < newImages.size(); i++) {
-                MultipartFile image = newImages.get(i);
-                try {
-                    String extension = getFileExtension(image.getOriginalFilename());
-                    String s3Key = "images/avatars/posts/" + postId + "/" + (newMediaStartIndex + i) + "." + extension;
-                    
-                    // Upload file directly to S3
-                    PutObjectRequest putObjectRequest = PutObjectRequest.builder()
-                            .bucket(bucketName)
-                            .key(s3Key)
-                            .contentType(getContentType(extension))
-                            .contentLength(image.getSize())
-                            .build();
-                    
-                    s3Client.putObject(putObjectRequest, RequestBody.fromInputStream(image.getInputStream(), image.getSize()));
+        // Move and add new images
+        if (newImageUrls != null && !newImageUrls.isEmpty()) {
+            try {
+                // Create Media objects for uploaded images with proper ordering
+                for (int i = 0; i < newImageUrls.size(); i++) {
+                    String tempUrl = newImageUrls.get(i);
+                    // Move from temp to final location using MongoDB ID (String)
+                    String finalUrl = s3Service.moveUploadUrl("posts", postId, tempUrl);
                     
                     Media media = Media.builder()
                             .order(newMediaStartIndex + i)
-                            .url(s3Key)
+                            .url(finalUrl)
                             .type("image")
                             .build();
                     updatedMediaList.add(media);
-                    log.info("Uploaded image to S3: {}", s3Key);
-                } catch (Exception e) {
-                    log.error("Error uploading image to S3", e);
+                    log.info("Moved media from temp to final: {}", finalUrl);
                 }
+            } catch (Exception e) {
+                log.error("Error moving images: {}", e.getMessage(), e);
             }
         }
         

@@ -15,60 +15,24 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
-import axiosClient from "../../api/axiosClient";
+import { buildS3Url } from "../../utils/s3";
 import FriendSelectorModal from "./FriendSelectorModal";
 import EditPostModal from "./EditPostModal";
 import { useAuth } from "../../contexts/AuthContext";
-
-interface PostModalProps {
-  postId: string;
-  onClose: () => void;
-}
-
-interface PostData {
-  id: string;
-  authorId: string;
-  content: string;
-  privacy?: string;
-  media?: Array<{ url: string; type: string; order: number }>;
-  mediaList?: Array<{ url: string; type: string; order: number }>;
-  stats?: { reactCount: number; commentCount: number; shareCount: number };
-  createdAt: string;
-  location?:
-    | string
-    | {
-        name: string;
-        address: string;
-        latitude: number;
-        longitude: number;
-        placeId: string;
-      };
-  taggedUserIds?: string[];
-}
-
-interface UserData {
-  id: number;
-  username: string;
-  name: string;
-  avatarUrl: string;
-}
-
-interface CommentData {
-  id: string;
-  userId: string;
-  content: string;
-  createdAt: string;
-  reactCount: number;
-  replyCount: number;
-  parentId?: string;
-  replies?: CommentData[];
-}
+import type {
+  PostData,
+  UserData,
+  CommentData,
+  PostModalProps,
+} from "../../types/postType";
+import * as postApi from "../../services/postService";
 
 export default function PostModal({ postId, onClose }: PostModalProps) {
   const { currentUser } = useAuth();
   const [post, setPost] = useState<PostData | null>(null);
   const [author, setAuthor] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showMenu, setShowMenu] = useState(false);
   const [taggedUsers, setTaggedUsers] = useState<UserData[]>([]);
   const [comments, setComments] = useState<CommentData[]>([]);
@@ -96,65 +60,51 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
     const fetchPost = async () => {
       try {
         setLoading(true);
-        const response = await axiosClient.get(`/posts/${postId}`);
-        const postData: PostData = response.data.data;
+        setError(null);
+
+        // Fetch post
+        const postData = await postApi.fetchPostById(postId);
         setPost(postData);
 
-        // Fetch author data
-        const userResponse = await axiosClient.get(
-          `/auth/user/id/${postData.authorId}`
-        );
-        setAuthor(userResponse.data.data);
+        // Fetch author
+        const author = await postApi.fetchUserById(postData.authorId);
+        setAuthor(author);
 
-        // Fetch tagged users data
+        // Fetch tagged users
         if (postData.taggedUserIds && postData.taggedUserIds.length > 0) {
-          const taggedUsersPromises = postData.taggedUserIds.map((userId) =>
-            axiosClient.get(`/auth/user/id/${userId}`).catch(() => null)
+          const fetchedTaggedUsers = await postApi.fetchUsersByIds(
+            postData.taggedUserIds
           );
-          const taggedUsersResponses = await Promise.all(taggedUsersPromises);
-          const fetchedTaggedUsers = taggedUsersResponses
-            .filter((res) => res !== null)
-            .map((res) => res!.data.data);
           setTaggedUsers(fetchedTaggedUsers);
         }
 
         // Fetch comments
-        const commentsResponse = await axiosClient.get(`/comments`, {
-          params: { targetType: "POST", targetId: postId },
-        });
-
-        // Filter only top-level comments (no parentId)
-        const allComments = commentsResponse.data.data || [];
-        const topLevelComments = allComments.filter(
-          (comment: CommentData) => !comment.parentId
-        );
-        setComments(topLevelComments);
+        const comments = await postApi.fetchPostComments(postId);
+        setComments(comments);
 
         // Fetch reactions count
-        const reactionsResponse = await axiosClient.get(`/reactions`, {
-          params: { targetType: "POST", targetId: postId },
-        });
-        setReactCount(reactionsResponse.data.data?.length || 0);
+        const reactCount = await postApi.fetchPostReactionsCount(postId);
+        setReactCount(reactCount);
 
         // Fetch saved status
         if (currentUser?.id) {
-          const savedResponse = await axiosClient.get(`/saved-posts/check`, {
-            params: {
-              userId: currentUser.id,
-              postId: postId,
-            },
-          });
-          setIsSaved(savedResponse.data.data || false);
+          const isSaved = await postApi.checkPostSaved(currentUser.id, postId);
+          setIsSaved(isSaved);
         }
-      } catch (err) {
-        console.error("Error fetching post:", err);
+
+        console.log("✅ Post detail loaded successfully");
+      } catch (err: any) {
+        const errorMsg =
+          err.response?.data?.message || err.message || "Failed to load post";
+        console.error("❌ Error fetching post:", errorMsg, err);
+        setError(errorMsg);
       } finally {
         setLoading(false);
       }
     };
 
     fetchPost();
-  }, [postId]);
+  }, [postId, currentUser?.id]);
 
   // Fetch user's current reaction
   useEffect(() => {
@@ -162,28 +112,13 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
       if (!currentUser?.id) return;
 
       try {
-        console.log(
-          "PostModal: Fetching reaction for post:",
-          postId,
-          "user:",
-          currentUser.id
+        const reaction = await postApi.fetchUserReaction(
+          currentUser.id,
+          postId
         );
-        const response = await axiosClient.get(`/reactions/user`, {
-          params: {
-            userId: currentUser.id,
-            targetType: "POST",
-            targetId: postId,
-          },
-        });
-        console.log("PostModal: Reaction response:", response.data);
-        if (response.data.data) {
-          console.log(
-            "PostModal: Setting currentReaction to:",
-            response.data.data.type
-          );
-          setCurrentReaction(response.data.data.type);
+        if (reaction) {
+          setCurrentReaction(reaction.type);
         } else {
-          console.log("PostModal: No reaction found, setting to null");
           setCurrentReaction(null);
         }
       } catch (error) {
@@ -212,11 +147,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
     setIsEditing(true);
   };
 
-  const handleChangePrivacy = async (
-    newPrivacy: string,
-    selectedSpecificViewers?: string[],
-    selectedExcludedUsers?: string[]
-  ) => {
+  const handleChangePrivacy = async (newPrivacy: string) => {
     if (!post) return;
 
     try {
@@ -225,34 +156,13 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
         return;
       }
 
-      const formData = new FormData();
+      const updatedPost = await postApi.updatePostPrivacy(
+        currentUser.id.toString(),
+        postId,
+        newPrivacy
+      );
 
-      const postData = {
-        content: post.content,
-        privacy: newPrivacy,
-        location:
-          typeof post.location === "string"
-            ? post.location
-            : post.location?.name || null,
-        taggedUserIds: post.taggedUserIds || [],
-        existingMediaUrls:
-          (post.media || post.mediaList)?.map((m) => m.url) || [],
-        specificViewerUsernames:
-          newPrivacy === "SPECIFIC" ? selectedSpecificViewers || [] : [],
-        excludedUsernames:
-          newPrivacy === "EXCEPT" ? selectedExcludedUsers || [] : [],
-      };
-
-      formData.append("postData", JSON.stringify(postData));
-      formData.append("userId", currentUser.id.toString());
-
-      const response = await axiosClient.put(`/posts/${postId}`, formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      });
-
-      setPost(response.data.data);
+      setPost(updatedPost);
       setShowPrivacyMenu(false);
       setShowMenu(false);
       alert("Privacy updated successfully!");
@@ -269,8 +179,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
     }
 
     try {
-      const currentUser = { id: 1 }; // TODO: Get from auth context
-      await axiosClient.delete(`/posts/${postId}?userId=${currentUser.id}`);
+      await postApi.deletePost(postId, currentUser?.id || "");
 
       alert("Xóa bài viết thành công!");
       onClose(); // Close modal after successful deletion
@@ -292,17 +201,14 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
         return;
       }
 
-      const response = await axiosClient.post(
-        `/comments?userId=${currentUser.id}`,
-        {
-          targetType: "POST",
-          targetId: postId,
-          content: commentInput,
-        }
+      const newComment = await postApi.submitComment(
+        currentUser.id,
+        postId,
+        commentInput
       );
 
       // Add new comment to list
-      setComments([response.data.data, ...comments]);
+      setComments([newComment, ...comments]);
       setCommentInput("");
     } catch (error) {
       console.error("Error submitting comment:", error);
@@ -322,9 +228,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
         alert("Please login to delete comment");
         return;
       }
-      await axiosClient.delete(
-        `/comments/${commentId}?userId=${currentUser.id}`
-      );
+      await postApi.deleteComment(commentId, currentUser.id);
 
       // Recursive function to remove comment and its replies from nested structure
       const removeCommentRecursive = (
@@ -371,14 +275,11 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
         // Search users if query is not empty
         if (afterAt.length > 0) {
           try {
-            const currentUser = { id: 1 }; // TODO: Get from auth context
-            const response = await axiosClient.get(`/auth/users/search`, {
-              params: {
-                userId: currentUser.id,
-                query: afterAt,
-              },
-            });
-            setMentionUsers(response.data.data || []);
+            const mentionUsers = await postApi.searchUsers(
+              currentUser?.id || "",
+              afterAt
+            );
+            setMentionUsers(mentionUsers);
           } catch (error) {
             console.error("Error searching users:", error);
           }
@@ -415,22 +316,19 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
     }
 
     try {
-      const response = await axiosClient.post(`/reactions/toggle`, null, {
-        params: {
-          userId: currentUser.id,
-          targetType: "POST",
-          targetId: postId,
-          reactionType: reactionType,
-        },
-      });
+      const reaction = await postApi.togglePostReaction(
+        currentUser.id,
+        postId,
+        reactionType
+      );
 
-      // If response.data.data is null/undefined, reaction was removed
-      if (response.data.data == null) {
+      // If reaction was removed
+      if (!reaction) {
         setCurrentReaction(null);
         setReactCount((prev) => Math.max(0, prev - 1));
       } else {
         const wasNewReaction = currentReaction === null;
-        setCurrentReaction(response.data.data.type);
+        setCurrentReaction(reaction.type);
         if (wasNewReaction) {
           setReactCount((prev) => prev + 1);
         }
@@ -447,12 +345,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
     }
 
     try {
-      await axiosClient.post(`/saved-posts/toggle`, null, {
-        params: {
-          userId: currentUser.id,
-          postId: postId,
-        },
-      });
+      await postApi.togglePostSaved(currentUser.id, postId);
 
       // Toggle saved state
       setIsSaved(!isSaved);
@@ -465,6 +358,28 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
     return (
       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-white"></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div
+        className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+        onClick={onClose}
+      >
+        <div className="bg-white dark:bg-gray-900 rounded-lg p-6 max-w-md w-full shadow-2xl">
+          <h2 className="text-xl font-bold text-red-600 mb-4">
+            Error Loading Post
+          </h2>
+          <p className="text-gray-700 dark:text-gray-300 mb-6">{error}</p>
+          <button
+            onClick={onClose}
+            className="w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
+          >
+            Close
+          </button>
+        </div>
       </div>
     );
   }
@@ -511,7 +426,10 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
           {hasMedia ? (
             <>
               <img
-                src={post.media![currentImageIndex].url}
+                src={
+                  buildS3Url(post.media![currentImageIndex].url) ||
+                  post.media![currentImageIndex].url
+                }
                 alt="Post content"
                 className="max-h-[90vh] max-w-full object-contain"
               />
@@ -588,7 +506,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
                 </p>
                 {post.privacy &&
                   (() => {
-                    const isOwnPost = currentUser?.id === author.id;
+                    const isOwnPost = currentUser?.id === author.id.toString();
 
                     // Hiển thị cho chủ post
                     if (isOwnPost) {
@@ -1069,7 +987,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
         onClose={() => setShowSpecificModal(false)}
         onConfirm={(selected) => {
           setSpecificViewers(selected);
-          handleChangePrivacy("SPECIFIC", selected, []);
+          handleChangePrivacy("SPECIFIC");
         }}
         title="Who can see this?"
         description="Only selected friends will be able to see this post"
@@ -1081,7 +999,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
         onClose={() => setShowExcludedModal(false)}
         onConfirm={(selected) => {
           setExcludedUsers(selected);
-          handleChangePrivacy("EXCEPT", [], selected);
+          handleChangePrivacy("EXCEPT");
         }}
         title="Hide from"
         description="Selected friends won't be able to see this post"
@@ -1155,10 +1073,8 @@ function CommentItem({
   useEffect(() => {
     const fetchUser = async () => {
       try {
-        const response = await axiosClient.get(
-          `/auth/user/id/${comment.userId}`
-        );
-        setCommentUser(response.data.data);
+        const user = await postApi.fetchUserById(comment.userId);
+        setCommentUser(user);
       } catch (error) {
         console.error("Error fetching comment user:", error);
       } finally {
@@ -1174,16 +1090,13 @@ function CommentItem({
       if (!currentUser?.id) return;
 
       try {
-        const response = await axiosClient.get(`/reactions/user`, {
-          params: {
-            userId: currentUser.id,
-            targetType: "COMMENT",
-            targetId: comment.id,
-          },
-        });
+        const reaction = await postApi.fetchUserCommentReaction(
+          currentUser.id,
+          comment.id
+        );
 
-        if (response.data.data) {
-          setCurrentReaction(response.data.data.type);
+        if (reaction) {
+          setCurrentReaction(reaction.type);
         }
       } catch (error) {
         console.debug("No reaction found for comment:", comment.id);
@@ -1202,8 +1115,8 @@ function CommentItem({
 
     setLoadingReplies(true);
     try {
-      const response = await axiosClient.get(`/comments/${comment.id}/replies`);
-      setReplies(response.data.data || []);
+      const fetchedReplies = await postApi.fetchCommentReplies(comment.id);
+      setReplies(fetchedReplies);
       setShowReplies(true);
     } catch (error) {
       console.error("Error fetching replies:", error);
@@ -1218,20 +1131,13 @@ function CommentItem({
 
     setSubmittingReply(true);
     try {
-      const response = await axiosClient.post(
-        `/comments`,
-        {
-          targetType: "POST",
-          targetId: postId,
-          content: replyContent,
-          parentId: comment.id,
-        },
-        {
-          params: { userId: currentUser.id },
-        }
+      const newReply = await postApi.submitComment(
+        currentUser.id,
+        postId,
+        replyContent
       );
+      // Note: Backend needs to handle parentId param for reply structure
 
-      const newReply = response.data.data;
       setReplies([...replies, newReply]);
       setReplyContent("");
       setShowReplyInput(false);
@@ -1278,23 +1184,20 @@ function CommentItem({
     }
 
     try {
-      const response = await axiosClient.post(`/reactions/toggle`, null, {
-        params: {
-          userId: currentUser.id,
-          targetType: "COMMENT",
-          targetId: comment.id,
-          reactionType: reactionType,
-        },
-      });
+      const reaction = await postApi.toggleCommentReaction(
+        currentUser.id,
+        comment.id,
+        reactionType
+      );
 
-      if (response.data.data == null) {
+      if (!reaction) {
         // Reaction removed
         setCurrentReaction(null);
         setReactCount((prev) => Math.max(0, prev - 1));
       } else {
         // Reaction added or changed
         const wasNewReaction = currentReaction === null;
-        setCurrentReaction(response.data.data.type);
+        setCurrentReaction(reaction.type);
         if (wasNewReaction) {
           setReactCount((prev) => prev + 1);
         }

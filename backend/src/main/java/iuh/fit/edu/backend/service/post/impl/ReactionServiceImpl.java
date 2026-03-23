@@ -2,15 +2,15 @@
  * @ (#) ReactionServiceImpl.java    1.0
  * Copyright (c)  IUH. All rights reserved.
  */
-package iuh.fit.edu.backend.service.user.impl;
+package iuh.fit.edu.backend.service.post.impl;
 
 import iuh.fit.edu.backend.constant.ReactionType;
 import iuh.fit.edu.backend.constant.TargetType;
 import iuh.fit.edu.backend.domain.entity.nosql.Reaction;
 import iuh.fit.edu.backend.domain.entity.nosql.Post;
 import iuh.fit.edu.backend.repository.nosql.ReactionRepository;
+import iuh.fit.edu.backend.service.post.ReactionService;
 import iuh.fit.edu.backend.repository.nosql.PostRepository;
-import iuh.fit.edu.backend.service.ReactionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;

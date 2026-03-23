@@ -16,7 +16,8 @@ import {
 } from "lucide-react";
 import type { Post, PrivacyType } from "../../types";
 import { useAuth } from "../../contexts/AuthContext";
-import axiosClient from "../../api/axiosClient";
+import { buildS3Url } from "../../utils/s3";
+import * as postApi from "../../services/postService";
 
 interface PostCardProps {
   post: Post;
@@ -90,53 +91,26 @@ export default function PostCard({ post }: PostCardProps) {
       if (!currentUser?.id) return;
 
       try {
-        console.log(
-          "PostCard: Fetching reaction for post:",
-          post.id,
-          "user:",
-          currentUser.id
-        );
         // Fetch user's reaction
-        const userReactionResponse = await axiosClient.get(`/reactions/user`, {
-          params: {
-            userId: currentUser.id,
-            targetType: "POST",
-            targetId: post.id,
-          },
-        });
-
-        console.log("PostCard: Reaction response:", userReactionResponse.data);
-        if (userReactionResponse.data.data) {
-          console.log(
-            "PostCard: Setting currentReaction to:",
-            userReactionResponse.data.data.type
-          );
-          setCurrentReaction(userReactionResponse.data.data.type);
+        const userReaction = await postApi.fetchUserReaction(
+          currentUser.id,
+          post.id
+        );
+        if (userReaction) {
+          setCurrentReaction(userReaction.type);
           setIsLiked(true);
         } else {
-          console.log("PostCard: No reaction found");
           setCurrentReaction(null);
           setIsLiked(false);
         }
 
         // Fetch total reaction count
-        const reactionsResponse = await axiosClient.get(`/reactions`, {
-          params: {
-            targetType: "POST",
-            targetId: post.id,
-          },
-        });
-        const reactionsCount = reactionsResponse.data.data?.length || 0;
+        const reactionsCount = await postApi.fetchPostReactionsCount(post.id);
         setLikesCount(reactionsCount);
 
         // Fetch saved status
-        const savedResponse = await axiosClient.get(`/saved-posts/check`, {
-          params: {
-            userId: currentUser.id,
-            postId: post.id,
-          },
-        });
-        setIsSaved(savedResponse.data.data || false);
+        const isSaved = await postApi.checkPostSaved(currentUser.id, post.id);
+        setIsSaved(isSaved);
       } catch (error) {
         console.debug("Error fetching reaction data for post:", post.id);
       }
@@ -153,42 +127,24 @@ export default function PostCard({ post }: PostCardProps) {
       // Refetch reaction data when returning to this page
       const fetchReactionData = async () => {
         try {
-          const userReactionResponse = await axiosClient.get(
-            `/reactions/user`,
-            {
-              params: {
-                userId: currentUser.id,
-                targetType: "POST",
-                targetId: post.id,
-              },
-            }
+          const userReaction = await postApi.fetchUserReaction(
+            currentUser.id,
+            post.id
           );
-
-          if (userReactionResponse.data.data) {
-            setCurrentReaction(userReactionResponse.data.data.type);
+          if (userReaction) {
+            setCurrentReaction(userReaction.type);
             setIsLiked(true);
           } else {
             setCurrentReaction(null);
             setIsLiked(false);
           }
 
-          const reactionsResponse = await axiosClient.get(`/reactions`, {
-            params: {
-              targetType: "POST",
-              targetId: post.id,
-            },
-          });
-          const reactionsCount = reactionsResponse.data.data?.length || 0;
+          const reactionsCount = await postApi.fetchPostReactionsCount(post.id);
           setLikesCount(reactionsCount);
 
           // Refetch saved status
-          const savedResponse = await axiosClient.get(`/saved-posts/check`, {
-            params: {
-              userId: currentUser.id,
-              postId: post.id,
-            },
-          });
-          setIsSaved(savedResponse.data.data || false);
+          const isSaved = await postApi.checkPostSaved(currentUser.id, post.id);
+          setIsSaved(isSaved);
         } catch (error) {
           console.debug("Error refetching reaction data");
         }
@@ -223,17 +179,14 @@ export default function PostCard({ post }: PostCardProps) {
         return;
       }
 
-      await axiosClient.post(`/reactions/toggle`, null, {
-        params: {
-          userId: currentUser.id,
-          targetType: "POST",
-          targetId: post.id,
-          reactionType: reactionType,
-        },
-      });
+      const reaction = await postApi.togglePostReaction(
+        currentUser.id,
+        post.id,
+        reactionType
+      );
 
       // If clicking the same reaction, remove it
-      if (currentReaction === reactionType) {
+      if (!reaction) {
         setCurrentReaction(null);
         setIsLiked(false);
         setLikesCount((prev) => Math.max(0, prev - 1));
@@ -242,7 +195,7 @@ export default function PostCard({ post }: PostCardProps) {
         if (!currentReaction) {
           setLikesCount((prev) => prev + 1);
         }
-        setCurrentReaction(reactionType);
+        setCurrentReaction(reaction.type);
         setIsLiked(true);
       }
       setShowReactions(false);
@@ -274,12 +227,7 @@ export default function PostCard({ post }: PostCardProps) {
     }
 
     try {
-      await axiosClient.post(`/saved-posts/toggle`, null, {
-        params: {
-          userId: currentUser.id,
-          postId: post.id,
-        },
-      });
+      await postApi.togglePostSaved(currentUser.id, post.id);
 
       // Toggle saved state
       setIsSaved(!isSaved);
@@ -318,7 +266,7 @@ export default function PostCard({ post }: PostCardProps) {
         return;
       }
 
-      await axiosClient.delete(`/posts/${post.id}?userId=${currentUser.id}`);
+      await postApi.deletePost(currentUser.id, post.id);
       alert("Xóa bài viết thành công!");
       setShowMenu(false);
       // Refresh page to update post list
@@ -337,26 +285,7 @@ export default function PostCard({ post }: PostCardProps) {
         return;
       }
 
-      const formData = new FormData();
-
-      const postData = {
-        content: post.caption,
-        privacy: newPrivacy,
-        location: null,
-        taggedUserIds: [],
-        existingMediaUrls: post.images || [],
-        specificViewerUsernames: [],
-        excludedUsernames: [],
-      };
-
-      formData.append("postData", JSON.stringify(postData));
-      formData.append("userId", currentUser.id.toString());
-
-      await axiosClient.put(`/posts/${post.id}`, formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      });
+      await postApi.updatePostPrivacy(currentUser.id, post.id, newPrivacy);
 
       setShowPrivacyMenu(false);
       setShowMenu(false);
@@ -498,7 +427,10 @@ export default function PostCard({ post }: PostCardProps) {
             className="block w-full h-[500px] bg-black"
           >
             <img
-              src={post.images[currentImageIndex]}
+              src={
+                buildS3Url(post.images[currentImageIndex]) ||
+                post.images[currentImageIndex]
+              }
               alt={post.caption}
               className="w-full h-full object-contain cursor-pointer"
             />

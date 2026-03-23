@@ -10,8 +10,9 @@ import {
   ChevronRight,
   UserCheck,
 } from "lucide-react";
-import axiosClient from "../../api/axiosClient";
+import * as postApi from "../../services/postService";
 import { useAuth } from "../../contexts/AuthContext";
+import { buildS3Url } from "../../utils/s3";
 
 interface MediaItem {
   url: string;
@@ -117,7 +118,7 @@ export default function EditPostModal({
   // Image viewer state — combines existing + new file previews
   const allImages: { url: string; isNew: boolean; idx: number }[] = [
     ...editExistingMedia.map((m, i) => ({
-      url: m.url,
+      url: buildS3Url(m.url) || m.url,
       isNew: false,
       idx: i,
     })),
@@ -143,7 +144,7 @@ export default function EditPostModal({
     if (!editContent.trim() || !currentUser?.id) return;
     try {
       setIsUpdating(true);
-      const formData = new FormData();
+
       const postData = {
         content: editContent.trim(),
         privacy: editPrivacy,
@@ -151,18 +152,39 @@ export default function EditPostModal({
         taggedUserIds: editTaggedUsers.map((u) => u.id.toString()),
         existingMediaUrls: editExistingMedia.map((m) => m.url),
       };
-      formData.append("postData", JSON.stringify(postData));
-      formData.append("userId", currentUser.id.toString());
-      newImages.forEach((img) => formData.append("images", img));
 
-      const response = await axiosClient.put(`/posts/${postId}`, formData, {
-        headers: { "Content-Type": "multipart/form-data" },
+      console.log("📤 Saving post with data:", {
+        postId,
+        userId: currentUser.id,
+        postData,
+        newImagesCount: newImages.length,
       });
-      onSaved(response.data.data);
+
+      const updatedPost = await postApi.updatePost(
+        currentUser.id,
+        postId,
+        postData,
+        newImages
+      );
+
+      console.log("✅ Post saved successfully:", updatedPost);
+      onSaved(updatedPost);
       onClose();
-    } catch (error) {
-      console.error("Error updating post:", error);
-      alert("Failed to update post.");
+    } catch (error: any) {
+      console.error("❌ Error updating post:", error);
+      console.error(
+        "Full error response:",
+        JSON.stringify(error?.response?.data, null, 2)
+      );
+      console.error(
+        "Error message:",
+        error?.response?.data?.message || error?.message
+      );
+      const errorMsg =
+        error?.response?.data?.message ||
+        error?.message ||
+        "Failed to update post";
+      alert(errorMsg);
     } finally {
       setIsUpdating(false);
     }
@@ -312,7 +334,7 @@ export default function EditPostModal({
             />
 
             {/* Privacy */}
-            <div className="relative">
+            <div className="relative z-50">
               <button
                 onClick={() => setShowPrivacyMenu((p) => !p)}
                 className="w-full flex items-center gap-2 px-3 py-2 border dark:border-gray-700 rounded-lg text-sm dark:text-white hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
@@ -321,7 +343,12 @@ export default function EditPostModal({
                 <span>{selectedPrivacyOption.label}</span>
               </button>
               {showPrivacyMenu && (
-                <div className="absolute z-10 w-full mt-1 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-lg shadow-lg overflow-hidden">
+                <div
+                  className="fixed mt-1 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-lg shadow-2xl overflow-auto max-h-64 min-w-200px"
+                  style={{
+                    zIndex: 9999,
+                  }}
+                >
                   {PRIVACY_OPTIONS.map(({ value, label, Icon }) => (
                     <button
                       key={value}
@@ -410,10 +437,11 @@ export default function EditPostModal({
                       setTagSearchQuery(e.target.value);
                       if (e.target.value.trim()) {
                         try {
-                          const res = await axiosClient.get(
-                            `/auth/users/search?userId=${currentUser?.id}&query=${e.target.value}`
+                          const results = await postApi.searchUsers(
+                            currentUser?.id.toString() || "",
+                            e.target.value
                           );
-                          setTagSearchResults(res.data.data || []);
+                          setTagSearchResults(results);
                         } catch {
                           setTagSearchResults([]);
                         }

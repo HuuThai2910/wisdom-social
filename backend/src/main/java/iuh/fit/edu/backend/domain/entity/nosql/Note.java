@@ -47,17 +47,13 @@ public class Note {
 
     private String content;
 
-    private String emoji;
-
     // Location tag
     private String location;
 
     // Background theme
     private NoteTheme theme;
 
-    // Music track
-    private String musicTrackId;
-    private NoteMusic music;
+    private Music music;
 
     // Privacy
     private PrivacyType privacy;

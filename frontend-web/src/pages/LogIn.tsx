@@ -4,7 +4,8 @@ import { login } from "../utils/auth";
 
 export default function Login() {
   const navigate = useNavigate();
-  const [username, setUsername] = useState("");
+  const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -13,30 +14,33 @@ export default function Login() {
     setLoading(true);
     setError("");
 
+    // Validation
+    if (!phone || !password) {
+      setError("Vui lòng nhập số điện thoại và mật khẩu.");
+      setLoading(false);
+      return;
+    }
+
     try {
-      const success = await login(username);
+      const success = await login(phone, password);
+      console.log("Login result:", success);
       if (success) {
-        window.location.href = "/";
-      } else {
-        setError("Đăng nhập thất bại. Vui lòng kiểm tra username.");
+        // Navigate to home/feed page
+        navigate("/", { replace: true });
       }
-    } catch (err) {
-      setError("Có lỗi xảy ra. Vui lòng thử lại.");
+    } catch (err: any) {
+      console.error("Login error:", err);
+      setError(err.message || "Đăng nhập thất bại. Vui lòng thử lại.");
     } finally {
       setLoading(false);
     }
   };
 
   const handleGoogleLogin = async () => {
-    // Mock Google login - dùng user đầu tiên từ DB
-    setLoading(true);
-    const success = await login("nguyen_van_an");
-    if (success) {
-      window.location.href = "/";
-    } else {
-      setError("Đăng nhập thất bại. Vui lòng thử lại.");
-    }
-    setLoading(false);
+    // Mock Google login - TODO: Implement Google OAuth
+    setError(
+      "Google login chưa được hỗ trợ. Vui lòng sử dụng số điện thoại và mật khẩu."
+    );
   };
 
   return (
@@ -74,10 +78,20 @@ export default function Login() {
         )}
 
         <input
-          type="text"
-          placeholder="Username"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
+          type="tel"
+          placeholder="Số điện thoại"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-gray-400"
+          required
+          disabled={loading}
+        />
+
+        <input
+          type="password"
+          placeholder="Mật khẩu"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
           className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-gray-400"
           required
           disabled={loading}
@@ -92,7 +106,7 @@ export default function Login() {
         </button>
 
         <p className="text-xs text-gray-500 text-center">
-          Nhập username của bạn để đăng nhập
+          Nhập số điện thoại và mật khẩu của bạn để đăng nhập
         </p>
       </form>
 
