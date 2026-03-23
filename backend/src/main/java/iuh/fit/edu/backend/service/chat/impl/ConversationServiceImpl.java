@@ -9,14 +9,15 @@ import iuh.fit.edu.backend.domain.entity.mysql.ConversationMember;
 import iuh.fit.edu.backend.dto.response.conversation.ConversationResponse;
 import iuh.fit.edu.backend.dto.response.message.LastMessageResponse;
 import iuh.fit.edu.backend.mapper.ConversationMapper;
-import iuh.fit.edu.backend.repository.mysql.ConversationRepository;
 import iuh.fit.edu.backend.repository.mysql.ConversationMemberRepository;
-import iuh.fit.edu.backend.repository.nosql.MessageRepository;
+import iuh.fit.edu.backend.service.chat.ConversationMemberService;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -31,9 +32,9 @@ import java.util.stream.Collectors;
 @Slf4j
 public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat.ConversationService {
     private final ConversationMemberRepository conversationMemberRepository;
-    private final ConversationRepository conversationRepository;
-    private final MessageRepository messageRepository;
     private final ConversationMapper conversationMapper;
+    private final ConversationMemberService conversationMemberService;
+
 
     @Override
     public List<ConversationResponse> getConversationsByUser(Long userId){
@@ -95,6 +96,21 @@ public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat
         log.info("Conversation: {}", response);
         return response;
     }
+    @Transactional
+    @Override
+    public void deleteConversationForMe(Long conversationId, Long userId) {
+        ConversationMember member = conversationMemberRepository.findByConversation_IdAndUser_Id(conversationId, userId)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy thành viên trong cuộc trò chuyện"));
+
+        member.setClearedAt(Instant.now().truncatedTo(ChronoUnit.MILLIS));
+        member.setHidden(true);
+        conversationMemberRepository.save(member);
+
+        // DỌN SẠCH CACHE ĐỂ CẬP NHẬT MỐC CLEARED_AT
+        conversationMemberService.evictMemberInfoCache(conversationId, userId);
+
+    }
+
     @Transactional
     @Override
     public void markAsRead(Long conversationId, Long userId) {

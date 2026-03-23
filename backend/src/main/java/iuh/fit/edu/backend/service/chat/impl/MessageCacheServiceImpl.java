@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 
@@ -60,8 +61,6 @@ public class MessageCacheServiceImpl implements iuh.fit.edu.backend.service.chat
 
     public void updateMessage(MessageRecalledResponse message) {
         String key = getKey(message.getConversationId());
-
-
         // Kiểm tra xem cache của phòng chat này có đang tồn tại không
         if (Boolean.FALSE.equals(redisTemplate.hasKey(key))) {
             return; // Cache trống hoặc đã hết hạn -> Bỏ qua
@@ -97,6 +96,52 @@ public class MessageCacheServiceImpl implements iuh.fit.edu.backend.service.chat
                 }
             }
         }
+    }
+
+    @Override
+    public void addDeletedUserToMessage(String messageId, Long conversationId, Long userId) {
+        String key = getKey(conversationId);
+
+        // Kiểm tra xem cache của phòng chat này có đang tồn tại không
+        if (Boolean.FALSE.equals(redisTemplate.hasKey(key))) {
+            return;
+        }
+
+        // Lấy danh sách 60 tin nhắn từ RAM về
+        List<MessageResponse> objects = redisTemplate.opsForList().range(key, 0, -1);
+        if (objects == null || objects.isEmpty()) {
+            return;
+        }
+
+        // Tìm vị trí của tin nhắn cần đánh dấu xóa
+        for (int i = 0; i < objects.size(); i++) {
+            MessageResponse cachedMsg = objects.get(i);
+
+            // Tìm đúng ID tin nhắn
+            if (cachedMsg.getId().equals(messageId)) {
+
+                // Khởi tạo mảng nếu cấu trúc cũ bị null
+                if (cachedMsg.getDeletedFor() == null) {
+                    cachedMsg.setDeletedFor(new HashSet<>());
+                }
+
+                // Nhét ID của User vừa bấm xóa vào
+                cachedMsg.getDeletedFor().add(userId);
+
+                // Lưu đè lại đúng vị trí index đó trong Redis List
+                redisTemplate.opsForList().set(key, i, cachedMsg);
+
+                log.info("Đã cập nhật deletedFor cho tin nhắn {} trong Redis tại index: {}", messageId, i);
+                break;
+            }
+        }
+    }
+
+    @Override
+    public void clearCache(Long conversationId) {
+        String key = getKey(conversationId);
+        redisTemplate.delete(key);
+        log.info("Đã xóa hoàn toàn List cache của phòng chat {}", conversationId);
     }
 
 

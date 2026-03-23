@@ -164,7 +164,59 @@ export function useMessagesController() {
             }
 
             setConversations((prevConversations) => {
-                // Dùng functional setState để đảm bảo luôn dựa vào state mới nhất.
+                // Kiểm tra xem conversation có tồn tại trong list không
+                const conversationExists = prevConversations.some(
+                    (conv) => conv.id === conversationId,
+                );
+
+                // Nếu conversation KHÔNG tồn tại (đã bị xóa bởi delete-for-me)
+                // → Fetch lại từ API và thêm vào list
+                if (!conversationExists) {
+                    chatService
+                        .getConversation(conversationId, latestUserId)
+                        .then((response) => {
+                            if (response.success && response.data) {
+                                setConversations((prev) => {
+                                    // Kiểm tra lại lần nữa để tránh duplicate
+                                    if (
+                                        prev.some(
+                                            (conv) => conv.id === conversationId,
+                                        )
+                                    ) {
+                                        return prev;
+                                    }
+                                    // Thêm conversation vào đầu list và sort
+                                    return [response.data, ...prev].sort(
+                                        (a, b) => {
+                                            const timeA = a.lastMessage
+                                                ?.lastMessageAt
+                                                ? new Date(
+                                                      a.lastMessage
+                                                          .lastMessageAt,
+                                                  ).getTime()
+                                                : 0;
+                                            const timeB = b.lastMessage
+                                                ?.lastMessageAt
+                                                ? new Date(
+                                                      b.lastMessage
+                                                          .lastMessageAt,
+                                                  ).getTime()
+                                                : 0;
+                                            return timeB - timeA;
+                                        },
+                                    );
+                                });
+                            }
+                        })
+                        .catch((e) =>
+                            console.error("Error fetching conversation:", e),
+                        );
+
+                    // Return list hiện tại, conversation sẽ được thêm vào khi API trả về
+                    return prevConversations;
+                }
+
+                // Conversation tồn tại → update như cũ
                 const updatedConversations = prevConversations.map((conv) => {
                     if (conv.id !== conversationId) return conv;
 
@@ -322,6 +374,30 @@ export function useMessagesController() {
         });
     }, []);
 
+    // Xóa cuộc trò chuyện ở phía tôi (xóa khỏi danh sách sidebar)
+    const handleDeleteConversationForMe = useCallback(
+        async (conversationId: number) => {
+            try {
+                await chatService.deleteConversationForMe(
+                    conversationId,
+                    currentUserId,
+                );
+                // API 200 OK → xóa conversation khỏi local state
+                setConversations((prev) =>
+                    prev.filter((conv) => conv.id !== conversationId),
+                );
+
+                // Nếu đang xem conversation này → navigate về trang messages (không chọn conversation nào)
+                if (selectedConversationId === conversationId) {
+                    navigate(`/messages?userId=${currentUserId}`);
+                }
+            } catch {
+                console.error("Không thể xóa cuộc trò chuyện");
+            }
+        },
+        [currentUserId, navigate, selectedConversationId],
+    );
+
     return {
         searchQuery,
         setSearchQuery,
@@ -333,6 +409,7 @@ export function useMessagesController() {
 
         filteredConversations,
         handleSelectConversation,
+        handleDeleteConversationForMe,
         getDisplayInfo,
         formatTime,
 

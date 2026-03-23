@@ -6,6 +6,7 @@ package iuh.fit.edu.backend.service.chat.impl;
 
 import iuh.fit.edu.backend.constant.MessageType;
 import iuh.fit.edu.backend.domain.entity.mysql.Conversation;
+import iuh.fit.edu.backend.domain.entity.mysql.ConversationMember;
 import iuh.fit.edu.backend.domain.entity.mysql.User;
 import iuh.fit.edu.backend.domain.entity.nosql.Message;
 import iuh.fit.edu.backend.dto.response.message.MessageRecalledResponse;
@@ -34,7 +35,6 @@ import org.springframework.data.domain.*;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.multipart.MultipartFile;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -96,6 +96,9 @@ public class MessageServiceImpl implements MessageService {
         // Tăng unreadCount cho các thành viên khác trong DB
         conversationMemberRepository.incrementUnreadCount(savedConversation.getId(), senderInfo.getUserId());
 
+        // Reset isHidden về false cho tất cả members (để conversation hiện lại nếu đã bị ẩn)
+        conversationMemberRepository.unhideConversationForAllMembers(savedConversation.getId());
+
         // Tạo full response cho người đang chat
         MessageResponse messageResponse = this.messageMapper.toMessageResponse(savedMessage);
         messageResponse.setSenderName(senderInfo.getNickname());
@@ -119,7 +122,6 @@ public class MessageServiceImpl implements MessageService {
 
         return messageResponse;
     }
-
 
     /**
      * Format nội dung hiển thị ở danh sách Chat bên ngoài
@@ -197,6 +199,20 @@ public class MessageServiceImpl implements MessageService {
         return messageRecalledResponse;
     }
 
+    @Transactional
+    @Override
+    public void deleteMessageForMe(String messageId, Long userId){
+        Message message = this.messageRepository.findById(messageId)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy tin nhắn"));
+
+        if (message.getDeletedFor() == null) {
+            message.setDeletedFor(new HashSet<>());
+        }
+        message.getDeletedFor().add(userId);
+        messageRepository.save(message);
+        this.messageCacheService.addDeletedUserToMessage(messageId, message.getConversationId(), userId);
+    }
+
     /**
      * Lấy ra tin nhắn trong cuộc hội thoại
      * Mặc định limit = 20
@@ -208,15 +224,32 @@ public class MessageServiceImpl implements MessageService {
             Instant before,
             int limit
     ) {
+        ConversationMemberResponse member = conversationMemberService.getMemberInfo(conversationId, userId);
         // Check member
-        if (conversationMemberService.getMemberInfo(conversationId, userId) == null) {
+        if (member == null) {
             throw new RuntimeException("Bạn không phải thành viên của cuộc trò chuyện");
+        }
+        Instant clearedAt = member.getClearedAt();
+        // =========================================================================
+        // Nếu FE yêu cầu load trang cũ hơn mốc user đã xóa -> Chắc chắn rỗng.
+        // Trả về ngay lập tức, KHÔNG chạm vào Redis, KHÔNG chạm vào Mongo!
+        // =========================================================================
+        log.info("Before {}", before== null ? "Null" : before);
+        log.info("clearedAt {}", clearedAt== null ? "Null" : clearedAt);
+        if (clearedAt != null && before != null && before.toEpochMilli() <= clearedAt.toEpochMilli()) {
+            log.info("Test");
+            return CursorResponse.<List<MessageResponse>>builder()
+                    .data(Collections.emptyList())
+                    .nextCursor(null)
+                    .hasNext(false) // Dừng FE lại ngay
+                    .build();
         }
         List<MessageResponse> finalResponseList;
 
         // Cần check để xem được lấy từ db hay redis
         // Vì cách check hasNext ở db và redis sẽ khác nhau
         boolean isFromCache = false;
+        log.info("Fetch messages before Instant: {}", before);
 
         // Ưu tiên lấy từ redis trước (bao gồm cả việc load trang đầu hoặc khi scroll)
         List<MessageResponse> cachedMessages = this.messageCacheService.getListMessage(conversationId, before, limit);
@@ -252,17 +285,31 @@ public class MessageServiceImpl implements MessageService {
                 finalResponseList = finalResponseList.subList(0, limit);
             }
         }
-
-        // Đảo ngược danh sách để Frontend hiển thị từ trên xuống (Cũ -> Mới)
-        List<MessageResponse> ascResponseList = new ArrayList<>(finalResponseList);
-        Collections.reverse(ascResponseList);
-
         // Cursor là createdAt của tin nhắn CŨ NHẤT trong list (tin cuối cùng của list DESC)
         Instant nextCursor = null;
         if (!finalResponseList.isEmpty()) {
             nextCursor = finalResponseList.getLast().getCreatedAt();
         }
-        log.info("List message {}", ascResponseList);
+        if (clearedAt != null && nextCursor != null && nextCursor.toEpochMilli() <= clearedAt.toEpochMilli()) {
+            // Mặc dù hệ thống chung vẫn còn tin nhắn cũ, nhưng đối với User này thì coi như hết!
+            hasNext = false;
+            nextCursor = null;
+        }
+
+        List<MessageResponse> filteredList = finalResponseList.stream()
+                .filter(msg -> clearedAt == null || msg.getCreatedAt().toEpochMilli() > clearedAt.toEpochMilli())
+                .filter(msg -> msg.getDeletedFor() == null || !msg.getDeletedFor().contains(userId))
+                .toList();
+
+        // Đảo ngược danh sách để Frontend hiển thị từ trên xuống (Cũ -> Mới)
+        List<MessageResponse> ascResponseList = new ArrayList<>(filteredList);
+        Collections.reverse(ascResponseList);
+
+        ascResponseList.forEach(msg -> msg.setDeletedFor(null));
+
+
+        log.info("Final List message returned to user {}", ascResponseList);
+        log.info("Final List message returned to user {}", ascResponseList.size());
 
         return CursorResponse.<List<MessageResponse>>builder()
                 .data(ascResponseList)

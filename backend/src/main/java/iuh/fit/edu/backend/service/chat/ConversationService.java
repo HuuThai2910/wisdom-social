@@ -19,5 +19,8 @@ public interface ConversationService {
     ConversationResponse getConversationById(Long conversationId, Long userId);
 
     @Transactional
+    void deleteConversationForMe(Long conversationId, Long userId);
+
+    @Transactional
     void markAsRead(Long conversationId, Long userId);
 }

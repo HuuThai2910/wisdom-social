@@ -24,6 +24,8 @@ import org.springframework.data.mongodb.core.mapping.Field;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Set;
 
 @Document(collection = "messages")
 @Getter
@@ -50,6 +52,9 @@ public class Message {
     private Long conversationId;
 
     private boolean isRecalled = false;
+
+    // Danh sách ID của những người bấm "Xóa ở phía tôi"
+    private Set<Long> deletedFor = new HashSet<>();
 
     // Tham chiếu tới conversation_user để lấy ra được biệt danh của user
     @Field(name = "sender_id")

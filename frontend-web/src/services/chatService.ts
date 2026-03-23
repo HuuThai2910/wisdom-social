@@ -86,6 +86,7 @@ const chatService = {
         const response = await axiosClient.get(
             `/conversations/${conversationId}/messages?${params.toString()}`,
         );
+    
         return response.data;
     },
 
@@ -144,6 +145,23 @@ const chatService = {
             body: file,
         });
         if (!res.ok) throw new Error(`S3 upload failed: ${res.status}`);
+    },
+
+    // Xóa tin nhắn ở phía tôi (chỉ user hiện tại không thấy, người khác vẫn thấy)
+    async deleteMessageForMe(messageId: string, userId: number): Promise<void> {
+        await axiosClient.delete(
+            `/messages/${messageId}/delete-for-me?userId=${userId}`,
+        );
+    },
+
+    // Xóa cuộc trò chuyện ở phía tôi (xóa lịch sử chat cho user hiện tại)
+    async deleteConversationForMe(
+        conversationId: number,
+        userId: number,
+    ): Promise<void> {
+        await axiosClient.delete(
+            `/conversations/${conversationId}/delete-for-me?userId=${userId}`,
+        );
     },
 };
 

@@ -20,6 +20,10 @@ public interface MessageCacheService {
 
     void updateMessage(MessageRecalledResponse message);
 
+    void addDeletedUserToMessage(String messageId, Long conversationId, Long userId);
+
+    void clearCache(Long conversationId);
+
     List<MessageResponse> getListMessage(Long conversationId, Instant cursor, int limit);
 
     void cacheListMessage(Long conversationId, List<MessageResponse> messageResponses, Instant cursor);

@@ -69,11 +69,16 @@ export function useChatWindowController(args: {
     const [sending, setSending] = useState(false);
     const [uploading, setUploading] = useState(false);
 
-    // ====== Voice recording ======
+    // ====== Ghi âm tin nhắn thoại (Voice recording) ======
+    // isRecording: true nếu đang ghi âm, dùng để hiện overlay ghi âm trong UI
     const [isRecording, setIsRecording] = useState(false);
+    // recordingDuration: thời lượng ghi âm tính bằng giây, hiện dạng MM:SS
     const [recordingDuration, setRecordingDuration] = useState(0);
+    // mediaRecorderRef: ref đến MediaRecorder instance đang hoạt động
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    // audioChunksRef: mảng các Blob chứa dữ liệu audio từ ondataavailable
     const audioChunksRef = useRef<Blob[]>([]);
+    // recordingTimerRef: interval timer để tăng recordingDuration mỗi giây
     const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(
         null,
     );
@@ -126,6 +131,17 @@ export function useChatWindowController(args: {
 
     // scrollOnNextRenderRef: cờ yêu cầu scroll xuống cuối sau khi render xong.
     const scrollOnNextRenderRef = useRef<ScrollBehavior | null>(null);
+
+    // initialLoadRef: cờ đánh dấu đang trong giai đoạn load ban đầu (F5/mở chat).
+    // Trong giai đoạn này, luôn scroll xuống cuối khi media load (bất kể vị trí hiện tại).
+    // Reset khi user scroll lên.
+    const initialLoadRef = useRef(true);
+
+    // lastScrollTopRef: track scroll position để phát hiện user scroll lên
+    const lastScrollTopRef = useRef(0);
+
+    // loadMoreRequestedRef: ngăn gọi API duplicate khi scroll
+    const loadMoreRequestedRef = useRef(false);
 
     useEffect(() => {
         // Đồng bộ ref mỗi khi userId thay đổi.
@@ -244,14 +260,18 @@ export function useChatWindowController(args: {
 
     const loadMoreMessages = useCallback(
         async (options?: LoadMoreOptions) => {
+            // Guard: ngăn gọi API duplicate
             if (!hasMore || loadingMore || !nextCursor) return;
+            if (loadMoreRequestedRef.current) return;
 
+            loadMoreRequestedRef.current = true;
             const keepAtBottom = Boolean(options?.keepAtBottom);
             const token = loadTokenRef.current;
 
             try {
                 setLoadingMore(true);
 
+                // Lưu scroll position trước khi load
                 const container = messagesContainerRef.current;
                 const prevScrollHeight = container?.scrollHeight ?? 0;
                 const prevScrollTop = container?.scrollTop ?? 0;
@@ -280,16 +300,24 @@ export function useChatWindowController(args: {
                     scrollOnNextRenderRef.current = "auto";
                     setShowScrollToBottomButton(false);
                     setPendingNewMessages(0);
-                }
-
-                if (!keepAtBottom) {
-                    // Prepend tin cũ: giữ nguyên vị trí nhìn bằng cách bù delta scrollHeight.
-                    requestAnimationFrame(() => {
+                } else {
+                    // Prepend tin cũ: giữ nguyên vị trí nhìn
+                    // Dùng nhiều lần adjustment để handle images load sau
+                    const adjustScroll = () => {
                         const current = messagesContainerRef.current;
                         if (!current) return;
                         const delta = current.scrollHeight - prevScrollHeight;
-                        current.scrollTop = prevScrollTop + delta;
-                    });
+                        if (delta > 0) {
+                            current.scrollTop = prevScrollTop + delta;
+                            // Cập nhật lastScrollTopRef để không bị detect là scroll up
+                            lastScrollTopRef.current = current.scrollTop;
+                        }
+                    };
+
+                    // Chạy adjustment nhiều lần để handle async image loading
+                    requestAnimationFrame(adjustScroll);
+                    setTimeout(adjustScroll, 100);
+                    setTimeout(adjustScroll, 300);
                 }
             } catch {
                 setError("Không thể tải thêm tin nhắn");
@@ -297,6 +325,10 @@ export function useChatWindowController(args: {
                 if (token === loadTokenRef.current) {
                     setLoadingMore(false);
                 }
+                // Reset guard sau khi hoàn thành (delay để tránh trigger lại ngay)
+                setTimeout(() => {
+                    loadMoreRequestedRef.current = false;
+                }, 500);
             }
         },
         [conversationId, hasMore, loadingMore, nextCursor, userId],
@@ -390,6 +422,33 @@ export function useChatWindowController(args: {
         [messages, userId],
     );
 
+    // Xóa tin nhắn ở phía tôi (chỉ local, không ảnh hưởng người khác)
+    const handleDeleteMessageForMe = useCallback(
+        async (messageId: string) => {
+            try {
+                await chatService.deleteMessageForMe(messageId, userId);
+                // API 200 OK → xóa tin nhắn khỏi local state
+                setMessages((prev) => prev.filter((m) => m.id !== messageId));
+            } catch {
+                setRecallToast("Không thể xóa tin nhắn");
+            }
+        },
+        [userId],
+    );
+
+    // Xóa cuộc trò chuyện ở phía tôi (xóa lịch sử chat)
+    const handleDeleteConversationForMe = useCallback(async () => {
+        try {
+            await chatService.deleteConversationForMe(conversationId, userId);
+            // API 200 OK → xóa toàn bộ tin nhắn khỏi local state
+            setMessages([]);
+            setHasMore(false);
+            setNextCursor(null);
+        } catch {
+            setRecallToast("Không thể xóa cuộc trò chuyện");
+        }
+    }, [conversationId, userId]);
+
     useEffect(() => {
         // Mỗi lần đổi conversationId:
         // - tăng token để invalidate request cũ
@@ -410,6 +469,13 @@ export function useChatWindowController(args: {
         setLoadingMore(false);
         setHasMore(false);
         setNextCursor(null);
+
+        // Đánh dấu đang trong giai đoạn initial load để luôn scroll xuống cuối khi media load
+        initialLoadRef.current = true;
+        // Reset scroll position tracking
+        lastScrollTopRef.current = 0;
+        // Reset load more guard
+        loadMoreRequestedRef.current = false;
 
         loadConversation(token);
         loadMessages(token);
@@ -435,11 +501,15 @@ export function useChatWindowController(args: {
         return () => {
             // Cleanup tránh leak: khi đổi conversation hoặc unmount.
             websocketService.unsubscribeFromConversation(conversationId);
+
+            // Cleanup recording: dừng MediaRecorder nếu đang ghi, tránh leak stream
             if (mediaRecorderRef.current) {
-                mediaRecorderRef.current.onstop = null;
-                mediaRecorderRef.current.stop();
+                mediaRecorderRef.current.onstop = null; // Tắt callback để không upload
+                mediaRecorderRef.current.stop(); // Dừng recording
                 mediaRecorderRef.current = null;
             }
+
+            // Cleanup timer: dừng interval đếm giây ghi âm
             if (recordingTimerRef.current) {
                 clearInterval(recordingTimerRef.current);
                 recordingTimerRef.current = null;
@@ -456,6 +526,16 @@ export function useChatWindowController(args: {
     const handleScroll = useCallback(() => {
         const container = messagesContainerRef.current;
         if (!container) return;
+
+        const currentScrollTop = container.scrollTop;
+        const isScrollingUp = currentScrollTop < lastScrollTopRef.current;
+        lastScrollTopRef.current = currentScrollTop;
+
+        // Ngay khi user scroll LÊN → thoát khỏi giai đoạn initial load
+        // Đây là cách phát hiện user chủ động muốn xem tin cũ
+        if (isScrollingUp && initialLoadRef.current) {
+            initialLoadRef.current = false;
+        }
 
         const nearBottom = isNearBottom();
 
@@ -482,8 +562,8 @@ export function useChatWindowController(args: {
         setPendingNewMessages(0);
     }, [scrollToBottom]);
 
-    const handleSend = useCallback(async () => {
-        const trimmed = messageText.trim();
+    const handleSend = useCallback(async (textOverride?: string) => {
+        const trimmed = (textOverride ?? messageText).trim();
         if (!trimmed) return;
 
         try {
@@ -550,12 +630,30 @@ export function useChatWindowController(args: {
         [conversationId, userId],
     );
 
+    /**
+     * startRecording - Bắt đầu ghi âm tin nhắn thoại
+     *
+     * Flow:
+     * 1. Yêu cầu quyền microphone qua getUserMedia
+     * 2. Chọn MIME type audio tốt nhất (ưu tiên: webm+opus → webm → mp4)
+     * 3. Tạo MediaRecorder instance, reset audioChunksRef
+     * 4. Đăng ký ondataavailable: đẩy Blob vào audioChunksRef
+     * 5. Đăng ký onstop: ghép Blob thành File, gọi handleFileUpload (presign → S3 → sendMessage)
+     * 6. Start recording + bật timer đếm giây
+     * 7. Nếu lỗi microphone → hiện toast cảnh báo
+     */
     const startRecording = useCallback(async () => {
-        if (isRecording) return;
+        if (isRecording) return; // Đang ghi rồi thì bỏ qua
         try {
+            // Bước 1: Yêu cầu quyền truy cập microphone
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: true,
             });
+
+            // Bước 2: Chọn MIME type tốt nhất theo thứ tự ưu tiên
+            // - audio/webm;codecs=opus: chất lượng tốt, size nhỏ (Chrome/Edge)
+            // - audio/webm: fallback cho webm không có opus
+            // - audio/mp4: fallback cho Safari iOS
             const mimeType = MediaRecorder.isTypeSupported(
                 "audio/webm;codecs=opus",
             )
@@ -563,26 +661,38 @@ export function useChatWindowController(args: {
                 : MediaRecorder.isTypeSupported("audio/webm")
                   ? "audio/webm"
                   : "audio/mp4";
+
+            // Bước 3: Tạo MediaRecorder và reset mảng chunks
             const recorder = new MediaRecorder(stream, { mimeType });
             audioChunksRef.current = [];
 
+            // Bước 4: Đăng ký callback ondataavailable - nhận dữ liệu audio từng đoạn
             recorder.ondataavailable = (e) => {
                 if (e.data.size > 0) audioChunksRef.current.push(e.data);
             };
 
+            // Bước 5: Đăng ký callback onstop - khi dừng ghi, ghép Blob → File → upload
             recorder.onstop = async () => {
+                // Tắt stream (tắt đèn mic trên browser)
                 stream.getTracks().forEach((t) => t.stop());
+
+                // Ghép tất cả chunks thành 1 Blob
                 const blob = new Blob(audioChunksRef.current, {
                     type: mimeType,
                 });
-                if (blob.size === 0) return;
+                if (blob.size === 0) return; // Không có dữ liệu thì bỏ qua
+
+                // Chuyển Blob thành File object với tên file và extension phù hợp
                 const ext = mimeType.includes("webm") ? "webm" : "mp4";
                 const file = new File([blob], `voice-message.${ext}`, {
                     type: mimeType,
                 });
+
+                // Upload file lên S3 và gửi tin nhắn qua WebSocket
                 await handleFileUpload(file);
             };
 
+            // Bước 6: Lưu ref, start recording, bật UI + timer
             mediaRecorderRef.current = recorder;
             recorder.start();
             setIsRecording(true);
@@ -591,32 +701,69 @@ export function useChatWindowController(args: {
                 setRecordingDuration((d) => d + 1);
             }, 1000);
         } catch {
+            // Bước 7: Báo lỗi nếu không truy cập được microphone (user từ chối hoặc thiết bị không có mic)
             setRecallToast("Không thể truy cập microphone");
         }
     }, [isRecording, handleFileUpload]);
 
+    /**
+     * stopRecording - Dừng ghi âm và GỬI tin nhắn
+     *
+     * Khi user bấm nút "Dừng & Gửi":
+     * 1. Dừng timer đếm giây
+     * 2. Gọi recorder.stop() → trigger callback onstop (đã đăng ký trong startRecording)
+     *    → onstop sẽ tự động ghép Blob, tạo File, upload → gửi tin nhắn
+     * 3. Reset state UI về trạng thái không ghi
+     */
     const stopRecording = useCallback(() => {
-        if (!mediaRecorderRef.current) return;
+        if (!mediaRecorderRef.current) return; // Chưa ghi thì bỏ qua
+
+        // Dừng timer
         if (recordingTimerRef.current) {
             clearInterval(recordingTimerRef.current);
             recordingTimerRef.current = null;
         }
+
+        // Dừng recorder → trigger onstop → upload + send
         mediaRecorderRef.current.stop();
         mediaRecorderRef.current = null;
+
+        // Reset UI
         setIsRecording(false);
         setRecordingDuration(0);
     }, []);
 
+    /**
+     * cancelRecording - Huỷ ghi âm KHÔNG gửi tin nhắn
+     *
+     * Khi user bấm nút "Huỷ" (X):
+     * 1. Tắt callback onstop để KHÔNG upload/send
+     * 2. Xoá dữ liệu audio đã ghi (audioChunksRef)
+     * 3. Dừng recorder + timer
+     * 4. Reset UI về trạng thái không ghi
+     *
+     * Khác với stopRecording: cancel sẽ xoá audio, stop sẽ gửi audio.
+     */
     const cancelRecording = useCallback(() => {
-        if (!mediaRecorderRef.current) return;
+        if (!mediaRecorderRef.current) return; // Chưa ghi thì bỏ qua
+
+        // Dừng timer
         if (recordingTimerRef.current) {
             clearInterval(recordingTimerRef.current);
             recordingTimerRef.current = null;
         }
+
+        // Tắt callback onstop để KHÔNG upload khi stop
         mediaRecorderRef.current.onstop = null;
+
+        // Xoá dữ liệu audio đã ghi
         audioChunksRef.current = [];
+
+        // Dừng recorder
         mediaRecorderRef.current.stop();
         mediaRecorderRef.current = null;
+
+        // Reset UI
         setIsRecording(false);
         setRecordingDuration(0);
     }, []);
@@ -656,17 +803,27 @@ export function useChatWindowController(args: {
         handleScrollToBottomClick,
         handleSend,
         handleRecall,
+        handleDeleteMessageForMe,
+        handleDeleteConversationForMe,
         handleFileUpload,
         scrollToBottom,
         recallToast,
 
-        isRecording,
-        recordingDuration,
-        startRecording,
-        stopRecording,
-        cancelRecording,
+        // === Voice recording state & actions (Ghi âm tin nhắn thoại) ===
+        isRecording, // true nếu đang ghi âm
+        recordingDuration, // Thời lượng ghi âm (giây)
+        startRecording, // Bắt đầu ghi âm
+        stopRecording, // Dừng ghi âm và GỬI tin nhắn
+        cancelRecording, // Huỷ ghi âm KHÔNG gửi
 
         defaultAvatarUrl: DEFAULT_AVATAR_URL,
         defaultAvatarSmallUrl: DEFAULT_AVATAR_SMALL_URL,
+
+        // Hàm kiểm tra user có đang ở gần cuối container không (dùng cho onMediaLoad)
+        isNearBottom,
+
+        // Hàm kiểm tra đang trong giai đoạn initial load (F5/mở chat)
+        // Trong giai đoạn này, luôn scroll xuống cuối khi media load
+        isInitialLoad: () => initialLoadRef.current,
     };
 }

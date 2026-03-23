@@ -60,4 +60,10 @@ public class ConversationController {
         conversationService.markAsRead(id, userId);
         return ResponseEntity.ok().build();
     }
+
+    @DeleteMapping("/{conversationId}/delete-for-me")
+    public ResponseEntity<Void> deleteConversationForMe(@PathVariable Long conversationId, @RequestParam Long userId){
+        this.conversationService.deleteConversationForMe(conversationId, userId);
+        return ResponseEntity.ok().build();
+    }
 }
