@@ -29,6 +29,15 @@ class UserService {
             return null;
         }
     }
+    
+    async getUserByUsername(username: string): Promise<User[] | null> {
+        try {
+            const response = await apiClient.get(`/auth/users/username/${username}`);
+            return response.data.data;
+        } catch {
+            return null;
+        }
+    }
 
     async updateProfile(userId: number, data: UpdateProfileRequest): Promise<boolean> {
         try {

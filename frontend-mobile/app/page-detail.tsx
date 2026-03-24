@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
     View,
     Text,
@@ -11,6 +11,9 @@ import {
     Modal,
     TextInput,
     Pressable,
+    KeyboardAvoidingView,
+    Platform,
+    Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -19,8 +22,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import pageService from '../services/pageService';
-import type { PageData, UpdatePageRequest, PageRole, PageMemberData } from '../services/pageService';
+import type { PageData, UpdatePageRequest, PageRole, PageMemberData, PagePost, MemberStatus, PendingJoinRequestData } from '../services/pageService';
 import type { ThemeColors } from '../contexts/ThemeContext';
+import userService from '../services/userService';
+import { Post, User } from '@/types';
 
 const PAGE_ROLES: { label: string; value: PageRole }[] = [
     { label: 'Admin', value: 'ADMIN' },
@@ -37,6 +42,9 @@ const buildS3Url = (url?: string) => {
     return S3_BASE + url;
 };
 
+const { width: screenWidth } = Dimensions.get('window');
+const POST_IMAGE_WIDTH = screenWidth * 0.75; // 75% màn hình cho mỗi ảnh
+
 export default function PageDetailScreen() {
     const router = useRouter();
     const { pageId } = useLocalSearchParams<{ pageId: string }>();
@@ -51,6 +59,16 @@ export default function PageDetailScreen() {
     const [likeCount, setLikeCount] = useState(0);
     const [followCount, setFollowCount] = useState(0);
     const [activeSection, setActiveSection] = useState<'info' | 'members' | 'posts'>('info');
+    const [posts, setPosts] = useState<any[]>([]);
+    const [postsWaiting, setPostsWaiting] = useState<Post[]>([]);
+    const [isLoadingPosts, setIsLoadingPosts] = useState(false);
+    const [isLoadingWaitingPosts, setIsLoadingWaitingPosts] = useState(false);
+    const [usersCache, setUsersCache] = useState<Map<string, any>>(new Map());
+
+    const [showCreatePostModal, setShowCreatePostModal] = useState(false);
+    const [postContent, setPostContent] = useState('');
+    const [postImages, setPostImages] = useState<{ uri: string; name: string; type: string }[]>([]);
+    const [isCreatingPost, setIsCreatingPost] = useState(false);
 
     const [showEditModal, setShowEditModal] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
@@ -66,15 +84,144 @@ export default function PageDetailScreen() {
     });
 
     const [showMemberModal, setShowMemberModal] = useState(false);
-    const [memberUserId, setMemberUserId] = useState('');
+    const [memberUsername, setMemberUsername] = useState('');
     const [memberRole, setMemberRole] = useState<PageRole>('USER');
+    const [searchResults, setSearchResults] = useState<User[]>([]);
+    const [isSearching, setIsSearching] = useState(false);
+    const [selectedUsers, setSelectedUsers] = useState<User[]>([]);
 
     const styles = createStyles(colors);
     const isOwner = page?.createdBy?.id === user?.id;
 
+    const [userMap, setUserMap] = useState<Record<string, User>>({});
+    const [postApproveMap, setPostApproveMap] = useState<Record<string, PagePost>>({});
+
+    // Join request feature states
+    const [memberStatus, setMemberStatus] = useState<MemberStatus | null>(null);
+    const [pendingRequests, setPendingRequests] = useState<PendingJoinRequestData[]>([]);
+    const [isLoadingPendingRequests, setIsLoadingPendingRequests] = useState(false);
+
     useEffect(() => {
         if (pageId) loadAll();
     }, [pageId]);
+
+    // Tìm kiếm user khi nhập username
+    useEffect(() => {
+        const searchUsers = async () => {
+            if (!memberUsername || memberUsername.length < 2) {
+                setSearchResults([]);
+                return;
+            }
+
+            setIsSearching(true);
+            try {
+                const results = await userService.getUserByUsername(memberUsername);
+                if (results && Array.isArray(results)) {
+                    // Lọc bỏ những user đã là thành viên của page
+                    const memberIds = members.map(m => m.user.id);
+                    const filteredResults = results.filter(u => !memberIds.includes(u.id));
+                    setSearchResults(filteredResults);
+                } else {
+                    setSearchResults([]);
+                }
+            } catch (error) {
+                setSearchResults([]);
+            } finally {
+                setIsSearching(false);
+            }
+        };
+
+        const timeoutId = setTimeout(searchUsers, 300);
+        return () => clearTimeout(timeoutId);
+    }, [memberUsername, members]);
+
+    useEffect(() => {
+        if (pageId && activeSection === 'posts') {
+            loadPosts();
+        }
+        if (pageId && activeSection === 'info' && isOwner) {
+            loadWaitingPosts();
+        }
+    }, [pageId, activeSection, isOwner]);
+
+    // Load member status when pageId or user changes
+    useEffect(() => {
+        if (pageId && user?.id) {
+            loadMemberStatus();
+        }
+    }, [pageId, user?.id]);
+
+    // Load pending requests if user is owner/admin
+    useEffect(() => {
+        if (pageId && isOwner) {
+            loadPendingRequests();
+        }
+    }, [pageId, isOwner]);
+
+    const getUserInfo = useCallback(async (authorId: string): Promise<User|null> => {
+        const profile = await userService.getUserById(Number(authorId));
+        return profile||null;
+    }, []);
+
+    // Optimize: Memoize user fetching để tránh fetch lại khi đã có data
+    useEffect(() => {
+        const fetchUsers = async () => {
+            const uniqueIds = [...new Set(posts.map(p => p.authorId))];
+            const idsToFetch = uniqueIds.filter(id => !userMap[id]);
+
+            if (idsToFetch.length === 0) return;
+
+            const results = await Promise.all(
+                idsToFetch.map(id => getUserInfo(id))
+            );
+
+            const newMap: Record<string, User> = { ...userMap };
+            idsToFetch.forEach((id, index) => {
+                if (results[index]) {
+                    newMap[id] = results[index]!;
+                }
+            });
+
+            setUserMap(newMap);
+        };
+
+        if (posts.length > 0) {
+            fetchUsers();
+        }
+    }, [posts, getUserInfo]);
+
+
+    const fetchPagePosts = useCallback(async (postId: string, pageId: number) => {
+        if (!pageId) return;
+        const data = await pageService.getPagePostByIdandPostId(postId, pageId);
+        return data;
+    }, []);
+
+    // Fix: Đổi dependency từ postsWaiting thành posts để fetch đúng data
+    useEffect(() => {
+        const fetchPostsApproval = async () => {
+            const uniqueIds = [...new Set(posts.map(p => p.id))];
+            const idsToFetch = uniqueIds.filter(id => !postApproveMap[id]);
+
+            if (idsToFetch.length === 0) return;
+
+            const results = await Promise.all(
+                idsToFetch.map(id => fetchPagePosts(id, Number(pageId)))
+            );
+
+            const newMap: Record<string, PagePost> = { ...postApproveMap };
+            idsToFetch.forEach((id, index) => {
+                if (results[index]) {
+                    newMap[id] = results[index]!;
+                }
+            });
+            setPostApproveMap(newMap);
+        };
+
+        if (posts.length > 0 && pageId) {
+            fetchPostsApproval();
+        }
+    }, [posts, pageId, fetchPagePosts]);
 
     const loadAll = async () => {
         setIsLoading(true);
@@ -95,6 +242,86 @@ export default function PageDetailScreen() {
             setIsLoading(false);
         }
     };
+
+    const loadPosts = async () => {
+        if (!pageId) return;
+        setIsLoadingPosts(true);
+        try {
+            const data = await pageService.getAllPostsOfPage(Number(pageId));
+            setPosts(data);
+            // Load user info for all posts
+            await loadPostsUserInfo(data);
+        } catch (error) {
+            console.error('Error loading posts:', error);
+        } finally {
+            setIsLoadingPosts(false);
+        }
+    };
+
+    const loadWaitingPosts = async () => {
+        if (!pageId) return;
+        setIsLoadingWaitingPosts(true);
+        try {
+            const data = await pageService.getAllPostsWaitingForApprove(Number(pageId));
+            setPostsWaiting(data);
+            // Load user info for all waiting posts
+            await loadPostsUserInfo(data);
+        } catch (error) {
+            console.error('Error loading waiting posts:', error);
+        } finally {
+            setIsLoadingWaitingPosts(false);
+        }
+    };
+
+    const loadPostsUserInfo = async (posts: any[]) => {
+        const newCache = new Map(usersCache);
+        const authorIds = posts
+            .map(p => p.authorId)
+            .filter((id, idx, arr) => id && arr.indexOf(id) === idx && !usersCache.has(id));
+
+        for (const authorId of authorIds) {
+            try {
+                // Fallback: show authorId if user not found
+                if (authorId && !newCache.has(authorId)) {
+                    // Mock user info if not available from API
+                    newCache.set(authorId, {
+                        id: Number(authorId),
+                        name: `User #${authorId}`,
+                        username: `user${authorId}`,
+                        avatarUrl: undefined,
+                    });
+                }
+            } catch (error) {
+                console.error('Error loading user:', error);
+            }
+        }
+        setUsersCache(newCache);
+    };
+
+    const loadMemberStatus = async () => {
+        if (!pageId || !user?.id) return;
+        try {
+            const status = await pageService.getMemberStatus(Number(pageId), user.id);
+            setMemberStatus(status);
+        } catch (error) {
+            console.error('Error loading member status:', error);
+        }
+    };
+
+    const loadPendingRequests = async () => {
+        if (!pageId) return;
+        setIsLoadingPendingRequests(true);
+        try {
+            const requests = await pageService.getPendingJoinRequests(Number(pageId));
+            setPendingRequests(requests);
+        } catch (error) {
+            console.error('Error loading pending requests:', error);
+        } finally {
+            setIsLoadingPendingRequests(false);
+        }
+    };
+
+
 
     const handleLike = async () => {
         if (!user?.id || !page) return;
@@ -269,18 +496,35 @@ export default function PageDetailScreen() {
         ]);
     };
 
+
+
     const handleAddMember = async () => {
-        if (!page || !memberUserId) return;
+        if (!page || selectedUsers.length === 0) {
+            Alert.alert('Lỗi', 'Vui lòng chọn ít nhất một người dùng.');
+            return;
+        }
+
         try {
-            await pageService.addMember({
-                userId: Number(memberUserId),
-                pageId: page.id,
-                pageRole: memberRole,
-            });
+            // Thêm tất cả người dùng đã chọn
+            await Promise.all(
+                selectedUsers.map(user =>
+                    pageService.addMember({
+                        userId: Number(user.id),
+                        pageId: page.id,
+                        pageRole: memberRole,
+                    })
+                )
+            );
+
             setShowMemberModal(false);
-            setMemberUserId('');
+            setMemberUsername('');
+            setSearchResults([]);
+            setSelectedUsers([]);
             await loadAll();
-            Alert.alert('Thành công', 'Đã thêm thành viên vào trang.');
+            Alert.alert(
+                'Thành công',
+                `Đã thêm ${selectedUsers.length} thành viên vào trang.`
+            );
         } catch {
             Alert.alert('Lỗi', 'Không thể thêm thành viên.');
         }
@@ -302,6 +546,231 @@ export default function PageDetailScreen() {
                 },
             },
         ]);
+    };
+
+    const handleApprovePost = async (postId: string) => {
+        if (!user?.id || !page) return;
+        try {
+            await pageService.approvePostPage(user.id, page.id, postId);
+            Alert.alert('Thành công', 'Đã phê duyệt bài viết.');
+            await loadWaitingPosts();
+            await loadPosts();
+        } catch {
+            Alert.alert('Lỗi', 'Không thể phê duyệt bài viết.');
+        }
+    };
+
+    const handleCancelApprovePost = async (postId: string) => {
+        if (!user?.id || !page) return;
+        try {
+            await pageService.cancelApprovePostPage(user.id, page.id, postId);
+            Alert.alert('Thành công', 'Đã hủy phê duyệt bài viết.');
+            await loadWaitingPosts();
+        } catch {
+            Alert.alert('Lỗi', 'Không thể hủy phê duyệt bài viết.');
+        }
+    };
+
+    const handleRemovePost = (postId: string, postCaption: string) => {
+        if (!user?.id || !page) return;
+        Alert.alert('Xóa bài viết', `Xóa bài viết?`, [
+            { text: 'Hủy', style: 'cancel' },
+            {
+                text: 'Xóa', style: 'destructive',
+                onPress: async () => {
+                    try {
+                        await pageService.removePostPage(user.id, page.id, postId);
+                        Alert.alert('Thành công', 'Đã xóa bài viết.');
+                        await loadPosts();
+                        await loadWaitingPosts();
+                    } catch {
+                        Alert.alert('Lỗi', 'Không thể xóa bài viết.');
+                    }
+                },
+            },
+        ]);
+    };
+
+    const handleApproveAll = async () => {
+        if (!user?.id || !page) return;
+        Alert.alert('Phê duyệt tất cả', 'Phê duyệt tất cả bài viết chờ?', [
+            { text: 'Hủy', style: 'cancel' },
+            {
+                text: 'Phê duyệt',
+                onPress: async () => {
+                    try {
+                        await pageService.approveAllPosts(user.id, page.id);
+                        Alert.alert('Thành công', 'Đã phê duyệt tất cả.');
+                        await loadWaitingPosts();
+                        await loadPosts();
+                    } catch {
+                        Alert.alert('Lỗi', 'Không thể phê duyệt tất cả.');
+                    }
+                },
+            },
+        ]);
+    };
+
+    const handleCancelAll = async () => {
+        if (!user?.id || !page) return;
+        Alert.alert('Hủy duyệt tất cả', 'Hủy duyệt tất cả bài viết?', [
+            { text: 'Hủy', style: 'cancel' },
+            {
+                text: 'Hủy duyệt', style: 'destructive',
+                onPress: async () => {
+                    try {
+                        await pageService.cancelAllPosts(user.id, page.id);
+                        Alert.alert('Thành công', 'Đã hủy duyệt tất cả.');
+                        await loadWaitingPosts();
+                    } catch {
+                        Alert.alert('Lỗi', 'Không thể hủy duyệt tất cả.');
+                    }
+                },
+            },
+        ]);
+    };
+
+    // Join request handlers
+    const handleRequestJoin = async () => {
+        if (!user?.id || !page) return;
+
+        try {
+            await pageService.requestJoinPage(user.id, page.id);
+            // Reload member status
+            await loadMemberStatus();
+            if (page.status === 'PUBLIC') {
+                Alert.alert('Thành công', 'Bạn đã tham gia trang.');
+            } else {
+                Alert.alert('Thành công', 'Đã gửi yêu cầu tham gia trang. Vui lòng chờ duyệt.');
+            }
+        } catch (error: any) {
+            const message = error?.response?.data?.message || 'Không thể gửi yêu cầu.';
+            Alert.alert('Lỗi', message);
+        }
+    };
+
+    const handleApproveJoinRequest = async (userId: number, userName: string) => {
+        if (!page) return;
+
+        Alert.alert(
+            'Duyệt yêu cầu',
+            `Chấp nhận ${userName} vào trang?`,
+            [
+                { text: 'Hủy', style: 'cancel' },
+                {
+                    text: 'Duyệt',
+                    onPress: async () => {
+                        try {
+                            await pageService.approveJoinRequest(page.id, userId);
+                            Alert.alert('Thành công', 'Đã duyệt yêu cầu.');
+                            await loadPendingRequests();
+                            await loadAll();
+                        } catch {
+                            Alert.alert('Lỗi', 'Không thể duyệt yêu cầu.');
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
+    const handleRejectJoinRequest = async (userId: number, userName: string) => {
+        if (!page) return;
+
+        Alert.alert(
+            'Từ chối yêu cầu',
+            `Từ chối ${userName}?`,
+            [
+                { text: 'Hủy', style: 'cancel' },
+                {
+                    text: 'Từ chối',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            await pageService.rejectJoinRequest(page.id, userId);
+                            Alert.alert('Thành công', 'Đã từ chối yêu cầu.');
+                            await loadPendingRequests();
+                        } catch {
+                            Alert.alert('Lỗi', 'Không thể từ chối yêu cầu.');
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
+    const handleCancelJoinRequest = async () => {
+        if (!user?.id || !page) return;
+
+        Alert.alert(
+            'Hủy yêu cầu tham gia',
+            'Bạn có chắc muốn hủy yêu cầu tham gia trang này?',
+            [
+                { text: 'Không', style: 'cancel' },
+                {
+                    text: 'Hủy yêu cầu',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            await pageService.cancelJoinRequest(page.id, user.id);
+                            setMemberStatus(null);
+                            Alert.alert('Thành công', 'Đã hủy yêu cầu tham gia.');
+                        } catch {
+                            Alert.alert('Lỗi', 'Không thể hủy yêu cầu.');
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
+    const pickPostImages = async () => {
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            allowsMultipleSelection: true,
+            quality: 0.8,
+        });
+        if (!result.canceled && result.assets) {
+            const newImages = result.assets.map((asset, idx) => ({
+                uri: asset.uri,
+                name: `post_image_${Date.now()}_${idx}.jpg`,
+                type: asset.mimeType || 'image/jpeg',
+            }));
+            setPostImages(prev => [...prev, ...newImages]);
+        }
+    };
+
+    const removePostImage = (index: number) => {
+        setPostImages(prev => prev.filter((_, i) => i !== index));
+    };
+
+    const handleCreatePost = async () => {
+        if (!user?.id || !page) return;
+        if (!postContent.trim() && postImages.length === 0) {
+            Alert.alert('Lỗi', 'Vui lòng nhập nội dung hoặc chọn hình ảnh.');
+            return;
+        }
+
+        setIsCreatingPost(true);
+        try {
+            const postData = {
+                content: postContent,
+                privacy: 'PUBLIC',
+                allowComments: true,
+                allowShares: true,
+            };
+
+            await pageService.addPostPage(page.id, postData, postImages);
+            Alert.alert('Thành công', 'Đã tạo bài viết.');
+            setShowCreatePostModal(false);
+            setPostContent('');
+            setPostImages([]);
+            await loadWaitingPosts();
+        } catch (error) {
+            Alert.alert('Lỗi', 'Không thể tạo bài viết.');
+        } finally {
+            setIsCreatingPost(false);
+        }
     };
 
     if (isLoading) {
@@ -423,6 +892,38 @@ export default function PageDetailScreen() {
                                 {isFollowing ? 'Đang theo dõi' : 'Theo dõi'}
                             </Text>
                         </TouchableOpacity>
+                        {/* Join button for non-owner users */}
+                        {!isOwner && memberStatus === null && (
+                            <TouchableOpacity
+                                style={styles.actionBtn}
+                                onPress={handleRequestJoin}
+                                activeOpacity={0.75}
+                            >
+                                <Ionicons name="person-add-outline" size={20} color={colors.primary} />
+                                <Text style={styles.actionBtnText}>
+                                    {page?.status === 'PUBLIC' ? 'Tham gia' : 'Xin tham gia'}
+                                </Text>
+                            </TouchableOpacity>
+                        )}
+                        {!isOwner && memberStatus === 'PENDING' && (
+                            <TouchableOpacity
+                                style={[styles.actionBtn, { borderColor: colors.warning, backgroundColor: colors.warningBg }]}
+                                onPress={handleCancelJoinRequest}
+                                activeOpacity={0.75}
+                            >
+                                <Ionicons name="time-outline" size={20} color={colors.warning} />
+                                <Text style={[styles.actionBtnText, { color: colors.warning }]}>
+                                    Hủy yêu cầu
+                                </Text>
+                            </TouchableOpacity>
+                        )}
+                        {!isOwner && memberStatus === 'ACTIVE' && (
+                            <View style={[styles.actionBtn, styles.actionBtnActive]}>
+                                <Ionicons name="checkmark-circle" size={20} color="#fff" />
+                                <Text style={styles.actionBtnTextActive}>Đã tham gia</Text>
+                            </View>
+                        )}
+                        
                     </View>
                 </View>
 
@@ -479,7 +980,7 @@ export default function PageDetailScreen() {
                         {isOwner && (
                             <View style={styles.infoCard}>
                                 <Text style={styles.sectionTitle}>Quản lý trang</Text>
-                                <TouchableOpacity style={styles.managementBtn} onPress={() => { setMemberUserId(''); setMemberRole('USER'); setShowMemberModal(true); }} activeOpacity={0.7}>
+                                <TouchableOpacity style={styles.managementBtn} onPress={() => { setMemberUsername(''); setMemberRole('USER'); setShowMemberModal(true); }} activeOpacity={0.7}>
                                     <Ionicons name="person-add-outline" size={20} color={colors.primary} />
                                     <Text style={[styles.managementBtnText, { color: colors.primary }]}>Thêm thành viên</Text>
                                 </TouchableOpacity>
@@ -493,6 +994,200 @@ export default function PageDetailScreen() {
                                 </TouchableOpacity>
                             </View>
                         )}
+
+                        {/* Pending Join Requests Section */}
+                        {isOwner && pendingRequests.length > 0 && (
+                            <View style={styles.infoCard}>
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                                    <Text style={styles.sectionTitle}>
+                                        Yêu cầu tham gia ({pendingRequests.length})
+                                    </Text>
+                                </View>
+
+                                {isLoadingPendingRequests ? (
+                                    <ActivityIndicator size="small" color={colors.primary} />
+                                ) : (
+                                    <View style={{ gap: 12 }}>
+                                        {pendingRequests.map((request) => (
+                                            <View key={request.id} style={[styles.postCard, { backgroundColor: colors.warningBg, borderColor: colors.warning + '40' }]}>
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                                                    {request.user?.avatarUrl ? (
+                                                        <Image
+                                                            source={{ uri: buildS3Url(request.user.avatarUrl) }}
+                                                            style={styles.memberAvatar}
+                                                        />
+                                                    ) : (
+                                                        <View style={styles.memberAvatarFallback}>
+                                                            <Ionicons name="person" size={18} color={colors.textTertiary} />
+                                                        </View>
+                                                    )}
+
+                                                    <View style={{ flex: 1, marginLeft: 12 }}>
+                                                        <Text style={styles.memberName}>
+                                                            {request.user?.name || request.user?.username || 'Người dùng'}
+                                                        </Text>
+                                                        <Text style={{ fontSize: 12, color: colors.textTertiary }}>
+                                                            @{request.user?.username || 'unknown'}
+                                                        </Text>
+                                                        <Text style={{ fontSize: 11, color: colors.textTertiary, marginTop: 2 }}>
+                                                            {request.joinedAt
+                                                                ? new Date(request.joinedAt).toLocaleDateString('vi-VN')
+                                                                : 'Vừa xong'
+                                                            }
+                                                        </Text>
+                                                    </View>
+                                                </View>
+
+                                                <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+                                                    <TouchableOpacity
+                                                        style={[styles.postActionBtn, { flex: 1, backgroundColor: colors.successBg }]}
+                                                        onPress={() => handleApproveJoinRequest(
+                                                            request.user.id,
+                                                            request.user.name || request.user.username || 'người dùng'
+                                                        )}
+                                                    >
+                                                        <Ionicons name="checkmark" size={16} color={colors.success} />
+                                                        <Text style={[styles.postActionText, { color: colors.success }]}>
+                                                            Duyệt
+                                                        </Text>
+                                                    </TouchableOpacity>
+
+                                                    <TouchableOpacity
+                                                        style={[styles.postActionBtn, { flex: 1, backgroundColor: colors.errorBg }]}
+                                                        onPress={() => handleRejectJoinRequest(
+                                                            request.user.id,
+                                                            request.user.name || request.user.username || 'người dùng'
+                                                        )}
+                                                    >
+                                                        <Ionicons name="close" size={16} color={colors.error} />
+                                                        <Text style={[styles.postActionText, { color: colors.error }]}>
+                                                            Từ chối
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                </View>
+                                            </View>
+                                        ))}
+                                    </View>
+                                )}
+                            </View>
+                        )}
+
+                        {isOwner && postsWaiting.length > 0 && (
+                            <View style={styles.infoCard}>
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                                    <Text style={styles.sectionTitle}>
+                                        Bài viết chờ duyệt ({postsWaiting.length})
+                                    </Text>
+                                    <TouchableOpacity onPress={() => setShowCreatePostModal(true)} hitSlop={8}>
+                                        <Ionicons name="add-circle" size={22} color={colors.primary} />
+                                    </TouchableOpacity>
+                                </View>
+
+                                {postsWaiting.length > 0 && (
+                                    <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+                                        <TouchableOpacity
+                                            style={[styles.bulkActionBtn, { backgroundColor: colors.successBg }]}
+                                            onPress={handleApproveAll}
+                                        >
+                                            <Ionicons name="checkmark-done" size={16} color={colors.success} />
+                                            <Text style={[styles.bulkActionText, { color: colors.success }]}>
+                                                Duyệt tất cả
+                                            </Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            style={[styles.bulkActionBtn, { backgroundColor: colors.errorBg }]}
+                                            onPress={handleCancelAll}
+                                        >
+                                            <Ionicons name="close" size={16} color={colors.error} />
+                                            <Text style={[styles.bulkActionText, { color: colors.error }]}>
+                                                Hủy tất cả
+                                            </Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                )}
+
+                                {isLoadingWaitingPosts ? (
+                                    <View style={{ alignItems: 'center', paddingVertical: 20 }}>
+                                        <ActivityIndicator size="small" color={colors.primary} />
+                                    </View>
+                                ) : (
+                                    <View style={{ gap: 12 }}>
+                                        {postsWaiting.map((post) => {
+                                            const media = post.media || [];
+                                            const userInfo = userMap[post.authorId||''];
+
+                                            return (
+                                            <View key={post.id} style={[styles.postCard, { backgroundColor: colors.warningBg }]}>
+                                                <View style={styles.postHeader}>
+                                                    {userInfo?.avatarUrl ? (
+                                                        <Image source={{ uri: buildS3Url(userInfo.avatarUrl) }} style={styles.postAvatar} />
+                                                    ) : (
+                                                        <View style={styles.postAvatarFallback}>
+                                                            <Ionicons name="person" size={16} color={colors.textTertiary} />
+                                                        </View>
+                                                    )}
+                                                    <View style={{ flex: 1 }}>
+                                                        <Text style={styles.postAuthorName}>
+                                                            {userInfo?.username || 'Người dùng'}
+                                                        </Text>
+                                                        <Text style={styles.postDate}>
+                                                            {post.createdAt ? new Date(post.createdAt).toLocaleDateString('vi-VN', {
+                                                                year: 'numeric', month: '2-digit', day: '2-digit',
+                                                                hour: '2-digit', minute: '2-digit'
+                                                            }) : 'Không rõ'}
+                                                        </Text>
+                                                    </View>
+                                                    <TouchableOpacity onPress={() => handleRemovePost(post.id, post.content || '')}>
+                                                        <Ionicons name="close" size={20} color={colors.error} />
+                                                    </TouchableOpacity>
+                                                </View>
+                                                {post.content && <Text style={styles.postContent}>{post.content}</Text>}
+                                                {media && media.length > 0 && (
+                                                    <ScrollView
+                                                        horizontal
+                                                        showsHorizontalScrollIndicator={false}
+                                                        style={{ marginTop: 8 }}
+                                                        contentContainerStyle={{ paddingHorizontal: 12, gap: 8 }}
+                                                    >
+                                                        {media.map((item: any, idx: number) => (
+                                                            item?.url && (
+                                                                <Image
+                                                                    key={idx}
+                                                                    source={{ uri: buildS3Url(item.url) }}
+                                                                    style={{
+                                                                        width: POST_IMAGE_WIDTH,
+                                                                        height: 250,
+                                                                        borderRadius: 12,
+                                                                    }}
+                                                                    resizeMode="cover"
+                                                                />
+                                                            )
+                                                        ))}
+                                                    </ScrollView>
+                                                )}
+                                                <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+                                                    <TouchableOpacity
+                                                        style={[styles.postActionBtn, { flex: 1, backgroundColor: colors.successBg }]}
+                                                        onPress={() => handleApprovePost(post.id)}
+                                                    >
+                                                        <Ionicons name="checkmark" size={16} color={colors.success || '#10b981'} />
+                                                        <Text style={[styles.postActionText, { color: colors.success || '#10b981' }]}>Duyệt</Text>
+                                                    </TouchableOpacity>
+                                                    <TouchableOpacity
+                                                        style={[styles.postActionBtn, { flex: 1, backgroundColor: colors.errorBg }]}
+                                                        onPress={() => handleCancelApprovePost(post.id)}
+                                                    >
+                                                        <Ionicons name="close" size={16} color={colors.error} />
+                                                        <Text style={[styles.postActionText, { color: colors.error }]}>Hủy</Text>
+                                                    </TouchableOpacity>
+                                                </View>
+                                            </View>
+                                            );
+                                        })}
+                                    </View>
+                                )}
+                            </View>
+                        )}
                     </>
                 )}
 
@@ -501,7 +1196,7 @@ export default function PageDetailScreen() {
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                             <Text style={styles.sectionTitle}>Danh sách thành viên</Text>
                             {isOwner && (
-                                <TouchableOpacity onPress={() => { setMemberUserId(''); setMemberRole('USER'); setShowMemberModal(true); }} hitSlop={8}>
+                                <TouchableOpacity onPress={() => { setMemberUsername(''); setMemberRole('USER'); setShowMemberModal(true); }} hitSlop={8}>
                                     <Ionicons name="person-add" size={22} color={colors.primary} />
                                 </TouchableOpacity>
                             )}
@@ -523,7 +1218,7 @@ export default function PageDetailScreen() {
                                     )}
                                     <View style={{ flex: 1 }}>
                                         <Text style={styles.memberName}>
-                                            {member.user?.name || member.user?.username || member.user?.phone || `User #${member.user?.id}`}
+                                            { member.user?.username}
                                         </Text>
                                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
                                             <View style={[styles.roleBadge, member.role === 'ADMIN' && { backgroundColor: colors.primary + '20' }]}>
@@ -552,21 +1247,111 @@ export default function PageDetailScreen() {
 
                 {activeSection === 'posts' && (
                     <View style={styles.infoCard}>
-                        <Text style={styles.sectionTitle}>Bài viết của trang</Text>
-                        <View style={{ alignItems: 'center', paddingVertical: 40 }}>
-                            <View style={{
-                                width: 72, height: 72, borderRadius: 36, backgroundColor: colors.chipBg,
-                                alignItems: 'center', justifyContent: 'center', marginBottom: 12,
-                            }}>
-                                <Ionicons name="newspaper-outline" size={32} color={colors.textTertiary} />
-                            </View>
-                            <Text style={{ fontSize: 15, fontWeight: '600', color: colors.textSecondary }}>
-                                Chưa có bài viết
-                            </Text>
-                            <Text style={{ fontSize: 13, color: colors.textTertiary, marginTop: 4, textAlign: 'center' }}>
-                                Bài viết của trang sẽ hiển thị tại đây
-                            </Text>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                            <Text style={styles.sectionTitle}>Bài viết của trang</Text>
+                            
+                                <TouchableOpacity onPress={() => setShowCreatePostModal(true)} hitSlop={8}>
+                                    <Ionicons name="add-circle" size={24} color={colors.primary} />
+                                </TouchableOpacity>
+                            
                         </View>
+
+                        {isLoadingPosts ? (
+                            <View style={{ alignItems: 'center', paddingVertical: 40 }}>
+                                <ActivityIndicator size="large" color={colors.primary} />
+                            </View>
+                        ) : posts.length === 0 ? (
+                            <View style={{ alignItems: 'center', paddingVertical: 40 }}>
+                                <View style={{
+                                    width: 72, height: 72, borderRadius: 36, backgroundColor: colors.chipBg,
+                                    alignItems: 'center', justifyContent: 'center', marginBottom: 12,
+                                }}>
+                                    <Ionicons name="newspaper-outline" size={32} color={colors.textTertiary} />
+                                </View>
+                                <Text style={{ fontSize: 15, fontWeight: '600', color: colors.textSecondary }}>
+                                    Chưa có bài viết
+                                </Text>
+                                <Text style={{ fontSize: 13, color: colors.textTertiary, marginTop: 4, textAlign: 'center' }}>
+                                    Bài viết của trang sẽ hiển thị tại đây
+                                </Text>
+                            </View>
+                        ) : (
+                            <View style={{ gap: 12 }}>
+                                {posts.map( (post) => {
+                                    const media = post.media || [];
+                                    const userInfo = userMap[post.authorId];
+                                    const pagePostInfo = postApproveMap[post.id];
+
+                                    return (
+                                    <View key={post.id} style={styles.postCard}>
+                                        <View style={styles.postHeader}>
+                                            {userInfo?.avatarUrl ? (
+                                                <Image source={{ uri: buildS3Url(userInfo.avatarUrl) }} style={styles.postAvatar} />
+                                            ) : (
+                                                <View style={styles.postAvatarFallback}>
+                                                    <Ionicons name="person" size={16} color={colors.textTertiary} />
+                                                </View>
+                                            )}
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={styles.postAuthorName}>
+                                                    {userInfo?.username || 'Người dùng'}
+                                                </Text>
+                                                <Text style={styles.postDate}>
+                                                    {pagePostInfo?.approvedAt ? new Date(pagePostInfo.approvedAt).toLocaleDateString('vi-VN', {
+                                                        year: 'numeric', month: '2-digit', day: '2-digit',
+                                                        hour: '2-digit', minute: '2-digit'
+                                                    }) : 'Không rõ'}
+                                                </Text>
+                                            </View>
+                                            {isOwner && (
+                                                <TouchableOpacity onPress={() => handleRemovePost(post.id, post.content || '')}>
+                                                    <Ionicons name="close" size={20} color={colors.error} />
+                                                </TouchableOpacity>
+                                            )}
+                                        </View>
+                                        {post.content && <Text style={styles.postContent}>{post.content}</Text>}
+                                        {media && media.length > 0 && (
+                                            <ScrollView
+                                                horizontal
+                                                showsHorizontalScrollIndicator={false}
+                                                style={{ marginTop: 8 }}
+                                                contentContainerStyle={{ paddingHorizontal: 12, gap: 8 }}
+                                            >
+                                                {media.map((item: any, idx: number) => (
+                                                    item?.url && (
+                                                        <Image
+                                                            key={idx}
+                                                            source={{ uri: buildS3Url(item.url) }}
+                                                            style={{
+                                                                width: POST_IMAGE_WIDTH,
+                                                                height: 250,
+                                                                borderRadius: 12,
+                                                            }}
+                                                            resizeMode="cover"
+                                                        />
+                                                    )
+                                                ))}
+                                            </ScrollView>
+                                        )}
+                                        {post.stats && (
+                                            <View style={{ flexDirection: 'row', marginTop: 8, gap: 16 }}>
+                                                <View style={{ flex: 1 }}>
+                                                    <Text style={[styles.postStat, { color: colors.danger }]}>
+                                                        ❤️ {post.stats.likes ?? 0}
+                                                    </Text>
+                                                </View>
+                                                <View style={{ flex: 1 }}>
+                                                    <Text style={[styles.postStat, { color: colors.primary }]}>
+                                                        💬 {post.stats.comments ?? 0}
+                                                    </Text>
+                                                </View>
+                                            </View>
+                                        )}
+                                    </View>
+                                    );
+                                })}
+                            </View>
+                        )}
                     </View>
                 )}
             </ScrollView>
@@ -639,58 +1424,321 @@ export default function PageDetailScreen() {
             </Modal>
 
             <Modal visible={showMemberModal} animationType="slide" transparent onRequestClose={() => setShowMemberModal(false)}>
-                <View style={styles.overlay}>
-                    <Pressable style={styles.overlayBackdrop} onPress={() => setShowMemberModal(false)} />
-                    <View style={[styles.sheet, { paddingBottom: insets.bottom + 16, maxHeight: '60%' }]}>
-                        <View style={styles.dragBar} />
-                        <View style={styles.sheetHeader}>
-                            <TouchableOpacity onPress={() => setShowMemberModal(false)} hitSlop={12}>
-                                <Text style={styles.sheetCancel}>Hủy</Text>
-                            </TouchableOpacity>
-                            <Text style={styles.sheetTitle}>Thêm thành viên</Text>
-                            <TouchableOpacity onPress={handleAddMember} hitSlop={12}>
-                                <Text style={styles.sheetSave}>Thêm</Text>
-                            </TouchableOpacity>
-                        </View>
-                        <View style={{ paddingHorizontal: 20, paddingTop: 16 }}>
-                            <EditField
-                                label="User ID"
-                                value={memberUserId}
-                                onChange={setMemberUserId}
-                                colors={colors}
-                                placeholder="Nhập ID người dùng"
-                            />
-                            <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textSecondary, marginTop: 16, marginBottom: 8 }}>
-                                Vai trò
-                            </Text>
-                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                                {PAGE_ROLES.map(role => {
-                                    const active = memberRole === role.value;
-                                    return (
-                                        <TouchableOpacity
-                                            key={role.value}
-                                            onPress={() => setMemberRole(role.value)}
-                                            style={{
-                                                paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10,
-                                                borderWidth: 1.5,
-                                                borderColor: active ? colors.primary : colors.border,
-                                                backgroundColor: active ? colors.primary : colors.inputBg,
-                                            }}
-                                            activeOpacity={0.7}
-                                        >
-                                            <Text style={{
-                                                fontSize: 13, fontWeight: active ? '600' : '500',
-                                                color: active ? colors.primaryText : colors.textSecondary,
-                                            }}>
-                                                {role.label}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    );
-                                })}
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    style={{ flex: 1 }}
+                >
+                    <View style={styles.overlay}>
+                        <Pressable style={styles.overlayBackdrop} onPress={() => setShowMemberModal(false)} />
+                        <View style={[styles.sheet, { paddingBottom: insets.bottom + 16, maxHeight: '80%' }]}>
+                            <View style={styles.dragBar} />
+                            <View style={styles.sheetHeader}>
+                                <TouchableOpacity onPress={() => {
+                                    setShowMemberModal(false);
+                                    setMemberUsername('');
+                                    setSearchResults([]);
+                                    setSelectedUsers([]);
+                                }} hitSlop={12}>
+                                    <Text style={styles.sheetCancel}>Hủy</Text>
+                                </TouchableOpacity>
+                                <Text style={styles.sheetTitle}>Thêm thành viên</Text>
+                                <TouchableOpacity
+                                    onPress={handleAddMember}
+                                    hitSlop={12}
+                                    disabled={selectedUsers.length === 0}
+                                >
+                                    <Text style={[
+                                        styles.sheetSave,
+                                        selectedUsers.length === 0 && { color: colors.textTertiary }
+                                    ]}>
+                                        Thêm ({selectedUsers.length})
+                                    </Text>
+                                </TouchableOpacity>
                             </View>
+                            <ScrollView
+                                style={{ paddingHorizontal: 20, paddingTop: 16 }}
+                                keyboardShouldPersistTaps="handled"
+                                showsVerticalScrollIndicator={false}
+                            >
+                                <EditField
+                                    label="Tìm kiếm người dùng"
+                                    value={memberUsername}
+                                    onChange={setMemberUsername}
+                                    colors={colors}
+                                    placeholder="Nhập username để tìm kiếm"
+                                />
+
+                                {/* Danh sách kết quả tìm kiếm */}
+                                {isSearching && (
+                                    <View style={{ padding: 20, alignItems: 'center' }}>
+                                        <ActivityIndicator size="small" color={colors.primary} />
+                                    </View>
+                                )}
+
+                                {!isSearching && searchResults.length > 0 && (
+                                    <View style={{ marginTop: 16 }}>
+                                        <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textSecondary, marginBottom: 8 }}>
+                                            Kết quả tìm kiếm ({searchResults.length})
+                                        </Text>
+                                        {searchResults.map(user => {
+                                            const isSelected = selectedUsers.some(u => u.id === user.id);
+                                            return (
+                                                <TouchableOpacity
+                                                    key={user.id}
+                                                    onPress={() => {
+                                                        if (isSelected) {
+                                                            setSelectedUsers(prev => prev.filter(u => u.id !== user.id));
+                                                        } else {
+                                                            setSelectedUsers(prev => [...prev, user]);
+                                                        }
+                                                    }}
+                                                    style={{
+                                                        flexDirection: 'row',
+                                                        alignItems: 'center',
+                                                        padding: 12,
+                                                        backgroundColor: colors.inputBg,
+                                                        borderRadius: 12,
+                                                        marginBottom: 8,
+                                                        borderWidth: 1.5,
+                                                        borderColor: isSelected ? colors.primary : colors.border,
+                                                    }}
+                                                    activeOpacity={0.7}
+                                                >
+                                                    {/* Checkbox */}
+                                                    <View style={{
+                                                        width: 24,
+                                                        height: 24,
+                                                        borderRadius: 6,
+                                                        borderWidth: 2,
+                                                        borderColor: isSelected ? colors.primary : colors.border,
+                                                        backgroundColor: isSelected ? colors.primary : 'transparent',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        marginRight: 12,
+                                                    }}>
+                                                        {isSelected && (
+                                                            <Ionicons name="checkmark" size={16} color={colors.primaryText} />
+                                                        )}
+                                                    </View>
+
+                                                    {/* Avatar */}
+                                                    <Image
+                                                        source={{ uri: user.avatarUrl ? buildS3Url(user.avatarUrl): 'https://via.placeholder.com/24' }}
+                                                        style={{
+                                                            width: 40,
+                                                            height: 40,
+                                                            borderRadius: 20,
+                                                            marginRight: 12,
+                                                        }}
+                                                    />
+
+                                                    {/* User info */}
+                                                    <View style={{ flex: 1 }}>
+                                                        <Text style={{
+                                                            fontSize: 15,
+                                                            fontWeight: '600',
+                                                            color: colors.text,
+                                                            marginBottom: 2,
+                                                        }}>
+                                                            {user.name}
+                                                        </Text>
+                                                        <Text style={{
+                                                            fontSize: 13,
+                                                            color: colors.textSecondary,
+                                                        }}>
+                                                            @{user.username}
+                                                        </Text>
+                                                    </View>
+                                                </TouchableOpacity>
+                                            );
+                                        })}
+                                    </View>
+                                )}
+
+                                {!isSearching && memberUsername.length >= 2 && searchResults.length === 0 && (
+                                    <View style={{ padding: 20, alignItems: 'center' }}>
+                                        <Ionicons name="search-outline" size={48} color={colors.textTertiary} />
+                                        <Text style={{ fontSize: 14, color: colors.textSecondary, marginTop: 8 }}>
+                                            Không tìm thấy người dùng
+                                        </Text>
+                                    </View>
+                                )}
+
+                                {/* Danh sách người dùng đã chọn */}
+                                {selectedUsers.length > 0 && (
+                                    <View style={{ marginTop: 16 }}>
+                                        <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textSecondary, marginBottom: 8 }}>
+                                            Đã chọn ({selectedUsers.length})
+                                        </Text>
+                                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                                            {selectedUsers.map(user => (
+                                                <View
+                                                    key={user.id}
+                                                    style={{
+                                                        flexDirection: 'row',
+                                                        alignItems: 'center',
+                                                        paddingLeft: 8,
+                                                        paddingRight: 4,
+                                                        paddingVertical: 6,
+                                                        backgroundColor: colors.primary + '20',
+                                                        borderRadius: 20,
+                                                        borderWidth: 1,
+                                                        borderColor: colors.primary,
+                                                    }}
+                                                >
+                                                    <Image
+                                                        source={{ uri: user.avatarUrl? buildS3Url(user.avatarUrl): 'https://via.placeholder.com/24' }}
+                                                        style={{
+                                                            width: 24,
+                                                            height: 24,
+                                                            borderRadius: 12,
+                                                            marginRight: 6,
+                                                        }}
+                                                    />
+                                                    <Text style={{
+                                                        fontSize: 13,
+                                                        fontWeight: '500',
+                                                        color: colors.primary,
+                                                        marginRight: 4,
+                                                    }}>
+                                                        {user.username}/ {user.name}
+                                                    </Text>
+                                                    <TouchableOpacity
+                                                        onPress={() => {
+                                                            setSelectedUsers(prev => prev.filter(u => u.id !== user.id));
+                                                        }}
+                                                        hitSlop={8}
+                                                    >
+                                                        <Ionicons name="close-circle" size={20} color={colors.primary} />
+                                                    </TouchableOpacity>
+                                                </View>
+                                            ))}
+                                        </View>
+                                    </View>
+                                )}
+
+                                <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textSecondary, marginTop: 16, marginBottom: 8 }}>
+                                    Vai trò
+                                </Text>
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                                    {PAGE_ROLES.map(role => {
+                                        const active = memberRole === role.value;
+                                        return (
+                                            <TouchableOpacity
+                                                key={role.value}
+                                                onPress={() => setMemberRole(role.value)}
+                                                style={{
+                                                    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10,
+                                                    borderWidth: 1.5,
+                                                    borderColor: active ? colors.primary : colors.border,
+                                                    backgroundColor: active ? colors.primary : colors.inputBg,
+                                                }}
+                                                activeOpacity={0.7}
+                                            >
+                                                <Text style={{
+                                                    fontSize: 13, fontWeight: active ? '600' : '500',
+                                                    color: active ? colors.primaryText : colors.textSecondary,
+                                                }}>
+                                                    {role.label}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </View>
+                                <View style={{ height: 20 }} />
+                            </ScrollView>
                         </View>
                     </View>
-                </View>
+                </KeyboardAvoidingView>
+            </Modal>
+
+            <Modal visible={showCreatePostModal} animationType="slide" transparent onRequestClose={() => setShowCreatePostModal(false)}>
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    style={{ flex: 1 }}
+                >
+                    <View style={styles.overlay}>
+                        <Pressable style={styles.overlayBackdrop} onPress={() => setShowCreatePostModal(false)} />
+                        <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}>
+                            <View style={styles.dragBar} />
+                            <View style={styles.sheetHeader}>
+                                <TouchableOpacity onPress={() => setShowCreatePostModal(false)} hitSlop={12}>
+                                    <Text style={styles.sheetCancel}>Hủy</Text>
+                                </TouchableOpacity>
+                                <Text style={styles.sheetTitle}>Tạo bài viết</Text>
+                                <TouchableOpacity onPress={handleCreatePost} disabled={isCreatingPost} hitSlop={12}>
+                                    <Text style={[styles.sheetSave, isCreatingPost && { color: colors.textTertiary }]}>
+                                        {isCreatingPost ? 'Đang đăng...' : 'Đăng'}
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+                            <ScrollView
+                                style={{ paddingHorizontal: 20 }}
+                                keyboardShouldPersistTaps="handled"
+                                showsVerticalScrollIndicator={false}
+                            >
+                                <View style={{ marginTop: 14 }}>
+                                    <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textSecondary, marginBottom: 6 }}>
+                                        Nội dung bài viết
+                                    </Text>
+                                    <TextInput
+                                        style={{
+                                            backgroundColor: colors.inputBg, borderWidth: 1, borderColor: colors.border,
+                                            borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12,
+                                            fontSize: 15, color: colors.text,
+                                            height: 120, textAlignVertical: 'top',
+                                        }}
+                                        value={postContent}
+                                        onChangeText={setPostContent}
+                                        placeholder="Bạn đang nghĩ gì?"
+                                        placeholderTextColor={colors.textTertiary}
+                                        multiline
+                                    />
+                                </View>
+
+                                <TouchableOpacity
+                                    onPress={pickPostImages}
+                                    style={{
+                                        flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+                                        gap: 8, marginTop: 16, paddingVertical: 14, borderRadius: 12,
+                                        backgroundColor: colors.chipBg, borderWidth: 1.5, borderStyle: 'dashed',
+                                        borderColor: colors.border,
+                                    }}
+                                >
+                                    <Ionicons name="images-outline" size={22} color={colors.primary} />
+                                    <Text style={{ fontSize: 14, fontWeight: '600', color: colors.primary }}>
+                                        Chọn hình ảnh
+                                    </Text>
+                                </TouchableOpacity>
+
+                                {postImages.length > 0 && (
+                                    <View style={{ marginTop: 16, gap: 10 }}>
+                                        {postImages.map((img, idx) => (
+                                            <View key={idx} style={{ position: 'relative' }}>
+                                                <Image
+                                                    source={{ uri: img.uri }}
+                                                    style={{ width: '100%', height: 200, borderRadius: 12 }}
+                                                />
+                                                <TouchableOpacity
+                                                    onPress={() => removePostImage(idx)}
+                                                    style={{
+                                                        position: 'absolute', top: 8, right: 8,
+                                                        backgroundColor: colors.overlay, borderRadius: 20,
+                                                        padding: 6,
+                                                    }}
+                                                >
+                                                    <Ionicons name="close" size={18} color="#FFF" />
+                                                </TouchableOpacity>
+                                            </View>
+                                        ))}
+                                    </View>
+                                )}
+
+                                <View style={{ height: 20 }} />
+                            </ScrollView>
+                        </View>
+                    </View>
+                </KeyboardAvoidingView>
             </Modal>
         </View>
     );
@@ -783,11 +1831,12 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
         flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 12,
     },
     statusText: { fontSize: 13, color: colors.textSecondary },
-    actionRow: { flexDirection: 'row', gap: 12, marginTop: 18, justifyContent: 'center' },
+    actionRow: { flexDirection: 'row', gap: 12, marginTop: 18, justifyContent: 'center', flexWrap: 'wrap' },
     actionBtn: {
-        flexDirection: 'row', alignItems: 'center', gap: 6,
-        paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12,
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+        paddingHorizontal: 16, paddingVertical: 12, borderRadius: 12,
         borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.inputBg,
+        minWidth: 100, flexGrow: 1,
     },
     actionBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
     actionBtnText: { fontSize: 14, fontWeight: '600', color: colors.text },
@@ -876,4 +1925,122 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
         paddingVertical: 20, marginBottom: 4,
     },
     coverPickerImg: { width: '100%', height: 120, borderRadius: 12 },
+
+    postCard: {
+        backgroundColor: colors.inputBg,
+        borderRadius: 12,
+        padding: 14,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    postHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 10,
+    },
+    postAvatar: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        marginRight: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    postUserName: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: colors.text,
+    },
+    postTime: {
+        fontSize: 11,
+        color: colors.textTertiary,
+        marginTop: 2,
+    },
+    postCaption: {
+        fontSize: 14,
+        color: colors.textSecondary,
+        lineHeight: 20,
+        marginBottom: 10,
+    },
+    postImage: {
+        width: '100%',
+        height: 200,
+        borderRadius: 8,
+        marginBottom: 10,
+    },
+    postStats: {
+        flexDirection: 'row',
+        gap: 16,
+        paddingTop: 10,
+        borderTopWidth: 1,
+        borderTopColor: colors.border,
+    },
+    postStatText: {
+        fontSize: 12,
+        color: colors.textTertiary,
+    },
+    postActions: {
+        flexDirection: 'row',
+        gap: 8,
+        marginTop: 10,
+        paddingTop: 10,
+        borderTopWidth: 1,
+        borderTopColor: colors.border,
+    },
+    postActionBtn: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 4,
+        paddingVertical: 8,
+        borderRadius: 8,
+    },
+    postActionText: {
+        fontSize: 12,
+        fontWeight: '600',
+    },
+
+    bulkActionBtn: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        paddingVertical: 10,
+        borderRadius: 8,
+        borderWidth: 1.5,
+    },
+    bulkActionText: {
+        fontSize: 13,
+        fontWeight: '600',
+    },
+    postAvatarFallback: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        backgroundColor: colors.border,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    postAuthorName: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: colors.text,
+    },
+    postDate: {
+        fontSize: 11,
+        color: colors.textTertiary,
+        marginTop: 2,
+        marginBottom: 10,
+    },
+    postContent: {
+        fontSize: 14,
+        color: colors.textSecondary,
+        lineHeight: 20,
+    },
+    postStat: {
+        fontSize: 12,
+        color: colors.textTertiary,
+    },
 });

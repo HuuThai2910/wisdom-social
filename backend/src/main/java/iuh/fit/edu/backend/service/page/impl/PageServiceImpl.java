@@ -4,7 +4,6 @@ import iuh.fit.edu.backend.domain.entity.mysql.Page;
 import iuh.fit.edu.backend.domain.entity.mysql.PageFollow;
 import iuh.fit.edu.backend.domain.entity.mysql.PageLike;
 import iuh.fit.edu.backend.domain.entity.mysql.User;
-import iuh.fit.edu.backend.domain.entity.nosql.Post;
 import iuh.fit.edu.backend.dto.request.page.UserRequestCreatePage;
 import iuh.fit.edu.backend.dto.request.page.UserRequestUpdatePage;
 import iuh.fit.edu.backend.mapper.PageMapper;
@@ -14,7 +13,6 @@ import iuh.fit.edu.backend.repository.mysql.PageRepository;
 import iuh.fit.edu.backend.service.page.PageService;
 import iuh.fit.edu.backend.service.user.UserService;
 import iuh.fit.edu.backend.service.s3.S3Service;
-import org.bson.types.ObjectId;
 import org.springframework.stereotype.Service;
 import java.time.OffsetDateTime;
 import java.util.HashMap;
@@ -102,26 +100,6 @@ public class PageServiceImpl implements PageService {
         return pageRepository.findByCreatedBy_Id(userId);
     }
 
-    @Override
-    public boolean approvePostPage(long userId,long pageId, ObjectId postId) {
-        Page page=findPageById(pageId);
-        User user=userService.findUserById(userId);
-        if (user!=null && page!=null ){
-
-            return true;
-        }
-        return false;
-    }
-
-    @Override
-    public boolean addPostPage(long userId, long pageId, Post post) {
-        return false;
-    }
-
-    @Override
-    public boolean removePostPage(long userId,long pageId, ObjectId postId) {
-        return false;
-    }
 
     @Override
     public boolean followPageUser(long userId, long pageId) {

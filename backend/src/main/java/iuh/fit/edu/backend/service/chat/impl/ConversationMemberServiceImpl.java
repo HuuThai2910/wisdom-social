@@ -11,6 +11,7 @@ import iuh.fit.edu.backend.repository.mysql.ConversationMemberRepository;
 import iuh.fit.edu.backend.service.chat.ConversationMemberService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
@@ -48,9 +49,20 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
         // Query xuống db để tìm ra được nickName và gán vào senderName trong messageResponse
         // Đồng thời giá trị này sẽ được lưu vào redis
         log.info("Redis MISS: Query DB for convId: {}, userId: {}", conversationId, userId);
-        return conversationMemberRepository
+        ConversationMemberResponse conversationMemberResponse =  conversationMemberRepository
                 .findByConversation_IdAndUser_Id(conversationId, userId)
                 .map(this.conversationMemberMapper::toConversationMemberResponse).orElse(null);
+        log.info("Type trả về: {}", conversationMemberResponse.getClass());
+        return conversationMemberResponse;
+    }
+
+    /**
+     * Xóa đi member với dữ liệu cũ
+     */
+    @CacheEvict(value = "memberInfo", key = "#conversationId + ':' + #userId")
+    @Override
+    public void evictMemberInfoCache(Long conversationId, Long userId) {
+        log.info("Đã xóa cache memberInfo cho userId {} trong conversationId {}", userId, conversationId);
     }
 
     /**

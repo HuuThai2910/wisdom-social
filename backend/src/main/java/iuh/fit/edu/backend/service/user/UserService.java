@@ -3,10 +3,8 @@ package iuh.fit.edu.backend.service.user;
 import iuh.fit.edu.backend.domain.entity.mysql.User;
 import iuh.fit.edu.backend.dto.request.friend.FriendRequest;
 import iuh.fit.edu.backend.dto.request.user.*;
-import iuh.fit.edu.backend.dto.response.user.UserResponseConfirmRegister;
-import iuh.fit.edu.backend.dto.response.user.UserResponseLogin;
-import iuh.fit.edu.backend.dto.response.user.UserResponseOTPPassword;
-import iuh.fit.edu.backend.dto.response.user.UserResponseRegister;
+import iuh.fit.edu.backend.dto.response.user.*;
+
 import java.util.List;
 
 
@@ -27,5 +25,7 @@ public interface UserService {
     List<User> getAllBlockUser(long id);
     boolean saveBlockUser(FriendRequest friendRequest);
     boolean cancelBlockUser(FriendRequest friendRequest);
+    List<User> searchUserByUsername(String keyword);
+    void saveDevice(User user, String deviceType, String deviceName, String ipAddress);
 
 }

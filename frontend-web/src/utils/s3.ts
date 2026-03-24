@@ -21,7 +21,7 @@ export const getPresignedUploadUrl = async (
         const response = await axiosClient.get("/posts/upload-url", {
             params: { extension },
         });
-
+        console.log(`📋 test:`, response.data.data);
         const uploadUrl = response.data.data?.uploadUrl;
         const imageUrl = response.data.data?.imageUrl;
         const uuid = response.data.data?.uuid;

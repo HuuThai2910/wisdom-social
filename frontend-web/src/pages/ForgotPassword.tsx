@@ -10,9 +10,9 @@ export default function ForgotPassword() {
     };
 
     return (
-        <div className="bg-white border border-gray-200 rounded-lg p-10 text-center">
+        <div className="bg-white dark:bg-[#111] border border-gray-200 dark:border-[#2a2a2a] rounded-lg p-10 text-center text-gray-900 dark:text-gray-100">
             <h2 className="text-xl font-semibold mb-4">Forgot Password</h2>
-            <p className="text-gray-500 text-sm mb-8">
+            <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">
                 Enter your email and we'll send you a link to reset your
                 password.
             </p>
@@ -23,7 +23,7 @@ export default function ForgotPassword() {
                     placeholder="Email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-gray-400"
+                    className="w-full px-4 py-2.5 border border-gray-300 dark:border-[#3a3a3a] bg-white dark:bg-[#0b0b0b] rounded-lg focus:outline-none focus:border-gray-400 dark:focus:border-gray-500"
                     required
                 />
 

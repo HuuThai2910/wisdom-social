@@ -4,10 +4,14 @@
  */
 package iuh.fit.edu.backend.mapper;
 
+import iuh.fit.edu.backend.constant.MessageType;
 import iuh.fit.edu.backend.domain.entity.nosql.Message;
 import iuh.fit.edu.backend.dto.response.message.MessageResponse;
+import org.mapstruct.AfterMapping;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
+import org.mapstruct.MappingTarget;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.util.List;
 
@@ -18,9 +22,34 @@ import java.util.List;
  * @version: 1.0
  */
 @Mapper(componentModel = "spring")
-public interface MessageMapper {
+public abstract class MessageMapper {
+
+    // 1. Tiêm biến đường link S3 hoặc CDN từ application.yml vào đây
+    // Dấu ':' cung cấp giá trị mặc định nếu trong file yml bạn quên cấu hình
+    @Value("${app.cdn-domain}")
+    protected String cdnDomain;
+
+    // 2. MapStruct vẫn tự động map tự động các trường như cũ
     @Mapping(target = "senderName", ignore = true)
     @Mapping(target = "senderAvatar", ignore = true)
-    MessageResponse toMessageResponse(Message message);
+    @Mapping(source = "messageType", target = "type")
+    public abstract MessageResponse toMessageResponse(Message message);
 
+    // 3. Logic tùy biến chạy NGAY SAU KHI MapStruct map xong
+    @AfterMapping
+    protected void customizeContent(Message message, @MappingTarget MessageResponse response) {
+        // Chỉ nối CDN cho các loại media/file lưu bằng object key.
+        boolean shouldPrefixCdn = message.getMessageType() == MessageType.IMAGE
+                || message.getMessageType() == MessageType.VIDEO
+                || message.getMessageType() == MessageType.FILE
+                || message.getMessageType() == MessageType.AUDIO;
+
+        if (shouldPrefixCdn &&
+                message.getContent() != null &&
+                !message.getContent().isEmpty()) {
+
+            // Nối chuỗi Domain với S3 Key
+            response.setContent(cdnDomain + message.getContent());
+        }
+    }
 }

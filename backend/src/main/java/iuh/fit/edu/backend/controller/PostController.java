@@ -52,6 +52,7 @@ public class PostController {
             }
             
             Map<String, String> uploadUrl = s3Service.generateUploadUrl("posts", extension);
+            log.info("Alo {}", uploadUrl);
             return ResponseEntity.ok(ApiResponse.success(200, "Lấy link upload thành công", uploadUrl));
         } catch (Exception e) {
             log.error("Error getting presigned URL", e);

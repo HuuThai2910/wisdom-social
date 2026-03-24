@@ -35,6 +35,8 @@ public class User {
 
     private String phone;
     private String name;
+
+    @Column(unique = true)
     private String username;
     private String avatarUrl;
     private String birthday;
@@ -46,7 +48,6 @@ public class User {
 
     private boolean confirmUseAI = false;
 
-    // ===== Relations =====
     @OneToMany(mappedBy = "user")
     @JsonIgnore
     private List<Device> devices;

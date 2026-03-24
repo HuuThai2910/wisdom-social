@@ -144,7 +144,6 @@ export default function EditPostModal({
     if (!editContent.trim() || !currentUser?.id) return;
     try {
       setIsUpdating(true);
-
       const postData = {
         content: editContent.trim(),
         privacy: editPrivacy,

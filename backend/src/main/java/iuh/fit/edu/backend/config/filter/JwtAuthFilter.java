@@ -33,6 +33,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     private static final String ISSUER =
             "https://cognito-idp.ap-southeast-1.amazonaws.com/ap-southeast-1_r9OwliPee";
 
+    private static final String LOCAL_SECRET = "your-secret-key-123456";
+
     @Override
     protected void doFilterInternal(
             HttpServletRequest request,
@@ -98,4 +100,21 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
         filterChain.doFilter(request, response);
     }
+
+    private UsernamePasswordAuthenticationToken verifyLocalToken(String token) {
+
+        JWTVerifier verifier = JWT
+                .require(Algorithm.HMAC256(LOCAL_SECRET))
+                .withIssuer("your-app")
+                .build();
+
+        DecodedJWT jwt = verifier.verify(token);
+
+        return new UsernamePasswordAuthenticationToken(
+                jwt.getSubject(),
+                null,
+                List.of()
+        );
+    }
 }
+

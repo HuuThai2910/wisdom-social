@@ -4,16 +4,10 @@
  */
 package iuh.fit.edu.backend.service.user.impl;
 
-import iuh.fit.edu.backend.domain.entity.mysql.BlackListUser;
-import iuh.fit.edu.backend.domain.entity.mysql.BlockedUser;
-import iuh.fit.edu.backend.domain.entity.mysql.Device;
-import iuh.fit.edu.backend.domain.entity.mysql.User;
+import iuh.fit.edu.backend.domain.entity.mysql.*;
 import iuh.fit.edu.backend.dto.request.friend.FriendRequest;
 import iuh.fit.edu.backend.dto.request.user.*;
-import iuh.fit.edu.backend.dto.response.user.UserResponseConfirmRegister;
-import iuh.fit.edu.backend.dto.response.user.UserResponseLogin;
-import iuh.fit.edu.backend.dto.response.user.UserResponseOTPPassword;
-import iuh.fit.edu.backend.dto.response.user.UserResponseRegister;
+import iuh.fit.edu.backend.dto.response.user.*;
 import iuh.fit.edu.backend.mapper.UserMapper;
 import iuh.fit.edu.backend.repository.mysql.BlackListUserRepository;
 import iuh.fit.edu.backend.repository.mysql.DeviceRepository;
@@ -42,8 +36,6 @@ import java.util.stream.Collectors;
 public class UserServiceImpl implements UserService {
     @Value("${aws.cognito.clientId}")
     private String userClientId;
-    @Value("${aws.cognito.userPoolId}")
-    private String userPoolId;
 
     UserMapper userMapper;
     UserRepository userRepository;
@@ -52,6 +44,7 @@ public class UserServiceImpl implements UserService {
     CognitoIdentityProviderClient cognitoClient;
     SimpMessagingTemplate simpMessagingTemplate;
     DeviceRepository deviceRepository;
+
 
     public UserServiceImpl(BlackListUserRepository blackListUserRepository,
                            BlockUserService blockUserService, CognitoIdentityProviderClient cognitoClient,
@@ -78,7 +71,15 @@ public class UserServiceImpl implements UserService {
         if(register.getPassword().equals(register.getConfirmPassword())){
             String phone="+84"+register.getPhone().substring(1,10);
             User user=userMapper.UserRegistertoUser(register);
+
             if(user!=null){
+                String username=randomUsernameGenerator();
+                if (userRepository.existsUserByUsername(username)){
+                    username=randomUsernameGenerator();
+                }
+                user.setUsername(username);
+                user.setName("Không rõ");
+
                 SignUpRequest request=SignUpRequest.builder()
                         .clientId(userClientId)
                         .username(phone)
@@ -165,8 +166,8 @@ public class UserServiceImpl implements UserService {
                 .build();
         blackListUserRepository.save(blackListUser);
     }
-
-    private void saveDevice(User user, String deviceType, String deviceName, String ipAddress) {
+    @Override
+    public void saveDevice(User user, String deviceType, String deviceName, String ipAddress) {
         if (user == null) return;
         Device device = new Device();
         device.setUser(user);
@@ -223,7 +224,7 @@ public class UserServiceImpl implements UserService {
         if (resultType == null || resultType.accessToken() == null) {
             throw new RuntimeException("Refresh token invalid or expired");
         }
-        return resultType.idToken();
+        return resultType.accessToken();
     }
 
     @Override
@@ -392,11 +393,33 @@ public class UserServiceImpl implements UserService {
         return false;
     }
 
+    @Override
+    public List<User> searchUserByUsername(String keyword) {
+        return userRepository.findUsersByUsernameContaining(keyword);
+    }
+
+
     private String convertToInternationalFormat(String phone) {
         if (phone != null && phone.startsWith("0")) {
             return "+84" + phone.substring(1);
         }
         return phone;
+    }
+
+    private String randomUsernameGenerator(){
+        String[] words1 = {"cool", "real", "baby", "mr", "miss", "its", "the", "not", "just"};
+        String[] words2 = {"cat", "boy", "girl", "king", "queen", "vibe", "zone", "life", "mood"};
+        Random random = new Random();
+
+        String part1 = words1[random.nextInt(words1.length)];
+        String part2 = words2[random.nextInt(words2.length)];
+
+        int number = random.nextInt(999);
+
+        String[] separators = {"", "_", "."};
+        String sep = separators[random.nextInt(separators.length)];
+
+        return part1 + sep + part2 + number;
     }
 
 }

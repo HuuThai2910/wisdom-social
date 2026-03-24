@@ -18,16 +18,25 @@ export interface User {
     postsCount?: number;
 }
 
+export type PostStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
 export interface Post {
     id: string;
-    user: User;
-    images: string[];
-    caption: string;
-    likes: number;
-    comments: Comment[];
-    createdAt: string;
-    isLiked: boolean;
-    isSaved: boolean;
+    authorId?: string;  // User ID as string
+    content?: string;
+    media?: Array<{
+        url?: string;
+        type?: string;
+    }>;
+    stats?: {
+        likes?: number;
+        comments?: number;
+        shares?: number;
+    };
+    createdAt?: string;
+    updatedAt?: string;
+    status?: PostStatus;
+    pageId?: number;
 }
 
 export interface Comment {

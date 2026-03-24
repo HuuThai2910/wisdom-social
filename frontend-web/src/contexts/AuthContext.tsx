@@ -254,6 +254,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
+    // Initialize auth - set axios header from stored token
+    import("../utils/auth").then(({ initializeAuth }) => {
+      initializeAuth();
+    });
+
     // Load user khi app khởi động
     refreshUser();
 

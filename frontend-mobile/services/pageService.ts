@@ -4,6 +4,8 @@ export type PageStatus = 'PUBLIC' | 'PRIVATE' | 'BANNED';
 
 export type PageRole = 'ADMIN' | 'EDITOR' | 'MODERATOR' | 'ANALYST' | 'USER';
 
+export type MemberStatus = 'PENDING' | 'ACTIVE' | 'REMOVED' | 'REJECTED';
+
 export interface CreatePageRequest {
     name: string;
     username?: string;
@@ -88,6 +90,37 @@ export interface AuthorizePageRequest {
     userId: number;
     pageId: number;
     pageRole: PageRole;
+}
+
+export interface PagePostRequest {
+    userId: number;
+    pageId: number;
+    postId: string;
+}
+
+export interface PagePost{
+    id:number;
+    approvedAt?: string;
+    postId: string;
+    pageId: number;
+}
+
+export interface PageJoinRequest {
+    userId: number;
+    pageId: number;
+    message?: string;
+}
+
+export interface PendingJoinRequestData {
+    id: number;
+    user: {
+        id: number;
+        name?: string;
+        username?: string;
+        avatarUrl?: string;
+    };
+    status: string;
+    joinedAt?: string;
 }
 
 const pageService = {
@@ -230,6 +263,141 @@ const pageService = {
             return res.data;
         } catch {
             return null;
+        }
+    },
+
+    approvePostPage: async (userId: number, pageId: number, postId: string): Promise<string> => {
+        const response = await apiClient.post('/page/post/approve', { userId, pageId, postId });
+        return response.data.data;
+    },
+
+    cancelApprovePostPage: async (userId: number, pageId: number, postId: string): Promise<string> => {
+        const response = await apiClient.post('/page/post/cancel-approve', { userId, pageId, postId });
+        return response.data.data;
+    },
+
+    addPostPage: async (pageId: number, postData: any, images?: { uri: string; name: string; type: string }[]): Promise<string> => {
+        const formData = new FormData();
+
+        // Thêm postData dưới dạng JSON string (React Native không cần Blob wrapper)
+        formData.append('postData', JSON.stringify(postData));
+
+        // Thêm images nếu có (React Native format)
+        if (images && images.length > 0) {
+            images.forEach((image) => {
+                formData.append('images', {
+                    uri: image.uri,
+                    name: image.name,
+                    type: image.type,
+                } as any);
+            });
+        }
+
+        const response = await apiClient.post('/page/post/add', formData, {
+            params: { pageId },
+            headers: {
+                'Content-Type': 'multipart/form-data',
+            },
+        });
+        return response.data.data;
+    },
+
+    removePostPage: async (userId: number, pageId: number, postId: string): Promise<string> => {
+        const response = await apiClient.post('/page/post/remove', { userId, pageId, postId });
+        return response.data.data;
+    },
+
+    getAllPostsOfPage: async (pageId: number): Promise<any[]> => {
+        try {
+            const response = await apiClient.get(`/page/post/all/${pageId}`);
+            return response.data.data || [];
+        } catch {
+            return [];
+        }
+    },
+
+    getAllPostsWaitingForApprove: async (pageId: number): Promise<any[]> => {
+        try {
+            const response = await apiClient.get(`/page/post/waiting-approve/${pageId}`);
+            return response.data.data || [];
+        } catch {
+            return [];
+        }
+    },
+
+    approveAllPosts: async (userId: number, pageId: number): Promise<string> => {
+        const response = await apiClient.post('/page/post/approve-all', { userId, pageId });
+        return response.data.data;
+    },
+
+    cancelAllPosts: async (userId: number, pageId: number): Promise<string> => {
+        const response = await apiClient.post('/page/post/cancel-all', { userId, pageId });
+        return response.data.data;
+    },
+
+    getPagePostByIdandPostId: async (postId: string, pageId: number): Promise<PagePost| null> => {
+        const response = await apiClient.get(`/page/post/${postId}/${pageId}`);
+        return response.data.data;
+    },
+
+    // Join request feature methods
+    requestJoinPage: async (userId: number, pageId: number, message?: string): Promise<string> => {
+        const response = await apiClient.post('/page-member/request-join', {
+            userId,
+            pageId,
+            message
+        });
+        return response.data.data;
+    },
+
+    approveJoinRequest: async (pageId: number, userId: number): Promise<string> => {
+        const response = await apiClient.post('/page-member/approve-join', {
+            pageId,
+            userId
+        });
+        return response.data.data;
+    },
+
+    rejectJoinRequest: async (pageId: number, userId: number): Promise<string> => {
+        const response = await apiClient.post('/page-member/reject-join', {
+            pageId,
+            userId
+        });
+        return response.data.data;
+    },
+
+    getPendingJoinRequests: async (pageId: number): Promise<PendingJoinRequestData[]> => {
+        try {
+            const response = await apiClient.get(`/page-member/pending-requests/${pageId}`);
+            return response.data.data || [];
+        } catch {
+            return [];
+        }
+    },
+
+    getMemberStatus: async (pageId: number, userId: number): Promise<MemberStatus | null> => {
+        try {
+            const response = await apiClient.get(`/page-member/member-status/${pageId}/${userId}`);
+            return response.data.data;
+        } catch {
+            return null;
+        }
+    },
+
+    cancelJoinRequest: async (pageId: number, userId: number): Promise<string> => {
+        const response = await apiClient.post('/page-member/cancel-join', {
+            pageId,
+            userId
+        });
+        return response.data.data;
+    },
+
+    getMemberCount: async (pageId: number): Promise<number> => {
+        try {
+            const response = await apiClient.get(`/page-member/member-count/${pageId}`);
+            return response.data.data || 0;
+        } catch {
+            return 0;
         }
     },
 };
