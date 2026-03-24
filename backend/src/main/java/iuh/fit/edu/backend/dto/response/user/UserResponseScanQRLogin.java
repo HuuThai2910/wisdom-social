@@ -17,5 +17,4 @@ public class UserResponseScanQRLogin {
 
     private OffsetDateTime expireAt;
 
-    private String refreshToken;
 }

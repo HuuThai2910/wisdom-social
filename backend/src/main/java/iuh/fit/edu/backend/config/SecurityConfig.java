@@ -44,6 +44,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST,"/api/auth/forgot-password").permitAll()
                         .requestMatchers(HttpMethod.GET,"api/session/qr-login/create").permitAll()
                         .requestMatchers(HttpMethod.GET,"api/session/qr-login/scan").permitAll()
+                        .requestMatchers(HttpMethod.GET,"/api/session/qr-login/status").permitAll()
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)

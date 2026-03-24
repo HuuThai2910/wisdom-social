@@ -8,7 +8,6 @@ import iuh.fit.edu.backend.dto.response.user.UserResponseScanQRLogin;
 import iuh.fit.edu.backend.service.user.SessionService;
 import iuh.fit.edu.backend.service.user.UserService;
 import iuh.fit.edu.backend.util.anotation.ApiMessage;
-import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -32,9 +31,9 @@ public class SessionController {
 
     @GetMapping("/qr-login/scan")
     @ApiMessage("Scan QR image successfully")
-    public ResponseEntity<UserResponseScanQRLogin> scanQRLogin(@RequestParam String session_id, HttpServletRequest request){
+    public ResponseEntity<UserResponseScanQRLogin> scanQRLogin(@RequestParam String session_id){
         User user=userService.getCurrentUser();
-        return ResponseEntity.ok(service.scanQRLogin(session_id,user.getId(),getRefreshToken(request)));
+        return ResponseEntity.ok(service.scanQRLogin(session_id,user.getId()));
     }
 
     @PostMapping("/qr-login/confirm")
@@ -42,8 +41,7 @@ public class SessionController {
     public ResponseEntity<UserResponseLogin> cofirmQRLogin(@RequestBody UserRequestQRLogin requestQRLogin, HttpServletRequest request){
         String ip = getClientIp(request);
         requestQRLogin.setIpAddress(ip);
-
-        return ResponseEntity.ok(service.scanQRConfirmed(requestQRLogin,getRefreshToken(request)));
+        return ResponseEntity.ok(service.scanQRConfirmed(requestQRLogin));
     }
 
     @GetMapping("/qr-login/reject")
@@ -66,15 +64,4 @@ public class SessionController {
         return request.getRemoteAddr();
     }
 
-    private String getRefreshToken(HttpServletRequest request){
-        String refreshToken=null;
-        if(request.getCookies()!=null){
-            for (Cookie cookie:request.getCookies()){
-                if("refreshToken".equals(cookie.getName())){
-                    refreshToken=cookie.getValue();
-                }
-            }
-        }
-        return refreshToken;
-    }
 }

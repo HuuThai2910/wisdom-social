@@ -17,7 +17,6 @@ public class SessionServiceImpl implements SessionService {
     SessionRepository sessionRepository;
     UserService userService;
 
-
     public SessionServiceImpl(SessionRepository sessionRepository,
                               UserService userService) {
         this.sessionRepository = sessionRepository;
@@ -36,7 +35,7 @@ public class SessionServiceImpl implements SessionService {
     }
 
     @Override
-    public UserResponseScanQRLogin scanQRLogin(String session_id, long id, String refreshToken) {
+    public UserResponseScanQRLogin scanQRLogin(String session_id, long id) {
         User user=userService.findUserById(id);
         Session session=sessionRepository.findById(session_id).orElse(null);
             if (session!=null && user!=null &&session.getStatus().equals(SessionStatus.PENDING)){
@@ -50,27 +49,24 @@ public class SessionServiceImpl implements SessionService {
                 response.setUser(user);
                 response.setExpireAt(OffsetDateTime.now().plusMinutes(1));
                 response.setStatus(SessionStatus.SCANNED);
-                response.setRefreshToken(refreshToken);
                 return response;
             }
         return null;
     }
 
     @Override
-    public UserResponseLogin scanQRConfirmed(UserRequestQRLogin request, String refreshToken) {
+    public UserResponseLogin scanQRConfirmed(UserRequestQRLogin request) {
         Session session=sessionRepository.findById(request.getSession_id()).orElse(null);
         if (session!=null && session.getStatus().equals(SessionStatus.SCANNED)){
             session.setExpireAt(OffsetDateTime.now());
             session.setStatus(SessionStatus.CONFIRMED);
             sessionRepository.save(session);
-            String token=userService.getNewAccessToken(refreshToken);
+
             userService.saveDevice(session.getUser(),request.getDeviceType(), request.getDeviceName(), request.getIpAddress());
 
             return UserResponseLogin.builder()
                     .idToken(null)
                     .phone(session.getUser().getPhone())
-                    .refreskToken(refreshToken)
-                    .token(token)
                     .gender(session.getUser().getGender())
                     .username(session.getUser().getUsername())
                     .birthday(session.getUser().getBirthday())

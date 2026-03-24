@@ -21,6 +21,7 @@ import ForgotPassword from "./pages/ForgotPassword";
 import CheckInbox from "./pages/CheckInbox";
 import VerifyOTP from "./pages/VerifyOTP";
 import ResetPassword from "./pages/ResetPassword";
+import QRLogin from "./pages/QRLogin";
 
 // Private Pages
 import Home from "./pages/Home";
@@ -74,6 +75,7 @@ function App() {
             <Route element={<PublicLayout />}>
               <Route path="/login" element={<Login />} />
               <Route path="/login/email" element={<LoginWithEmail />} />
+              <Route path="/login/qr" element={<QRLogin />} />
               <Route path="/signup" element={<SignUp />} />
               <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/checkinbox" element={<CheckInbox />} />

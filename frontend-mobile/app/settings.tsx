@@ -197,6 +197,25 @@ export default function SettingsScreen() {
 
                 <Text style={styles.sectionTitle}>Tài khoản</Text>
                 <View style={styles.card}>
+                    <TouchableOpacity
+                        style={styles.menuItem}
+                        onPress={() => router.push('/qr-scanner' as any)}
+                        activeOpacity={0.7}
+                    >
+                        <View style={styles.settingInfo}>
+                            <View style={[styles.iconWrap, { backgroundColor: isDark ? '#2D1B30' : '#F3E8FF' }]}>
+                                <Ionicons name="qr-code" size={20} color={isDark ? '#D8B4FE' : '#9333EA'} />
+                            </View>
+                            <View>
+                                <Text style={styles.settingLabel}>Quét mã QR</Text>
+                                <Text style={styles.settingDesc}>Đăng nhập trên thiết bị khác</Text>
+                            </View>
+                        </View>
+                        <Ionicons name="chevron-forward" size={20} color={colors.textTertiary} />
+                    </TouchableOpacity>
+
+                    <View style={styles.divider} />
+
                     <TouchableOpacity style={styles.menuItem} activeOpacity={0.7}>
                         <View style={styles.settingInfo}>
                             <View style={[styles.iconWrap, { backgroundColor: isDark ? '#1E293B' : '#F0F9FF' }]}>
