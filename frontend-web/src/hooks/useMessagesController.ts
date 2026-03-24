@@ -106,34 +106,32 @@ export function useMessagesController() {
         void loadConversations();
     }, [loadConversations]);
 
-    // ====== Mark-as-read khi user mở hội thoại ======
+    // ====== Clear unreadCount khi user mở hội thoại ======
+    // Optimistic update: UI phản hồi ngay, API thực tế được gọi từ ChatWindow (có lastMessageId)
     useEffect(() => {
         const convId = selectedConversationId;
         if (convId == null) return;
 
-        // Khi user "đang mở" conversation => đánh dấu đã đọc.
-        // Làm đồng thời 2 việc:
-        // - Backend: reset unreadCount và/hoặc set read flags.
-        // - Frontend: update ngay list để UI phản hồi tức thì.
+        // Clear unreadCount ngay khi mở conversation
+        // API markAsRead sẽ được gọi từ useChatWindowController (có lastMessageId đầy đủ)
+        setConversations((prev) =>
+            prev.map((conv) =>
+                conv.id === convId ? { ...conv, unreadCount: 0 } : conv,
+            ),
+        );
+    }, [selectedConversationId]);
 
-        const markConversationAsRead = async () => {
-            try {
-                await chatService.markAsRead(convId, currentUserId);
-
-                // Optimistic update: UI phản hồi ngay không cần chờ websocket.
-                setConversations((prev) =>
-                    prev.map((conv) =>
-                        conv.id === convId ? { ...conv, unreadCount: 0 } : conv,
-                    ),
-                );
-            } catch (e) {
-                // Không block UI; log để debug.
-                console.error("Error marking conversation as read:", e);
-            }
-        };
-
-        void markConversationAsRead();
-    }, [currentUserId, selectedConversationId]);
+    /**
+     * clearUnreadCount - Callback để ChatWindow gọi khi đánh dấu đã đọc
+     * Dùng để clear unreadCount trên sidebar sau khi API markAsRead thành công
+     */
+    const clearUnreadCount = useCallback((conversationId: number) => {
+        setConversations((prev) =>
+            prev.map((conv) =>
+                conv.id === conversationId ? { ...conv, unreadCount: 0 } : conv,
+            ),
+        );
+    }, []);
 
     const handleConversationUpdate = useCallback(
         (conversationId: number, lastMessage: LastMessageUpdate) => {
@@ -152,16 +150,8 @@ export function useMessagesController() {
             // BE set read:true chỉ khi thu hồi, read:false cho tin nhắn mới
             const isRecallUpdate = lastMessage.read === true;
 
-            // Chỉ markAsRead cho tin nhắn MỚI, không gọi khi thu hồi
-            if (!isRecallUpdate && isViewingThisConversation && !isMyMessage) {
-                // Nếu đang xem conversation này và message đến từ người khác,
-                // ta markAsRead ngay để backend giữ unreadCount = 0.
-                chatService
-                    .markAsRead(conversationId, latestUserId)
-                    .catch((e) =>
-                        console.error("Error marking conversation as read:", e),
-                    );
-            }
+            // Lưu ý: markAsRead API được gọi từ useChatWindowController (có lastMessageId đầy đủ)
+            // Ở đây chỉ cập nhật unreadCount local
 
             setConversations((prevConversations) => {
                 // Kiểm tra xem conversation có tồn tại trong list không
@@ -176,6 +166,7 @@ export function useMessagesController() {
                         .getConversation(conversationId, latestUserId)
                         .then((response) => {
                             if (response.success && response.data) {
+                                const newConv = response.data;
                                 setConversations((prev) => {
                                     // Kiểm tra lại lần nữa để tránh duplicate
                                     if (
@@ -186,25 +177,21 @@ export function useMessagesController() {
                                         return prev;
                                     }
                                     // Thêm conversation vào đầu list và sort
-                                    return [response.data, ...prev].sort(
-                                        (a, b) => {
-                                            const timeA = a.lastMessage
-                                                ?.lastMessageAt
-                                                ? new Date(
-                                                      a.lastMessage
-                                                          .lastMessageAt,
-                                                  ).getTime()
-                                                : 0;
-                                            const timeB = b.lastMessage
-                                                ?.lastMessageAt
-                                                ? new Date(
-                                                      b.lastMessage
-                                                          .lastMessageAt,
-                                                  ).getTime()
-                                                : 0;
-                                            return timeB - timeA;
-                                        },
-                                    );
+                                    return [newConv, ...prev].sort((a, b) => {
+                                        const timeA = a.lastMessage
+                                            ?.lastMessageAt
+                                            ? new Date(
+                                                  a.lastMessage.lastMessageAt,
+                                              ).getTime()
+                                            : 0;
+                                        const timeB = b.lastMessage
+                                            ?.lastMessageAt
+                                            ? new Date(
+                                                  b.lastMessage.lastMessageAt,
+                                              ).getTime()
+                                            : 0;
+                                        return timeB - timeA;
+                                    });
                                 });
                             }
                         })
@@ -412,6 +399,7 @@ export function useMessagesController() {
         handleDeleteConversationForMe,
         getDisplayInfo,
         formatTime,
+        clearUnreadCount,
 
         reload: loadConversations,
     };

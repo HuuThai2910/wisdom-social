@@ -30,7 +30,7 @@ public class FileController {
     @GetMapping("/presigned-url")
     public ResponseEntity<PresignedUrlResponse> getPresignedUrl(
             @RequestParam("module") UploadModule module, // Truyền CONVERSATION, USER, hoặc POST
-            @RequestParam("targetId") Long targetId,
+            @RequestParam("targetId") String targetId,
             @RequestParam("type") String type, // "IMAGE", "VIDEO", "FILE"
             @RequestParam("fileName") String fileName,
             @RequestParam("contentType") String contentType

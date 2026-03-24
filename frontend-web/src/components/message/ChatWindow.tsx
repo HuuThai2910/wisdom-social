@@ -28,11 +28,13 @@ import { MessageBubble } from "./MessageBubble";
 interface ChatWindowProps {
     conversationId: number;
     userId: number;
+    onMarkAsRead?: (conversationId: number) => void;
 }
 
 export default function ChatWindow({
     conversationId,
     userId,
+    onMarkAsRead,
 }: ChatWindowProps) {
     const {
         conversation,
@@ -77,7 +79,9 @@ export default function ChatWindow({
 
         isNearBottom,
         isInitialLoad,
-    } = useChatWindowController({ conversationId, userId });
+
+        readReceipts,
+    } = useChatWindowController({ conversationId, userId, onMarkAsRead });
 
     const [plusMenuOpen, setPlusMenuOpen] = useState(false);
     const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
@@ -247,6 +251,24 @@ export default function ChatWindow({
 
             // Tin nhắn: dùng MessageBubble để handle recalled state + hover menu.
             const isOwn = message.senderId === userId;
+
+            // Tìm các read receipts có lastMessageId trùng với tin nhắn này
+            // Chỉ hiển thị cho tin nhắn KHÔNG bị thu hồi và là tin của mình
+            const receiptsForThisMessage = isOwn && !message.isRecalled
+                ? readReceipts.filter((r) => r.lastMessageId === message.id)
+                : [];
+
+            // Debug logging
+            if (idx === messages.length - 1) {
+                console.log("🎯 Last message debug:", {
+                    messageId: message.id,
+                    isOwn,
+                    isRecalled: message.isRecalled,
+                    allReadReceipts: readReceipts,
+                    receiptsForThisMessage,
+                });
+            }
+
             items.push(
                 <div
                     key={message.id}
@@ -271,6 +293,27 @@ export default function ChatWindow({
                         isFirstInGroup={isFirstInGroup}
                         isLastInGroup={isLastInGroup}
                     />
+
+                    {/* Read Receipt Avatars - hiển thị avatar "đã xem" bên dưới tin nhắn */}
+                    {receiptsForThisMessage.length > 0 && (
+                        <div className="flex justify-end mt-1 mr-1 gap-1">
+                            {receiptsForThisMessage.map((receipt) => {
+                                // Lấy thông tin member từ conversation
+                                const member = conversation?.members?.find(
+                                    (m) => m.userId === receipt.userId,
+                                );
+                                return (
+                                    <img
+                                        key={receipt.userId}
+                                        src={member?.avatar || defaultAvatarSmallUrl}
+                                        alt={member?.nickname || "User"}
+                                        title={`Đã xem bởi ${member?.nickname || "User"}`}
+                                        className="w-4 h-4 rounded-full object-cover border border-white dark:border-gray-800"
+                                    />
+                                );
+                            })}
+                        </div>
+                    )}
                 </div>,
             );
         }
@@ -278,12 +321,14 @@ export default function ChatWindow({
         return items;
     }, [
         conversation?.type,
+        conversation?.members,
         defaultAvatarSmallUrl,
         handleDeleteMessageForMe,
         handleRecall,
         isInitialLoad,
         isNearBottom,
         messages,
+        readReceipts,
         scrollToBottom,
         userId,
     ]);

@@ -22,4 +22,5 @@ public class ConversationMemberResponse {
     private String avatar;
     private int unreadCount;
     private Instant clearedAt;
+    private String lastReadMessageId; // Mốc tin nhắn đã đọc (watermark)
 }

@@ -12,7 +12,7 @@ import chatService, {
     type MessageType,
     type SendMessageRequest,
 } from "../services/chatService";
-import websocketService from "../services/websocket";
+import websocketService, { type MessageSeenEvent } from "../services/websocket";
 import { DEFAULT_AVATAR_SMALL_URL, DEFAULT_AVATAR_URL } from "../constants/ui";
 
 /**
@@ -26,8 +26,18 @@ const PAGE_SIZE = 20;
 const NEAR_BOTTOM_THRESHOLD_PX = 200;
 const LOAD_MORE_TRIGGER_PX = 100;
 const SCROLLABLE_EPSILON_PX = 2;
+const MARK_AS_READ_DEBOUNCE_MS = 1000; // Debounce 1 giây cho API markAsRead
 
 type LoadMoreOptions = { keepAtBottom?: boolean };
+
+/**
+ * Interface cho read receipt - lưu thông tin "đã xem" của mỗi user
+ */
+export interface ReadReceipt {
+    userId: number;
+    lastMessageId: string;
+    seenAt: string;
+}
 
 function getConversationDisplayInfo(
     conversation: Conversation,
@@ -58,8 +68,9 @@ function getConversationDisplayInfo(
 export function useChatWindowController(args: {
     conversationId: number;
     userId: number;
+    onMarkAsRead?: (conversationId: number) => void; // Callback để clear unreadCount ở sidebar
 }) {
-    const { conversationId, userId } = args;
+    const { conversationId, userId, onMarkAsRead } = args;
 
     // ====== UI State (render) ======
     const [messageText, setMessageText] = useState("");
@@ -82,6 +93,12 @@ export function useChatWindowController(args: {
     const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(
         null,
     );
+
+    // ====== Read Receipt (Đánh dấu đã đọc) ======
+    // readReceipts: danh sách thông tin "đã xem" của các members (trừ user hiện tại)
+    const [readReceipts, setReadReceipts] = useState<ReadReceipt[]>([]);
+    // markAsReadTimeoutRef: debounce timer cho API markAsRead
+    const markAsReadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const [error, setError] = useState<string | null>(null);
 
@@ -204,6 +221,29 @@ export function useChatWindowController(args: {
                 if (token !== loadTokenRef.current) return;
                 if (conv.success && conv.data) {
                     setConversation(conv.data);
+
+                    console.log("🔍 DEBUG - Conversation data:", {
+                        conversationId,
+                        userId,
+                        members: conv.data.members,
+                    });
+
+                    // Khôi phục readReceipts từ conversation members
+                    // Parse lastReadMessageId từ các members (trừ chính mình)
+                    const initialReceipts: ReadReceipt[] = (conv.data.members || [])
+                        .filter((m) => {
+                            const shouldInclude = m.userId !== userId && m.lastReadMessageId;
+                            console.log(`🔍 Member ${m.userId}: userId=${m.userId}, lastReadMessageId=${m.lastReadMessageId}, shouldInclude=${shouldInclude}`);
+                            return shouldInclude;
+                        })
+                        .map((m) => ({
+                            userId: m.userId,
+                            lastMessageId: m.lastReadMessageId!,
+                            seenAt: new Date().toISOString(), // Backend không lưu seenAt, dùng giá trị mặc định
+                        }));
+
+                    console.log("📚 Khôi phục readReceipts từ conversation:", initialReceipts);
+                    setReadReceipts(initialReceipts);
                 } else {
                     setConversation(null);
                     setError(conv.message || "Không thể tải cuộc trò chuyện");
@@ -218,7 +258,7 @@ export function useChatWindowController(args: {
     );
 
     const loadMessages = useCallback(
-        async (token: number) => {
+        async (token: number, markAsReadFn?: (lastMessageId: string) => void) => {
             try {
                 setError(null);
                 setLoading(true);
@@ -245,6 +285,12 @@ export function useChatWindowController(args: {
 
                 // Khi mở chat, ưu tiên nhảy xuống tin mới nhất.
                 scrollOnNextRenderRef.current = "auto";
+
+                // Đánh dấu đã đọc tin nhắn mới nhất khi mở chat
+                const lastMessage = list.at(-1);
+                if (lastMessage && markAsReadFn) {
+                    markAsReadFn(lastMessage.id);
+                }
             } catch {
                 if (token !== loadTokenRef.current) return;
                 setMessages([]);
@@ -366,7 +412,7 @@ export function useChatWindowController(args: {
     ]);
 
     const handleNewMessage = useCallback(
-        (newMessage: Message) => {
+        (newMessage: Message, markAsReadFn?: (lastMessageId: string) => void) => {
             const isMyMessage =
                 Number(newMessage.senderId) === Number(userIdRef.current);
             const currentlyNearBottom = isNearBottom();
@@ -382,6 +428,12 @@ export function useChatWindowController(args: {
                 scrollOnNextRenderRef.current = "smooth";
                 setShowScrollToBottomButton(false);
                 setPendingNewMessages(0);
+
+                // Đánh dấu đã đọc tin nhắn mới nếu user đang ở gần cuối (đang đọc)
+                // Không đánh dấu nếu là tin nhắn của chính mình (đã được backend xử lý)
+                if (!isMyMessage && markAsReadFn) {
+                    markAsReadFn(newMessage.id);
+                }
             } else {
                 // Người nhận không ở cuối: chỉ hiện nút + đếm tin chưa xem
                 setShowScrollToBottomButton(true);
@@ -449,6 +501,108 @@ export function useChatWindowController(args: {
         }
     }, [conversationId, userId]);
 
+    /**
+     * markAsRead - Đánh dấu đã đọc tin nhắn (với debounce)
+     *
+     * @param lastMessageId - ID của tin nhắn mới nhất mà user đang nhìn thấy
+     *
+     * Flow:
+     * 1. Debounce 1 giây để tránh spam API khi nhiều tin nhắn liên tiếp
+     * 2. Gọi API PUT /conversations/{id}/read?lastMessageId=xxx
+     * 3. Nếu thành công, gọi callback onMarkAsRead để clear unreadCount ở sidebar
+     */
+    const markAsRead = useCallback(
+        (lastMessageId: string) => {
+            console.log("📖 markAsRead called with messageId:", lastMessageId);
+
+            // Clear timeout cũ nếu có
+            if (markAsReadTimeoutRef.current) {
+                clearTimeout(markAsReadTimeoutRef.current);
+                console.log("⏱️  Cleared previous debounce timer");
+            }
+
+            // Debounce: chỉ gọi API sau khoảng thời gian delay
+            markAsReadTimeoutRef.current = setTimeout(async () => {
+                console.log("🚀 Calling markAsRead API...", {
+                    conversationId,
+                    userId,
+                    lastMessageId,
+                });
+
+                try {
+                    await chatService.markAsRead(conversationId, userId, lastMessageId);
+                    console.log("✅ markAsRead API success");
+                    // Gọi callback để clear unreadCount ở sidebar
+                    onMarkAsRead?.(conversationId);
+                } catch (err) {
+                    console.error("❌ Failed to mark as read:", err);
+                }
+            }, MARK_AS_READ_DEBOUNCE_MS);
+        },
+        [conversationId, userId, onMarkAsRead],
+    );
+
+    /**
+     * handleMessageSeen - Xử lý khi nhận được event "Người khác đã xem"
+     *
+     * @param event - MessageSeenEvent từ WebSocket
+     *
+     * Flow:
+     * 1. Trích xuất payload từ messageSeenResponse
+     * 2. Kiểm tra event có thuộc conversation đang mở không
+     * 3. Bỏ qua nếu event là của chính user hiện tại (vì user đã biết mình đã xem)
+     * 4. Cập nhật readReceipts: di chuyển avatar của user trong event xuống tin nhắn mới
+     */
+    const handleMessageSeen = useCallback(
+        (event: MessageSeenEvent) => {
+            console.log("📨 Received MESSAGE_SEEN event:", event);
+
+            // Trích xuất payload từ messageSeenResponse
+            const { conversationId: eventConvId, userId: eventUserId, lastMessageId, seenAt } = event.messageSeenResponse;
+
+            console.log("📨 Parsed payload:", { eventConvId, eventUserId, lastMessageId, seenAt });
+            console.log("📨 Current state:", { currentConvId: conversationId, currentUserId: userId });
+
+            // Bỏ qua nếu không phải conversation đang mở
+            if (Number(eventConvId) !== Number(conversationId)) {
+                console.log("❌ Event không thuộc conversation đang mở");
+                return;
+            }
+            // Bỏ qua event của chính mình
+            if (Number(eventUserId) === Number(userId)) {
+                console.log("❌ Event của chính mình, bỏ qua");
+                return;
+            }
+
+            console.log("✅ Cập nhật readReceipts cho user:", eventUserId);
+
+            setReadReceipts((prev) => {
+                // Tìm xem user này đã có trong readReceipts chưa
+                const existingIndex = prev.findIndex((r) => r.userId === Number(eventUserId));
+
+                const newReceipt: ReadReceipt = {
+                    userId: Number(eventUserId),
+                    lastMessageId: lastMessageId,
+                    seenAt: seenAt,
+                };
+
+                if (existingIndex >= 0) {
+                    // Update vị trí đã xem
+                    const updated = [...prev];
+                    updated[existingIndex] = newReceipt;
+                    console.log("📝 Updated readReceipts:", updated);
+                    return updated;
+                } else {
+                    // Thêm mới
+                    const newList = [...prev, newReceipt];
+                    console.log("📝 Added new readReceipt:", newList);
+                    return newList;
+                }
+            });
+        },
+        [conversationId, userId],
+    );
+
     useEffect(() => {
         // Mỗi lần đổi conversationId:
         // - tăng token để invalidate request cũ
@@ -469,6 +623,7 @@ export function useChatWindowController(args: {
         setLoadingMore(false);
         setHasMore(false);
         setNextCursor(null);
+        setReadReceipts([]); // Reset read receipts khi đổi conversation
 
         // Đánh dấu đang trong giai đoạn initial load để luôn scroll xuống cuối khi media load
         initialLoadRef.current = true;
@@ -478,7 +633,8 @@ export function useChatWindowController(args: {
         loadMoreRequestedRef.current = false;
 
         loadConversation(token);
-        loadMessages(token);
+        // Truyền markAsRead vào loadMessages để đánh dấu đã đọc khi mở chat
+        loadMessages(token, markAsRead);
 
         const setupWebSocket = async () => {
             try {
@@ -486,10 +642,13 @@ export function useChatWindowController(args: {
                     await websocketService.connect();
                 }
                 // Sub theo conversationId để nhận message realtime.
+                // Wrap callback để truyền markAsRead vào handleNewMessage
+                // Truyền handleMessageSeen để nhận MESSAGE_SEEN event
                 websocketService.subscribeToConversation(
                     conversationId,
-                    handleNewMessage,
+                    (message) => handleNewMessage(message, markAsRead),
                     handleMessageRecalled,
+                    handleMessageSeen, // Nhận MESSAGE_SEEN event từ topic conversation
                 );
             } catch {
                 // no-op
@@ -501,6 +660,12 @@ export function useChatWindowController(args: {
         return () => {
             // Cleanup tránh leak: khi đổi conversation hoặc unmount.
             websocketService.unsubscribeFromConversation(conversationId);
+
+            // Cleanup markAsRead debounce timer
+            if (markAsReadTimeoutRef.current) {
+                clearTimeout(markAsReadTimeoutRef.current);
+                markAsReadTimeoutRef.current = null;
+            }
 
             // Cleanup recording: dừng MediaRecorder nếu đang ghi, tránh leak stream
             if (mediaRecorderRef.current) {
@@ -517,10 +682,13 @@ export function useChatWindowController(args: {
         };
     }, [
         conversationId,
+        userId,
         handleNewMessage,
         handleMessageRecalled,
+        handleMessageSeen,
         loadConversation,
         loadMessages,
+        markAsRead,
     ]);
 
     const handleScroll = useCallback(() => {
@@ -601,7 +769,7 @@ export function useChatWindowController(args: {
                 const { presignedUrl, objectKey } =
                     await chatService.getPresignedUrl(
                         "CONVERSATION",
-                        conversationId,
+                        String(conversationId), // Convert number sang string
                         type,
                         file.name,
                         file.type,
@@ -825,5 +993,11 @@ export function useChatWindowController(args: {
         // Hàm kiểm tra đang trong giai đoạn initial load (F5/mở chat)
         // Trong giai đoạn này, luôn scroll xuống cuối khi media load
         isInitialLoad: () => initialLoadRef.current,
+
+        // === Read Receipt (Đánh dấu đã đọc) ===
+        // readReceipts: danh sách thông tin "đã xem" của các members (trừ user hiện tại)
+        // Mỗi phần tử: { userId, lastMessageId, seenAt }
+        // FE dùng để hiển thị avatar "đã xem" bên dưới tin nhắn làm mốc
+        readReceipts,
     };
 }

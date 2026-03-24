@@ -27,6 +27,7 @@ export default function Messages() {
         handleDeleteConversationForMe,
         getDisplayInfo,
         formatTime,
+        clearUnreadCount,
     } = useMessagesController();
 
     // State để track conversation nào đang mở menu
@@ -357,6 +358,7 @@ export default function Messages() {
                         key={selectedConversationId}
                         conversationId={selectedConversationId}
                         userId={currentUserId}
+                        onMarkAsRead={clearUnreadCount}
                     />
                 ) : (
                     <div className="flex-1 flex items-center justify-center">

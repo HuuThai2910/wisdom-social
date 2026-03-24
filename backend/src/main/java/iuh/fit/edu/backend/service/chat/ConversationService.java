@@ -22,5 +22,5 @@ public interface ConversationService {
     void deleteConversationForMe(Long conversationId, Long userId);
 
     @Transactional
-    void markAsRead(Long conversationId, Long userId);
+    void markAsRead(Long conversationId, Long userId, String lastMessageId);
 }

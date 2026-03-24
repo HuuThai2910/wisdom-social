@@ -43,7 +43,8 @@ public class ConversationMember {
     private String nickname;
 
 
-    
+    // Lưu ID của tin nhắn mới nhất mà người này vừa xem
+    private String lastReadMessageId;
 
     // Số lượng tin nhắn chưa đọc
     @Column(columnDefinition = "int default 0")

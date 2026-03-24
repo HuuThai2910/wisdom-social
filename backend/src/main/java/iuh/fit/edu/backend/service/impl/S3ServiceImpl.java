@@ -109,7 +109,7 @@ public class S3ServiceImpl implements S3Service {
      * @param type: IMAGE, VIDEO, FILE
      */
     @Override
-    public PresignedUrlResponse generatePresignedUrl(UploadModule module, Long targetId, String type, String originalFilename, String contentType) {
+    public PresignedUrlResponse generatePresignedUrl(UploadModule module, String targetId, String type, String originalFilename, String contentType) {
 
         // Xử lý đuôi file (extension)
         List<String> blockedExtensions = Arrays.asList(".exe", ".sh", ".bat", ".cmd", ".msi", ".js", ".html");
@@ -135,13 +135,12 @@ public class S3ServiceImpl implements S3Service {
             case USER -> "users";
             case POST -> "posts";
         };
-
         // TẠO S3 OBJECT KEY
         // Quy hoạch file gọn gàng: {rootFolder}/{targetId}/{subFolder}/{uuid}.ext
         // Ví dụ: users/15/images/abc-xyz.jpg
         // Ví dụ: posts/99/videos/def-123.mp4
         String uuid = UUID.randomUUID().toString();
-        String s3ObjectKey = String.format("%s/%d/%s/%s%s", rootFolder, targetId, subFolder, uuid, extension);
+        String s3ObjectKey = String.format("%s/%d/%s/%s%s", rootFolder, rootFolder.equals("conversations") ? Integer.parseInt(targetId) : targetId, subFolder, uuid, extension);
 
         try {
             // ạo PutObjectRequest (Cấu hình file tải lên)
