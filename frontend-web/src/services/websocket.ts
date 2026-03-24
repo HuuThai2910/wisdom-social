@@ -8,6 +8,33 @@ import { Client, type IMessage } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
 import type { Message } from "./chatService";
 
+export type CallStatus =
+    | "calling"
+    | "ringing"
+    | "accepted"
+    | "rejected"
+    | "ended";
+
+export type CallSignalEvent =
+    | "call-user"
+    | "incoming-call"
+    | "answer-call"
+    | "ice-candidate"
+    | "reject-call"
+    | "end-call";
+
+export interface CallSignalPayload {
+    event: CallSignalEvent;
+    conversationId: number;
+    callId: string;
+    callType: "audio" | "video";
+    fromUserId: number;
+    targetUserId: number;
+    sdp?: RTCSessionDescriptionInit;
+    candidate?: RTCIceCandidateInit;
+    timestamp?: string;
+}
+
 /**
  * Type định nghĩa các loại event từ backend
  * Tương ứng với DomainEventType enum trong backend
@@ -15,6 +42,7 @@ import type { Message } from "./chatService";
 export type DomainEventType =
     | "MESSAGE_CREATED" // Tin nhắn mới được tạo
     | "MESSAGE_RECALLED" // Tin nhắn bị thu hồi
+    | "MESSAGE_SEEN" // Đánh dấu đã xem tin nhắn
     | "ROOM_CREATED" // Phòng chat mới
     | "ROOM_UPDATED" // Phòng chat được cập nhật
     | "ROOM_DELETED" // Phòng chat bị xóa
@@ -37,9 +65,52 @@ export type DomainEventType =
  * 5. Frontend nhận event này và hiển thị tin nhắn real-time
  */
 export interface MessageCreatedEvent {
-    // Loại event - luôn là "MESSAGE_CREATED"
-    type: "MESSAGE_CREATED";
+    domainEventType: "MESSAGE_CREATED";
     messageResponse: Message;
+}
+
+/**
+ * Interface cho MessageRecalledEvent từ backend
+ *
+ * CẤU TRÚC TỪ BACKEND:
+ * - ChatEventListener gửi toàn bộ event qua WebSocket
+ * - Topic: /topic/conversation/{conversationId}
+ * - Payload: { domainEventType: "MESSAGE_RECALLED", messageRecalledResponse: { messageId, conversationId } }
+ */
+export interface MessageRecalledEvent {
+    domainEventType: "MESSAGE_RECALLED";
+    messageRecalledResponse: {
+        messageId: string;
+        conversationId: number;
+        createdAt: string;
+    };
+}
+
+/**
+ * Interface cho MessageSeenEvent từ backend
+ *
+ * CẤU TRÚC TỪ BACKEND:
+ * - ChatEventListener gửi event qua WebSocket khi user đánh dấu đã đọc
+ * - Topic: /topic/conversation/{conversationId} (BROADCAST cho TẤT CẢ members)
+ * - Payload: { messageSeenResponse: { conversationId, userId, lastMessageId, seenAt }, domainEventType: "MESSAGE_SEEN" }
+ *
+ * CÁCH HOẠT ĐỘNG:
+ * 1. User A mở phòng chat và đọc tin nhắn
+ * 2. FE gọi API PUT /conversations/{id}/read?lastMessageId=xxx
+ * 3. Backend lưu mốc đã đọc và publish MessageSeenEvent
+ * 4. ChatEventListener broadcast event qua /topic/conversation/{id}
+ * 5. Frontend của TẤT CẢ members (kể cả User A) nhận event
+ * 6. Frontend phải check userId để BỎ QUA event của chính mình
+ * 7. Chỉ cập nhật avatar "Đã xem" cho event của người khác
+ */
+export interface MessageSeenEvent {
+    domainEventType: "MESSAGE_SEEN";
+    messageSeenResponse: {
+        conversationId: number;
+        userId: number;
+        lastMessageId: string;
+        seenAt: string;
+    };
 }
 
 /**
@@ -68,7 +139,7 @@ export interface ConversationUpdatedEvent {
     // LƯU Ý: Backend không gửi conversationId trong lastMessage
     lastMessage: {
         lastMessageContent: string; // Nội dung tin nhắn
-        lastMessageType: "TEXT" | "IMAGE" | "FILE"; // Loại tin nhắn
+        lastMessageType: "TEXT" | "IMAGE" | "FILE" | "VIDEO" | "AUDIO" | "CALL"; // Loại tin nhắn
         lastSenderId: number; // ID người gửi
         lastSenderName: string; // Tên người gửi
         lastMessageAt: string; // Thời điểm gửi (ISO string)
@@ -104,6 +175,11 @@ class WebSocketService {
      */
     private subscriptions: Map<string, any> = new Map();
 
+    private callEventListeners: Map<
+        number,
+        Set<(event: CallSignalPayload) => void>
+    > = new Map();
+
     /**
      * Promise theo dõi trạng thái kết nối
      * - null: chưa kết nối hoặc đã kết nối xong
@@ -136,7 +212,7 @@ class WebSocketService {
         // BƯỚC 2: Kiểm tra nếu đã kết nối rồi
         // client.connected = true nghĩa là STOMP handshake đã hoàn tất
         if (this.client?.connected) {
-            console.log("WebSocket already connected");
+            // console.log("WebSocket already connected");
             onConnect?.();
             return Promise.resolve();
         }
@@ -156,8 +232,8 @@ class WebSocketService {
                  * debug: Hàm log để debug STOMP protocol
                  * Hiển thị các STOMP frame: CONNECT, CONNECTED, SUBSCRIBE, MESSAGE, etc.
                  */
-                debug: (str) => {
-                    console.log("STOMP: " + str);
+                debug: (_str) => {
+                    // console.log("STOMP: " + str);
                 },
 
                 /**
@@ -186,7 +262,7 @@ class WebSocketService {
                  * Lúc này có thể bắt đầu subscribe các topic
                  */
                 onConnect: () => {
-                    console.log("Connected to WebSocket");
+                    // console.log("Connected to WebSocket");
                     this.connectPromise = null; // Reset promise
                     onConnect?.(); // Gọi callback của caller
                     resolve(); // Resolve promise để caller biết đã kết nối xong
@@ -252,7 +328,7 @@ class WebSocketService {
             // Deactivate client (gửi DISCONNECT, đóng WebSocket)
             this.client.deactivate();
             this.client = null;
-            console.log("Disconnected from WebSocket");
+            // console.log("Disconnected from WebSocket");
         }
     }
 
@@ -261,6 +337,8 @@ class WebSocketService {
      *
      * @param conversationId - ID của conversation cần lắng nghe
      * @param callback - Hàm được gọi khi nhận tin nhắn mới
+     * @param onRecall - Hàm được gọi khi tin nhắn bị thu hồi
+     * @param onMessageSeen - Hàm được gọi khi có người đánh dấu đã xem
      *
      * LUỒNG HOẠT ĐỘNG:
      * 1. User A và User B đang mở conversation 123
@@ -268,23 +346,17 @@ class WebSocketService {
      * 3. Backend lưu message và publish MessageCreatedEvent
      * 4. ChatEventListener bắt event và gửi qua WebSocket:
      *    - Topic: /topic/conversation/123
-     *    - Data: { type: "MESSAGE_CREATED", messageResponse: {...} }
+     *    - Data: { domainEventType: "MESSAGE_CREATED", messageResponse: {...} }
      * 5. Frontend của User A và B đang subscribe topic này
      * 6. Callback được gọi với message object
      * 7. Component thêm message vào danh sách và hiển thị
      *
      * CẤU TRÚC DỪ LIỆU NHẬN TỪ BACKEND:
      * {
-     *   "type": "MESSAGE_CREATED",
-     *   "messageResponse": {
-     *     "id": "msg123",
-     *     "conversationId": 123,
-     *     "content": "Hello",
-     *     "senderId": 1,
-     *     "senderName": "User A",
-     *     "createdAt": "2026-01-24T10:30:00Z",
-     *     ...
-     *   }
+     *   "domainEventType": "MESSAGE_CREATED" | "MESSAGE_RECALLED" | "MESSAGE_SEEN",
+     *   "messageResponse": {...} // chỉ có khi MESSAGE_CREATED
+     *   "messageRecalledResponse": {...} // chỉ có khi MESSAGE_RECALLED
+     *   "messageSeenResponse": {...} // chỉ có khi MESSAGE_SEEN
      * }
      *
      * LƯU Ý: Phải gọi sau khi connect() đã hoàn tất
@@ -292,6 +364,8 @@ class WebSocketService {
     subscribeToConversation(
         conversationId: number,
         callback: (message: Message) => void,
+        onRecall?: (messageId: string) => void,
+        onMessageSeen?: (event: MessageSeenEvent) => void,
     ) {
         // BƯỚC 1: Kiểm tra client đã kết nối chưa
         // client.connected = true chỉ khi STOMP handshake hoàn tất
@@ -306,7 +380,7 @@ class WebSocketService {
         // BƯỚC 3: Kiểm tra đã subscribe destination này chưa để tránh duplicate
         const existingSubscription = this.subscriptions.get(destination);
         if (existingSubscription) {
-            console.log(`Already subscribed to ${destination}`);
+            // console.log(`Already subscribed to ${destination}`);
             return;
         }
 
@@ -318,28 +392,34 @@ class WebSocketService {
          *
          * Khi có MESSAGE frame từ server:
          * 1. Nhận raw message với body là JSON string
-         * 2. Parse JSON thành MessageCreatedEvent object
-         * 3. Trích xuất messageResponse từ event
-         * 4. Gọi callback với message để component xử lý
-         * 5. Component thêm message vào state và cập nhật UI
+         * 2. Parse JSON thành event object (MessageCreatedEvent | MessageRecalledEvent | MessageSeenEvent)
+         * 3. Phân loại dựa vào domainEventType
+         * 4. Gọi callback tương ứng
          */
         const subscription = this.client.subscribe(
             destination,
             (message: IMessage) => {
                 try {
-                    // Parse JSON body thành MessageCreatedEvent
-                    // Backend gửi: { type: "MESSAGE_CREATED", messageResponse: {...} }
-                    const event: MessageCreatedEvent = JSON.parse(message.body);
+                    const event = JSON.parse(message.body) as
+                        | MessageCreatedEvent
+                        | MessageRecalledEvent
+                        | MessageSeenEvent;
 
-                    console.log("Received message event:", event);
+                    console.log("Received conversation event:", event);
 
-                    // Trích xuất messageResponse từ event
-                    // Đây là object Message chứa đầy đủ thông tin tin nhắn
-                    const payload: Message = event.messageResponse;
-
-                    // Gọi callback - thường là handleNewMessage trong ChatWindow.tsx
-                    // Callback sẽ thêm message vào danh sách messages và hiển thị
-                    callback(payload);
+                    // Phân loại event dựa vào domainEventType (BE field)
+                    if (event.domainEventType === "MESSAGE_RECALLED") {
+                        const { messageId } = (event as MessageRecalledEvent)
+                            .messageRecalledResponse;
+                        onRecall?.(messageId);
+                    } else if (event.domainEventType === "MESSAGE_SEEN") {
+                        // MESSAGE_SEEN event - gọi callback onMessageSeen
+                        onMessageSeen?.(event as MessageSeenEvent);
+                    } else if (event.domainEventType === "MESSAGE_CREATED") {
+                        const payload = (event as MessageCreatedEvent)
+                            .messageResponse;
+                        if (payload) callback(payload);
+                    }
                 } catch (error) {
                     console.error("Error parsing message:", error);
                 }
@@ -348,7 +428,7 @@ class WebSocketService {
 
         // BƯỚC 5: Lưu subscription vào Map để có thể unsubscribe sau
         this.subscriptions.set(destination, subscription);
-        console.log(`Subscribed to ${destination}`);
+        // console.log(`Subscribed to ${destination}`);
     }
 
     /**
@@ -373,7 +453,7 @@ class WebSocketService {
 
             // Xóa khỏi Map
             this.subscriptions.delete(destination);
-            console.log(`Unsubscribed from ${destination}`);
+            // console.log(`Unsubscribed from ${destination}`);
         }
     }
 
@@ -423,7 +503,7 @@ class WebSocketService {
         // Tránh tạo duplicate subscription cho cùng một destination
         const existingSubscription = this.subscriptions.get(destination);
         if (existingSubscription) {
-            console.log(`Already subscribed to ${destination}`);
+            // console.log(`Already subscribed to ${destination}`);
             return;
         }
 
@@ -465,7 +545,7 @@ class WebSocketService {
 
         // BƯỚC 5: Lưu subscription vào Map để có thể unsubscribe sau này
         this.subscriptions.set(destination, subscription);
-        console.log(`Subscribed to ${destination}`);
+        // console.log(`Subscribed to ${destination}`);
     }
 
     /**
@@ -499,6 +579,95 @@ class WebSocketService {
             console.log(`Unsubscribed from ${destination}`);
         }
     }
+
+    subscribeToCallEvents(
+        userId: number,
+        callback: (event: CallSignalPayload) => void,
+    ) {
+        if (!this.client?.connected) {
+            console.error(
+                "WebSocket not connected, cannot subscribe to call events",
+            );
+            return;
+        }
+
+        const existingListeners = this.callEventListeners.get(userId);
+        if (existingListeners) {
+            existingListeners.add(callback);
+        } else {
+            this.callEventListeners.set(userId, new Set([callback]));
+        }
+
+        const destination = `/topic/user/${userId}/calls`;
+        const existingSubscription = this.subscriptions.get(destination);
+        if (existingSubscription) return;
+
+        const subscription = this.client.subscribe(
+            destination,
+            (message: IMessage) => {
+                try {
+                    const payload: CallSignalPayload = JSON.parse(message.body);
+                    const listeners = this.callEventListeners.get(userId);
+                    listeners?.forEach((listener) => listener(payload));
+                } catch (error) {
+                    console.error("Error parsing call signal event:", error);
+                }
+            },
+        );
+
+        this.subscriptions.set(destination, subscription);
+    }
+
+    unsubscribeFromCallEvents(
+        userId: number,
+        callback?: (event: CallSignalPayload) => void,
+    ) {
+        const listeners = this.callEventListeners.get(userId);
+
+        if (callback && listeners) {
+            listeners.delete(callback);
+            if (listeners.size > 0) return;
+        }
+
+        if (!callback) {
+            this.callEventListeners.delete(userId);
+        } else if (!listeners || listeners.size === 0) {
+            this.callEventListeners.delete(userId);
+        }
+
+        const destination = `/topic/user/${userId}/calls`;
+        const subscription = this.subscriptions.get(destination);
+        if (subscription) {
+            subscription.unsubscribe();
+            this.subscriptions.delete(destination);
+        }
+    }
+
+    sendCallSignal(payload: CallSignalPayload) {
+        if (!this.client?.connected) {
+            console.error("WebSocket not connected, cannot send call signal");
+            return;
+        }
+
+        this.client.publish({
+            destination: "/app/call.signal",
+            body: JSON.stringify(payload),
+        });
+    }
+
+    /**
+     * ============================================================================
+     * DEPRECATED: subscribeToMessageSeen và unsubscribeFromMessageSeen
+     * ============================================================================
+     *
+     * Các method này không còn được sử dụng vì backend đã thay đổi cách broadcast
+     * MESSAGE_SEEN event:
+     * - Trước: Gửi tới /user/queue/messages/seen (point-to-point)
+     * - Giờ: Gửi tới /topic/conversation/{id} (broadcast cho toàn bộ conversation)
+     *
+     * MESSAGE_SEEN event giờ được xử lý trong subscribeToConversation() thông qua
+     * callback onMessageSeen.
+     */
 
     /**
      * Kiểm tra trạng thái kết nối hiện tại

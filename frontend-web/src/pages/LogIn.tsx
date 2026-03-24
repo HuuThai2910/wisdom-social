@@ -36,18 +36,12 @@ export default function Login() {
     }
   };
 
-  const handleGoogleLogin = async () => {
-    // Mock Google login - TODO: Implement Google OAuth
-    setError(
-      "Google login chưa được hỗ trợ. Vui lòng sử dụng số điện thoại và mật khẩu."
-    );
-  };
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg p-10">
       {/* Social Login Buttons */}
       <button
-        onClick={handleGoogleLogin}
+        
         className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-300 rounded-lg hover:bg-gray-50 mb-3"
       >
         <span className="text-sm font-semibold text-gray-700">
@@ -104,7 +98,7 @@ export default function Login() {
           placeholder="Số điện thoại"
           value={phone}
           onChange={(e) => setPhone(e.target.value)}
-          className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-gray-400"
+          className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-gray-400 text-black"
           required
           disabled={loading}
         />
@@ -114,7 +108,7 @@ export default function Login() {
           placeholder="Mật khẩu"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-gray-400"
+          className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-gray-400 text-black"
           required
           disabled={loading}
         />

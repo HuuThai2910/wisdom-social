@@ -6,6 +6,8 @@ package iuh.fit.edu.backend.dto.response.conversation;
 
 import lombok.*;
 
+import java.time.Instant;
+
 /*
  * @description
  * @author: Huu Thai
@@ -19,5 +21,6 @@ public class ConversationMemberResponse {
     private String nickname; // Tên trong nhóm
     private String avatar;
     private int unreadCount;
-
+    private Instant clearedAt;
+    private String lastReadMessageId; // Mốc tin nhắn đã đọc (watermark)
 }

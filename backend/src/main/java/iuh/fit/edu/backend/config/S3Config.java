@@ -1,3 +1,7 @@
+/*
+ * @ (#) .java    1.0
+ * Copyright (c)  IUH. All rights reserved.
+ */
 package iuh.fit.edu.backend.config;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -9,6 +13,12 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 
+/*
+ * @description
+ * @author: Huu Thai
+ * @date:
+ * @version: 1.0
+ */
 @Configuration
 public class S3Config {
     @Value("${aws.access-key}")

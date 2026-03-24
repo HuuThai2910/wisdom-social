@@ -2,11 +2,9 @@
  * @ (#) .java    1.0
  * Copyright (c)  IUH. All rights reserved.
  */
-package iuh.fit.edu.backend.event;
+package iuh.fit.edu.backend.event.listener;
 
-import iuh.fit.edu.backend.domain.event.ConversationUpdatedEvent;
-import iuh.fit.edu.backend.domain.event.MessageCreatedEvent;
-import iuh.fit.edu.backend.dto.response.message.MessageResponse;
+import iuh.fit.edu.backend.event.payload.ConversationUpdatedEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.simp.SimpMessagingTemplate;

@@ -4,6 +4,9 @@
  */
 package iuh.fit.edu.backend.dto.response.message;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import iuh.fit.edu.backend.constant.MessageType;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -11,6 +14,8 @@ import lombok.NoArgsConstructor;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.HashSet;
+import java.util.Set;
 
 /*
  * @description
@@ -31,5 +36,10 @@ public class MessageResponse {
     private String senderName;
     private String senderAvatar;
     private boolean isActive;
+    @JsonProperty("isRecalled")
+    private boolean isRecalled = false;
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Set<Long> deletedFor = new HashSet<>();
 
 }

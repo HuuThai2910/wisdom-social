@@ -1,9 +1,11 @@
-// Authentication utilities using localStorage
+// Authentication utilities using cookies
 import axios from 'axios';
+import { setCookie, getCookie, deleteCookie } from './cookies';
 
 const AUTH_KEY = 'authed';
 const USER_KEY = 'current_user';
-const TOKEN_KEY = 'token';
+const ACCESS_TOKEN_KEY = 'accessToken'; // Cookie name - match backend
+const REFRESH_TOKEN_KEY = 'refreshToken'; // Cookie name - match backend
 const API_BASE_URL = 'http://localhost:8080/api';
 
 // Callback để thông báo khi auth state thay đổi
@@ -11,6 +13,14 @@ let authChangeCallback: (() => void) | null = null;
 
 export const setAuthChangeCallback = (callback: () => void) => {
     authChangeCallback = callback;
+};
+
+// Initialize auth - axios will automatically send cookies with withCredentials: true
+export const initializeAuth = () => {
+    const token = getCookie(ACCESS_TOKEN_KEY);
+    if (token) {
+        console.log('Auth initialized with token from cookie');
+    }
 };
 
 export const login = async (phone: string, password: string): Promise<boolean> => {
@@ -51,8 +61,10 @@ export const login = async (phone: string, password: string): Promise<boolean> =
                 createdAt
             } = userData;
 
-            // Store JWT token
-            localStorage.setItem(TOKEN_KEY, token);
+            // Store JWT token in cookie (accessToken - to match backend filter)
+            setCookie(ACCESS_TOKEN_KEY, token, 7); // Expires in 7 days
+
+            // Also save to localStorage for backup/compatibility
             localStorage.setItem(AUTH_KEY, 'true');
 
             // Store user info with all available fields
@@ -68,8 +80,7 @@ export const login = async (phone: string, password: string): Promise<boolean> =
                 createdAt
             }));
 
-            // Set default Authorization header for future requests
-            axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+            console.log('Token saved to cookie:', ACCESS_TOKEN_KEY);
 
             // Trigger callback để cập nhật AuthContext
             if (authChangeCallback) {
@@ -92,14 +103,20 @@ export const login = async (phone: string, password: string): Promise<boolean> =
 };
 
 export const getToken = (): string | null => {
-    return localStorage.getItem(TOKEN_KEY);
+    return getCookie(ACCESS_TOKEN_KEY);
 };
 
 export const logout = (): void => {
+    // Remove cookies
+    deleteCookie(ACCESS_TOKEN_KEY);
+    deleteCookie(REFRESH_TOKEN_KEY);
+
+    // Remove localStorage items
     localStorage.removeItem(AUTH_KEY);
     localStorage.removeItem(USER_KEY);
-    localStorage.removeItem(TOKEN_KEY);
-    delete axios.defaults.headers.common['Authorization'];
+
+    console.log('Logged out, cookies and localStorage cleared');
+
     // Trigger callback để cập nhật AuthContext
     if (authChangeCallback) {
         authChangeCallback();
@@ -107,7 +124,9 @@ export const logout = (): void => {
 };
 
 export const isAuthenticated = (): boolean => {
-    return localStorage.getItem(AUTH_KEY) === 'true' && !!localStorage.getItem(TOKEN_KEY);
+    const hasToken = getCookie(ACCESS_TOKEN_KEY) !== null;
+    const isAuthed = localStorage.getItem(AUTH_KEY) === 'true';
+    return hasToken && isAuthed;
 };
 
 export const getCurrentUser = () => {

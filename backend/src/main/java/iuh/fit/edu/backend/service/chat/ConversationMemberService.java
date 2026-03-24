@@ -10,6 +10,7 @@ package iuh.fit.edu.backend.service.chat;/*
  */
 
 import iuh.fit.edu.backend.dto.response.conversation.ConversationMemberResponse;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 
 import java.util.Map;
@@ -25,6 +26,9 @@ public interface ConversationMemberService {
             unless = "#result == null"
     )
     ConversationMemberResponse getMemberInfo(Long conversationId, Long userId);
+
+    @CacheEvict(value = "memberInfo", key = "#conversationId + ':' + #userId")
+    void evictMemberInfoCache(Long conversationId, Long userId);
 
     Map<Long, ConversationMemberResponse> getMembersMap(Long conversationId, Set<Long> userIds);
 

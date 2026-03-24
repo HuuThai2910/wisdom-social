@@ -2,7 +2,7 @@
  * @ (#) .java    1.0
  * Copyright (c)  IUH. All rights reserved.
  */
-package iuh.fit.edu.backend.constant.event;
+package iuh.fit.edu.backend.event.type;
 
 /*
  * @description
@@ -14,6 +14,7 @@ public enum DomainEventType {
     // Message
     MESSAGE_CREATED,
     MESSAGE_RECALLED,
+    MESSAGE_SEEN,
 
 
     // Conversation
