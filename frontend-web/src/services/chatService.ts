@@ -54,6 +54,7 @@ export interface ConversationMember {
     username: string;
     nickname: string;
     avatar?: string;
+    lastReadMessageId?: string; // Mốc tin nhắn đã đọc (watermark)
 }
 
 export interface SendMessageRequest {
@@ -73,6 +74,13 @@ export interface PresignedUrlResponse {
     presignedUrl: string;
     objectKey: string;
     fileName: string;
+}
+
+export interface MessageSeenPayload {
+    conversationId: number;
+    userId: number;
+    lastMessageId: string;
+    seenAt: string;
 }
 
 const chatService = {
@@ -99,6 +107,7 @@ const chatService = {
         const response = await axiosClient.get(
             `/conversations/${conversationId}/messages?${params.toString()}`,
         );
+    
         return response.data;
     },
 
@@ -134,9 +143,13 @@ const chatService = {
         return response.data;
     },
 
-    async markAsRead(conversationId: number, userId: number): Promise<void> {
-        await axiosClient.post(
-            `/conversations/${conversationId}/read?userId=${userId}`,
+    async markAsRead(
+        conversationId: number,
+        userId: number,
+        lastMessageId: string,
+    ): Promise<void> {
+        await axiosClient.put(
+            `/conversations/${conversationId}/read?userId=${userId}&lastMessageId=${lastMessageId}`,
         );
     },
 
@@ -149,7 +162,7 @@ const chatService = {
     // Bước 1: Xin presigned URL từ BE để upload file lên S3
     async getPresignedUrl(
         module: string,
-        targetId: number,
+        targetId: string, // Đổi từ number sang string để match với backend
         type: string,
         fileName: string,
         contentType: string,
@@ -168,6 +181,23 @@ const chatService = {
             body: file,
         });
         if (!res.ok) throw new Error(`S3 upload failed: ${res.status}`);
+    },
+
+    // Xóa tin nhắn ở phía tôi (chỉ user hiện tại không thấy, người khác vẫn thấy)
+    async deleteMessageForMe(messageId: string, userId: number): Promise<void> {
+        await axiosClient.delete(
+            `/messages/${messageId}/delete-for-me?userId=${userId}`,
+        );
+    },
+
+    // Xóa cuộc trò chuyện ở phía tôi (xóa lịch sử chat cho user hiện tại)
+    async deleteConversationForMe(
+        conversationId: number,
+        userId: number,
+    ): Promise<void> {
+        await axiosClient.delete(
+            `/conversations/${conversationId}/delete-for-me?userId=${userId}`,
+        );
     },
 };
 

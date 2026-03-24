@@ -20,8 +20,8 @@ import {
     StickyNote,
     Film,
     Smile,
-    ThumbsUp,
 } from "lucide-react";
+import EmojiPicker, { Emoji, EmojiStyle, type EmojiClickData, Theme } from "emoji-picker-react";
 import { useChatWindowController } from "../../hooks/useChatWindowController";
 import { MessageBubble } from "./MessageBubble";
 import { useCall } from "../../hooks/useCall";
@@ -31,11 +31,13 @@ import CallScreen from "./CallScreen";
 interface ChatWindowProps {
     conversationId: number;
     userId: number;
+    onMarkAsRead?: (conversationId: number) => void;
 }
 
 export default function ChatWindow({
     conversationId,
     userId,
+    onMarkAsRead,
 }: ChatWindowProps) {
     const {
         conversation,
@@ -64,6 +66,7 @@ export default function ChatWindow({
         handleScrollToBottomClick,
         handleSend,
         handleRecall,
+        handleDeleteMessageForMe,
         handleFileUpload,
         appendRealtimeMessage,
         scrollToBottom,
@@ -77,7 +80,12 @@ export default function ChatWindow({
 
         defaultAvatarUrl,
         defaultAvatarSmallUrl,
-    } = useChatWindowController({ conversationId, userId });
+
+        isNearBottom,
+        isInitialLoad,
+
+        readReceipts,
+    } = useChatWindowController({ conversationId, userId, onMarkAsRead });
 
     const otherMember = useMemo(
         () => conversation?.members?.find((m) => m.userId !== userId),
@@ -140,7 +148,9 @@ export default function ChatWindow({
     }, [activeCall, conversation?.members, conversation?.type, userId]);
 
     const [plusMenuOpen, setPlusMenuOpen] = useState(false);
+    const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
     const plusMenuRef = useRef<HTMLDivElement>(null);
+    const emojiPickerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         if (!plusMenuOpen) return;
@@ -156,9 +166,34 @@ export default function ChatWindow({
         return () => document.removeEventListener("mousedown", handleOutside);
     }, [plusMenuOpen]);
 
+    // Click outside để đóng emoji picker
+    useEffect(() => {
+        if (!emojiPickerOpen) return;
+        function handleOutside(e: MouseEvent) {
+            if (
+                emojiPickerRef.current &&
+                !emojiPickerRef.current.contains(e.target as Node)
+            ) {
+                setEmojiPickerOpen(false);
+            }
+        }
+        document.addEventListener("mousedown", handleOutside);
+        return () => document.removeEventListener("mousedown", handleOutside);
+    }, [emojiPickerOpen]);
+
+    // Handle emoji click
+    const onEmojiClick = useCallback(
+        (emojiData: EmojiClickData) => {
+            setMessageText((prev) => prev + emojiData.emoji);
+            messageInputRef.current?.focus();
+        },
+        [setMessageText],
+    );
+
     // Refs cho hidden file inputs (Đính kèm file / Chọn GIF)
     const attachInputRef = useRef<HTMLInputElement>(null);
     const gifInputRef = useRef<HTMLInputElement>(null);
+    const messageInputRef = useRef<HTMLInputElement>(null);
 
     const onFileChange = useCallback(
         (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -168,6 +203,23 @@ export default function ChatWindow({
         },
         [handleFileUpload],
     );
+
+    // Focus vào input khi component mount hoặc chuyển conversation
+    useEffect(() => {
+        // Timeout nhỏ để đảm bảo input đã render xong
+        const timer = setTimeout(() => {
+            messageInputRef.current?.focus();
+        }, 100);
+
+        return () => clearTimeout(timer);
+    }, [conversationId]);
+
+    // Focus vào input sau khi gửi tin nhắn thành công
+    useEffect(() => {
+        if (!sending && !uploading) {
+            messageInputRef.current?.focus();
+        }
+    }, [sending, uploading]);
 
     const formatDuration = (secs: number) => {
         const m = Math.floor(secs / 60);
@@ -266,11 +318,30 @@ export default function ChatWindow({
 
             // Tin nhắn: dùng MessageBubble để handle recalled state + hover menu.
             const isOwn = message.senderId === userId;
+
+            // Tìm các read receipts có lastMessageId trùng với tin nhắn này
+            // Chỉ hiển thị cho tin nhắn KHÔNG bị thu hồi và là tin của mình
+            const receiptsForThisMessage = isOwn && !message.isRecalled
+                ? readReceipts.filter((r) => r.lastMessageId === message.id)
+                : [];
+
+            // Debug logging
+            if (idx === messages.length - 1) {
+                console.log("🎯 Last message debug:", {
+                    messageId: message.id,
+                    isOwn,
+                    isRecalled: message.isRecalled,
+                    allReadReceipts: readReceipts,
+                    receiptsForThisMessage,
+                });
+            }
+
             items.push(
                 <div
                     key={stableMessageKey}
                     className={isFirstInGroup ? "mt-3" : "mt-2"}
                 >
+                    
                     <MessageBubble
                         message={message}
                         isOwn={isOwn}
@@ -278,12 +349,40 @@ export default function ChatWindow({
                         defaultAvatarSmallUrl={defaultAvatarSmallUrl}
                         onRecall={handleRecall}
                         onRecallCall={(callType) => void startCall(callType)}
-                        onMediaLoad={
-                            isOwn ? () => scrollToBottom("smooth") : undefined
-                        }
+                        onDeleteForMe={handleDeleteMessageForMe}
+                        onMediaLoad={() => {
+                            // Chỉ cuộn xuống cuối khi:
+                            // 1. Đang trong giai đoạn initial load (F5/mở chat)
+                            // 2. User đang ở gần cuối (đang xem tin mới)
+                            // KHÔNG dùng isOwn vì sẽ gây scroll khi load tin cũ từ pagination
+                            if (isInitialLoad() || isNearBottom()) {
+                                scrollToBottom("smooth");
+                            }
+                        }}
                         isFirstInGroup={isFirstInGroup}
                         isLastInGroup={isLastInGroup}
                     />
+
+                    {/* Read Receipt Avatars - hiển thị avatar "đã xem" bên dưới tin nhắn */}
+                    {receiptsForThisMessage.length > 0 && (
+                        <div className="flex justify-end mt-1 mr-1 gap-1">
+                            {receiptsForThisMessage.map((receipt) => {
+                                // Lấy thông tin member từ conversation
+                                const member = conversation?.members?.find(
+                                    (m) => m.userId === receipt.userId,
+                                );
+                                return (
+                                    <img
+                                        key={receipt.userId}
+                                        src={member?.avatar || defaultAvatarSmallUrl}
+                                        alt={member?.nickname || "User"}
+                                        title={`Đã xem bởi ${member?.nickname || "User"}`}
+                                        className="w-4 h-4 rounded-full object-cover border border-white dark:border-gray-800"
+                                    />
+                                );
+                            })}
+                        </div>
+                    )}
                 </div>,
             );
         }
@@ -291,9 +390,14 @@ export default function ChatWindow({
         return items;
     }, [
         conversation?.type,
+        conversation?.members,
         defaultAvatarSmallUrl,
+        handleDeleteMessageForMe,
         handleRecall,
+        isInitialLoad,
+        isNearBottom,
         messages,
+        readReceipts,
         scrollToBottom,
         userId,
     ]);
@@ -375,25 +479,17 @@ export default function ChatWindow({
                     ref={messagesContainerRef}
                     onScroll={handleScroll}
                     className="h-full overflow-y-auto p-4 pb-4 flex flex-col"
+                    style={{ overflowAnchor: "auto" }}
                 >
                     {/* Loading more indicator (hiện khi kéo lên load tin cũ) */}
                     {loadingMore && (
-                        <div className="sticky top-0 z-10 -mx-4 -mt-4 px-4 pt-3 pb-2 flex justify-center">
+                        <div
+                            className="sticky top-0 z-10 -mx-4 -mt-4 px-4 pt-3 pb-2 flex justify-center"
+                            style={{ overflowAnchor: "none" }}
+                        >
                             <div className="inline-flex items-center rounded-full bg-white/90 dark:bg-gray-900/90 border border-gray-200 dark:border-gray-700 shadow-sm px-3 py-2">
                                 <span className="h-4 w-4 rounded-full border-2 border-gray-300 dark:border-gray-600 border-t-gray-600 dark:border-t-gray-200 animate-spin" />
                             </div>
-                        </div>
-                    )}
-
-                    {/* Load more button (tuỳ chọn, vẫn giữ để user bấm nếu muốn) */}
-                    {hasMore && !loadingMore && (
-                        <div className="text-center py-2">
-                            <button
-                                onClick={() => loadMoreMessages()}
-                                className="text-xs text-blue-500 hover:text-blue-700"
-                            >
-                                Tải thêm tin nhắn cũ hơn
-                            </button>
                         </div>
                     )}
 
@@ -567,6 +663,7 @@ export default function ChatWindow({
 
                         {/* Input text */}
                         <input
+                            ref={messageInputRef}
                             type="text"
                             value={messageText}
                             onChange={(e) => setMessageText(e.target.value)}
@@ -592,12 +689,47 @@ export default function ChatWindow({
 
                         {/* Emoji — luôn hiện (trừ khi đang upload) */}
                         {!uploading && (
-                            <button
-                                type="button"
-                                className="shrink-0 p-1.5 text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full"
-                            >
-                                <Smile size={22} />
-                            </button>
+                            <div ref={emojiPickerRef} className="relative">
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        setEmojiPickerOpen(!emojiPickerOpen)
+                                    }
+                                    className={`shrink-0 p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full ${
+                                        emojiPickerOpen
+                                            ? "text-blue-500"
+                                            : "text-gray-800 dark:text-gray-200"
+                                    }`}
+                                >
+                                    <Smile size={22} />
+                                </button>
+
+                                {/* Emoji Picker Popup */}
+                                {emojiPickerOpen && (
+                                    <div
+                                        ref={emojiPickerRef}
+                                        className="absolute bottom-full right-0 mb-2 z-50 emoji-picker-custom"
+                                    >
+                                        <EmojiPicker
+                                            onEmojiClick={onEmojiClick}
+                                            theme={
+                                                document.documentElement.classList.contains(
+                                                    "dark",
+                                                )
+                                                    ? Theme.DARK
+                                                    : Theme.LIGHT
+                                            }
+                                            width={350}
+                                            height={435}
+                                            searchPlaceholder="Tìm kiếm biểu tượng cảm xúc"
+                                            previewConfig={{ showPreview: false }}
+                                            emojiStyle={EmojiStyle.FACEBOOK}
+                                            skinTonesDisabled
+                                            lazyLoadEmojis
+                                        />
+                                    </div>
+                                )}
+                            </div>
                         )}
 
                         {/* Thumbs up khi trống, Send khi có text */}
@@ -614,9 +746,11 @@ export default function ChatWindow({
                             ) : (
                                 <button
                                     type="button"
-                                    className="shrink-0 p-1.5 text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full"
+                                    onClick={() => void handleSend("👍")}
+                                    disabled={sending}
+                                    className="shrink-0 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full disabled:opacity-50"
                                 >
-                                    <ThumbsUp size={22} />
+                                    <Emoji unified="1f44d" size={28} emojiStyle={EmojiStyle.APPLE} />
                                 </button>
                             ))}
                     </div>

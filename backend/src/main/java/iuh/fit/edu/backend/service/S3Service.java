@@ -11,7 +11,7 @@ public interface S3Service {
 
 
 
-    PresignedUrlResponse generatePresignedUrl(UploadModule module, Long targetId, String type, String originalFilename, String contentType);
+    PresignedUrlResponse generatePresignedUrl(UploadModule module, String targetId, String type, String originalFilename, String contentType);
 
     void deleteByKey(String s3ObjectKey);
 

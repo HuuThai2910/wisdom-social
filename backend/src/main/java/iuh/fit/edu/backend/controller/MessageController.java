@@ -57,5 +57,10 @@ public class MessageController {
                 .body(this.messageService.recallMessage(messageId, userId));
 
     }
+    @DeleteMapping("/{messageId}/delete-for-me")
+    public ResponseEntity<Void> deleteMessageForMe(@PathVariable String messageId, @RequestParam Long userId){
+        this.messageService.deleteMessageForMe(messageId, userId);
+        return ResponseEntity.status(HttpStatus.OK).build();
+    }
 
 }

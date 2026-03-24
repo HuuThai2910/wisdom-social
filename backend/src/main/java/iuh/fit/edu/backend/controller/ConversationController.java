@@ -55,9 +55,15 @@ public class ConversationController {
                 )
         );
     }
-    @PostMapping("/{id}/read")
-    public ResponseEntity<Void> markAsRead(@PathVariable Long id, @RequestParam Long userId){
-        conversationService.markAsRead(id, userId);
+    @PutMapping("/{id}/read")
+    public ResponseEntity<Void> markAsRead(@PathVariable Long id, @RequestParam Long userId, @RequestParam(required = false) String lastMessageId){
+        conversationService.markAsRead(id,userId, lastMessageId);
+        return ResponseEntity.ok().build();
+    }
+
+    @DeleteMapping("/{conversationId}/delete-for-me")
+    public ResponseEntity<Void> deleteConversationForMe(@PathVariable Long conversationId, @RequestParam Long userId){
+        this.conversationService.deleteConversationForMe(conversationId, userId);
         return ResponseEntity.ok().build();
     }
 }

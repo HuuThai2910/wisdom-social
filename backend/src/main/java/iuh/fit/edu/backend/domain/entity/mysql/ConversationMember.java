@@ -8,6 +8,8 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.time.Instant;
+
 /*
  * @description
  * @author: Huu Thai
@@ -40,9 +42,19 @@ public class ConversationMember {
     private Long lastReadId;
     private String nickname;
 
+
+    // Lưu ID của tin nhắn mới nhất mà người này vừa xem
+    private String lastReadMessageId;
+
     // Số lượng tin nhắn chưa đọc
     @Column(columnDefinition = "int default 0")
     private int unreadCount = 0;
+
+    // Mốc thời gian xóa cuộc hội thoại
+    @Column(name = "cleared_at")
+    private Instant clearedAt;
+    @Column(name = "is_hidden")
+    private boolean isHidden = false;
 
     @ManyToOne
     @JoinColumn(name = "color_id")

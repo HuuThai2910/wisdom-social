@@ -19,25 +19,58 @@ import {
 } from "lucide-react";
 import type { Message } from "../../services/chatService";
 
-/* ─── Custom Audio Player ─────────────────────────────────────────────────── */
+/**
+ * Kiểm tra xem một chuỗi có chỉ chứa emoji (không có text khác) hay không
+ * Regex bao gồm các dải Unicode của emoji phổ biến
+ */
+function isEmojiOnly(text: string): boolean {
+    if (!text) return false;
+    // Regex khớp các ký tự emoji và whitespace
+    const emojiRegex =
+        /^[\p{Emoji_Presentation}\p{Extended_Pictographic}\u200d\ufe0f\s]+$/u;
+    // Kiểm tra có ít nhất 1 emoji và không có ký tự text thường
+    const hasEmoji = /[\p{Emoji_Presentation}\p{Extended_Pictographic}]/u.test(
+        text,
+    );
+    return hasEmoji && emojiRegex.test(text.trim());
+}
 
+/* ─── Custom Audio Player (UI phát audio tin nhắn thoại) ─────────────────── */
+
+/**
+ * AudioPlayer - Component tùy chỉnh để phát audio tin nhắn thoại
+ *
+ * Giao diện bao gồm:
+ * - Nút Play/Pause tròn
+ * - Waveform bars (fake, seeded theo URL để nhất quán)
+ * - Thời gian hiện tại / tổng thời lượng
+ *
+ * Tính năng:
+ * - Click waveform để seek (tua)
+ * - Tự động reset về 0 khi audio kết thúc
+ * - Màu sắc thay đổi theo isOwn (tin của mình vs tin người khác)
+ */
 function AudioPlayer({ src, isOwn }: { src: string; isOwn: boolean }) {
     const audioRef = useRef<HTMLAudioElement>(null);
     const [playing, setPlaying] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
 
-    // Fake waveform bars — seeded by URL so they're consistent per message
+    // Tạo waveform bars giả - seeded theo URL để mỗi tin nhắn có cùng 1 waveform
+    // (không decode thật audio vì tốn CPU, fake này đủ dùng cho UI)
     const bars = useMemo(() => {
+        // Hash URL thành số seed
         let s = src
             .split("")
             .reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 17);
+        // Tạo 30 cột với chiều cao random 15-85%
         return Array.from({ length: 30 }, () => {
-            s = (Math.imul(s, 1664525) + 1013904223) | 0;
+            s = (Math.imul(s, 1664525) + 1013904223) | 0; // LCG random
             return 15 + (Math.abs(s) % 70); // 15–85 %
         });
     }, [src]);
 
+    // Toggle play/pause
     const togglePlay = useCallback(() => {
         const a = audioRef.current;
         if (!a) return;
@@ -45,15 +78,19 @@ function AudioPlayer({ src, isOwn }: { src: string; isOwn: boolean }) {
         else void a.play();
     }, [playing]);
 
+    // Xử lý seek - click vào waveform để tua đến vị trí đó
     const handleSeek = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
         const a = audioRef.current;
         if (!a || !a.duration) return;
         const rect = e.currentTarget.getBoundingClientRect();
+        // Tính % vị trí click → tua audio đến % đó
         a.currentTime = ((e.clientX - rect.left) / rect.width) * a.duration;
     }, []);
 
+    // Phần trăm đã phát (để tô màu waveform bars)
     const progress = duration > 0 ? currentTime / duration : 0;
 
+    // Format thời gian: "M:SS"
     const fmt = (s: number) => {
         const m = Math.floor(s / 60);
         return `${m}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
@@ -61,6 +98,7 @@ function AudioPlayer({ src, isOwn }: { src: string; isOwn: boolean }) {
 
     return (
         <div className="flex items-center gap-2.5 px-3 py-2.5 w-full min-w-[220px]">
+            {/* Audio element ẩn - điều khiển qua ref */}
             <audio
                 ref={audioRef}
                 src={src}
@@ -69,7 +107,7 @@ function AudioPlayer({ src, isOwn }: { src: string; isOwn: boolean }) {
                 onPause={() => setPlaying(false)}
                 onEnded={() => {
                     setPlaying(false);
-                    setCurrentTime(0);
+                    setCurrentTime(0); // Reset về đầu khi kết thúc
                 }}
                 onTimeUpdate={() =>
                     setCurrentTime(audioRef.current?.currentTime ?? 0)
@@ -79,14 +117,14 @@ function AudioPlayer({ src, isOwn }: { src: string; isOwn: boolean }) {
                 }
             />
 
-            {/* Play / Pause button */}
+            {/* Nút Play / Pause tròn */}
             <button
                 type="button"
                 onClick={togglePlay}
                 className={`shrink-0 w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
                     isOwn
-                        ? "bg-white/20 hover:bg-white/30 text-white"
-                        : "bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:hover:bg-white dark:text-gray-900"
+                        ? "bg-white/20 hover:bg-white/30 text-white" // Tin của mình: trắng mờ trên nền xanh
+                        : "bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:hover:bg-white dark:text-gray-900" // Tin người khác: đen (light) / trắng (dark)
                 }`}
             >
                 {playing ? (
@@ -96,12 +134,13 @@ function AudioPlayer({ src, isOwn }: { src: string; isOwn: boolean }) {
                 )}
             </button>
 
-            {/* Waveform bars */}
+            {/* Waveform bars - click để seek */}
             <div
                 className="flex-1 flex items-center gap-[2px] h-8 cursor-pointer"
                 onClick={handleSeek}
             >
                 {bars.map((h, i) => {
+                    // Cột này đã phát chưa (dựa vào progress)
                     const played = i / bars.length <= progress;
                     return (
                         <div
@@ -109,11 +148,11 @@ function AudioPlayer({ src, isOwn }: { src: string; isOwn: boolean }) {
                             className={`rounded-full flex-1 transition-colors ${
                                 played
                                     ? isOwn
-                                        ? "bg-white"
-                                        : "bg-gray-900 dark:bg-gray-100"
+                                        ? "bg-white" // Đã phát - tin của mình: trắng
+                                        : "bg-gray-900 dark:bg-gray-100" // Đã phát - tin người khác: đen/trắng
                                     : isOwn
-                                      ? "bg-white/35"
-                                      : "bg-gray-300 dark:bg-gray-500"
+                                      ? "bg-white/35" // Chưa phát - tin của mình: trắng mờ
+                                      : "bg-gray-300 dark:bg-gray-500" // Chưa phát - tin người khác: xám
                             }`}
                             style={{ height: `${h}%` }}
                         />
@@ -121,7 +160,7 @@ function AudioPlayer({ src, isOwn }: { src: string; isOwn: boolean }) {
                 })}
             </div>
 
-            {/* Time */}
+            {/* Hiển thị thời gian: currentTime nếu đang phát, duration nếu chưa phát */}
             <span
                 className={`text-xs shrink-0 font-mono tabular-nums ${
                     isOwn ? "text-blue-100" : "text-gray-700 dark:text-gray-300"
@@ -142,6 +181,7 @@ export interface MessageBubbleProps {
     defaultAvatarSmallUrl: string;
     onRecall: (messageId: string) => void;
     onRecallCall?: (callType: "audio" | "video") => void;
+    onDeleteForMe: (messageId: string) => void;
     onMediaLoad?: () => void;
     isFirstInGroup?: boolean;
     isLastInGroup?: boolean;
@@ -154,6 +194,7 @@ export function MessageBubble({
     defaultAvatarSmallUrl,
     onRecall,
     onRecallCall,
+    onDeleteForMe,
     onMediaLoad,
     isFirstInGroup = true,
     isLastInGroup = true,
@@ -184,6 +225,11 @@ export function MessageBubble({
         onRecall(message.id);
         setMenuOpen(false);
     }, [message.id, onRecall]);
+
+    const handleDeleteForMeClick = useCallback(() => {
+        onDeleteForMe(message.id);
+        setMenuOpen(false);
+    }, [message.id, onDeleteForMe]);
 
     const menuItemBase =
         "flex items-center gap-3 w-full px-4 py-2.5 text-sm text-left hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors";
@@ -294,7 +340,7 @@ export function MessageBubble({
 
     return (
         <div
-            className={`flex items-end gap-1 ${isOwn ? "justify-end" : "justify-start"} group`}
+            className={`flex items-end gap-1 overflow-visible ${isOwn ? "justify-end" : "justify-start"} group`}
         >
             {/* Avatar (tin nhắn của người khác) */}
             {!isOwn && (
@@ -305,7 +351,7 @@ export function MessageBubble({
                 />
             )}
 
-            {/* Nút "..." — hiện khi hover */}
+            {/* Nút "..." — hiện khi hover, căn giữa theo bubble */}
             {!message.isRecalled && (
                 <div
                     ref={menuRef}
@@ -402,35 +448,38 @@ export function MessageBubble({
                                 />
                             </button>
 
+                            {/* Separator + Danger zone */}
+                            <div className="my-1.5 border-t border-gray-100 dark:border-gray-700" />
+
+                            {/* Thu hồi - chỉ hiện cho tin nhắn của mình */}
                             {isOwn && (
-                                <>
-                                    <div className="my-1.5 border-t border-gray-100 dark:border-gray-700" />
-                                    <button
-                                        onClick={handleRecallClick}
-                                        className={menuItemBase}
-                                    >
-                                        <Undo2
-                                            size={16}
-                                            className="text-red-500 shrink-0"
-                                        />
-                                        <span className="text-red-500">
-                                            Thu hồi
-                                        </span>
-                                    </button>
-                                    <button
-                                        onClick={() => setMenuOpen(false)}
-                                        className={menuItemBase}
-                                    >
-                                        <Trash2
-                                            size={16}
-                                            className="text-red-500 shrink-0"
-                                        />
-                                        <span className="text-red-500">
-                                            Xóa chỉ ở phía tôi
-                                        </span>
-                                    </button>
-                                </>
+                                <button
+                                    onClick={handleRecallClick}
+                                    className={menuItemBase}
+                                >
+                                    <Undo2
+                                        size={16}
+                                        className="text-red-500 shrink-0"
+                                    />
+                                    <span className="text-red-500">
+                                        Thu hồi
+                                    </span>
+                                </button>
                             )}
+
+                            {/* Xóa ở phía tôi - hiện cho TẤT CẢ tin nhắn */}
+                            <button
+                                onClick={handleDeleteForMeClick}
+                                className={menuItemBase}
+                            >
+                                <Trash2
+                                    size={16}
+                                    className="text-red-500 shrink-0"
+                                />
+                                <span className="text-red-500">
+                                    Xóa chỉ ở phía tôi
+                                </span>
+                            </button>
                         </div>
                     )}
                 </div>
@@ -438,7 +487,7 @@ export function MessageBubble({
 
             {/* Cột: tên trên + bubble + giờ dưới */}
             <div
-                className={`relative flex flex-col max-w-[70%] ${isOwn ? "items-end" : "items-start"}`}
+                className={`relative flex flex-col max-w-[70%] overflow-visible ${isOwn ? "items-end" : "items-start"}`}
             >
                 {/* Tên người gửi — TRÊN bubble, chỉ hiện ở tin đầu group */}
                 {!isOwn &&
@@ -450,118 +499,129 @@ export function MessageBubble({
                         </p>
                     )}
 
-                {/* Bubble */}
-                <div
-                    className={`overflow-hidden rounded-2xl ${
-                        message.isRecalled
-                            ? "bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700"
-                            : message.type === "CALL"
-                              ? "bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-gray-100"
-                              : isOwn
-                                ? "bg-blue-500 text-white"
-                                : "bg-gray-200 dark:bg-gray-700 text-black dark:text-white"
-                    }`}
-                >
-                    {message.isRecalled ? (
-                        <>
-                            <p className="px-4 py-2 text-sm italic text-gray-400 dark:text-gray-500">
-                                Tin nhắn đã được thu hồi
-                            </p>
-                            {isLastInGroup && (
-                                <p
-                                    className={`px-3 pb-1.5 text-xs text-right ${timeColorInside}`}
-                                >
-                                    {timeStr}
+                {/* Bubble hoặc Emoji-only */}
+                {message.type === "TEXT" &&
+                !message.isRecalled &&
+                isEmojiOnly(message.content) ? (
+                    // Emoji-only: không có background, text lớn
+                    <p className="text-4xl leading-tight px-1">
+                        {message.content}
+                    </p>
+                ) : (
+                    // Bubble bình thường với background
+                    <div
+                        className={`overflow-hidden rounded-2xl ${
+                            message.isRecalled
+                                ? "bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700"
+                                : isOwn
+                                  ? "bg-blue-500 text-white"
+                                  : "bg-gray-200 dark:bg-gray-700 text-black dark:text-white"
+                        }`}
+                    >
+                        {message.isRecalled ? (
+                            <>
+                                <p className="px-4 py-2 text-sm italic text-gray-400 dark:text-gray-500">
+                                    Tin nhắn đã được thu hồi
                                 </p>
-                            )}
-                        </>
-                    ) : message.type === "IMAGE" ? (
-                        <img
-                            src={message.content}
-                            alt="Hình ảnh"
-                            className="max-w-full block cursor-pointer"
-                            onClick={() =>
-                                window.open(message.content, "_blank")
-                            }
-                            onLoad={onMediaLoad}
-                        />
-                    ) : message.type === "VIDEO" ? (
-                        <video
-                            src={message.content}
-                            controls
-                            className="max-w-full block"
-                            onLoadedData={onMediaLoad}
-                        />
-                    ) : message.type === "AUDIO" ? (
-                        <AudioPlayer src={message.content} isOwn={isOwn} />
-                    ) : message.type === "FILE" ? (
-                        <div className="px-4 py-2">
-                            <a
-                                href={message.content}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex items-center gap-2 text-sm underline"
+                                {isLastInGroup && (
+                                    <p
+                                        className={`px-3 pb-1.5 text-xs text-right ${timeColorInside}`}
+                                    >
+                                        {timeStr}
+                                    </p>
+                                )}
+                            </>
+                        ) : message.type === "IMAGE" ? (
+                            <img
+                                src={message.content}
+                                alt="Hình ảnh"
+                                className="max-w-full block cursor-pointer"
+                                onClick={() =>
+                                    window.open(message.content, "_blank")
+                                }
+                                onLoad={onMediaLoad}
+                            />
+                        ) : message.type === "VIDEO" ? (
+                            <video
+                                src={message.content}
+                                controls
+                                className="max-w-full block"
+                                onLoadedData={onMediaLoad}
+                            />
+                        ) : message.type === "AUDIO" ? (
+                            <AudioPlayer src={message.content} isOwn={isOwn} />
+                        ) : message.type === "FILE" ? (
+                            <div className="px-4 py-2">
+                                <a
+                                    href={message.content}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center gap-2 text-sm underline"
+                                >
+                                    <Paperclip size={14} className="shrink-0" />
+                                    <span className="truncate max-w-[180px]">
+                                        {fileNameFromUrl}
+                                    </span>
+                                </a>
+                            </div>
+                        ) : message.type === "CALL" ? (
+                            <button
+                                type="button"
+                                onClick={() =>
+                                    callMeta &&
+                                    onRecallCall?.(callMeta.callType)
+                                }
+                                className="w-full px-3 py-2.5 text-left hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer"
+                                title="Gọi lại"
                             >
-                                <Paperclip size={14} className="shrink-0" />
-                                <span className="truncate max-w-[180px]">
-                                    {fileNameFromUrl}
-                                </span>
-                            </a>
-                        </div>
-                    ) : message.type === "CALL" ? (
-                        <button
-                            type="button"
-                            onClick={() =>
-                                callMeta && onRecallCall?.(callMeta.callType)
-                            }
-                            className="w-full px-3 py-2.5 text-left hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer"
-                            title="Gọi lại"
-                        >
-                            <div className="flex items-center gap-2.5">
-                                <span className="w-9 h-9 rounded-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 flex items-center justify-center shrink-0">
-                                    {callMeta?.isMissed ? (
-                                        callMeta.callType === "video" ? (
-                                            <VideoOff
+                                <div className="flex items-center gap-2.5">
+                                    <span className="w-9 h-9 rounded-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 flex items-center justify-center shrink-0">
+                                        {callMeta?.isMissed ? (
+                                            callMeta.callType === "video" ? (
+                                                <VideoOff
+                                                    size={18}
+                                                    className="text-gray-900 dark:text-gray-100"
+                                                />
+                                            ) : (
+                                                <PhoneOff
+                                                    size={18}
+                                                    className="text-gray-900 dark:text-gray-100"
+                                                />
+                                            )
+                                        ) : callMeta?.callType === "video" ? (
+                                            <Video
                                                 size={18}
                                                 className="text-gray-900 dark:text-gray-100"
                                             />
                                         ) : (
-                                            <PhoneOff
+                                            <Phone
                                                 size={18}
                                                 className="text-gray-900 dark:text-gray-100"
                                             />
-                                        )
-                                    ) : callMeta?.callType === "video" ? (
-                                        <Video
-                                            size={18}
-                                            className="text-gray-900 dark:text-gray-100"
-                                        />
-                                    ) : (
-                                        <Phone
-                                            size={18}
-                                            className="text-gray-900 dark:text-gray-100"
-                                        />
-                                    )}
-                                </span>
-
-                                <span className="min-w-0">
-                                    <span className="block text-sm leading-5 font-semibold text-gray-900 dark:text-gray-100 break-words">
-                                        {callMeta?.title}
+                                        )}
                                     </span>
-                                    <span className="block mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                                        {callMeta?.subtitle}
-                                    </span>
-                                </span>
-                            </div>
 
-                            <span className="mt-2 block rounded-xl bg-gray-200 dark:bg-gray-700 py-1.5 text-center text-base font-semibold text-gray-900 dark:text-gray-100">
-                                Gọi lại
-                            </span>
-                        </button>
-                    ) : (
-                        <p className="px-4 py-2 text-sm">{message.content}</p>
-                    )}
-                </div>
+                                    <span className="min-w-0">
+                                        <span className="block text-sm leading-5 font-semibold text-gray-900 dark:text-gray-100 break-words">
+                                            {callMeta?.title}
+                                        </span>
+                                        <span className="block mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                                            {callMeta?.subtitle}
+                                        </span>
+                                    </span>
+                                </div>
+
+                                <span className="mt-2 block rounded-xl bg-gray-200 dark:bg-gray-700 py-1.5 text-center text-base font-semibold text-gray-900 dark:text-gray-100">
+                                    Gọi lại
+                                </span>
+                            </button>
+                        ) : (
+                            <p className="px-4 py-2 text-sm">
+                                {message.content}
+                            </p>
+                        )}
+                    </div>
+                )}
 
                 {/* Giờ — DƯỚI bubble, ngoài khung, chỉ tin cuối group */}
                 {!message.isRecalled && isLastInGroup && (
@@ -575,11 +635,11 @@ export function MessageBubble({
                 {/* Tooltip giờ bên cạnh — hiện khi hover, chỉ tin KHÔNG phải cuối group */}
                 {!isLastInGroup && (
                     <div
-                        className={`absolute top-1/2 -translate-y-1/2 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 whitespace-nowrap z-10 ${
-                            isOwn ? "right-full mr-2" : "left-full ml-2"
+                        className={`absolute top-1/2 -translate-y-1/2 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 whitespace-nowrap z-50 ${
+                            isOwn ? "left-full ml-2" : "right-full mr-2"
                         }`}
                     >
-                        <span className="text-xs bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-300 px-2 py-1 rounded-md shadow-sm border border-gray-100 dark:border-gray-700">
+                        <span className="text-xs bg-gray-800 dark:bg-gray-900 text-white px-2 py-1 rounded-md shadow-lg">
                             {tooltipTimeStr}
                         </span>
                     </div>

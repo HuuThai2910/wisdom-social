@@ -42,6 +42,7 @@ export interface CallSignalPayload {
 export type DomainEventType =
     | "MESSAGE_CREATED" // Tin nhắn mới được tạo
     | "MESSAGE_RECALLED" // Tin nhắn bị thu hồi
+    | "MESSAGE_SEEN" // Đánh dấu đã xem tin nhắn
     | "ROOM_CREATED" // Phòng chat mới
     | "ROOM_UPDATED" // Phòng chat được cập nhật
     | "ROOM_DELETED" // Phòng chat bị xóa
@@ -82,6 +83,33 @@ export interface MessageRecalledEvent {
         messageId: string;
         conversationId: number;
         createdAt: string;
+    };
+}
+
+/**
+ * Interface cho MessageSeenEvent từ backend
+ *
+ * CẤU TRÚC TỪ BACKEND:
+ * - ChatEventListener gửi event qua WebSocket khi user đánh dấu đã đọc
+ * - Topic: /topic/conversation/{conversationId} (BROADCAST cho TẤT CẢ members)
+ * - Payload: { messageSeenResponse: { conversationId, userId, lastMessageId, seenAt }, domainEventType: "MESSAGE_SEEN" }
+ *
+ * CÁCH HOẠT ĐỘNG:
+ * 1. User A mở phòng chat và đọc tin nhắn
+ * 2. FE gọi API PUT /conversations/{id}/read?lastMessageId=xxx
+ * 3. Backend lưu mốc đã đọc và publish MessageSeenEvent
+ * 4. ChatEventListener broadcast event qua /topic/conversation/{id}
+ * 5. Frontend của TẤT CẢ members (kể cả User A) nhận event
+ * 6. Frontend phải check userId để BỎ QUA event của chính mình
+ * 7. Chỉ cập nhật avatar "Đã xem" cho event của người khác
+ */
+export interface MessageSeenEvent {
+    domainEventType: "MESSAGE_SEEN";
+    messageSeenResponse: {
+        conversationId: number;
+        userId: number;
+        lastMessageId: string;
+        seenAt: string;
     };
 }
 
@@ -309,6 +337,8 @@ class WebSocketService {
      *
      * @param conversationId - ID của conversation cần lắng nghe
      * @param callback - Hàm được gọi khi nhận tin nhắn mới
+     * @param onRecall - Hàm được gọi khi tin nhắn bị thu hồi
+     * @param onMessageSeen - Hàm được gọi khi có người đánh dấu đã xem
      *
      * LUỒNG HOẠT ĐỘNG:
      * 1. User A và User B đang mở conversation 123
@@ -316,23 +346,17 @@ class WebSocketService {
      * 3. Backend lưu message và publish MessageCreatedEvent
      * 4. ChatEventListener bắt event và gửi qua WebSocket:
      *    - Topic: /topic/conversation/123
-     *    - Data: { type: "MESSAGE_CREATED", messageResponse: {...} }
+     *    - Data: { domainEventType: "MESSAGE_CREATED", messageResponse: {...} }
      * 5. Frontend của User A và B đang subscribe topic này
      * 6. Callback được gọi với message object
      * 7. Component thêm message vào danh sách và hiển thị
      *
      * CẤU TRÚC DỪ LIỆU NHẬN TỪ BACKEND:
      * {
-     *   "type": "MESSAGE_CREATED",
-     *   "messageResponse": {
-     *     "id": "msg123",
-     *     "conversationId": 123,
-     *     "content": "Hello",
-     *     "senderId": 1,
-     *     "senderName": "User A",
-     *     "createdAt": "2026-01-24T10:30:00Z",
-     *     ...
-     *   }
+     *   "domainEventType": "MESSAGE_CREATED" | "MESSAGE_RECALLED" | "MESSAGE_SEEN",
+     *   "messageResponse": {...} // chỉ có khi MESSAGE_CREATED
+     *   "messageRecalledResponse": {...} // chỉ có khi MESSAGE_RECALLED
+     *   "messageSeenResponse": {...} // chỉ có khi MESSAGE_SEEN
      * }
      *
      * LƯU Ý: Phải gọi sau khi connect() đã hoàn tất
@@ -341,6 +365,7 @@ class WebSocketService {
         conversationId: number,
         callback: (message: Message) => void,
         onRecall?: (messageId: string) => void,
+        onMessageSeen?: (event: MessageSeenEvent) => void,
     ) {
         // BƯỚC 1: Kiểm tra client đã kết nối chưa
         // client.connected = true chỉ khi STOMP handshake hoàn tất
@@ -367,10 +392,9 @@ class WebSocketService {
          *
          * Khi có MESSAGE frame từ server:
          * 1. Nhận raw message với body là JSON string
-         * 2. Parse JSON thành MessageCreatedEvent object
-         * 3. Trích xuất messageResponse từ event
-         * 4. Gọi callback với message để component xử lý
-         * 5. Component thêm message vào state và cập nhật UI
+         * 2. Parse JSON thành event object (MessageCreatedEvent | MessageRecalledEvent | MessageSeenEvent)
+         * 3. Phân loại dựa vào domainEventType
+         * 4. Gọi callback tương ứng
          */
         const subscription = this.client.subscribe(
             destination,
@@ -378,16 +402,20 @@ class WebSocketService {
                 try {
                     const event = JSON.parse(message.body) as
                         | MessageCreatedEvent
-                        | MessageRecalledEvent;
+                        | MessageRecalledEvent
+                        | MessageSeenEvent;
 
-                    // console.log("Received message event:", event);
+                    console.log("Received conversation event:", event);
 
                     // Phân loại event dựa vào domainEventType (BE field)
                     if (event.domainEventType === "MESSAGE_RECALLED") {
                         const { messageId } = (event as MessageRecalledEvent)
                             .messageRecalledResponse;
                         onRecall?.(messageId);
-                    } else {
+                    } else if (event.domainEventType === "MESSAGE_SEEN") {
+                        // MESSAGE_SEEN event - gọi callback onMessageSeen
+                        onMessageSeen?.(event as MessageSeenEvent);
+                    } else if (event.domainEventType === "MESSAGE_CREATED") {
                         const payload = (event as MessageCreatedEvent)
                             .messageResponse;
                         if (payload) callback(payload);
@@ -626,6 +654,20 @@ class WebSocketService {
             body: JSON.stringify(payload),
         });
     }
+
+    /**
+     * ============================================================================
+     * DEPRECATED: subscribeToMessageSeen và unsubscribeFromMessageSeen
+     * ============================================================================
+     *
+     * Các method này không còn được sử dụng vì backend đã thay đổi cách broadcast
+     * MESSAGE_SEEN event:
+     * - Trước: Gửi tới /user/queue/messages/seen (point-to-point)
+     * - Giờ: Gửi tới /topic/conversation/{id} (broadcast cho toàn bộ conversation)
+     *
+     * MESSAGE_SEEN event giờ được xử lý trong subscribeToConversation() thông qua
+     * callback onMessageSeen.
+     */
 
     /**
      * Kiểm tra trạng thái kết nối hiện tại
