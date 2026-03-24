@@ -11,5 +11,8 @@ package iuh.fit.edu.backend.constant;
  * @version: 1.0
  */
 public enum FriendStatus {
-    PENDING,ACCEPTED,REJECTED,BLOCKED
+    PENDING,    // Đang chờ xác nhận
+    ACCEPTED,   // Đã chấp nhận (là bạn bè)
+    REJECTED,   // Đã từ chối
+    BLOCKED     // Đã chặn
 }

@@ -122,6 +122,7 @@ axiosClient.interceptors.request.use(
     (error) => Promise.reject(error)
 );
 
+<<<<<<< HEAD
 axiosClient.interceptors.response.use(
     (response) => response,
     async (error) => {
@@ -149,5 +150,7 @@ axiosClient.interceptors.response.use(
     }
 );
 
+=======
+>>>>>>> bfd5bdfd71129f50ffa398818af7f7cabeff2333
 export default axiosClient;
 

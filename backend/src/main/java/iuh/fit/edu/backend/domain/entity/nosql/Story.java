@@ -79,11 +79,11 @@ public class Story {
     private boolean allowReactions;
     private boolean allowSharing;
 
-    // Stats
-    private long viewCount;
-    private long reactCount;
+    // Stats (shared with Post)
+    private Stats stats;
+    
+    // Reply count (specific to stories)
     private long replyCount;
-    private long shareCount;
 
     // Viewers tracking (lưu trong collection riêng StoryView)
     // Giờ chỉ cần count
@@ -103,67 +103,54 @@ public class Story {
     // Nếu user muốn lưu story làm Highlight, set isArchived=true và KHÔNG set expireAt
     @Indexed
     private Instant expireAt;
-}
 
-@Data
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
-class StoryMedia {
-    private String url;
-    private String type; // image | video
-    private String thumbnailUrl;
-    private Integer width;
-    private Integer height;
-    private Long duration; // cho video
-    // Filter/Effect applied
-    private String filterName;
-}
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class StoryMedia {
+        private String url;
+        private String type; // image | video
+        private String thumbnailUrl;
+        private Integer width;
+        private Integer height;
+        private Long duration; // cho video
+        // Filter/Effect applied
+        private String filterName;
+    }
 
-@Data
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
-class TextStyle {
-    private String fontFamily;
-    private String fontSize;
-    private String color;
-    private String backgroundColor;
-    private String alignment; // left | center | right
-    private String animation; // fade | slide | bounce...
-}
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class TextStyle {
+        private String fontFamily;
+        private String fontSize;
+        private String color;
+        private String backgroundColor;
+        private String alignment; // left | center | right
+        private String animation; // fade | slide | bounce...
+    }
 
-@Data
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
-class Music {
-    private String trackId;
-    private String title;
-    private String artist;
-    private String coverUrl;
-    private Integer startTime; // seconds
-    private Integer duration; // seconds
-}
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class Sticker {
+        private String type; // emoji | gif | poll | question | countdown | location
+        private String url;
+        private Position position;
+        private Integer rotation; // degrees
+        private Float scale;
+        private String data; // JSON data cho interactive stickers (poll, question...)
+    }
 
-@Data
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
-class Sticker {
-    private String type; // emoji | gif | poll | question | countdown | location
-    private String url;
-    private Position position;
-    private Integer rotation; // degrees
-    private Float scale;
-    private String data; // JSON data cho interactive stickers (poll, question...)
-}
-
-@Data
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
-class Position {
-    private Float x; // percentage
-    private Float y; // percentage
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class Position {
+        private Float x; // percentage
+        private Float y; // percentage
+    }
 }

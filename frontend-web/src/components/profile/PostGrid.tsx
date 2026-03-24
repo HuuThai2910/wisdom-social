@@ -1,5 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import { Heart, MessageCircle, Plus } from "lucide-react";
+import { buildS3Url } from "../../utils/s3";
 import type { Post } from "../../types";
 
 interface PostGridProps {
@@ -44,7 +45,7 @@ export default function PostGrid({
           >
             {imageUrl ? (
               <img
-                src={imageUrl}
+                src={buildS3Url(imageUrl) || imageUrl}
                 alt={post.caption}
                 className="w-full h-full object-cover"
               />

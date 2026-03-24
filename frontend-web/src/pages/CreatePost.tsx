@@ -11,13 +11,12 @@ import {
   Settings2,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { currentUser } from "../api/mockData";
-import axios from "axios";
 import { useAuth } from "../contexts/AuthContext";
 import EmojiPicker, {
   type EmojiClickData,
   type Theme,
 } from "emoji-picker-react";
+import { fetchFriends, createPost } from "../services/postService";
 import FriendSelectorModal from "../components/post/FriendSelectorModal";
 
 type PrivacyType =
@@ -31,7 +30,8 @@ export default function CreatePost() {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
   const [caption, setCaption] = useState("");
-  const [selectedImages, setSelectedImages] = useState<string[]>([]);
+  const [selectedImages, setSelectedImages] = useState<File[]>([]);
+  const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([]);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [location, setLocation] = useState("");
   const [showLocationInput, setShowLocationInput] = useState(false);
@@ -52,40 +52,18 @@ export default function CreatePost() {
 
   // Fetch friends list from backend
   useEffect(() => {
-    const fetchFriends = async () => {
+    const loadFriends = async () => {
       try {
         if (currentUser?.id) {
-          const response = await axios.get(
-            `http://localhost:8080/api/users/${currentUser.id}/friends`
-          );
-          console.log("Friends response:", response.data);
-
-          // Parse response if needed
-          let friendsData = response.data;
-          if (typeof friendsData === "string") {
-            friendsData = JSON.parse(friendsData);
-          }
-
-          // Map friends data to expected format
-          const mappedFriends = (friendsData.data || friendsData || []).map(
-            (friend: any) => ({
-              id: friend.userId?.toString() || friend.id?.toString(),
-              username: friend.username,
-              fullName: friend.name || friend.fullName,
-              avatar:
-                friend.avatarUrl ||
-                friend.avatar ||
-                "https://i.pravatar.cc/150?img=5",
-            })
-          );
-          setFriends(mappedFriends);
+          const friendsList = await fetchFriends(currentUser.id);
+          setFriends(friendsList);
         }
       } catch (error) {
         console.error("Error fetching friends:", error);
       }
     };
 
-    fetchFriends();
+    loadFriends();
   }, [currentUser]);
 
   // Search location suggestions with debounce
@@ -97,7 +75,7 @@ export default function CreatePost() {
       }
 
       try {
-        const response = await axios.get(
+        const response = await fetch(
           `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
             location
           )}&limit=5&addressdetails=1`,
@@ -107,7 +85,10 @@ export default function CreatePost() {
             },
           }
         );
-        setLocationSuggestions(response.data);
+        if (response.ok) {
+          const data = await response.json();
+          setLocationSuggestions(data);
+        }
       } catch (error) {
         console.error("Error fetching locations:", error);
         setLocationSuggestions([]);
@@ -128,17 +109,24 @@ export default function CreatePost() {
   };
 
   const processFiles = (files: FileList) => {
-    const newImages: string[] = [];
+    const newFiles: File[] = [];
+    const newPreviewUrls: string[] = [];
     const maxFiles = 10 - selectedImages.length;
     const filesToProcess = Array.from(files).slice(0, maxFiles);
+    let processedCount = 0;
 
     filesToProcess.forEach((file) => {
       if (file.type.startsWith("image/")) {
+        newFiles.push(file);
+
+        // Create preview URL
         const reader = new FileReader();
         reader.onloadend = () => {
-          newImages.push(reader.result as string);
-          if (newImages.length === filesToProcess.length) {
-            setSelectedImages([...selectedImages, ...newImages]);
+          newPreviewUrls.push(reader.result as string);
+          processedCount++;
+          if (processedCount === filesToProcess.length) {
+            setSelectedImages([...selectedImages, ...newFiles]);
+            setImagePreviewUrls([...imagePreviewUrls, ...newPreviewUrls]);
           }
         };
         reader.readAsDataURL(file);
@@ -163,6 +151,7 @@ export default function CreatePost() {
 
   const handleRemoveImage = (index: number) => {
     setSelectedImages(selectedImages.filter((_, i) => i !== index));
+    setImagePreviewUrls(imagePreviewUrls.filter((_, i) => i !== index));
   };
 
   const handleAddTag = (username?: string) => {
@@ -196,23 +185,6 @@ export default function CreatePost() {
         return;
       }
 
-      // Create FormData for multipart upload
-      const formData = new FormData();
-
-      // Convert base64 images to File objects
-      if (selectedImages.length > 0) {
-        for (let i = 0; i < selectedImages.length; i++) {
-          const base64 = selectedImages[i];
-          // Convert base64 to blob
-          const response = await fetch(base64);
-          const blob = await response.blob();
-          const file = new File([blob], `image_${i}.jpg`, {
-            type: "image/jpeg",
-          });
-          formData.append("images", file);
-        }
-      }
-
       // Prepare post data
       const postData = {
         content: caption,
@@ -225,24 +197,16 @@ export default function CreatePost() {
         allowShares: allowShares,
       };
 
-      // Add post data as JSON string
-      formData.append("postData", JSON.stringify(postData));
-      formData.append("authorId", currentUser.id.toString());
-
       console.log("Creating post...");
 
-      // Send request to backend
-      const response = await axios.post(
-        "http://localhost:8080/api/posts",
-        formData,
-        {
-          headers: {
-            "Content-Type": "multipart/form-data",
-          },
-        }
+      // Create post using postService (pass File objects directly)
+      const newPost = await createPost(
+        currentUser.id,
+        postData,
+        selectedImages
       );
 
-      console.log("Post created:", response.data);
+      console.log("Post created:", newPost);
       alert("Post created successfully!");
       navigate("/");
     } catch (error) {
@@ -256,7 +220,7 @@ export default function CreatePost() {
   };
 
   return (
-    <div className="min-h-screen bg-[#fafafa] dark:bg-[#000]">
+    <div className="min-h-screen bg-[#fafafa] dark:bg-#000">
       <div className="max-w-3xl mx-auto px-4 py-8">
         {/* Header - Sticky */}
         <div className="bg-white dark:bg-[#262626] rounded-t-xl border border-gray-200 dark:border-[#363636] sticky top-0 z-20 shadow-md">
@@ -410,10 +374,10 @@ export default function CreatePost() {
                   onDrop={handleDrop}
                   className="grid grid-cols-2 gap-2 mb-2"
                 >
-                  {selectedImages.map((img, index) => (
+                  {imagePreviewUrls.map((imgUrl, index) => (
                     <div key={index} className="relative">
                       <img
-                        src={img}
+                        src={imgUrl}
                         alt={`Selected ${index + 1}`}
                         className="w-full h-48 object-cover rounded-lg"
                       />

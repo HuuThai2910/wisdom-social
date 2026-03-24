@@ -6,17 +6,18 @@ package iuh.fit.edu.backend.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import iuh.fit.edu.backend.domain.entity.nosql.Post;
-import iuh.fit.edu.backend.dto.request.CreatePostRequest;
+import iuh.fit.edu.backend.dto.request.post.CreatePostRequest;
 import iuh.fit.edu.backend.dto.response.ApiResponse;
-import iuh.fit.edu.backend.service.PostService;
+import iuh.fit.edu.backend.service.post.PostService;
+import iuh.fit.edu.backend.service.s3.S3Service;
 import iuh.fit.edu.backend.service.user.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import java.util.Map;
 
 /*
  * @description: Post management controller
@@ -33,17 +34,42 @@ public class PostController {
     private final PostService postService;
     private final ObjectMapper objectMapper;
     private final UserService userService;
+    private final S3Service s3Service;
 
     /**
-     * Create a new post with images
+     * Get presigned upload URL for images
+     * @param extension File extension (jpg, png, etc.)
+     * @return Presigned URL
+     */
+    @GetMapping("/upload-url")
+    public ResponseEntity<ApiResponse<Map<String, String>>> getPresignedUploadUrl(
+            @RequestParam String extension) {
+        try {
+            var currentUser = userService.getCurrentUser();
+            if (currentUser == null) {
+                return ResponseEntity.badRequest()
+                        .body(ApiResponse.error(401, "Bạn cần đăng nhập", null));
+            }
+            
+            Map<String, String> uploadUrl = s3Service.generateUploadUrl("posts", extension);
+            return ResponseEntity.ok(ApiResponse.success(200, "Lấy link upload thành công", uploadUrl));
+        } catch (Exception e) {
+            log.error("Error getting presigned URL", e);
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error(400, "Lỗi: " + e.getMessage(), null));
+        }
+    }
+
+    /**
+     * Create a new post with images (presigned URLs)
      * @param postDataJson JSON string of CreatePostRequest
-     * @param images List of image files
+     * @param imageUrls List of S3 image URLs from presigned upload
      * @return Created post
      */
-    @PostMapping(consumes = {"multipart/form-data"})
+    @PostMapping
     public ResponseEntity<ApiResponse<Post>> createPost(
             @RequestParam("postData") String postDataJson,
-            @RequestParam(value = "images", required = false) List<MultipartFile> images) {
+            @RequestParam(value = "imageUrls", required = false) List<String> imageUrls) {
         
         try {
             // Get current user
@@ -56,12 +82,13 @@ public class PostController {
             Long authorId = currentUser.getId();
             log.info("Creating post for user: {}", authorId);
             log.info("Post data: {}", postDataJson);
+            log.info("Image URLs: {}", imageUrls);
             
             // Parse JSON to CreatePostRequest
             CreatePostRequest request = objectMapper.readValue(postDataJson, CreatePostRequest.class);
             
-            // Create post
-            Post post = postService.createPost(request, images, authorId);
+            // Create post with presigned image URLs
+            Post post = postService.createPost(request, imageUrls, authorId);
             
             return ResponseEntity.ok(ApiResponse.success(200, "Tạo post thành công", post));
         } catch (Exception e) {
@@ -135,17 +162,17 @@ public class PostController {
     }
 
     /**
-     * Update post by ID
+     * Update a post with new images (presigned URLs)
      * @param id Post ID
      * @param postDataJson JSON string of CreatePostRequest
-     * @param newImages New image files to upload
+     * @param newImageUrls List of new image URLs from presigned upload
      * @return Updated post
      */
-    @PutMapping(value = "/{id}", consumes = {"multipart/form-data"})
+    @PutMapping(value = "/{id}")
     public ResponseEntity<ApiResponse<Post>> updatePost(
             @PathVariable String id,
             @RequestParam("postData") String postDataJson,
-            @RequestParam(value = "images", required = false) List<MultipartFile> newImages) {
+            @RequestParam(value = "imageUrls", required = false) List<String> newImageUrls) {
         try {
             // Get current user
             var currentUser = userService.getCurrentUser();
@@ -160,8 +187,8 @@ public class PostController {
             // Parse JSON to CreatePostRequest
             CreatePostRequest request = objectMapper.readValue(postDataJson, CreatePostRequest.class);
             
-            // Update post
-            Post post = postService.updatePost(id, request, newImages, userId);
+            // Update post with presigned image URLs
+            Post post = postService.updatePost(id, request, newImageUrls, userId);
             
             return ResponseEntity.ok(ApiResponse.success(200, "Cập nhật post thành công", post));
         } catch (Exception e) {

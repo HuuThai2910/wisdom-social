@@ -15,6 +15,10 @@ export interface User {
     fullName: string;
     avatar: string;
     bio?: string;
+    phone?: string;
+    gender?: "MALE" | "FEMALE" | "OTHER";
+    name?: string;
+    birthday?: string;
     isVerified?: boolean;
     friendsCount?: number;
     followersCount?: number;

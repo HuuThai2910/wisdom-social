@@ -6,7 +6,7 @@ package iuh.fit.edu.backend.controller;
 
 import iuh.fit.edu.backend.domain.entity.nosql.SavedPost;
 import iuh.fit.edu.backend.dto.response.ApiResponse;
-import iuh.fit.edu.backend.service.SavedPostService;
+import iuh.fit.edu.backend.service.post.SavedPostService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;

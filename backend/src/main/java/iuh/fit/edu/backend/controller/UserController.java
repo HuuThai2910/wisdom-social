@@ -7,6 +7,8 @@ import iuh.fit.edu.backend.dto.response.user.UserResponseConfirmRegister;
 import iuh.fit.edu.backend.dto.response.user.UserResponseLogin;
 import iuh.fit.edu.backend.dto.response.user.UserResponseOTPPassword;
 import iuh.fit.edu.backend.dto.response.user.UserResponseRegister;
+import iuh.fit.edu.backend.dto.response.user.UserProfileResponse;
+import iuh.fit.edu.backend.dto.response.ApiResponse;
 import iuh.fit.edu.backend.service.user.BlockUserService;
 import iuh.fit.edu.backend.service.user.UserService;
 import iuh.fit.edu.backend.service.user.UserSettingService;
@@ -102,8 +104,13 @@ public class UserController {
     }
 
     @GetMapping("/me")
-    public ResponseEntity<User> me() {
-        return ResponseEntity.ok(userService.getCurrentUser());
+    public ResponseEntity<ApiResponse<User>> me() {
+        User currentUser = userService.getCurrentUser();
+        if (currentUser == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "Unauthorized - No authenticated user found", null));
+        }
+        return ResponseEntity.ok(ApiResponse.success(200, "Get current user successfully", currentUser));
     }
 
     @PostMapping("/forgot-password")
@@ -142,18 +149,24 @@ public class UserController {
 
     @PutMapping("/users/{id}")
     @ApiMessage("Update User successfully")
-    public ResponseEntity<String> updateUser(@PathVariable long id, @RequestBody UserRequestUpdate update){
-        boolean success=userService.updateUser(id,update);
-        if (success) {
-            return ResponseEntity.ok("Update User successfully");
+    public ResponseEntity<User> updateUser(@PathVariable long id, @RequestBody UserRequestUpdate update){
+        try {
+            boolean success = userService.updateUser(id, update);
+            if (success) {
+                // Always fetch and return the updated user
+                User updatedUser = userService.findUserById(id);
+                return ResponseEntity.ok(updatedUser);
+            }
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
-        return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body("User not found");
     }
 
     @GetMapping("/user/{id}")
     @ApiMessage("Get profile User")
-    public ResponseEntity<User> getProfileUser(@PathVariable long id){
+    public ResponseEntity<UserProfileResponse> getProfileUser(@PathVariable long id){
         return ResponseEntity.ok(userSettingService.getProfileUser(id));
     }
 
@@ -200,7 +213,7 @@ public class UserController {
     public ResponseEntity<String> updateUploadImage(@RequestParam String type,
                                            @RequestParam String extension){
         User user=userService.getCurrentUser();
-        Map<String,String> image= s3Service.generateUpdateUploadUrl(type,user.getId(),extension);
+        Map<String,String> image= s3Service.generateUpdateUploadUrl(type,String.valueOf(user.getId()),extension);
 
         UserRequestUpdate update=new UserRequestUpdate();
         update.setAvatarUrl(image.get("imageUrl"));

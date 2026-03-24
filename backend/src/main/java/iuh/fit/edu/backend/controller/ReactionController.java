@@ -8,7 +8,7 @@ import iuh.fit.edu.backend.constant.ReactionType;
 import iuh.fit.edu.backend.constant.TargetType;
 import iuh.fit.edu.backend.domain.entity.nosql.Reaction;
 import iuh.fit.edu.backend.dto.response.ApiResponse;
-import iuh.fit.edu.backend.service.ReactionService;
+import iuh.fit.edu.backend.service.post.ReactionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
