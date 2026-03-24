@@ -11,8 +11,10 @@ package iuh.fit.edu.backend.service.chat;/*
 
 import iuh.fit.edu.backend.dto.request.SendMessageRequest;
 import iuh.fit.edu.backend.dto.response.CursorResponse;
+import iuh.fit.edu.backend.dto.response.message.MessageRecalledResponse;
 import iuh.fit.edu.backend.dto.response.message.MessageResponse;
 import org.springframework.data.domain.Pageable;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
@@ -21,7 +23,10 @@ public interface MessageService {
     MessageResponse sendMessage(SendMessageRequest sendMessageRequest, Long userId);
 
 
+    MessageRecalledResponse recallMessage(String messageId, Long userId);
 
+    @Transactional
+    void deleteMessageForMe(String messageId, Long userId);
 
     CursorResponse<List<MessageResponse>> getMessagesByConversation(
             Long conversationId,

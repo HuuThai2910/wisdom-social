@@ -106,34 +106,32 @@ export function useMessagesController() {
         void loadConversations();
     }, [loadConversations]);
 
-    // ====== Mark-as-read khi user mở hội thoại ======
+    // ====== Clear unreadCount khi user mở hội thoại ======
+    // Optimistic update: UI phản hồi ngay, API thực tế được gọi từ ChatWindow (có lastMessageId)
     useEffect(() => {
         const convId = selectedConversationId;
         if (convId == null) return;
 
-        // Khi user "đang mở" conversation => đánh dấu đã đọc.
-        // Làm đồng thời 2 việc:
-        // - Backend: reset unreadCount và/hoặc set read flags.
-        // - Frontend: update ngay list để UI phản hồi tức thì.
+        // Clear unreadCount ngay khi mở conversation
+        // API markAsRead sẽ được gọi từ useChatWindowController (có lastMessageId đầy đủ)
+        setConversations((prev) =>
+            prev.map((conv) =>
+                conv.id === convId ? { ...conv, unreadCount: 0 } : conv,
+            ),
+        );
+    }, [selectedConversationId]);
 
-        const markConversationAsRead = async () => {
-            try {
-                await chatService.markAsRead(convId, currentUserId);
-
-                // Optimistic update: UI phản hồi ngay không cần chờ websocket.
-                setConversations((prev) =>
-                    prev.map((conv) =>
-                        conv.id === convId ? { ...conv, unreadCount: 0 } : conv,
-                    ),
-                );
-            } catch (e) {
-                // Không block UI; log để debug.
-                console.error("Error marking conversation as read:", e);
-            }
-        };
-
-        void markConversationAsRead();
-    }, [currentUserId, selectedConversationId]);
+    /**
+     * clearUnreadCount - Callback để ChatWindow gọi khi đánh dấu đã đọc
+     * Dùng để clear unreadCount trên sidebar sau khi API markAsRead thành công
+     */
+    const clearUnreadCount = useCallback((conversationId: number) => {
+        setConversations((prev) =>
+            prev.map((conv) =>
+                conv.id === conversationId ? { ...conv, unreadCount: 0 } : conv,
+            ),
+        );
+    }, []);
 
     const handleConversationUpdate = useCallback(
         (conversationId: number, lastMessage: LastMessageUpdate) => {
@@ -149,18 +147,63 @@ export function useMessagesController() {
             const isViewingThisConversation =
                 latestSelectedConversationId === conversationId;
 
-            if (isViewingThisConversation && !isMyMessage) {
-                // Nếu đang xem conversation này và message đến từ người khác,
-                // ta markAsRead ngay để backend giữ unreadCount = 0.
-                chatService
-                    .markAsRead(conversationId, latestUserId)
-                    .catch((e) =>
-                        console.error("Error marking conversation as read:", e),
-                    );
-            }
+            // BE set read:true chỉ khi thu hồi, read:false cho tin nhắn mới
+            const isRecallUpdate = lastMessage.read === true;
+
+            // Lưu ý: markAsRead API được gọi từ useChatWindowController (có lastMessageId đầy đủ)
+            // Ở đây chỉ cập nhật unreadCount local
 
             setConversations((prevConversations) => {
-                // Dùng functional setState để đảm bảo luôn dựa vào state mới nhất.
+                // Kiểm tra xem conversation có tồn tại trong list không
+                const conversationExists = prevConversations.some(
+                    (conv) => conv.id === conversationId,
+                );
+
+                // Nếu conversation KHÔNG tồn tại (đã bị xóa bởi delete-for-me)
+                // → Fetch lại từ API và thêm vào list
+                if (!conversationExists) {
+                    chatService
+                        .getConversation(conversationId, latestUserId)
+                        .then((response) => {
+                            if (response.success && response.data) {
+                                const newConv = response.data;
+                                setConversations((prev) => {
+                                    // Kiểm tra lại lần nữa để tránh duplicate
+                                    if (
+                                        prev.some(
+                                            (conv) => conv.id === conversationId,
+                                        )
+                                    ) {
+                                        return prev;
+                                    }
+                                    // Thêm conversation vào đầu list và sort
+                                    return [newConv, ...prev].sort((a, b) => {
+                                        const timeA = a.lastMessage
+                                            ?.lastMessageAt
+                                            ? new Date(
+                                                  a.lastMessage.lastMessageAt,
+                                              ).getTime()
+                                            : 0;
+                                        const timeB = b.lastMessage
+                                            ?.lastMessageAt
+                                            ? new Date(
+                                                  b.lastMessage.lastMessageAt,
+                                              ).getTime()
+                                            : 0;
+                                        return timeB - timeA;
+                                    });
+                                });
+                            }
+                        })
+                        .catch((e) =>
+                            console.error("Error fetching conversation:", e),
+                        );
+
+                    // Return list hiện tại, conversation sẽ được thêm vào khi API trả về
+                    return prevConversations;
+                }
+
+                // Conversation tồn tại → update như cũ
                 const updatedConversations = prevConversations.map((conv) => {
                     if (conv.id !== conversationId) return conv;
 
@@ -169,13 +212,21 @@ export function useMessagesController() {
                         lastName = lastMessage.lastSenderName;
                     }
 
-                    let newUnreadCount = conv.unreadCount || 0;
-                    if (!isMyMessage) {
-                        // Chỉ tăng unread nếu message không phải của mình.
+                    let newUnreadCount: number;
+                    if (isRecallUpdate) {
+                        // Thu hồi: giữ nguyên unreadCount hiện tại.
+                        // - Nếu đang có unread (> 0) → giữ bold, không tăng
+                        // - Nếu không có unread (= 0) → không bold, không tăng
+                        newUnreadCount = conv.unreadCount || 0;
+                    } else if (!isMyMessage) {
+                        // Tin nhắn mới từ người khác:
                         // Đang xem thì reset 0, không xem thì +1.
                         newUnreadCount = isViewingThisConversation
                             ? 0
                             : (conv.unreadCount || 0) + 1;
+                    } else {
+                        // Tin nhắn mới của chính mình: không thay đổi unreadCount
+                        newUnreadCount = conv.unreadCount || 0;
                     }
 
                     return {
@@ -310,6 +361,30 @@ export function useMessagesController() {
         });
     }, []);
 
+    // Xóa cuộc trò chuyện ở phía tôi (xóa khỏi danh sách sidebar)
+    const handleDeleteConversationForMe = useCallback(
+        async (conversationId: number) => {
+            try {
+                await chatService.deleteConversationForMe(
+                    conversationId,
+                    currentUserId,
+                );
+                // API 200 OK → xóa conversation khỏi local state
+                setConversations((prev) =>
+                    prev.filter((conv) => conv.id !== conversationId),
+                );
+
+                // Nếu đang xem conversation này → navigate về trang messages (không chọn conversation nào)
+                if (selectedConversationId === conversationId) {
+                    navigate(`/messages?userId=${currentUserId}`);
+                }
+            } catch {
+                console.error("Không thể xóa cuộc trò chuyện");
+            }
+        },
+        [currentUserId, navigate, selectedConversationId],
+    );
+
     return {
         searchQuery,
         setSearchQuery,
@@ -321,8 +396,10 @@ export function useMessagesController() {
 
         filteredConversations,
         handleSelectConversation,
+        handleDeleteConversationForMe,
         getDisplayInfo,
         formatTime,
+        clearUnreadCount,
 
         reload: loadConversations,
     };

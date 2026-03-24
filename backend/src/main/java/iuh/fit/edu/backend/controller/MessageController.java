@@ -5,6 +5,7 @@
 package iuh.fit.edu.backend.controller;
 
 import iuh.fit.edu.backend.dto.request.SendMessageRequest;
+import iuh.fit.edu.backend.dto.response.message.MessageRecalledResponse;
 import iuh.fit.edu.backend.dto.response.message.MessageResponse;
 import iuh.fit.edu.backend.service.chat.MessageService;
 import org.springframework.http.HttpStatus;
@@ -36,6 +37,19 @@ public class MessageController {
         return ResponseEntity
                 .status(HttpStatus.CREATED)
                 .body(this.messageService.sendMessage(sendMessageRequest, userId));
+    }
+
+    @DeleteMapping("/{messageId}/recall")
+    public ResponseEntity<MessageRecalledResponse> recallMessage(@PathVariable String messageId, @RequestParam Long userId){
+        return ResponseEntity
+                .status(HttpStatus.OK)
+                .body(this.messageService.recallMessage(messageId, userId));
+
+    }
+    @DeleteMapping("/{messageId}/delete-for-me")
+    public ResponseEntity<Void> deleteMessageForMe(@PathVariable String messageId, @RequestParam Long userId){
+        this.messageService.deleteMessageForMe(messageId, userId);
+        return ResponseEntity.status(HttpStatus.OK).build();
     }
 
 

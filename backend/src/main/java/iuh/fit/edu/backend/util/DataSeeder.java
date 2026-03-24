@@ -14,6 +14,8 @@ import iuh.fit.edu.backend.repository.mysql.ColorRepository;
 import iuh.fit.edu.backend.repository.mysql.ConversationRepository;
 import iuh.fit.edu.backend.repository.mysql.ConversationMemberRepository;
 import iuh.fit.edu.backend.repository.mysql.UserRepository;
+import iuh.fit.edu.backend.service.chat.MessageCacheService;
+import iuh.fit.edu.backend.service.chat.impl.MessageCacheServiceImpl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
@@ -39,6 +41,7 @@ public class DataSeeder implements CommandLineRunner {
     private final ConversationRepository conversationRepository;
     private final ConversationMemberRepository conversationMemberRepository;
     private final ColorRepository colorRepository;
+    private final MessageCacheService messageCacheService;
 
     @Override
     public void run(String... args) throws Exception {

@@ -26,11 +26,11 @@ import java.util.Set;
 public interface ConversationMemberRepository extends JpaRepository<ConversationMember, Long> {
     Optional<ConversationMember> findByConversation_IdAndUser_Id(Long conversationId, Long userId);
 
-    // Lay danh sach cuoc hoi thoai ma user tham gia
+    // Lay danh sach cuoc hoi thoai ma user tham gia (chỉ lấy những conversation chưa bị ẩn)
     @Query("""
     SELECT cm.conversation
     FROM ConversationMember cm
-    WHERE cm.user.id = :userId
+    WHERE cm.user.id = :userId AND cm.isHidden = false
     ORDER BY cm.conversation.lastMessageAt DESC
 """)
     List<Conversation> findConversationsByUserIdOrderByLastMessageAtDesc(
@@ -61,4 +61,11 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
             "WHERE cu.conversation.id = :conversationId AND cu.user.id = :userId")
     void resetUnreadCount(@Param("conversationId") Long conversationId,
                           @Param("userId") Long userId);
+
+    // Reset isHidden về false khi có tin nhắn mới (để conversation hiện lại)
+    // KHÔNG reset clearedAt - giữ nguyên để filter messages cũ
+    @Modifying
+    @Query("UPDATE ConversationMember cm SET cm.isHidden = false " +
+            "WHERE cm.conversation.id = :conversationId AND cm.isHidden = true")
+    void unhideConversationForAllMembers(@Param("conversationId") Long conversationId);
 }

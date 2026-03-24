@@ -21,6 +21,7 @@ import java.util.List;
 public interface ConversationMemberMapper {
     @Mapping(target = "userId", source = "user.id")
     @Mapping(target = "avatar", source = "user.avatarUrl")
+    @Mapping(target = "lastReadMessageId", source = "lastReadMessageId")
     ConversationMemberResponse toConversationMemberResponse(ConversationMember conversationMember);
 
     List<ConversationMember> toListConversationMemberResponse(List<ConversationMember> conversationMembers);
