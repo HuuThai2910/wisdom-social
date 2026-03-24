@@ -156,13 +156,19 @@ public class UserController {
 
     @PutMapping("/users/{id}")
     @ApiMessage("Update User successfully")
-    public ResponseEntity<String> updateUser(@PathVariable long id, @RequestBody UserRequestUpdate update){
-        boolean success=userService.updateUser(id,update);
-        if (success) {
-            return ResponseEntity.ok("Update User successfully");
+    public ResponseEntity<User> updateUser(@PathVariable long id, @RequestBody UserRequestUpdate update){
+        try {
+            boolean success = userService.updateUser(id, update);
+            if (success) {
+                // Always fetch and return the updated user
+                User updatedUser = userService.findUserById(id);
+                return ResponseEntity.ok(updatedUser);
+            }
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
-        return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body("User not found");
     }
 
     @GetMapping("/user/{id}")
@@ -208,7 +214,7 @@ public class UserController {
     public ResponseEntity<String> updateUploadImage(@RequestParam String type,
                                            @RequestParam String extension){
         User user=userService.getCurrentUser();
-        Map<String,String> image= s3Service.generateUpdateUploadUrl(type,user.getId(),extension);
+        Map<String,String> image= s3Service.generateUpdateUploadUrl(type,String.valueOf(user.getId()),extension);
 
         UserRequestUpdate update=new UserRequestUpdate();
         update.setAvatarUrl(image.get("imageUrl"));

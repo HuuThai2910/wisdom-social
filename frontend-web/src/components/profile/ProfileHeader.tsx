@@ -101,12 +101,6 @@ export default function ProfileHeader({
                   alt={user.username}
                   className="w-[77px] h-[77px] md:w-[150px] md:h-[150px] rounded-full object-cover"
                 />
-                {/* Note indicator dot when no bubble */}
-                {!note && isOwnProfile && (
-                  <span className="absolute bottom-1 right-1 w-6 h-6 bg-white dark:bg-gray-900 rounded-full flex items-center justify-center shadow border border-gray-200 dark:border-gray-700 text-sm">
-                    📝
-                  </span>
-                )}
               </button>
 
               {/* "Note" label under avatar for own profile */}
@@ -129,7 +123,7 @@ export default function ProfileHeader({
                 {isOwnProfile ? (
                   <>
                     <Link
-                      to={`/profile/${user.username}/general`}
+                      to="/edit-profile"
                       className="px-4 py-[7px] bg-[#efefef] dark:bg-[#262626] hover:bg-[#dbdbdb] dark:hover:bg-[#363636] rounded-lg text-sm font-semibold dark:text-white"
                     >
                       Edit profile

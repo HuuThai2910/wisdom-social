@@ -32,6 +32,7 @@ interface AuthContextType {
     friendsCount: number;
   }>;
   clearCache: () => void;
+  updateUser: (userId: string, updateData: any) => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -173,12 +174,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (meResponse.data?.data && meResponse.data.success) {
             // Response wrapped in ApiResponse with data field containing User object
             userData = meResponse.data.data;
-            userId = userData.id?.toString();
+            userId = String(userData.id);
             console.log("✅ Got user data from /auth/me:", userData);
           } else if (meResponse.data?.id) {
             // Fallback: Response is direct User object (shouldn't happen with new backend)
             userData = meResponse.data;
-            userId = userData.id?.toString();
+            userId = String(userData.id);
             console.log(
               "✅ Got user data (direct format) from /auth/me:",
               userData
@@ -213,7 +214,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setError("User not found");
           return null;
         }
-        userId = userData.id?.toString();
+        userId = String(userData.id);
       }
 
       // Fetch additional user stats
@@ -253,6 +254,58 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUserCache({});
   };
 
+  const updateUser = async (
+    userId: string,
+    updateData: any
+  ): Promise<boolean> => {
+    try {
+      // Call update endpoint - should return User object
+      const updateResponse = await axiosClient.put(
+        `/auth/users/${userId}`,
+        updateData
+      );
+
+      // Check if update was successful (status 200)
+      if (updateResponse.status === 200) {
+        // Response should contain User object
+        const updatedUserData = updateResponse.data;
+
+        if (!updatedUserData?.id) {
+          console.error("Invalid response: no user id");
+          return false;
+        }
+
+        // Normalize id to string and update currentUser state
+        const updatedUser = {
+          id: String(updatedUserData.id),
+          username: updatedUserData.username,
+          fullName: updatedUserData.name ?? updatedUserData.username,
+          avatar:
+            buildS3Url(updatedUserData.avatarUrl) ??
+            "https://i.pravatar.cc/150?img=5",
+          bio: updatedUserData.bio ?? "",
+          phone: updatedUserData.phone,
+          gender: updatedUserData.gender,
+          name: updatedUserData.name,
+          birthday: updatedUserData.birthday,
+        };
+
+        // Update state and localStorage
+        setCurrentUser(updatedUser as User);
+        localStorage.setItem("current_user", JSON.stringify(updatedUser));
+
+        // Clear cache to force refresh
+        clearCache();
+
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error("Error updating user:", error);
+      return false;
+    }
+  };
+
   useEffect(() => {
     // Load user khi app khởi động
     refreshUser();
@@ -285,6 +338,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         fetchUserByUsername,
         fetchUserStats,
         clearCache,
+        updateUser,
       }}
     >
       {children}

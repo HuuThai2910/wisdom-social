@@ -2,14 +2,15 @@ import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { getCurrentUser } from "../utils/auth";
-import axiosClient from "../api/axiosClient";
+import { useAuth } from "../contexts/AuthContext";
 
 export default function EditProfile() {
   const navigate = useNavigate();
   const currentUser = getCurrentUser();
+  const { updateUser: updateUserInContext } = useAuth();
 
   const [formData, setFormData] = useState({
-    fullName: "",
+    name: "",
     bio: "",
     gender: "OTHER" as "MALE" | "FEMALE" | "OTHER",
     avatarUrl: "",
@@ -21,17 +22,15 @@ export default function EditProfile() {
   useEffect(() => {
     if (currentUser) {
       const initialFormData = {
-        fullName: currentUser.fullName || currentUser.name || "",
-        bio: currentUser.bio || "",
+        name: currentUser.fullName ?? currentUser.name ?? "",
+        bio: currentUser.bio ?? "",
         gender:
-          (currentUser.gender?.toString().toUpperCase() as
-            | "MALE"
-            | "FEMALE"
-            | "OTHER") || "OTHER",
-        avatarUrl: currentUser.avatar || "",
+          (currentUser.gender?.toUpperCase() as "MALE" | "FEMALE" | "OTHER") ??
+          "OTHER",
+        avatarUrl: currentUser.avatar ?? "",
       };
       setFormData(initialFormData);
-      setPreviewAvatar(currentUser.avatar || "https://i.pravatar.cc/150?img=5");
+      setPreviewAvatar(currentUser.avatar ?? "https://i.pravatar.cc/150?img=5");
     }
   }, []);
 
@@ -41,31 +40,21 @@ export default function EditProfile() {
 
     setLoading(true);
     try {
-      const response = await axiosClient.put(
-        `/users/${currentUser.userId}`,
-        formData
-      );
+      // Prepare data to send to backend (name instead of fullName)
+      const updateData = {
+        name: formData.name,
+        bio: formData.bio,
+        gender: formData.gender,
+        avatarUrl: formData.avatarUrl,
+      };
 
-      if (response.data.success) {
-        // Get updated user data from backend response
-        const updatedUserData = response.data.data;
+      const success = await updateUserInContext(currentUser.id, updateData);
 
-        // Update localStorage with new user data from server
-        const updatedUser = {
-          userId: updatedUserData.id,
-          username: updatedUserData.username,
-          fullName: updatedUserData.name || updatedUserData.username,
-          name: updatedUserData.name,
-          avatar:
-            updatedUserData.avatarUrl || "https://i.pravatar.cc/150?img=5",
-          bio: updatedUserData.bio || "",
-          phone: updatedUserData.phone,
-          gender: updatedUserData.gender,
-        };
-        localStorage.setItem("current_user", JSON.stringify(updatedUser));
-
+      if (success) {
         // Navigate back to profile
         navigate(`/profile/${currentUser.username}`);
+      } else {
+        alert("Failed to update profile. Please try again.");
       }
     } catch (error) {
       console.error("Error updating profile:", error);
@@ -113,7 +102,7 @@ export default function EditProfile() {
                 {currentUser.username}
               </p>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                {formData.fullName || currentUser.name}
+                {formData.name || currentUser.name}
               </p>
             </div>
             <button
@@ -138,9 +127,9 @@ export default function EditProfile() {
             </label>
             <input
               type="text"
-              value={formData.fullName}
+              value={formData.name}
               onChange={(e) =>
-                setFormData((prev) => ({ ...prev, fullName: e.target.value }))
+                setFormData((prev) => ({ ...prev, name: e.target.value }))
               }
               className="w-full px-4 py-3 border border-gray-300 dark:border-[#262626] rounded-lg bg-white dark:bg-[#121212] dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Enter your full name"

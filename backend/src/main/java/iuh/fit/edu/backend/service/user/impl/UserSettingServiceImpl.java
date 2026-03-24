@@ -104,7 +104,7 @@ public class UserSettingServiceImpl implements UserSettingService {
                 .avatarUrl(null)
                 .birthday("*****")
                 .bio("*****")
-                .gender(Gender.HIDDEN)
+                .gender(Gender.OTHER)
                 .createdAt(user.getCreatedAt())
                 .updatedAt(user.getUpdatedAt())
                 .friendCount(0L)
