@@ -1,7 +1,13 @@
 import type { ApiResponse } from "../types";
 import axiosClient from "../api/axiosClient";
 
-export type MessageType = "TEXT" | "IMAGE" | "VIDEO" | "FILE" | "AUDIO";
+export type MessageType =
+    | "TEXT"
+    | "IMAGE"
+    | "VIDEO"
+    | "FILE"
+    | "AUDIO"
+    | "CALL";
 
 export interface Message {
     id: string;
@@ -57,6 +63,13 @@ export interface SendMessageRequest {
     conversationId: number;
 }
 
+export interface SendCallMessageRequest {
+    conversationId: number;
+    callType: "audio" | "video";
+    status: "calling" | "ringing" | "accepted" | "rejected" | "ended";
+    durationSeconds: number;
+}
+
 export interface PresignedUrlResponse {
     presignedUrl: string;
     objectKey: string;
@@ -104,6 +117,17 @@ const chatService = {
     ): Promise<Message> {
         const response = await axiosClient.post(
             `/messages/send?userId=${userId}`,
+            request,
+        );
+        return response.data;
+    },
+
+    async sendCallMessage(
+        request: SendCallMessageRequest,
+        userId: number,
+    ): Promise<Message> {
+        const response = await axiosClient.post(
+            `/messages/call?userId=${userId}`,
             request,
         );
         return response.data;

@@ -47,7 +47,7 @@ function getConversationDisplayInfo(
         conversation.type === "GROUP"
             ? conversation.name
             : conversation.members?.find((m) => m.userId !== userId)
-                  ?.nickname || "Unknown";
+                ?.nickname || "Unknown";
 
     const displayAvatar =
         conversation.type === "GROUP"
@@ -974,6 +974,7 @@ export function useChatWindowController(args: {
         handleDeleteMessageForMe,
         handleDeleteConversationForMe,
         handleFileUpload,
+        appendRealtimeMessage: handleNewMessage,
         scrollToBottom,
         recallToast,
 

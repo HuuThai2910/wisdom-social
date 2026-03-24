@@ -12,6 +12,10 @@ import {
     Paperclip,
     Play,
     Pause,
+    Phone,
+    PhoneOff,
+    Video,
+    VideoOff,
 } from "lucide-react";
 import type { Message } from "../../services/chatService";
 
@@ -22,9 +26,12 @@ import type { Message } from "../../services/chatService";
 function isEmojiOnly(text: string): boolean {
     if (!text) return false;
     // Regex khớp các ký tự emoji và whitespace
-    const emojiRegex = /^[\p{Emoji_Presentation}\p{Extended_Pictographic}\u200d\ufe0f\s]+$/u;
+    const emojiRegex =
+        /^[\p{Emoji_Presentation}\p{Extended_Pictographic}\u200d\ufe0f\s]+$/u;
     // Kiểm tra có ít nhất 1 emoji và không có ký tự text thường
-    const hasEmoji = /[\p{Emoji_Presentation}\p{Extended_Pictographic}]/u.test(text);
+    const hasEmoji = /[\p{Emoji_Presentation}\p{Extended_Pictographic}]/u.test(
+        text,
+    );
     return hasEmoji && emojiRegex.test(text.trim());
 }
 
@@ -173,6 +180,7 @@ export interface MessageBubbleProps {
     conversationType?: "DIRECT" | "GROUP";
     defaultAvatarSmallUrl: string;
     onRecall: (messageId: string) => void;
+    onRecallCall?: (callType: "audio" | "video") => void;
     onDeleteForMe: (messageId: string) => void;
     onMediaLoad?: () => void;
     isFirstInGroup?: boolean;
@@ -185,6 +193,7 @@ export function MessageBubble({
     conversationType,
     defaultAvatarSmallUrl,
     onRecall,
+    onRecallCall,
     onDeleteForMe,
     onMediaLoad,
     isFirstInGroup = true,
@@ -225,15 +234,19 @@ export function MessageBubble({
     const menuItemBase =
         "flex items-center gap-3 w-full px-4 py-2.5 text-sm text-left hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors";
 
-    const timeStr = new Date(message.createdAt).toLocaleTimeString("vi-VN", {
-        hour: "2-digit",
-        minute: "2-digit",
-    });
+    const messageDate = new Date(message.createdAt);
+    const validMessageDate = Number.isFinite(messageDate.getTime());
+    const timeStr = validMessageDate
+        ? messageDate.toLocaleTimeString("vi-VN", {
+              hour: "2-digit",
+              minute: "2-digit",
+          })
+        : "";
 
     // Tooltip giờ có ngữ cảnh: hôm nay → giờ, hôm qua → "Hôm qua HH:MM", cũ → "D Tháng M, YYYY HH:MM"
     const tooltipTimeStr = (() => {
         const date = new Date(message.createdAt);
-        if (!Number.isFinite(date.getTime())) return timeStr;
+        if (!Number.isFinite(date.getTime())) return "";
         const now = new Date();
         const diffDays = Math.round(
             (Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) -
@@ -252,6 +265,72 @@ export function MessageBubble({
 
     const fileNameFromUrl =
         message.content?.split("/").pop()?.split("?")[0] ?? "Tệp đính kèm";
+
+    const callMeta = useMemo(() => {
+        if (message.type !== "CALL") return null;
+
+        const formatDuration = (seconds: number) => {
+            const total = Math.max(0, seconds);
+            if (total < 60) return `${total} giây`;
+            const minutes = Math.floor(total / 60);
+            const remain = total % 60;
+            if (!remain) return `${minutes} phút`;
+            return `${minutes} phút ${remain} giây`;
+        };
+
+        try {
+            const parsed = JSON.parse(message.content) as {
+                callType?: "audio" | "video";
+                status?:
+                    | "calling"
+                    | "ringing"
+                    | "accepted"
+                    | "rejected"
+                    | "ended";
+                durationSeconds?: number;
+            };
+
+            const callType: "audio" | "video" =
+                parsed.callType === "video" ? "video" : "audio";
+            const duration = Math.max(0, Number(parsed.durationSeconds ?? 0));
+            const status = parsed.status;
+            const isMissed =
+                duration === 0 &&
+                (status === "rejected" ||
+                    status === "ringing" ||
+                    status === "calling" ||
+                    status === "ended");
+
+            const baseLabel =
+                callType === "video" ? "cuộc gọi video" : "cuộc gọi thoại";
+
+            return {
+                callType,
+                isMissed,
+                title: isMissed
+                    ? `Đã bỏ lỡ ${baseLabel}`
+                    : callType === "video"
+                      ? "Cuộc gọi video"
+                      : "Cuộc gọi thoại",
+                subtitle: isMissed ? timeStr : formatDuration(duration),
+            };
+        } catch {
+            const inferredType: "audio" | "video" = message.content
+                .toLowerCase()
+                .includes("video")
+                ? "video"
+                : "audio";
+            return {
+                callType: inferredType,
+                isMissed: false,
+                title:
+                    inferredType === "video"
+                        ? "Cuộc gọi video"
+                        : "Cuộc gọi thoại",
+                subtitle: timeStr,
+            };
+        }
+    }, [message.content, message.type, timeStr]);
 
     const timeColorInside = message.isRecalled
         ? "text-gray-400 dark:text-gray-500"
@@ -421,9 +500,13 @@ export function MessageBubble({
                     )}
 
                 {/* Bubble hoặc Emoji-only */}
-                {message.type === "TEXT" && !message.isRecalled && isEmojiOnly(message.content) ? (
+                {message.type === "TEXT" &&
+                !message.isRecalled &&
+                isEmojiOnly(message.content) ? (
                     // Emoji-only: không có background, text lớn
-                    <p className="text-4xl leading-tight px-1">{message.content}</p>
+                    <p className="text-4xl leading-tight px-1">
+                        {message.content}
+                    </p>
                 ) : (
                     // Bubble bình thường với background
                     <div
@@ -481,8 +564,61 @@ export function MessageBubble({
                                     </span>
                                 </a>
                             </div>
+                        ) : message.type === "CALL" ? (
+                            <button
+                                type="button"
+                                onClick={() =>
+                                    callMeta &&
+                                    onRecallCall?.(callMeta.callType)
+                                }
+                                className="w-full px-3 py-2.5 text-left hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer"
+                                title="Gọi lại"
+                            >
+                                <div className="flex items-center gap-2.5">
+                                    <span className="w-9 h-9 rounded-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 flex items-center justify-center shrink-0">
+                                        {callMeta?.isMissed ? (
+                                            callMeta.callType === "video" ? (
+                                                <VideoOff
+                                                    size={18}
+                                                    className="text-gray-900 dark:text-gray-100"
+                                                />
+                                            ) : (
+                                                <PhoneOff
+                                                    size={18}
+                                                    className="text-gray-900 dark:text-gray-100"
+                                                />
+                                            )
+                                        ) : callMeta?.callType === "video" ? (
+                                            <Video
+                                                size={18}
+                                                className="text-gray-900 dark:text-gray-100"
+                                            />
+                                        ) : (
+                                            <Phone
+                                                size={18}
+                                                className="text-gray-900 dark:text-gray-100"
+                                            />
+                                        )}
+                                    </span>
+
+                                    <span className="min-w-0">
+                                        <span className="block text-sm leading-5 font-semibold text-gray-900 dark:text-gray-100 break-words">
+                                            {callMeta?.title}
+                                        </span>
+                                        <span className="block mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                                            {callMeta?.subtitle}
+                                        </span>
+                                    </span>
+                                </div>
+
+                                <span className="mt-2 block rounded-xl bg-gray-200 dark:bg-gray-700 py-1.5 text-center text-base font-semibold text-gray-900 dark:text-gray-100">
+                                    Gọi lại
+                                </span>
+                            </button>
                         ) : (
-                            <p className="px-4 py-2 text-sm">{message.content}</p>
+                            <p className="px-4 py-2 text-sm">
+                                {message.content}
+                            </p>
                         )}
                     </div>
                 )}

@@ -24,6 +24,9 @@ import {
 import EmojiPicker, { Emoji, EmojiStyle, type EmojiClickData, Theme } from "emoji-picker-react";
 import { useChatWindowController } from "../../hooks/useChatWindowController";
 import { MessageBubble } from "./MessageBubble";
+import { useCall } from "../../hooks/useCall";
+import IncomingCallModal from "./IncomingCallModal";
+import CallScreen from "./CallScreen";
 
 interface ChatWindowProps {
     conversationId: number;
@@ -65,6 +68,7 @@ export default function ChatWindow({
         handleRecall,
         handleDeleteMessageForMe,
         handleFileUpload,
+        appendRealtimeMessage,
         scrollToBottom,
         recallToast,
 
@@ -82,6 +86,66 @@ export default function ChatWindow({
 
         readReceipts,
     } = useChatWindowController({ conversationId, userId, onMarkAsRead });
+
+    const otherMember = useMemo(
+        () => conversation?.members?.find((m) => m.userId !== userId),
+        [conversation?.members, userId],
+    );
+
+    const targetMemberIds = useMemo(
+        () =>
+            (conversation?.members ?? [])
+                .filter((m) => m.userId !== userId)
+                .map((m) => m.userId),
+        [conversation?.members, userId],
+    );
+
+    const {
+        incomingCall,
+        activeCall,
+        localStream,
+        remoteStream,
+        remoteStreams,
+        callDurationText,
+        micEnabled,
+        cameraEnabled,
+        isScreenSharing,
+        canToggleCamera,
+        canShareScreen,
+        startCall,
+        acceptIncomingCall,
+        rejectIncomingCall,
+        endCall,
+        toggleMic,
+        toggleCamera,
+        toggleScreenShare,
+    } = useCall({
+        conversationId,
+        userId,
+        targetUserIds: targetMemberIds,
+        targetUserId: otherMember?.userId,
+        targetName: otherMember?.nickname,
+        targetAvatar: otherMember?.avatar,
+        onCallMessageSaved: appendRealtimeMessage,
+    });
+
+    const callParticipants = useMemo(() => {
+        if (!activeCall || conversation?.type !== "GROUP") return [];
+
+        const callMemberIds = new Set<number>(activeCall.remoteUserIds);
+
+        if (!activeCall.isCaller) {
+            callMemberIds.add(userId);
+        }
+
+        return (conversation.members ?? [])
+            .filter((member) => callMemberIds.has(member.userId))
+            .map((member) => ({
+                userId: member.userId,
+                name: member.nickname || member.username,
+                avatar: member.avatar,
+            }));
+    }, [activeCall, conversation?.members, conversation?.type, userId]);
 
     const [plusMenuOpen, setPlusMenuOpen] = useState(false);
     const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
@@ -211,6 +275,9 @@ export default function ChatWindow({
             const message = messages[idx];
             const prevMsg = messages[idx - 1];
             const nextMsg = messages[idx + 1];
+            const stableMessageKey =
+                message.id ||
+                `${message.senderId}-${message.createdAt || "unknown"}-${idx}`;
 
             const createdAt = new Date(message.createdAt);
             const validDate = Number.isFinite(createdAt.getTime());
@@ -220,7 +287,7 @@ export default function ChatWindow({
             if (dayKey !== previousDayKey) {
                 items.push(
                     <div
-                        key={`date-sep-${message.id}-${dayKey}`}
+                        key={`date-sep-${stableMessageKey}-${dayKey}`}
                         className="flex justify-center py-2 mt-4 first:mt-0"
                     >
                         <div className="px-3 py-1 rounded-md bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-100 text-xs">
@@ -271,15 +338,17 @@ export default function ChatWindow({
 
             items.push(
                 <div
-                    key={message.id}
-                    className={`${isFirstInGroup ? "mt-3" : "mt-2"} overflow-visible`}
+                    key={stableMessageKey}
+                    className={isFirstInGroup ? "mt-3" : "mt-2"}
                 >
+                    
                     <MessageBubble
                         message={message}
                         isOwn={isOwn}
                         conversationType={conversation?.type}
                         defaultAvatarSmallUrl={defaultAvatarSmallUrl}
                         onRecall={handleRecall}
+                        onRecallCall={(callType) => void startCall(callType)}
                         onDeleteForMe={handleDeleteMessageForMe}
                         onMediaLoad={() => {
                             // Chỉ cuộn xuống cuối khi:
@@ -369,10 +438,20 @@ export default function ChatWindow({
                     </div>
                 </div>
                 <div className="flex items-center gap-4">
-                    <button className="hover:text-gray-600 dark:text-white">
+                    <button
+                        className="hover:text-gray-600 dark:text-white disabled:opacity-40"
+                        onClick={() => void startCall("audio")}
+                        disabled={!otherMember}
+                        title="Gọi thoại"
+                    >
                         <Phone size={20} />
                     </button>
-                    <button className="hover:text-gray-600 dark:text-white">
+                    <button
+                        className="hover:text-gray-600 dark:text-white disabled:opacity-40"
+                        onClick={() => void startCall("video")}
+                        disabled={!otherMember}
+                        title="Gọi video"
+                    >
                         <Video size={20} />
                     </button>
                     <button className="hover:text-gray-600 dark:text-white">
@@ -677,6 +756,45 @@ export default function ChatWindow({
                     </div>
                 )}
             </div>
+
+            <IncomingCallModal
+                open={Boolean(incomingCall)}
+                callerName={
+                    conversation?.members?.find(
+                        (m) => m.userId === incomingCall?.fromUserId,
+                    )?.nickname ||
+                    `Người dùng ${incomingCall?.fromUserId ?? ""}`
+                }
+                callType={incomingCall?.callType || "audio"}
+                onAccept={() => void acceptIncomingCall()}
+                onReject={rejectIncomingCall}
+            />
+
+            <CallScreen
+                open={Boolean(activeCall)}
+                callType={activeCall?.callType || "audio"}
+                remoteName={
+                    activeCall?.remoteName ||
+                    otherMember?.nickname ||
+                    "Người dùng"
+                }
+                remoteAvatar={activeCall?.remoteAvatar || otherMember?.avatar}
+                status={activeCall?.status || "calling"}
+                durationText={callDurationText}
+                localStream={localStream}
+                remoteStream={remoteStream}
+                remoteStreams={remoteStreams}
+                participants={callParticipants}
+                micEnabled={micEnabled}
+                cameraEnabled={cameraEnabled}
+                isScreenSharing={isScreenSharing}
+                canToggleCamera={canToggleCamera}
+                canShareScreen={canShareScreen}
+                onToggleMic={toggleMic}
+                onToggleCamera={toggleCamera}
+                onToggleScreenShare={() => void toggleScreenShare()}
+                onEndCall={() => void endCall()}
+            />
         </div>
     );
 }

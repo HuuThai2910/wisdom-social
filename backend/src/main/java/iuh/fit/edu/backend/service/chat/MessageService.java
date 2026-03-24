@@ -3,13 +3,14 @@
  * Copyright (c)  IUH. All rights reserved.
  */
 package iuh.fit.edu.backend.service.chat;/*
- * @description
- * @author: Huu Thai
- * @date:
- * @version: 1.0
- */
+                                         * @description
+                                         * @author: Huu Thai
+                                         * @date:
+                                         * @version: 1.0
+                                         */
 
 import iuh.fit.edu.backend.dto.request.SendMessageRequest;
+import iuh.fit.edu.backend.dto.request.SendCallMessageRequest;
 import iuh.fit.edu.backend.dto.response.CursorResponse;
 import iuh.fit.edu.backend.dto.response.message.MessageRecalledResponse;
 import iuh.fit.edu.backend.dto.response.message.MessageResponse;
@@ -22,6 +23,7 @@ import java.util.List;
 public interface MessageService {
     MessageResponse sendMessage(SendMessageRequest sendMessageRequest, Long userId);
 
+    MessageResponse sendCallMessage(SendCallMessageRequest sendCallMessageRequest, Long userId);
 
     MessageRecalledResponse recallMessage(String messageId, Long userId);
 
@@ -32,6 +34,5 @@ public interface MessageService {
             Long conversationId,
             Long userId,
             Instant before,
-            int limit
-    );
+            int limit);
 }

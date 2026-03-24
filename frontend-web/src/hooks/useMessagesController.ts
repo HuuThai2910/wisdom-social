@@ -6,6 +6,8 @@ import websocketService, {
 } from "../services/websocket";
 import { DEFAULT_AVATAR_URL, DEFAULT_GROUP_AVATAR_URL } from "../constants/ui";
 
+const LAST_USER_ID_KEY = "ws_user_id";
+
 /**
  * parseOptionalInt
  * - Nhận vào string (thường lấy từ URL params) và convert sang number.
@@ -60,6 +62,10 @@ export function useMessagesController() {
 
     // currentUserId: lấy từ query (?userId=...). Nếu thiếu/không hợp lệ => fallback.
     const currentUserId = parseIntWithFallback(searchParams.get("userId"), 1);
+
+    useEffect(() => {
+        localStorage.setItem(LAST_USER_ID_KEY, String(currentUserId));
+    }, [currentUserId]);
 
     // ====== Refs chống stale-closure (đặc biệt cho websocket callbacks) ======
     // Lý do: callback subscribe có thể chạy sau nhiều render; dùng ref để đọc giá trị mới nhất.
@@ -309,7 +315,7 @@ export function useMessagesController() {
                 conv.type === "GROUP"
                     ? conv.name
                     : conv.members?.find((m) => m.userId !== currentUserId)
-                          ?.nickname;
+                        ?.nickname;
             return displayName?.toLowerCase().includes(trimmed);
         });
     }, [conversations, currentUserId, searchQuery]);
