@@ -7,13 +7,13 @@ import iuh.fit.edu.backend.domain.entity.mysql.Page;
 import iuh.fit.edu.backend.domain.entity.mysql.PagePost;
 import iuh.fit.edu.backend.domain.entity.mysql.User;
 import iuh.fit.edu.backend.domain.entity.nosql.Post;
-import iuh.fit.edu.backend.dto.request.CreatePostRequest;
 import iuh.fit.edu.backend.dto.request.page.*;
+import iuh.fit.edu.backend.dto.request.post.CreatePostRequest;
 import iuh.fit.edu.backend.dto.response.ApiResponse;
-import iuh.fit.edu.backend.service.PostService;
 import iuh.fit.edu.backend.service.page.PageMemberService;
 import iuh.fit.edu.backend.service.page.PageService;
 import iuh.fit.edu.backend.service.page.PagePostService;
+import iuh.fit.edu.backend.service.post.PostService;
 import iuh.fit.edu.backend.service.user.UserService;
 import iuh.fit.edu.backend.service.s3.S3Service;
 import iuh.fit.edu.backend.util.anotation.ApiMessage;
@@ -238,7 +238,7 @@ public class PageController {
     @PostMapping(path = "/post/add",consumes = {"multipart/form-data"})
     @ApiMessage("Add post to page successfully")
     public ResponseEntity<String> addPostPage(@RequestParam("postData") String postDataJson,
-                                              @RequestParam(value = "images", required = false) List<MultipartFile> images,
+                                              @RequestParam(value = "images", required = false) List<String> images,
                                                @RequestParam long pageId) throws JsonProcessingException {
 
         User user=userService.getCurrentUser();

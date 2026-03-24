@@ -14,6 +14,7 @@ import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignReques
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -36,7 +37,6 @@ public class S3ServiceImpl implements S3Service {
 
     @Override
     public Map<String, String> generateUpdateUploadUrl(String type, String id, String extension) {
-        validateExtension(extension);
         String contentType = getContentType(extension);
 
         String uuid = UUID.randomUUID().toString();
