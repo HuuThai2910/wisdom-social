@@ -6,23 +6,7 @@ import { logout } from "../../utils/auth";
 import axiosClient from "../../api/axiosClient";
 import NoteModal from "./NoteModal";
 
-interface NoteMusic {
-  title: string;
-  artist: string;
-  coverUrl: string;
-  previewUrl: string;
-}
-
-interface Note {
-  id: string;
-  userId: string;
-  content: string;
-  emoji: string;
-  location?: string;
-  music?: NoteMusic;
-  createdAt: string;
-  expireAt: string;
-}
+import type { Note } from "../../types/note";
 
 interface ProfileHeaderProps {
   user: User;
@@ -123,7 +107,7 @@ export default function ProfileHeader({
                 {isOwnProfile ? (
                   <>
                     <Link
-                      to="/edit-profile"
+                      to="/"
                       className="px-4 py-[7px] bg-[#efefef] dark:bg-[#262626] hover:bg-[#dbdbdb] dark:hover:bg-[#363636] rounded-lg text-sm font-semibold dark:text-white"
                     >
                       Edit profile

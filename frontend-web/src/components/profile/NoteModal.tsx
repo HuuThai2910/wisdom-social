@@ -1,54 +1,15 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import {
-  X,
-  Trash2,
-  MapPin,
-  Music,
-  Search,
-  Smile,
-  Play,
-  Pause,
-} from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { X, Trash2, MapPin, Music, Smile, Play, Pause } from "lucide-react";
 import EmojiPicker, {
   type EmojiClickData,
   type Theme,
 } from "emoji-picker-react";
 import axiosClient from "../../api/axiosClient";
+import MusicSelector from "./MusicSelector";
+import { type MusicMetadata } from "../../services/musicService";
+import type { Note, NoteMusic, NoteModalProps } from "../../types/note";
 
 const MAX_CHARS = 200;
-
-interface MusicTrack {
-  trackId: number;
-  trackName: string;
-  artistName: string;
-  artworkUrl60: string;
-  previewUrl: string;
-}
-
-interface NoteMusic {
-  title: string;
-  artist: string;
-  coverUrl: string;
-  previewUrl: string;
-}
-
-interface Note {
-  id: string;
-  userId: string;
-  content: string;
-  emoji: string;
-  location?: string;
-  music?: NoteMusic;
-  createdAt: string;
-  expireAt: string;
-}
-
-interface NoteModalProps {
-  userId: string;
-  isOwnProfile: boolean;
-  onClose: () => void;
-  onNoteChange?: (note: Note | null) => void;
-}
 
 export default function NoteModal({
   userId,
@@ -65,7 +26,9 @@ export default function NoteModal({
   // edit fields
   const [content, setContent] = useState("");
   const [location, setLocation] = useState("");
-  const [selectedMusic, setSelectedMusic] = useState<MusicTrack | null>(null);
+  const [selectedMusic, setSelectedMusic] = useState<MusicMetadata | null>(
+    null
+  );
 
   // emoji picker
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -74,13 +37,9 @@ export default function NoteModal({
   const [pickerPos, setPickerPos] = useState({ top: 0, left: 0 });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // music search
-  const [musicQuery, setMusicQuery] = useState("");
-  const [musicResults, setMusicResults] = useState<MusicTrack[]>([]);
-  const [musicSearching, setMusicSearching] = useState(false);
-  const [showMusicSearch, setShowMusicSearch] = useState(false);
-  const musicSearchRef = useRef<HTMLDivElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // music selector
+  const [showMusicSelector, setShowMusicSelector] = useState(false);
+  const musicSelectorRef = useRef<HTMLDivElement>(null);
 
   // audio preview
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -89,17 +48,8 @@ export default function NoteModal({
   const prefillEdit = (n: Note) => {
     setContent(n.content || "");
     setLocation(n.location || "");
-    if (n.music) {
-      setSelectedMusic({
-        trackId: 0,
-        trackName: n.music.title,
-        artistName: n.music.artist,
-        artworkUrl60: n.music.coverUrl,
-        previewUrl: n.music.previewUrl,
-      });
-    } else {
-      setSelectedMusic(null);
-    }
+    // Note: Music from API stores title/artist, not full MusicMetadata
+    setSelectedMusic(null);
   };
 
   // Fetch existing note
@@ -135,11 +85,11 @@ export default function NoteModal({
     return () => document.removeEventListener("mousedown", h);
   }, []);
 
-  // Close music search on outside click
+  // Close music selector on outside click
   useEffect(() => {
     const h = (e: MouseEvent) => {
-      if (!musicSearchRef.current?.contains(e.target as Node))
-        setShowMusicSearch(false);
+      if (!musicSelectorRef.current?.contains(e.target as Node))
+        setShowMusicSelector(false);
     };
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
@@ -171,36 +121,6 @@ export default function NoteModal({
     });
   };
 
-  // iTunes Search API for music
-  const searchMusic = useCallback(async (q: string) => {
-    if (!q.trim()) {
-      setMusicResults([]);
-      return;
-    }
-    setMusicSearching(true);
-    try {
-      const res = await fetch(
-        `https://itunes.apple.com/search?term=${encodeURIComponent(
-          q
-        )}&media=music&limit=10`
-      );
-      const json = await res.json();
-      setMusicResults(
-        (json.results as MusicTrack[]).filter((t) => t.previewUrl)
-      );
-    } catch {
-      setMusicResults([]);
-    } finally {
-      setMusicSearching(false);
-    }
-  }, []);
-
-  const handleMusicQueryChange = (v: string) => {
-    setMusicQuery(v);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => searchMusic(v), 400);
-  };
-
   // Audio preview toggle
   const togglePreview = (url: string) => {
     if (playingUrl === url) {
@@ -210,7 +130,7 @@ export default function NoteModal({
       audioRef.current?.pause();
       const a = new Audio(url);
       a.onended = () => setPlayingUrl(null);
-      a.play().catch(() => {});
+      a.play().catch((err) => console.error("Error playing audio:", err));
       audioRef.current = a;
       setPlayingUrl(url);
     }
@@ -229,10 +149,10 @@ export default function NoteModal({
       if (content.trim()) body.content = content.trim();
       if (location.trim()) body.location = location.trim();
       if (selectedMusic) {
-        body.musicTitle = selectedMusic.trackName;
-        body.musicArtist = selectedMusic.artistName;
-        body.musicPreviewUrl = selectedMusic.previewUrl;
-        body.musicCoverUrl = selectedMusic.artworkUrl60;
+        body.musicTitle = selectedMusic.title;
+        body.musicArtist = selectedMusic.artist;
+        body.musicPreviewUrl = selectedMusic.audioUrl;
+        body.musicCoverUrl = selectedMusic.imageUrl;
       }
       const res = await axiosClient.post("/notes", body);
       const saved: Note = res.data.data;
@@ -409,28 +329,29 @@ export default function NoteModal({
               </div>
 
               {/* Music */}
-              <div ref={musicSearchRef} className="space-y-2">
+              <div ref={musicSelectorRef} className="space-y-2">
                 {selectedMusic ? (
-                  /* Selected track chip */
-                  <div className="flex items-center gap-3 px-3 py-2 border dark:border-gray-700 rounded-xl dark:bg-gray-800">
+                  /* Selected music chip */
+                  <div className="flex items-center gap-3 px-3 py-2 border dark:border-gray-700 rounded-xl dark:bg-gray-800 bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
                     <img
-                      src={selectedMusic.artworkUrl60}
-                      alt={selectedMusic.trackName}
+                      src={selectedMusic.imageUrl}
+                      alt={selectedMusic.title}
                       className="w-9 h-9 rounded-lg object-cover shrink-0"
                     />
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-semibold dark:text-white truncate">
-                        {selectedMusic.trackName}
+                        {selectedMusic.title}
                       </p>
                       <p className="text-[11px] text-gray-500 truncate">
-                        {selectedMusic.artistName}
+                        {selectedMusic.artist}
                       </p>
                     </div>
                     <button
-                      onClick={() => togglePreview(selectedMusic.previewUrl)}
+                      onClick={() => togglePreview(selectedMusic.audioUrl)}
                       className="p-1.5 rounded-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                      title="Preview music"
                     >
-                      {playingUrl === selectedMusic.previewUrl ? (
+                      {playingUrl === selectedMusic.audioUrl ? (
                         <Pause className="w-3 h-3 text-gray-700 dark:text-gray-300" />
                       ) : (
                         <Play className="w-3 h-3 text-gray-700 dark:text-gray-300" />
@@ -443,94 +364,34 @@ export default function NoteModal({
                         setPlayingUrl(null);
                       }}
                       className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                      title="Remove music"
                     >
                       <X className="w-4 h-4" />
                     </button>
                   </div>
                 ) : (
-                  /* Music search trigger button */
+                  /* Music selector trigger button */
                   <button
                     type="button"
-                    onClick={() => setShowMusicSearch((p) => !p)}
+                    onClick={() => setShowMusicSelector((p) => !p)}
                     className="w-full flex items-center gap-2 px-3 py-2 border dark:border-gray-700 rounded-xl dark:bg-gray-800 text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                   >
                     <Music className="w-4 h-4 shrink-0" />
-                    <span>Add music...</span>
+                    <span>Add music from library...</span>
                   </button>
                 )}
 
-                {/* Music search panel */}
-                {showMusicSearch && !selectedMusic && (
-                  <div className="border dark:border-gray-700 rounded-xl overflow-hidden dark:bg-gray-800">
-                    <div className="flex items-center gap-2 px-3 py-2 border-b dark:border-gray-700">
-                      <Search className="w-4 h-4 text-gray-400 shrink-0" />
-                      <input
-                        autoFocus
-                        type="text"
-                        value={musicQuery}
-                        onChange={(e) => handleMusicQueryChange(e.target.value)}
-                        placeholder="Search songs, artists..."
-                        className="flex-1 text-sm bg-transparent dark:text-white focus:outline-none"
-                      />
-                      {musicSearching && (
-                        <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin shrink-0" />
-                      )}
-                    </div>
-                    <div className="max-h-52 overflow-y-auto">
-                      {!musicQuery && (
-                        <p className="text-xs text-gray-400 text-center py-4">
-                          Type to search music
-                        </p>
-                      )}
-                      {musicResults.length === 0 &&
-                        musicQuery &&
-                        !musicSearching && (
-                          <p className="text-xs text-gray-400 text-center py-4">
-                            No results
-                          </p>
-                        )}
-                      {musicResults.map((track) => (
-                        <button
-                          key={track.trackId}
-                          className="w-full flex items-center gap-3 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-left"
-                          onClick={() => {
-                            setSelectedMusic(track);
-                            setShowMusicSearch(false);
-                            setMusicQuery("");
-                            setMusicResults([]);
-                          }}
-                        >
-                          <img
-                            src={track.artworkUrl60}
-                            alt={track.trackName}
-                            className="w-9 h-9 rounded-lg object-cover shrink-0"
-                          />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-semibold dark:text-white truncate">
-                              {track.trackName}
-                            </p>
-                            <p className="text-[11px] text-gray-500 truncate">
-                              {track.artistName}
-                            </p>
-                          </div>
-                          <button
-                            onMouseDown={(e) => e.stopPropagation()}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              togglePreview(track.previewUrl);
-                            }}
-                            className="p-1.5 rounded-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors shrink-0"
-                          >
-                            {playingUrl === track.previewUrl ? (
-                              <Pause className="w-3 h-3 text-gray-700 dark:text-gray-300" />
-                            ) : (
-                              <Play className="w-3 h-3 text-gray-700 dark:text-gray-300" />
-                            )}
-                          </button>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                {/* Music selector panel with search */}
+                {showMusicSelector && !selectedMusic && (
+                  <MusicSelector
+                    onSelect={(music) => {
+                      setSelectedMusic(music);
+                      setShowMusicSelector(false);
+                      audioRef.current?.pause();
+                      setPlayingUrl(null);
+                    }}
+                    onClose={() => setShowMusicSelector(false)}
+                  />
                 )}
               </div>
 
@@ -569,12 +430,13 @@ export default function NoteModal({
                       {note.music.artist}
                     </p>
                   </div>
-                  {note.music.previewUrl && (
+                  {note.music.audioUrl && (
                     <button
-                      onClick={() => togglePreview(note.music!.previewUrl)}
+                      onClick={() => togglePreview(note.music!.audioUrl)}
                       className="p-2 rounded-full bg-white dark:bg-gray-700 shadow hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
+                      title="Play music"
                     >
-                      {playingUrl === note.music.previewUrl ? (
+                      {playingUrl === note.music.audioUrl ? (
                         <Pause className="w-4 h-4 text-gray-700 dark:text-gray-300" />
                       ) : (
                         <Play className="w-4 h-4 text-gray-700 dark:text-gray-300" />

@@ -15,7 +15,7 @@ import java.util.List;
 
 /*
  * @description: Controller for SavedPost operations
- * @author: GitHub Copilot
+ * @author: The Bao
  * @date: 2026-01-31
  * @version: 1.0
  */

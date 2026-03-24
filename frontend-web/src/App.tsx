@@ -34,7 +34,6 @@ import ProfileTaggedPost from "./pages/ProfileTaggedPost";
 import ProfileGeneral from "./pages/ProfileGeneral";
 import CreatePost from "./pages/CreatePost";
 import EditPost from "./pages/EditPost";
-import EditProfile from "./pages/EditProfile";
 import Settings from "./pages/Settings";
 import ProfileLayout from "./components/profile/ProfileLayout";
 
@@ -99,7 +98,6 @@ function App() {
               <Route path="/messages/:conversationId" element={<Messages />} />
               <Route path="/create" element={<CreatePost />} />
               <Route path="/edit-post/:postId" element={<EditPost />} />
-              <Route path="/edit-profile" element={<EditProfile />} />
 
               {/* Profile Routes with nested tabs */}
               <Route path="/profile/:username" element={<ProfileLayout />}>

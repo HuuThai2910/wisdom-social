@@ -15,7 +15,6 @@ import java.util.List;
 
 /*
  * @description: Music metadata management controller
- * Fetch music tracks from MongoDB with Cloudflare R2 integration
  * @author: The Bao
  * @date: 2026-03-23
  */
