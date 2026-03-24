@@ -23,6 +23,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -99,7 +100,7 @@ public class DataSeeder implements CommandLineRunner {
 
     private List<User> createUsers() {
         List<User> users = new ArrayList<>();
-        LocalDateTime now = LocalDateTime.now();
+        OffsetDateTime now = OffsetDateTime.now();
 
         User user1 = new User();
         user1.setPhone("0901234567");

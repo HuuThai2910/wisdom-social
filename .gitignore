@@ -1,0 +1,7 @@
+backend/src/main/resources/application.properties
+<<<<<<< HEAD
+=======
+.env
+package-lock.json
+package.json
+>>>>>>> bfd5bdfd71129f50ffa398818af7f7cabeff2333

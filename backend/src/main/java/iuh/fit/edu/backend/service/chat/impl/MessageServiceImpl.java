@@ -8,6 +8,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import iuh.fit.edu.backend.constant.MessageType;
+import iuh.fit.edu.backend.constant.UploadModule;
 import iuh.fit.edu.backend.domain.entity.mysql.Conversation;
 import iuh.fit.edu.backend.domain.entity.mysql.ConversationMember;
 import iuh.fit.edu.backend.domain.entity.mysql.User;
@@ -28,10 +29,10 @@ import iuh.fit.edu.backend.repository.mysql.ConversationMemberRepository;
 import iuh.fit.edu.backend.repository.mysql.ConversationRepository;
 import iuh.fit.edu.backend.repository.mysql.UserRepository;
 import iuh.fit.edu.backend.repository.nosql.MessageRepository;
-import iuh.fit.edu.backend.service.S3Service;
 import iuh.fit.edu.backend.service.chat.ConversationMemberService;
 import iuh.fit.edu.backend.service.chat.MessageCacheService;
 import iuh.fit.edu.backend.service.chat.MessageService;
+import iuh.fit.edu.backend.service.s3.S3Service;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -213,7 +214,7 @@ public class MessageServiceImpl implements MessageService {
             throw new IllegalArgumentException("Bạn chỉ có thể thu hồi tin nhắn trong vòng 24 giờ");
         }
         if (message.getMessageType() != MessageType.TEXT) {
-            this.s3Service.deleteByKey(message.getContent()); // Truyền Key gốc trong DB vào
+            this.s3Service.deleteByKey(UploadModule.CONVERSATION, message.getContent()); // Truyền Key gốc trong DB vào
         }
         message.setContent("");
         message.setRecalled(true);

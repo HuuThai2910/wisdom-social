@@ -6,7 +6,8 @@ package iuh.fit.edu.backend.controller;
 
 import iuh.fit.edu.backend.constant.UploadModule;
 import iuh.fit.edu.backend.dto.response.PresignedUrlResponse;
-import iuh.fit.edu.backend.service.S3Service;
+
+import iuh.fit.edu.backend.service.s3.S3Service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
