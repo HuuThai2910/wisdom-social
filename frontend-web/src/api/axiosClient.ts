@@ -2,7 +2,7 @@ import axios, { type AxiosInstance } from "axios";
 import { deleteCookie } from "../utils/cookies";
 
 const axiosClient: AxiosInstance = axios.create({
-    baseURL: "http://localhost/api",
+    baseURL: "http://localhost:8080/api",
     withCredentials: true, // Important: Send cookies with requests
     headers: {
         "Content-Type": "application/json",

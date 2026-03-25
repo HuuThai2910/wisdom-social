@@ -15,12 +15,13 @@ import {
     Bookmark,
     RefreshCw,
 } from "lucide-react";
-import { currentUser } from "../../api/mockData";
 import { useTheme } from "../../contexts/ThemeContext";
+import { useAuth } from "../../contexts/AuthContext";
 
 export default function Sidebar() {
     const location = useLocation();
     const { isDark, toggleTheme } = useTheme();
+    const { currentUser } = useAuth();
     const [showMoreMenu, setShowMoreMenu] = useState(false);
 
     const navItems = [
@@ -77,25 +78,27 @@ export default function Sidebar() {
                     })}
 
                     {/* Profile */}
-                    <li>
-                        <Link
-                            to={`/profile/${currentUser.username}`}
-                            className={`flex items-center gap-4 px-3 py-3 rounded-lg transition-all hover:bg-gray-100 dark:hover:bg-[#262626] ${
-                                location.pathname.includes(
-                                    `/profile/${currentUser.username}`,
-                                )
-                                    ? "font-bold"
-                                    : "font-normal"
-                            } dark:text-white`}
-                        >
-                            <img
-                                src={currentUser.avatar}
-                                alt={currentUser.username}
-                                className="w-[26px] h-[26px] rounded-full"
-                            />
-                            <span className="text-[16px]">Profile</span>
-                        </Link>
-                    </li>
+                    {currentUser && (
+                        <li>
+                            <Link
+                                to={`/profile/${currentUser.username}`}
+                                className={`flex items-center gap-4 px-3 py-3 rounded-lg transition-all hover:bg-gray-100 dark:hover:bg-[#262626] ${
+                                    location.pathname.includes(
+                                        `/profile/${currentUser.username}`,
+                                    )
+                                        ? "font-bold"
+                                        : "font-normal"
+                                } dark:text-white`}
+                            >
+                                <img
+                                    src={currentUser.avatar}
+                                    alt={currentUser.username}
+                                    className="w-[26px] h-[26px] rounded-full object-cover"
+                                />
+                                <span className="text-[16px]">Profile</span>
+                            </Link>
+                        </li>
+                    )}
                 </ul>
             </nav>
 
