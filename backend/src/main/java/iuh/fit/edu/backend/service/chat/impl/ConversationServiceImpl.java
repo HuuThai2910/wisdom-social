@@ -129,8 +129,8 @@ public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat
             member.setLastReadMessageId(lastMessageId);
         }
         conversationMemberRepository.save(member);
-        // Xóa Cache MemberInfo để tránh lỗi hiển thị
 
+        // Xóa Cache MemberInfo để tránh lỗi hiển thị
         conversationMemberService.evictMemberInfoCache(conversationId, userId);
         // Chuẩn bị dữ liệu bắn Socket
         MessageSeenResponse response = MessageSeenResponse.builder()

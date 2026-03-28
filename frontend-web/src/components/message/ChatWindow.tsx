@@ -83,8 +83,11 @@ export default function ChatWindow({
 
         isNearBottom,
         isInitialLoad,
+        shouldScrollOnMediaLoad,
 
         readReceipts,
+        typingUsers,
+        sendTypingSignal,
     } = useChatWindowController({ conversationId, userId, onMarkAsRead });
 
     const otherMember = useMemo(
@@ -325,16 +328,16 @@ export default function ChatWindow({
                 ? readReceipts.filter((r) => r.lastMessageId === message.id)
                 : [];
 
-            // Debug logging
-            if (idx === messages.length - 1) {
-                console.log("🎯 Last message debug:", {
-                    messageId: message.id,
-                    isOwn,
-                    isRecalled: message.isRecalled,
-                    allReadReceipts: readReceipts,
-                    receiptsForThisMessage,
-                });
-            }
+            // // Debug logging
+            // if (idx === messages.length - 1) {
+            //     console.log("🎯 Last message debug:", {
+            //         messageId: message.id,
+            //         isOwn,
+            //         isRecalled: message.isRecalled,
+            //         allReadReceipts: readReceipts,
+            //         receiptsForThisMessage,
+            //     });
+            // }
 
             items.push(
                 <div
@@ -354,8 +357,9 @@ export default function ChatWindow({
                             // Chỉ cuộn xuống cuối khi:
                             // 1. Đang trong giai đoạn initial load (F5/mở chat)
                             // 2. User đang ở gần cuối (đang xem tin mới)
+                            // 3. Vừa nhận tin nhắn mới IMAGE/VIDEO (flag được set trong handleNewMessage)
                             // KHÔNG dùng isOwn vì sẽ gây scroll khi load tin cũ từ pagination
-                            if (isInitialLoad() || isNearBottom()) {
+                            if (isInitialLoad() || isNearBottom() || shouldScrollOnMediaLoad()) {
                                 scrollToBottom("smooth");
                             }
                         }}
@@ -396,6 +400,7 @@ export default function ChatWindow({
         handleRecall,
         isInitialLoad,
         isNearBottom,
+        shouldScrollOnMediaLoad,
         messages,
         readReceipts,
         scrollToBottom,
@@ -494,6 +499,35 @@ export default function ChatWindow({
                     )}
 
                     {messageItems}
+
+                    {/* Typing Indicator - Dummy message bubble khi có người đang gõ */}
+                    {typingUsers.size > 0 && (
+                        <div className="flex items-end gap-2 mt-3">
+                            {/* Avatar của người đang gõ */}
+                            {Array.from(typingUsers).map((typingUserId) => {
+                                const typingMember = conversation?.members?.find(
+                                    (m) => m.userId === typingUserId,
+                                );
+                                return (
+                                    <img
+                                        key={typingUserId}
+                                        src={typingMember?.avatar || defaultAvatarSmallUrl}
+                                        alt={typingMember?.nickname || "User"}
+                                        className="w-7 h-7 rounded-full object-cover"
+                                    />
+                                );
+                            })}
+                            {/* Bubble với 3 chấm nhấp nháy */}
+                            <div className="bg-gray-200 dark:bg-gray-700 rounded-2xl px-3 py-3 max-w-20">
+                                <div className="flex items-center gap-1">
+                                    <span className="w-2 h-2 bg-gray-500 dark:bg-gray-400 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                                    <span className="w-2 h-2 bg-gray-500 dark:bg-gray-400 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                                    <span className="w-2 h-2 bg-gray-500 dark:bg-gray-400 rounded-full animate-bounce" />
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     <div ref={messagesEndRef} className="h-1 scroll-mb-6" />
                 </div>
 
@@ -666,13 +700,22 @@ export default function ChatWindow({
                             ref={messageInputRef}
                             type="text"
                             value={messageText}
-                            onChange={(e) => setMessageText(e.target.value)}
-                            onKeyDown={(e) =>
-                                e.key === "Enter" &&
-                                !sending &&
-                                !uploading &&
-                                void handleSend()
-                            }
+                            onChange={(e) => {
+                                setMessageText(e.target.value);
+                                // Gửi typing signal
+                                if (e.target.value.trim()) {
+                                    sendTypingSignal(true);
+                                } else {
+                                    sendTypingSignal(false);
+                                }
+                            }}
+                            onKeyDown={(e) => {
+                                if (e.key === "Enter" && !sending && !uploading) {
+                                    sendTypingSignal(false); // Ngừng typing khi gửi
+                                    void handleSend();
+                                }
+                            }}
+                            onBlur={() => sendTypingSignal(false)} // Ngừng typing khi blur
                             placeholder={
                                 uploading
                                     ? "Đang tải file lên..."

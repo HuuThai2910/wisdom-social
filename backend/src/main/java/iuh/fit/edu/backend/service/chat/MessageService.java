@@ -9,12 +9,11 @@ package iuh.fit.edu.backend.service.chat;/*
                                          * @version: 1.0
                                          */
 
-import iuh.fit.edu.backend.dto.request.SendMessageRequest;
+import iuh.fit.edu.backend.dto.request.message.SendMessageRequest;
 import iuh.fit.edu.backend.dto.request.SendCallMessageRequest;
 import iuh.fit.edu.backend.dto.response.CursorResponse;
 import iuh.fit.edu.backend.dto.response.message.MessageRecalledResponse;
 import iuh.fit.edu.backend.dto.response.message.MessageResponse;
-import org.springframework.data.domain.Pageable;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;

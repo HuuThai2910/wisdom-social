@@ -43,6 +43,7 @@ export type DomainEventType =
     | "MESSAGE_CREATED" // Tin nhắn mới được tạo
     | "MESSAGE_RECALLED" // Tin nhắn bị thu hồi
     | "MESSAGE_SEEN" // Đánh dấu đã xem tin nhắn
+    | "TYPING" // User đang soạn tin nhắn
     | "ROOM_CREATED" // Phòng chat mới
     | "ROOM_UPDATED" // Phòng chat được cập nhật
     | "ROOM_DELETED" // Phòng chat bị xóa
@@ -110,6 +111,32 @@ export interface MessageSeenEvent {
         userId: number;
         lastMessageId: string;
         seenAt: string;
+    };
+}
+
+/**
+ * Interface cho TypingEvent từ backend
+ *
+ * CẤU TRÚC TỪ BACKEND:
+ * - ChatEventListener broadcast typing status qua WebSocket
+ * - Topic: /topic/conversation/{conversationId} (BROADCAST cho TẤT CẢ members)
+ * - Payload: { domainEventType: "TYPING", typingResponse: { conversationId, userId, isTyping } }
+ *
+ * CÁCH HOẠT ĐỘNG:
+ * 1. User A bắt đầu gõ tin nhắn
+ * 2. FE gửi signal qua WebSocket: /app/chat/{conversationId}/typing với { isTyping: true }
+ * 3. Backend publish TypingEvent
+ * 4. ChatEventListener broadcast tới tất cả members đang subscribe /topic/conversation/{id}
+ * 5. FE của members khác nhận event và hiển thị "dummy message bubble"
+ * 6. Khi User A ngừng gõ/gửi tin: FE gửi { isTyping: false }
+ * 7. FE của members khác xóa "dummy message bubble"
+ */
+export interface TypingEvent {
+    domainEventType: "TYPING";
+    typingResponse: {
+        conversationId: number;
+        userId: number;
+        isTyping: boolean;
     };
 }
 
@@ -366,6 +393,7 @@ class WebSocketService {
         callback: (message: Message) => void,
         onRecall?: (messageId: string) => void,
         onMessageSeen?: (event: MessageSeenEvent) => void,
+        onTyping?: (event: TypingEvent) => void,
     ) {
         // BƯỚC 1: Kiểm tra client đã kết nối chưa
         // client.connected = true chỉ khi STOMP handshake hoàn tất
@@ -403,7 +431,8 @@ class WebSocketService {
                     const event = JSON.parse(message.body) as
                         | MessageCreatedEvent
                         | MessageRecalledEvent
-                        | MessageSeenEvent;
+                        | MessageSeenEvent
+                        | TypingEvent;
 
                     console.log("Received conversation event:", event);
 
@@ -415,6 +444,9 @@ class WebSocketService {
                     } else if (event.domainEventType === "MESSAGE_SEEN") {
                         // MESSAGE_SEEN event - gọi callback onMessageSeen
                         onMessageSeen?.(event as MessageSeenEvent);
+                    } else if (event.domainEventType === "TYPING") {
+                        // TYPING event - gọi callback onTyping
+                        onTyping?.(event as TypingEvent);
                     } else if (event.domainEventType === "MESSAGE_CREATED") {
                         const payload = (event as MessageCreatedEvent)
                             .messageResponse;
@@ -652,6 +684,41 @@ class WebSocketService {
         this.client.publish({
             destination: "/app/call.signal",
             body: JSON.stringify(payload),
+        });
+    }
+
+    /**
+     * Gửi typing signal tới backend
+     *
+     * @param conversationId - ID của conversation đang gõ tin nhắn
+     * @param userId - ID của user đang gõ
+     * @param isTyping - true nếu đang gõ, false nếu ngừng gõ
+     *
+     * CÁCH SỬ DỤNG:
+     * - Gửi isTyping=true khi user gõ phím đầu tiên
+     * - Gửi isTyping=false khi:
+     *   + User nhấn Enter (gửi tin nhắn)
+     *   + Input rỗng
+     *   + Input mất focus
+     *   + User ngừng gõ quá 10 giây
+     *
+     * Backend endpoint: /app/chat/{conversationId}/typing
+     */
+    sendTypingSignal(
+        conversationId: number,
+        userId: number,
+        isTyping: boolean,
+    ) {
+        if (!this.client?.connected) {
+            console.error("WebSocket not connected, cannot send typing signal");
+            return;
+        }
+
+        console.log("Sending typing signal:", { conversationId, userId, isTyping });
+
+        this.client.publish({
+            destination: `/app/chat/${conversationId}/typing`,
+            body: JSON.stringify({ userId, isTyping }),
         });
     }
 

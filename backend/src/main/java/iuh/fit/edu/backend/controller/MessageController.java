@@ -4,7 +4,7 @@
  */
 package iuh.fit.edu.backend.controller;
 
-import iuh.fit.edu.backend.dto.request.SendMessageRequest;
+import iuh.fit.edu.backend.dto.request.message.SendMessageRequest;
 import iuh.fit.edu.backend.dto.request.SendCallMessageRequest;
 import iuh.fit.edu.backend.dto.response.message.MessageRecalledResponse;
 import iuh.fit.edu.backend.dto.response.message.MessageResponse;
@@ -12,8 +12,6 @@ import iuh.fit.edu.backend.service.chat.MessageService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
 
 /*
  * @description

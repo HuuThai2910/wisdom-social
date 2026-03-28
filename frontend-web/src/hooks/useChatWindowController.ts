@@ -12,7 +12,7 @@ import chatService, {
     type MessageType,
     type SendMessageRequest,
 } from "../services/chatService";
-import websocketService, { type MessageSeenEvent } from "../services/websocket";
+import websocketService, { type MessageSeenEvent, type TypingEvent } from "../services/websocket";
 import { DEFAULT_AVATAR_SMALL_URL, DEFAULT_AVATAR_URL } from "../constants/ui";
 
 /**
@@ -99,6 +99,25 @@ export function useChatWindowController(args: {
     const [readReceipts, setReadReceipts] = useState<ReadReceipt[]>([]);
     // markAsReadTimeoutRef: debounce timer cho API markAsRead
     const markAsReadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // ====== Typing Indicator (Đang soạn tin nhắn) ======
+    // typingUsers: Map<userId, timeoutId> - Track users đang gõ và timeout để auto-clear
+    const [typingUsers, setTypingUsers] = useState<Set<number>>(new Set());
+    // typingTimeouts: Map để lưu timeout ID cho mỗi user, tự động xóa sau 10s nếu không có update
+    const typingTimeoutsRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+    // isTypingSent: Track xem đã gửi signal isTyping=true chưa (tránh spam)
+    const isTypingSentRef = useRef(false);
+    // typingTimeoutRef: Timeout để gửi isTyping=false sau 10s không gõ
+    const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    // scrollPositionBeforeTypingRef: Lưu vị trí scroll trước khi scroll vì typing indicator
+    const scrollPositionBeforeTypingRef = useRef<number | null>(null);
+    // messagesLengthWhenTypingRef: Số tin nhắn khi typing indicator xuất hiện (để detect tin mới)
+    const messagesLengthWhenTypingRef = useRef<number>(0);
+    // shouldScrollOnMediaLoadRef: Flag để force scroll khi media của tin nhắn mới load xong
+    // Set true khi nhận tin nhắn mới (của mình hoặc khi đang ở cuối), reset sau 2s
+    const shouldScrollOnMediaLoadRef = useRef(false);
+    // shouldScrollOnMediaLoadTimerRef: Timer để reset shouldScrollOnMediaLoadRef
+    const shouldScrollOnMediaLoadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const [error, setError] = useState<string | null>(null);
 
@@ -429,6 +448,22 @@ export function useChatWindowController(args: {
                 setShowScrollToBottomButton(false);
                 setPendingNewMessages(0);
 
+                // Set flag để force scroll khi media load xong (cho IMAGE/VIDEO)
+                // Cần làm này vì khi scroll xuống cuối, media chưa load → chiều cao chưa đúng
+                // Sau khi media load xong, chiều cao tăng → scroll position bị đẩy lên
+                // isNearBottom() sẽ trả về false → không scroll
+                if (newMessage.type === "IMAGE" || newMessage.type === "VIDEO") {
+                    // Clear timer cũ nếu có
+                    if (shouldScrollOnMediaLoadTimerRef.current) {
+                        clearTimeout(shouldScrollOnMediaLoadTimerRef.current);
+                    }
+                    shouldScrollOnMediaLoadRef.current = true;
+                    // Reset flag sau 3s (đủ thời gian cho media load)
+                    shouldScrollOnMediaLoadTimerRef.current = setTimeout(() => {
+                        shouldScrollOnMediaLoadRef.current = false;
+                    }, 3000);
+                }
+
                 // Đánh dấu đã đọc tin nhắn mới nếu user đang ở gần cuối (đang đọc)
                 // Không đánh dấu nếu là tin nhắn của chính mình (đã được backend xử lý)
                 if (!isMyMessage && markAsReadFn) {
@@ -603,6 +638,174 @@ export function useChatWindowController(args: {
         [conversationId, userId],
     );
 
+    /**
+     * handleTyping - Xử lý khi nhận được event "Đang gõ tin nhắn"
+     *
+     * @param event - TypingEvent từ WebSocket
+     *
+     * Flow:
+     * 1. Trích xuất payload từ typingResponse
+     * 2. Kiểm tra event có thuộc conversation đang mở không
+     * 3. Bỏ qua nếu event là của chính user hiện tại
+     * 4. Nếu isTyping=true: Thêm userId vào typingUsers Set và set timeout 10s để auto-clear
+     * 5. Nếu isTyping=false: Xóa userId khỏi typingUsers Set và clear timeout
+     */
+    const handleTyping = useCallback(
+        (event: TypingEvent) => {
+            console.log("⌨️ Received TYPING event from WebSocket:", event);
+
+            const { conversationId: eventConvId, userId: eventUserId, isTyping } = event.typingResponse;
+
+            // Bỏ qua nếu không phải conversation đang mở
+            if (Number(eventConvId) !== Number(conversationId)) return;
+            // Bỏ qua event của chính mình
+            if (Number(eventUserId) === Number(userId)) return;
+
+            console.log("⌨️ TYPING event:", { eventUserId, isTyping });
+
+            if (isTyping) {
+                // Clear timeout cũ nếu có
+                const existingTimeout = typingTimeoutsRef.current.get(Number(eventUserId));
+                if (existingTimeout) {
+                    clearTimeout(existingTimeout);
+                }
+
+                // Thêm user vào Set đang gõ
+                setTypingUsers((prev) => new Set(prev).add(Number(eventUserId)));
+
+                // Set timeout 10s để auto-clear (phòng trường hợp user rớt mạng)
+                const timeoutId = setTimeout(() => {
+                    setTypingUsers((prev) => {
+                        const next = new Set(prev);
+                        next.delete(Number(eventUserId));
+                        return next;
+                    });
+                    typingTimeoutsRef.current.delete(Number(eventUserId));
+                }, 10000);
+
+                typingTimeoutsRef.current.set(Number(eventUserId), timeoutId);
+            } else {
+                // Clear timeout
+                const existingTimeout = typingTimeoutsRef.current.get(Number(eventUserId));
+                if (existingTimeout) {
+                    clearTimeout(existingTimeout);
+                    typingTimeoutsRef.current.delete(Number(eventUserId));
+                }
+
+                // Xóa user khỏi Set
+                setTypingUsers((prev) => {
+                    const next = new Set(prev);
+                    next.delete(Number(eventUserId));
+                    return next;
+                });
+            }
+        },
+        [conversationId, userId],
+    );
+
+    /**
+     * sendTypingSignal - Gửi signal "đang gõ" lên backend
+     *
+     * @param isTyping - true nếu đang gõ, false nếu ngừng gõ
+     *
+     * Logic chống SPAM:
+     * - Chỉ gửi isTyping=true MỘT LẦN khi bắt đầu gõ
+     * - Không gửi lại khi đang gõ liên tục
+     * - Gửi isTyping=false khi: Enter/Input rỗng/Blur/10s không gõ
+     */
+    const sendTypingSignal = useCallback(
+        (isTyping: boolean) => {
+            console.log("⌨️ sendTypingSignal called:", { conversationId, userId, isTyping, alreadySent: isTypingSentRef.current });
+
+            if (!conversationId || !userId) {
+                console.warn("⌨️ Missing conversationId or userId, skipping typing signal");
+                return;
+            }
+
+            if (isTyping) {
+                // Chỉ gửi nếu chưa gửi trước đó
+                if (!isTypingSentRef.current) {
+                    websocketService.sendTypingSignal(conversationId, userId, true);
+                    isTypingSentRef.current = true;
+                    console.log("⌨️ Sent typing=true");
+                }
+
+                // Clear timeout cũ
+                if (typingTimeoutRef.current) {
+                    clearTimeout(typingTimeoutRef.current);
+                }
+
+                // Set timeout 10s để tự động gử false
+                typingTimeoutRef.current = setTimeout(() => {
+                    websocketService.sendTypingSignal(conversationId, userId, false);
+                    isTypingSentRef.current = false;
+                    console.log("⌨️ Sent typing=false (10s timeout)");
+                }, 10000);
+            } else {
+                // Clear timeout
+                if (typingTimeoutRef.current) {
+                    clearTimeout(typingTimeoutRef.current);
+                    typingTimeoutRef.current = null;
+                }
+
+                // Gửi signal false (chỉ nếu đã gửi true trước đó)
+                if (isTypingSentRef.current) {
+                    websocketService.sendTypingSignal(conversationId, userId, false);
+                    isTypingSentRef.current = false;
+                    console.log("⌨️ Sent typing=false");
+                }
+            }
+        },
+        [conversationId, userId],
+    );
+
+    /**
+     * useEffect: Xử lý scroll khi typing indicator hiện/mất
+     *
+     * Logic:
+     * 1. Khi có người đang gõ (typingUsers.size > 0) và user đang ở cuối (isNearBottom):
+     *    - Lưu vị trí scroll hiện tại
+     *    - Scroll xuống để thấy typing indicator
+     *
+     * 2. Khi không còn ai gõ (typingUsers.size = 0):
+     *    - Nếu KHÔNG có tin nhắn mới → restore về vị trí cũ
+     *    - Nếu CÓ tin nhắn mới → giữ nguyên ở cuối (handleNewMessage đã xử lý)
+     */
+    useEffect(() => {
+        const container = messagesContainerRef.current;
+        if (!container) return;
+
+        if (typingUsers.size > 0) {
+            // Có người đang gõ
+            if (scrollPositionBeforeTypingRef.current === null && isNearBottom()) {
+                // Lần đầu có typing indicator và user ở cuối
+                // Lưu vị trí scroll và số messages hiện tại
+                scrollPositionBeforeTypingRef.current = container.scrollTop;
+                messagesLengthWhenTypingRef.current = messages.length;
+
+                // Scroll xuống để thấy typing indicator (sau khi DOM update)
+                requestAnimationFrame(() => {
+                    scrollToBottom("smooth");
+                });
+            }
+        } else {
+            // Không còn ai gõ
+            if (scrollPositionBeforeTypingRef.current !== null) {
+                // Kiểm tra có tin nhắn mới không
+                const hasNewMessages = messages.length > messagesLengthWhenTypingRef.current;
+
+                if (!hasNewMessages) {
+                    // Không có tin mới → restore vị trí scroll cũ
+                    container.scrollTop = scrollPositionBeforeTypingRef.current;
+                }
+
+                // Reset refs
+                scrollPositionBeforeTypingRef.current = null;
+                messagesLengthWhenTypingRef.current = 0;
+            }
+        }
+    }, [typingUsers.size, messages.length, isNearBottom, scrollToBottom]);
+
     useEffect(() => {
         // Mỗi lần đổi conversationId:
         // - tăng token để invalidate request cũ
@@ -624,6 +827,16 @@ export function useChatWindowController(args: {
         setHasMore(false);
         setNextCursor(null);
         setReadReceipts([]); // Reset read receipts khi đổi conversation
+        setTypingUsers(new Set()); // Reset typing users khi đổi conversation
+        isTypingSentRef.current = false; // Reset typing sent flag khi đổi conversation
+        scrollPositionBeforeTypingRef.current = null; // Reset typing scroll position
+        messagesLengthWhenTypingRef.current = 0; // Reset messages count for typing
+        // Reset media scroll flag và timer khi đổi conversation
+        if (shouldScrollOnMediaLoadTimerRef.current) {
+            clearTimeout(shouldScrollOnMediaLoadTimerRef.current);
+            shouldScrollOnMediaLoadTimerRef.current = null;
+        }
+        shouldScrollOnMediaLoadRef.current = false;
 
         // Đánh dấu đang trong giai đoạn initial load để luôn scroll xuống cuối khi media load
         initialLoadRef.current = true;
@@ -644,11 +857,13 @@ export function useChatWindowController(args: {
                 // Sub theo conversationId để nhận message realtime.
                 // Wrap callback để truyền markAsRead vào handleNewMessage
                 // Truyền handleMessageSeen để nhận MESSAGE_SEEN event
+                // Truyền handleTyping để nhận TYPING event
                 websocketService.subscribeToConversation(
                     conversationId,
                     (message) => handleNewMessage(message, markAsRead),
                     handleMessageRecalled,
                     handleMessageSeen, // Nhận MESSAGE_SEEN event từ topic conversation
+                    handleTyping, // Nhận TYPING event từ topic conversation
                 );
             } catch {
                 // no-op
@@ -666,6 +881,16 @@ export function useChatWindowController(args: {
                 clearTimeout(markAsReadTimeoutRef.current);
                 markAsReadTimeoutRef.current = null;
             }
+
+            // Cleanup typing signal timer
+            if (typingTimeoutRef.current) {
+                clearTimeout(typingTimeoutRef.current);
+                typingTimeoutRef.current = null;
+            }
+
+            // Cleanup all typing user timeouts
+            typingTimeoutsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
+            typingTimeoutsRef.current.clear();
 
             // Cleanup recording: dừng MediaRecorder nếu đang ghi, tránh leak stream
             if (mediaRecorderRef.current) {
@@ -686,6 +911,7 @@ export function useChatWindowController(args: {
         handleNewMessage,
         handleMessageRecalled,
         handleMessageSeen,
+        handleTyping,
         loadConversation,
         loadMessages,
         markAsRead,
@@ -712,6 +938,19 @@ export function useChatWindowController(args: {
         } else {
             setShowScrollToBottomButton(false);
             setPendingNewMessages(0);
+
+            // Khi user scroll xuống gần cuối và có typing indicator đang hiện
+            // → scroll xuống cuối để hiện typing indicator
+            // Chỉ scroll nếu chưa ở vị trí cuối tuyệt đối (tránh loop)
+            if (typingUsers.size > 0) {
+                const distanceFromBottom =
+                    container.scrollHeight - container.scrollTop - container.clientHeight;
+                if (distanceFromBottom > 5) {
+                    requestAnimationFrame(() => {
+                        scrollToBottom("smooth");
+                    });
+                }
+            }
         }
 
         if (
@@ -722,7 +961,7 @@ export function useChatWindowController(args: {
             // Chạm gần top => load trang tin nhắn cũ.
             void loadMoreMessages();
         }
-    }, [hasMore, isNearBottom, loadMoreMessages, loadingMore]);
+    }, [hasMore, isNearBottom, loadMoreMessages, loadingMore, scrollToBottom, typingUsers.size]);
 
     const handleScrollToBottomClick = useCallback(() => {
         scrollToBottom("smooth");
@@ -995,10 +1234,23 @@ export function useChatWindowController(args: {
         // Trong giai đoạn này, luôn scroll xuống cuối khi media load
         isInitialLoad: () => initialLoadRef.current,
 
+        // Hàm kiểm tra có cần scroll khi media load xong không
+        // Set true khi nhận tin nhắn mới (của mình hoặc khi đang ở cuối) với type IMAGE/VIDEO
+        // Reset sau 3s hoặc khi đổi conversation
+        shouldScrollOnMediaLoad: () => shouldScrollOnMediaLoadRef.current,
+
         // === Read Receipt (Đánh dấu đã đọc) ===
         // readReceipts: danh sách thông tin "đã xem" của các members (trừ user hiện tại)
         // Mỗi phần tử: { userId, lastMessageId, seenAt }
         // FE dùng để hiển thị avatar "đã xem" bên dưới tin nhắn làm mốc
         readReceipts,
+
+        // === Typing Indicator (Đang soạn tin nhắn) ===
+        // typingUsers: Set<userId> - Danh sách user đang gõ tin nhắn (trừ user hiện tại)
+        // FE dùng để hiển thị "dummy message bubble" nhấp nháy
+        typingUsers,
+        // sendTypingSignal: Gửi signal đang gõ/ngừng gõ lên backend
+        // Gọi khi: onChange input (isTyping=true), onBlur/Enter/Empty (isTyping=false)
+        sendTypingSignal,
     };
 }

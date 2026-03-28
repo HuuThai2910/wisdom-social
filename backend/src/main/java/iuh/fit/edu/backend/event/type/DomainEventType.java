@@ -15,6 +15,7 @@ public enum DomainEventType {
     MESSAGE_CREATED,
     MESSAGE_RECALLED,
     MESSAGE_SEEN,
+    TYPING,
 
 
     // Conversation
