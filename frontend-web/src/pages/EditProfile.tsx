@@ -1,13 +1,16 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Upload, Loader2 } from "lucide-react";
 import { getCurrentUser } from "../utils/auth";
 import { useAuth } from "../contexts/AuthContext";
+import userService from "../services/userService";
+import axios from "axios";
 
 export default function EditProfile() {
   const navigate = useNavigate();
   const currentUser = getCurrentUser();
   const { updateUser: updateUserInContext } = useAuth();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -17,7 +20,9 @@ export default function EditProfile() {
   });
 
   const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [previewAvatar, setPreviewAvatar] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   useEffect(() => {
     if (currentUser) {
@@ -34,18 +39,82 @@ export default function EditProfile() {
     }
   }, []);
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    const validTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+    if (!validTypes.includes(file.type)) {
+      alert("Vui lòng chọn file ảnh (JPG, PNG, WEBP)");
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      alert("Kích thước file không được vượt quá 5MB");
+      return;
+    }
+
+    setSelectedFile(file);
+    
+    // Create preview
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setPreviewAvatar(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleUploadAvatar = async () => {
+    if (!selectedFile || !currentUser) return;
+
+    setUploading(true);
+    try {
+      // Get file extension
+      const extension = selectedFile.name.split(".").pop() || "jpg";
+      
+      // Step 1: Get pre-signed upload URL from backend (which also updates avatarUrl)
+      const uploadUrl = await userService.updateUploadAvatarUrl("avatar", extension);
+      
+      // Step 2: Upload file to S3 using PUT
+      await axios.put(uploadUrl, selectedFile, {
+        headers: {
+          "Content-Type": selectedFile.type,
+        },
+      });
+
+      // Step 3: The avatarUrl is already updated on backend
+      // We need to refresh user data
+      alert("Upload avatar thành công!");
+      setSelectedFile(null);
+      
+      // Optionally reload user data or navigate
+      window.location.reload();
+    } catch (error: any) {
+      console.error("Upload avatar error:", error);
+      alert("Upload avatar thất bại. Vui lòng thử lại.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser) return;
 
     setLoading(true);
     try {
+      // Upload avatar first if there's a new file
+      if (selectedFile) {
+        await handleUploadAvatar();
+      }
+
       // Prepare data to send to backend (name instead of fullName)
       const updateData = {
         name: formData.name,
         bio: formData.bio,
         gender: formData.gender,
-        avatarUrl: formData.avatarUrl,
       };
 
       const success = await updateUserInContext(currentUser.id, updateData);
@@ -90,12 +159,17 @@ export default function EditProfile() {
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Avatar Section */}
           <div className="flex items-center gap-6 bg-gray-50 dark:bg-[#121212] rounded-2xl p-6">
-            <div className="flex-shrink-0">
+            <div className="flex-shrink-0 relative">
               <img
                 src={previewAvatar}
                 alt={currentUser.username}
-                className="w-16 h-16 rounded-full object-cover"
+                className="w-20 h-20 rounded-full object-cover"
               />
+              {uploading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 rounded-full">
+                  <Loader2 className="animate-spin text-white" size={24} />
+                </div>
+              )}
             </div>
             <div className="flex-1">
               <p className="font-semibold dark:text-white text-base">
@@ -104,20 +178,40 @@ export default function EditProfile() {
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 {formData.name || currentUser.name}
               </p>
+              {selectedFile && (
+                <p className="text-xs text-blue-500 mt-1">
+                  {selectedFile.name} selected
+                </p>
+              )}
             </div>
-            <button
-              type="button"
-              className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-semibold text-sm transition-colors"
-              onClick={() => {
-                const newAvatar = prompt("Enter avatar URL:");
-                if (newAvatar) {
-                  setFormData((prev) => ({ ...prev, avatarUrl: newAvatar }));
-                  setPreviewAvatar(newAvatar);
-                }
-              }}
-            >
-              Change photo
-            </button>
+            <div className="flex gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/jpg,image/png,image/webp"
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-semibold text-sm transition-colors disabled:opacity-50 flex items-center gap-2"
+              >
+                <Upload size={16} />
+                Choose photo
+              </button>
+              {selectedFile && (
+                <button
+                  type="button"
+                  onClick={handleUploadAvatar}
+                  disabled={uploading}
+                  className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg font-semibold text-sm transition-colors disabled:opacity-50"
+                >
+                  {uploading ? "Uploading..." : "Upload"}
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Full Name */}
@@ -187,7 +281,7 @@ export default function EditProfile() {
           <div className="pt-4">
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || uploading}
               className="w-full px-6 py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 text-white rounded-lg font-semibold transition-colors"
             >
               {loading ? "Submitting..." : "Submit"}

@@ -6,6 +6,7 @@ import { logout } from "../../utils/auth";
 import axiosClient from "../../api/axiosClient";
 import NoteModal from "./NoteModal";
 import { buildS3Url } from "../../utils/s3";
+import BlockUnblockButton from "../BlockUnblockButton";
 
 interface NoteMusic {
   title: string;
@@ -182,6 +183,7 @@ export default function ProfileHeader({
                     <button className="px-6 py-[7px] bg-[#efefef] dark:bg-[#262626] hover:bg-[#dbdbdb] dark:hover:bg-[#363636] rounded-lg text-sm font-semibold dark:text-white">
                       Message
                     </button>
+                    <BlockUnblockButton userId={user.id} username={user.username} />
                   </>
                 )}
               </div>

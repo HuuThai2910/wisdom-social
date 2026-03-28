@@ -44,6 +44,9 @@ import ProfileLayout from "./components/profile/ProfileLayout";
 // Other Pages
 import General from "./pages/General";
 import Misc from "./pages/Misc";
+import EditProfile from "./pages/EditProfile";
+import UserManagement from "./pages/UserManagement";
+import BlockedUsers from "./pages/BlockedUsers";
 
 function App() {
   // Modal wrapper component to handle post modal
@@ -80,6 +83,7 @@ function App() {
               <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/checkinbox" element={<CheckInbox />} />
               <Route path="/verify-otp" element={<VerifyOTP />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
             </Route>
 
             {/* Private Routes */}
@@ -117,6 +121,9 @@ function App() {
                 element={<ProfileGeneral />}
               />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/edit-profile" element={<EditProfile />} />
+              <Route path="/user-management" element={<UserManagement />} />
+              <Route path="/blocked-users" element={<BlockedUsers />} />
             </Route>
 
             {/* Other Routes */}
