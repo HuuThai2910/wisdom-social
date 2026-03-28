@@ -22,6 +22,8 @@ const PUBLIC_ENDPOINTS = [
     '/auth/confirm',
     '/auth/forgot-password',
     '/auth/reset-password',
+    '/session/qr-login/confirm',
+    '/session/qr-login/reject',
 ];
 
 const isPublicEndpoint = (url?: string): boolean => {

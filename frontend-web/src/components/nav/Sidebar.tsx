@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAuth } from "../../contexts/AuthContext";
+import { buildS3Url } from "../../utils/s3";
 
 export default function Sidebar() {
     const location = useLocation();
@@ -91,7 +92,7 @@ export default function Sidebar() {
                                 } dark:text-white`}
                             >
                                 <img
-                                    src={currentUser.avatar}
+                                    src={buildS3Url(currentUser.avatar)|| currentUser.avatar}
                                     alt={currentUser.username}
                                     className="w-[26px] h-[26px] rounded-full object-cover"
                                 />

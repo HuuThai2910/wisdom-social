@@ -114,7 +114,7 @@ export default function Home() {
             try {
               // Fetch author data
               const userResponse = await axiosClient.get(
-                `/auth/user/id/${post.authorId}`
+                `/auth/user/${post.authorId}`
               );
               const userData = userResponse.data.data;
 

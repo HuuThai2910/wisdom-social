@@ -54,10 +54,17 @@ export default function QRLogin() {
     const interval = setInterval(async () => {
       try {
         const response = await axios.get(`${API_BASE_URL}/session/qr-login/status/${sessionId}`);
-        const { status } = response.data.data;   
-        if (status === "confirmed") {
+        console.log("QR status response:", response.data.data);
+        const { status} = response.data.data;   
+        if (status === "CONFIRMED") {
+
+          const tokenResponse = await axios.get(`${API_BASE_URL}/session/qr-login/access-token/${sessionId}`);
+          const accessToken = tokenResponse.data;
+
+          document.cookie = `accessToken=${accessToken}; path=/`;
+
           clearInterval(interval);
-          navigate("/dashboard");
+          navigate("/");
         } else if (status === "expired") {
           clearInterval(interval);
           setError("Mã QR đã hết hạn. Vui lòng tạo lại.");

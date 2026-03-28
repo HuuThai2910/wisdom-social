@@ -5,6 +5,7 @@ import { Settings, LogOut, QrCode } from "lucide-react";
 import { logout } from "../../utils/auth";
 import axiosClient from "../../api/axiosClient";
 import NoteModal from "./NoteModal";
+import { buildS3Url } from "../../utils/s3";
 
 interface NoteMusic {
   title: string;
@@ -97,7 +98,7 @@ export default function ProfileHeader({
                 }
               >
                 <img
-                  src={user.avatar}
+                  src={buildS3Url(user.avatar) || user.avatar}
                   alt={user.username}
                   className="w-[77px] h-[77px] md:w-[150px] md:h-[150px] rounded-full object-cover"
                 />

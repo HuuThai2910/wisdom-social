@@ -261,7 +261,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       // Call update endpoint - should return User object
       const updateResponse = await axiosClient.put(
-        `/auth/users/${userId}`,
+        `/auth/user/${userId}`,
         updateData
       );
 

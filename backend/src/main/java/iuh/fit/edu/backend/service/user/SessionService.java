@@ -7,6 +7,7 @@ import iuh.fit.edu.backend.dto.response.user.UserResponseScanQRLogin;
 
 public interface SessionService {
     String requestQrLogin();
+    Session getSessionById(String sessionId);
     UserResponseScanQRLogin scanQRLogin(String session_id, long id);
     UserResponseLogin scanQRConfirmed(UserRequestQRLogin request);
     Session scanQRRejected(String session_id);
