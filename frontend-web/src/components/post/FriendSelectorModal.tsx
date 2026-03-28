@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { X, Search } from "lucide-react";
 import axios from "axios";
-import { useAuth } from "../../contexts/AuthContext";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 
 interface Friend {
   id: string;
@@ -27,7 +27,7 @@ export default function FriendSelectorModal({
   description,
   initialSelected = [],
 }: FriendSelectorModalProps) {
-  const { currentUser } = useAuth();
+  const currentUser = useCurrentUser();
   const [friends, setFriends] = useState<Friend[]>([]);
   const [filteredFriends, setFilteredFriends] = useState<Friend[]>([]);
   const [searchQuery, setSearchQuery] = useState("");

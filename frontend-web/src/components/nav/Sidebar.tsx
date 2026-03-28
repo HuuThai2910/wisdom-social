@@ -16,13 +16,13 @@ import {
     RefreshCw,
 } from "lucide-react";
 import { useTheme } from "../../contexts/ThemeContext";
-import { useAuth } from "../../contexts/AuthContext";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { buildS3Url } from "../../utils/s3";
 
 export default function Sidebar() {
     const location = useLocation();
     const { isDark, toggleTheme } = useTheme();
-    const { currentUser } = useAuth();
+    const currentUser = useCurrentUser();
     const [showMoreMenu, setShowMoreMenu] = useState(false);
 
     const navItems = [
@@ -92,7 +92,7 @@ export default function Sidebar() {
                                 } dark:text-white`}
                             >
                                 <img
-                                    src={buildS3Url(currentUser.avatar)|| currentUser.avatar}
+                                    src={buildS3Url(currentUser.avatarUrl)|| currentUser.avatarUrl}
                                     alt={currentUser.username}
                                     className="w-[26px] h-[26px] rounded-full object-cover"
                                 />

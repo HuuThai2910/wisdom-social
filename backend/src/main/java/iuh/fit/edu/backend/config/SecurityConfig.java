@@ -35,6 +35,7 @@ public class SecurityConfig {
         http
                 .csrf(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(HttpMethod.OPTIONS,"/**").permitAll()
                         .requestMatchers("/ws/**").permitAll()
                         .requestMatchers("/ws-native/**").permitAll()
                         .requestMatchers(HttpMethod.POST,"/api/auth/register").permitAll()

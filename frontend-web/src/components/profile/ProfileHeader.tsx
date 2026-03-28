@@ -5,6 +5,7 @@ import { Settings, LogOut, QrCode } from "lucide-react";
 import { logout } from "../../utils/auth";
 import axiosClient from "../../api/axiosClient";
 import NoteModal from "./NoteModal";
+import FriendsModal from "./FriendsModal";
 import { buildS3Url } from "../../utils/s3";
 import BlockUnblockButton from "../BlockUnblockButton";
 
@@ -38,6 +39,7 @@ export default function ProfileHeader({
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   const [note, setNote] = useState<Note | null>(null);
   const [showNoteModal, setShowNoteModal] = useState(false);
+  const [showFriendsModal, setShowFriendsModal] = useState(false);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -99,7 +101,7 @@ export default function ProfileHeader({
                 }
               >
                 <img
-                  src={buildS3Url(user.avatar) || user.avatar}
+                  src={buildS3Url(user.avatarUrl)|| user.avatarUrl}
                   alt={user.username}
                   className="w-[77px] h-[77px] md:w-[150px] md:h-[150px] rounded-full object-cover"
                 />
@@ -196,7 +198,10 @@ export default function ProfileHeader({
                     posts
                   </span>
                 </div>
-                <button className="hover:text-gray-500 dark:hover:text-gray-400 text-base dark:text-white">
+                <button
+                  onClick={() => setShowFriendsModal(true)}
+                  className="hover:text-gray-500 dark:hover:text-gray-400 text-base dark:text-white transition-colors"
+                >
                   <span className="font-semibold">
                     {user.friendsCount?.toLocaleString()}
                   </span>{" "}
@@ -241,6 +246,14 @@ export default function ProfileHeader({
           isOwnProfile={isOwnProfile}
           onClose={() => setShowNoteModal(false)}
           onNoteChange={(updated) => setNote(updated)}
+        />
+      )}
+
+      {/* Friends modal */}
+      {showFriendsModal && (
+        <FriendsModal
+          userId={user.id}
+          onClose={() => setShowFriendsModal(false)}
         />
       )}
     </>

@@ -1,16 +1,16 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { UserX, Loader2, AlertCircle } from "lucide-react";
-import userService from "../services/userService";
-import { User } from "../types";
-import { getCurrentUser } from "../utils/auth";
+import friendService from "../services/friendService";
+import type { User } from "../types";
+import { useCurrentUser } from "../hooks/useCurrentUser";
 
 export default function BlockedUsers() {
-    const currentUser = getCurrentUser();
+    const currentUser = useCurrentUser();
     const [blockedUsers, setBlockedUsers] = useState<User[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
-    const [unblockingUserId, setUnblockingUserId] = useState<string | null>(null);
+    const [unblockingUserId, setUnblockingUserId] = useState<Number | null>(null);
 
     useEffect(() => {
         if (currentUser) {
@@ -24,7 +24,7 @@ export default function BlockedUsers() {
         setLoading(true);
         setError("");
         try {
-            const blocked = await userService.getBlockedUsers(currentUser.id);
+            const blocked = await friendService.getBlockedUsers(currentUser.id);
             setBlockedUsers(blocked);
         } catch (err: any) {
             console.error("Error loading blocked users:", err);
@@ -34,7 +34,7 @@ export default function BlockedUsers() {
         }
     };
 
-    const handleUnblockUser = async (userId: string, username: string) => {
+    const handleUnblockUser = async (userId: number, username: string) => {
         if (!currentUser) return;
 
         const confirmed = window.confirm(
@@ -45,11 +45,11 @@ export default function BlockedUsers() {
 
         setUnblockingUserId(userId);
         try {
-            await userService.cancelBlockUser({
+            await friendService.unblockUser({
                 senderId: currentUser.id,
-                receiverId: userId,
+                receivedId: userId,
             });
-            
+
             // Remove from list
             setBlockedUsers((prev) => prev.filter((u) => u.id !== userId));
             alert(`Đã bỏ chặn "${username}" thành công!`);
@@ -121,12 +121,12 @@ export default function BlockedUsers() {
                         <div className="divide-y divide-gray-200 dark:divide-[#262626]">
                             {blockedUsers.map((user) => (
                                 <div
-                                    key={user.id}
+                                    key={user.id.toString()}
                                     className="px-6 py-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-[#1a1a1a] transition-colors"
                                 >
                                     <div className="flex items-center gap-4 flex-1">
                                         <img
-                                            src={user.avatar || "https://i.pravatar.cc/150"}
+                                            src={user.avatarUrl || "https://i.pravatar.cc/150"}
                                             alt={user.username}
                                             className="w-12 h-12 rounded-full object-cover"
                                         />

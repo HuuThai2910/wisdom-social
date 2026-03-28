@@ -1,15 +1,14 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, Upload, Loader2 } from "lucide-react";
-import { getCurrentUser } from "../utils/auth";
-import { useAuth } from "../contexts/AuthContext";
+import { useCurrentUser } from "../hooks/useCurrentUser";
 import userService from "../services/userService";
+import { buildS3Url } from "../utils/s3";
 import axios from "axios";
 
 export default function EditProfile() {
   const navigate = useNavigate();
-  const currentUser = getCurrentUser();
-  const { updateUser: updateUserInContext } = useAuth();
+  const currentUser = useCurrentUser();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [formData, setFormData] = useState({
@@ -27,15 +26,15 @@ export default function EditProfile() {
   useEffect(() => {
     if (currentUser) {
       const initialFormData = {
-        name: currentUser.fullName ?? currentUser.name ?? "",
+        name: currentUser.fullName ?? currentUser.fullName ?? "",
         bio: currentUser.bio ?? "",
         gender:
           (currentUser.gender?.toUpperCase() as "MALE" | "FEMALE" | "OTHER") ??
           "OTHER",
-        avatarUrl: currentUser.avatar ?? "",
+        avatarUrl: currentUser.avatarUrl ?? "",
       };
       setFormData(initialFormData);
-      setPreviewAvatar(currentUser.avatar ?? "https://i.pravatar.cc/150?img=5");
+      setPreviewAvatar(currentUser.avatarUrl);
     }
   }, []);
 
@@ -117,9 +116,15 @@ export default function EditProfile() {
         gender: formData.gender,
       };
 
-      const success = await updateUserInContext(currentUser.id, updateData);
+      await userService.updateUser(currentUser.id, updateData);
 
-      if (success) {
+      // Fetch latest user data from backend
+      const updatedUser = await userService.getCurrentUser();
+
+      if (updatedUser) {
+        // Update localStorage with fresh data from backend
+        useCurrentUser();
+
         // Navigate back to profile
         navigate(`/profile/${currentUser.username}`);
       } else {
@@ -161,8 +166,7 @@ export default function EditProfile() {
           <div className="flex items-center gap-6 bg-gray-50 dark:bg-[#121212] rounded-2xl p-6">
             <div className="flex-shrink-0 relative">
               <img
-                src={previewAvatar}
-                alt={currentUser.username}
+                src={buildS3Url(currentUser.avatarUrl) || "https://i.pravatar.cc/150"}
                 className="w-20 h-20 rounded-full object-cover"
               />
               {uploading && (

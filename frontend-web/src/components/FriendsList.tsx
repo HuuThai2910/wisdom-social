@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Users, Loader2, AlertCircle } from "lucide-react";
-import userService from "../services/userService";
+import friendService from "../services/friendService";
 import type { User } from "../types";
 
 interface FriendsListProps {
@@ -21,7 +21,7 @@ export default function FriendsList({ userId }: FriendsListProps) {
         setLoading(true);
         setError("");
         try {
-            const friendsList = await userService.getAllForUser(userId);
+            const friendsList = await friendService.getFriends(userId);
             setFriends(friendsList);
         } catch (err: any) {
             console.error("Error loading friends:", err);
@@ -78,7 +78,7 @@ export default function FriendsList({ userId }: FriendsListProps) {
                         className="flex flex-col items-center p-4 rounded-lg hover:bg-gray-50 dark:hover:bg-[#1a1a1a] transition-colors border border-gray-200 dark:border-[#262626]"
                     >
                         <img
-                            src={friend.avatar || "https://i.pravatar.cc/150"}
+                            src={friend.avatarUrl || "https://i.pravatar.cc/150"}
                             alt={friend.username}
                             className="w-20 h-20 rounded-full object-cover mb-3"
                         />

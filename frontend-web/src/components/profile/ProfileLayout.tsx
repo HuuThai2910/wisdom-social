@@ -4,34 +4,42 @@ import ProfileHeader from "./ProfileHeader";
 import ProfileTabs from "./ProfileTabs";
 import type { User } from "../../types";
 import { getCurrentUser } from "../../utils/auth";
-import { useAuth } from "../../contexts/AuthContext";
+import userService from "../../services/userService";
 
 export default function ProfileLayout() {
   const { username } = useParams();
-  const { fetchUserByUsername, loading } = useAuth();
   const [user, setUser] = useState<User | null>(null);
   const [isOwnProfile, setIsOwnProfile] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const loadUserProfile = async () => {
       if (!username) return;
 
-      const userData = await fetchUserByUsername(username);
-      if (userData) {
-        setUser(userData as any);
+      try {
+        setLoading(true);
+        const users = await userService.searchUserByUsername(username);
+        if (users && users.length > 0) {
+          const userData = users[0];
+          setUser(userData as any);
 
-        // Check if this is the current user's profile
-        const currentUser = getCurrentUser();
-        if (currentUser && currentUser.username === userData.username) {
-          setIsOwnProfile(true);
-        } else {
-          setIsOwnProfile(false);
+          // Check if this is the current user's profile
+          const currentUser = await getCurrentUser();
+          if (currentUser && currentUser.username === userData.username) {
+            setIsOwnProfile(true);
+          } else {
+            setIsOwnProfile(false);
+          }
         }
+      } catch (error) {
+        console.error("Error fetching user profile:", error);
+      } finally {
+        setLoading(false);
       }
     };
 
     loadUserProfile();
-  }, [username, fetchUserByUsername]);
+  }, [username]);
 
   if (loading) {
     return (

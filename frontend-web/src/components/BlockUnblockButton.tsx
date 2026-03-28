@@ -1,45 +1,55 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Ban, Loader2 } from "lucide-react";
-import userService from "../services/userService";
-import { getCurrentUser } from "../utils/auth";
+import friendService from "../services/friendService";
+import { useCurrentUser } from "../hooks/useCurrentUser";
 
 interface BlockUnblockButtonProps {
-    userId: string;
+    userId: number;
     username: string;
 }
 
 export default function BlockUnblockButton({ userId, username }: BlockUnblockButtonProps) {
-    const currentUser = getCurrentUser();
+    const currentUser = useCurrentUser();
     const [isBlocked, setIsBlocked] = useState(false);
     const [loading, setLoading] = useState(false);
     const [checking, setChecking] = useState(true);
 
-    useEffect(() => {
-        checkBlockStatus();
-    }, [userId, currentUser]);
-
-    const checkBlockStatus = async () => {
-        if (!currentUser) {
+    const checkBlockStatus = useCallback(async () => {
+        if (!currentUser?.id) {
+            console.log("❌ currentUser.id is missing:", currentUser);
             setChecking(false);
             return;
         }
 
+        console.log("✅ Checking block status - currentUser.id:", currentUser.id, "userId:", userId);
         setChecking(true);
         try {
             // Get list of blocked users and check if this user is in it
-            const blockedUsers = await userService.getBlockedUsers(currentUser.id);
+            const blockedUsers = await friendService.getBlockedUsers(currentUser.id);
+            console.log("📋 Blocked users:", blockedUsers);
             const blocked = blockedUsers.some((u) => u.id === userId);
+            console.log("Block status for user", userId, ":", blocked);
             setIsBlocked(blocked);
         } catch (error) {
             console.error("Error checking block status:", error);
         } finally {
             setChecking(false);
         }
-    };
+    }, [currentUser?.id, userId]);
 
-    const handleBlockUnblock = async () => {
+    useEffect(() => {
+        checkBlockStatus();
+    }, [checkBlockStatus]);
+
+    const handleBlockUnblock = useCallback(async () => {
         if (!currentUser) {
             alert("Vui lòng đăng nhập để thực hiện hành động này");
+            return;
+        }
+
+        if (!currentUser.id) {
+            console.error("❌ currentUser.id is undefined:", currentUser);
+            alert("Lỗi: Không thể lấy ID người dùng hiện tại");
             return;
         }
 
@@ -54,15 +64,17 @@ export default function BlockUnblockButton({ userId, username }: BlockUnblockBut
         try {
             const requestData = {
                 senderId: currentUser.id,
-                receiverId: userId,
+                receivedId: userId,
             };
 
+            console.log("📤 Sending block request:", requestData);
+
             if (isBlocked) {
-                await userService.cancelBlockUser(requestData);
+                await friendService.unblockUser(requestData);
                 setIsBlocked(false);
                 alert(`Đã bỏ chặn "${username}" thành công!`);
             } else {
-                await userService.blockUser(requestData);
+                await friendService.blockUser(requestData);
                 setIsBlocked(true);
                 alert(`Đã chặn "${username}" thành công!`);
             }
@@ -72,7 +84,7 @@ export default function BlockUnblockButton({ userId, username }: BlockUnblockBut
         } finally {
             setLoading(false);
         }
-    };
+    }, [currentUser, isBlocked, userId, username]);
 
     if (!currentUser) {
         return null;

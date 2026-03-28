@@ -7,7 +7,6 @@ import {
   useLocation,
 } from "react-router-dom";
 import { ThemeProvider } from "./contexts/ThemeContext";
-import { AuthProvider } from "./contexts/AuthContext";
 import MainLayout from "./components/layout/MainLayout";
 import PublicLayout from "./components/layout/PublicLayout";
 import RequireAuth from "./components/auth/RequireAuth";
@@ -70,7 +69,6 @@ function App() {
   }
 
   return (
-    <AuthProvider>
       <ThemeProvider>
         <BrowserRouter>
           <Routes>
@@ -135,7 +133,6 @@ function App() {
           </Routes>
         </BrowserRouter>
       </ThemeProvider>
-    </AuthProvider>
   );
 }
 

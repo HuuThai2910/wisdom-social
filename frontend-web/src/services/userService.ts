@@ -1,8 +1,6 @@
 import axiosClient from "../api/axiosClient";
 import type { User, ApiResponse } from '../types';
 
-
-// Types for requests/responses
 export interface UserRequestRegister {
     phone: string;
     username: string;
@@ -27,13 +25,9 @@ export interface UserRequestConfirmRegister {
 }
 
 export interface UserResponseConfirmRegister {
-    success: boolean;
-    message: string;
-    data: {
-        token: string;
-        userId: string;
-        username: string;
-    };
+    token: string;
+    userId: string;
+    username: string;
 }
 
 export interface UserRequestLogin {
@@ -43,20 +37,17 @@ export interface UserRequestLogin {
 }
 
 export interface UserResponseLogin {
-    success: boolean;
-    message: string;
-    data: {
-        token: string;
-        id: string;
-        phone: string;
-        username: string;
-        name: string;
-        avatarUrl: string;
-        bio?: string;
-        birthday?: string;
-        gender?: string;
-        createdAt: string;
-    };
+    token: string;
+    id: string;
+    phone: string;
+     username: string;
+    name: string;
+    avatarUrl: string;
+    bio?: string;
+    birthday?: string;
+     gender?: string;
+    createdAt: string;
+    
 }
 
 export interface UserRequestUpdate {
@@ -73,12 +64,9 @@ export interface UserRequestForgotPassword {
 }
 
 export interface UserResponseOTPPassword {
-    success: boolean;
-    message: string;
-    data: {
-        otpId: string;
-        expiresIn: number;
-    };
+    otpId: string;
+    expiresIn: number;
+
 }
 
 export interface UserRequestResetPassword {
@@ -101,74 +89,56 @@ export interface UserProfileResponse {
     isVerified?: boolean;
 }
 
-export interface FriendRequest {
-    senderId: string;
-    receiverId: string;
-}
-
 // User Service
 export const userService = {
     // Auth endpoints
     async register(data: UserRequestRegister): Promise<UserResponseRegister> {
         const response = await axiosClient.post(`auth/register`, data);
-        return response.data;
+        return response.data.data;
     },
 
     async confirmRegister(data: UserRequestConfirmRegister): Promise<UserResponseConfirmRegister> {
         const response = await axiosClient.post(`auth/confirm`, data);
-        return response.data;
+        return response.data.data;
     },
 
     async login(data: UserRequestLogin): Promise<UserResponseLogin> {
-        const response = await axiosClient.post(`auth/login`, data, {
-            withCredentials: true,
-        });
-        return response.data;
+        const response = await axiosClient.post(`auth/login`, data);
+        return response.data.data;
     },
 
     async logout(): Promise<void> {
-        await axiosClient.post(`auth/logout`, {}, {
-            withCredentials: true,
-        });
+        await axiosClient.post(`auth/logout`, {});
     },
 
     async refreshToken(): Promise<string> {
-        const response = await axiosClient.get(`auth/refresh`, {
-            withCredentials: true,
-        });
-        return response.data;
+        const response = await axiosClient.get(`auth/refresh`);
+        return response.data.data;
     },
 
     async getCurrentUser(): Promise<ApiResponse<User>> {
-        const response = await axiosClient.get(`auth/me`, {
-            withCredentials: true,
-        });
-        return response.data;
+        const response = await axiosClient.get(`auth/me`);
+        return response.data.data;
     },
 
     async forgotPassword(data: UserRequestForgotPassword): Promise<UserResponseOTPPassword> {
         const response = await axiosClient.post(`auth/forgot-password`, data);
-        return response.data;
+        return response.data.data;
     },
 
     async resetPassword(data: UserRequestResetPassword): Promise<string> {
         const response = await axiosClient.post(`auth/reset-password`, data);
-        return response.data;
+        return response.data.data;
     },
 
-    // User management endpoints
     async getAllUsers(): Promise<User[]> {
-        const response = await axiosClient.get(`auth/users`, {
-            withCredentials: true,
-        });
-        return response.data;
+        const response = await axiosClient.get(`auth/users`);
+        return response.data.data;
     },
 
     async deleteUser(id: number): Promise<string> {
-        const response = await axiosClient.delete(`auth/users/${id}`, {
-            withCredentials: true,
-        });
-        return response.data;
+        const response = await axiosClient.delete(`auth/users/${id}`);
+        return response.data.data;
     },
 
     async updateUser(id: number, data: UserRequestUpdate): Promise<User> {
@@ -177,60 +147,26 @@ export const userService = {
     },
 
     async getUserProfile(id: string | number): Promise<UserProfileResponse> {
-        const response = await axiosClient.get(`auth/users/${id}`, {
-            withCredentials: true,
-        });
-        return response.data;
-    },
-
-    async getAllForUser(id: string | number): Promise<User[]> {
-        const response = await axiosClient.get(`auth/users/${id}`, {
-            withCredentials: true,
-        });
-        return response.data;
+        const response = await axiosClient.get(`auth/users/${id}`);
+        return response.data.data;
     },
 
     async searchUserByUsername(keyword: string): Promise<User[]> {
-        const response = await axiosClient.get(`auth/users/username/${keyword}`, {
-            withCredentials: true,
-        });
-        return response.data;
-    },
-
-    async getBlockedUsers(id: string | number): Promise<User[]> {
-        const response = await axiosClient.get(`auth/users/blocked/${id}`, {
-            withCredentials: true,
-        });
-        return response.data;
-    },
-
-    async blockUser(data: FriendRequest): Promise<string> {
-        const response = await axiosClient.post(`auth/users/block`, data, {
-            withCredentials: true,
-        });
-        return response.data;
-    },
-
-    async cancelBlockUser(data: FriendRequest): Promise<string> {
-        const response = await axiosClient.post(`auth/users/cancel-block`, data, {
-            withCredentials: true,
-        });
-        return response.data;
+        const response = await axiosClient.get(`auth/users/username/${keyword}`);
+        return response.data.data;
     },
 
     // Image upload endpoints
     async getUploadAvatarUrl(type: string, extension: string): Promise<{ imageUrl: string; uploadUrl: string }> {
         const response = await axiosClient.get(`auth/upload-avatar`, {
-            params: { type, extension },
-            withCredentials: true,
+            params: { type, extension }
         });
-        return response.data;
+        return response.data.data;
     },
 
     async updateUploadAvatarUrl(type: string, extension: string): Promise<string> {
         const response = await axiosClient.get(`auth/users/update/upload-avatar`, {
-            params: { type, extension },
-            withCredentials: true,
+            params: { type, extension }
         });
         return response.data;
     },

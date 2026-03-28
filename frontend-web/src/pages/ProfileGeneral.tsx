@@ -4,7 +4,7 @@ import ProfileHeader from "../components/profile/ProfileHeader";
 import ProfileTabs from "../components/profile/ProfileTabs";
 import axios from "axios";
 import type { User } from "../types";
-import { getCurrentUser } from "../utils/auth";
+import { useCurrentUser } from "../hooks/useCurrentUser";
 
 const API_BASE_URL = "http://localhost:8080/api";
 
@@ -53,7 +53,7 @@ export default function ProfileGeneral() {
     return <div className="p-4 text-center">User not found</div>;
   }
 
-  const currentUser = getCurrentUser();
+  const currentUser = useCurrentUser();
   const isOwnProfile = currentUser?.username === username;
 
   return (
