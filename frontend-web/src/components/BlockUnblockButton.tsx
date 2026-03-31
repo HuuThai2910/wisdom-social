@@ -6,40 +6,61 @@ import { useCurrentUser } from "../hooks/useCurrentUser";
 interface BlockUnblockButtonProps {
     userId: number;
     username: string;
+    // Optional: pre-loaded block status (to avoid extra API call)
+    initialIsBlocked?: boolean;
+    // If true, skip the initial API check (use when parent already loaded the status)
+    skipInitialCheck?: boolean;
+    // Callback when block status changes
+    onBlockStatusChange?: (userId: number, isBlocked: boolean) => void;
 }
 
-export default function BlockUnblockButton({ userId, username }: BlockUnblockButtonProps) {
+export default function BlockUnblockButton({ 
+    userId, 
+    username,
+    initialIsBlocked,
+    skipInitialCheck = false,
+    onBlockStatusChange,
+}: BlockUnblockButtonProps) {
     const currentUser = useCurrentUser();
-    const [isBlocked, setIsBlocked] = useState(false);
+    const [isBlocked, setIsBlocked] = useState(initialIsBlocked ?? false);
     const [loading, setLoading] = useState(false);
-    const [checking, setChecking] = useState(true);
+    const [checking, setChecking] = useState(!skipInitialCheck);
 
     const checkBlockStatus = useCallback(async () => {
-        if (!currentUser?.id) {
-            console.log("❌ currentUser.id is missing:", currentUser);
+        // Skip if parent already provided the status
+        if (skipInitialCheck) {
             setChecking(false);
             return;
         }
+        
+        // Wait for currentUser - keep checking state as true
+        if (!currentUser?.id) {
+            return;
+        }
 
-        console.log("✅ Checking block status - currentUser.id:", currentUser.id, "userId:", userId);
         setChecking(true);
         try {
             // Get list of blocked users and check if this user is in it
             const blockedUsers = await friendService.getBlockedUsers(currentUser.id);
-            console.log("📋 Blocked users:", blockedUsers);
             const blocked = blockedUsers.some((u) => u.id === userId);
-            console.log("Block status for user", userId, ":", blocked);
             setIsBlocked(blocked);
         } catch (error) {
             console.error("Error checking block status:", error);
         } finally {
             setChecking(false);
         }
-    }, [currentUser?.id, userId]);
+    }, [currentUser?.id, userId, skipInitialCheck]);
 
     useEffect(() => {
         checkBlockStatus();
     }, [checkBlockStatus]);
+
+    // Update isBlocked when initialIsBlocked prop changes
+    useEffect(() => {
+        if (initialIsBlocked !== undefined) {
+            setIsBlocked(initialIsBlocked);
+        }
+    }, [initialIsBlocked]);
 
     const handleBlockUnblock = useCallback(async () => {
         if (!currentUser) {
@@ -67,15 +88,15 @@ export default function BlockUnblockButton({ userId, username }: BlockUnblockBut
                 receivedId: userId,
             };
 
-            console.log("📤 Sending block request:", requestData);
-
             if (isBlocked) {
                 await friendService.unblockUser(requestData);
                 setIsBlocked(false);
+                onBlockStatusChange?.(userId, false);
                 alert(`Đã bỏ chặn "${username}" thành công!`);
             } else {
                 await friendService.blockUser(requestData);
                 setIsBlocked(true);
+                onBlockStatusChange?.(userId, true);
                 alert(`Đã chặn "${username}" thành công!`);
             }
         } catch (error: any) {
@@ -84,10 +105,15 @@ export default function BlockUnblockButton({ userId, username }: BlockUnblockBut
         } finally {
             setLoading(false);
         }
-    }, [currentUser, isBlocked, userId, username]);
+    }, [currentUser, isBlocked, userId, username, onBlockStatusChange]);
 
+    // Don't render anything until currentUser is available
     if (!currentUser) {
-        return null;
+        return (
+            <div className="px-4 py-[7px] bg-gray-200 dark:bg-[#363636] rounded-lg">
+                <Loader2 className="animate-spin" size={16} />
+            </div>
+        );
     }
 
     if (checking) {

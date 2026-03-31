@@ -4,6 +4,7 @@ import { X, Loader2, AlertCircle } from "lucide-react";
 import friendService from "../../services/friendService";
 import BlockUnblockButton from "../BlockUnblockButton";
 import { buildS3Url } from "../../utils/s3";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 import type { User } from "../../types";
 
 interface FriendsModalProps {
@@ -12,27 +13,49 @@ interface FriendsModalProps {
 }
 
 export default function FriendsModal({ userId, onClose }: FriendsModalProps) {
+    const currentUser = useCurrentUser();
     const [friends, setFriends] = useState<User[]>([]);
+    const [blockedUserIds, setBlockedUserIds] = useState<Set<number>>(new Set());
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
 
-    const loadFriends = useCallback(async () => {
+    const loadData = useCallback(async () => {
+        if (!currentUser?.id) return;
+        
         setLoading(true);
         setError("");
         try {
-            const friendsList = await friendService.getFriends(userId);
+            // Load friends list and blocked users in parallel
+            const [friendsList, blockedUsers] = await Promise.all([
+                friendService.getFriends(userId),
+                friendService.getBlockedUsers(currentUser.id),
+            ]);
             setFriends(friendsList);
+            setBlockedUserIds(new Set(blockedUsers.map(u => u.id)));
         } catch (err: any) {
-            console.error("Error loading friends:", err);
+            console.error("Error loading data:", err);
             setError("Không thể tải danh sách bạn bè. Vui lòng thử lại.");
         } finally {
             setLoading(false);
         }
-    }, [userId]);
+    }, [userId, currentUser?.id]);
 
     useEffect(() => {
-        loadFriends();
-    }, [loadFriends]);
+        loadData();
+    }, [loadData]);
+
+    // Handler to update blocked status locally
+    const handleBlockStatusChange = useCallback((targetUserId: number, isBlocked: boolean) => {
+        setBlockedUserIds(prev => {
+            const next = new Set(prev);
+            if (isBlocked) {
+                next.add(targetUserId);
+            } else {
+                next.delete(targetUserId);
+            }
+            return next;
+        });
+    }, []);
 
     return (
         <>
@@ -108,6 +131,9 @@ export default function FriendsModal({ userId, onClose }: FriendsModalProps) {
                                         <BlockUnblockButton
                                             userId={friend.id}
                                             username={friend.username}
+                                            initialIsBlocked={blockedUserIds.has(friend.id)}
+                                            skipInitialCheck={true}
+                                            onBlockStatusChange={handleBlockStatusChange}
                                         />
                                     </div>
                                 </div>

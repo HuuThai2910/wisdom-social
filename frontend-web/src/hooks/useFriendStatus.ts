@@ -1,4 +1,4 @@
-import { useState, useLayoutEffect, useCallback } from "react";
+import { useState, useLayoutEffect, useCallback, useRef } from "react";
 import friendService from "../services/friendService";
 import { useCurrentUser } from "./useCurrentUser";
 import { useFriendDataOptional } from "./useFriendDataOptional";
@@ -24,7 +24,9 @@ export function useFriendStatus(targetUserId: number | undefined): UseFriendStat
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [manualRefreshCount, setManualRefreshCount] = useState(0);
-    const [hasCompletedInitialCheck, setHasCompletedInitialCheck] = useState(false);
+    
+    // Track if we've completed initial load for this specific targetUserId
+    const loadedTargetIdRef = useRef<number | null>(null);
     
     // Only get refreshTrigger from context for WebSocket updates
     const { refreshTrigger } = useFriendDataOptional();
@@ -34,19 +36,16 @@ export function useFriendStatus(targetUserId: number | undefined): UseFriendStat
         let cancelled = false;
         
         const checkStatus = async () => {
-            // Reset to loading state when starting a new check
-            if (!cancelled) {
-                setStatus("loading");
-                setHasCompletedInitialCheck(false);
+            // Wait for currentUser to be available
+            if (!currentUser?.id) {
+                // Keep loading state while waiting for currentUser
+                return;
             }
             
-            console.log(`🔍 [useFriendStatus] Starting check for user ${targetUserId}`);
-            
-            if (!currentUser?.id || !targetUserId) {
+            if (!targetUserId) {
                 if (!cancelled) {
-                    console.log(`🔍 [useFriendStatus] No user IDs, setting status to "none"`);
                     setStatus("none");
-                    setHasCompletedInitialCheck(true);
+                    loadedTargetIdRef.current = null;
                 }
                 return;
             }
@@ -54,16 +53,20 @@ export function useFriendStatus(targetUserId: number | undefined): UseFriendStat
             // Don't check if viewing own profile
             if (currentUser.id === targetUserId) {
                 if (!cancelled) {
-                    console.log(`🔍 [useFriendStatus] Viewing own profile, setting status to "none"`);
                     setStatus("none");
-                    setHasCompletedInitialCheck(true);
+                    loadedTargetIdRef.current = targetUserId;
                 }
                 return;
             }
+            
+            // CRITICAL: Only show loading on first load or when targetUserId changes
+            const isNewTarget = loadedTargetIdRef.current !== targetUserId;
+            if (isNewTarget && !cancelled) {
+                setStatus("loading");
+            }
 
             try {
-                console.log(`🔍 [useFriendStatus] Loading data from API...`);
-                // Load ALL data in parallel - this prevents flicker
+                // Load ALL data in parallel
                 const [friends, receivedRequests, sentRequests] = await Promise.all([
                     friendService.getFriends(currentUser.id),
                     friendService.getFriendRequests(currentUser.id),
@@ -71,55 +74,43 @@ export function useFriendStatus(targetUserId: number | undefined): UseFriendStat
                 ]);
                 
                 if (cancelled) {
-                    console.log(`🔍 [useFriendStatus] Effect cancelled, not updating state`);
                     return;
                 }
                 
-                console.log(`🔍 [useFriendStatus] API data loaded:`, {
-                    friendsCount: friends.length,
-                    receivedRequestsCount: receivedRequests.length,
-                    sentRequestsCount: sentRequests.length,
-                });
+                // Mark this targetUserId as loaded
+                loadedTargetIdRef.current = targetUserId;
                 
-                // Now check in order of priority
+                // Determine the new status
+                let newStatus: FriendshipStatus = "none";
                 
                 // 1. Check if they are friends
                 const isFriend = friends.some((f: User) => f.id === targetUserId);
                 if (isFriend) {
-                    console.log(`🔍 [useFriendStatus] ✅ Found in friends list, setting status to "friends"`);
-                    setStatus("friends");
-                    setHasCompletedInitialCheck(true);
-                    return;
+                    newStatus = "friends";
+                } else {
+                    // 2. Check if they sent us a request
+                    const hasReceivedRequest = receivedRequests.some((u: User) => u.id === targetUserId);
+                    if (hasReceivedRequest) {
+                        newStatus = "pending_received";
+                    } else {
+                        // 3. Check if WE sent a request to them
+                        const hasSentRequest = sentRequests.some((u: User) => u.id === targetUserId);
+                        if (hasSentRequest) {
+                            newStatus = "pending_sent";
+                        }
+                    }
                 }
                 
-                // 2. Check if they sent us a request
-                const hasReceivedRequest = receivedRequests.some((u: User) => u.id === targetUserId);
-                if (hasReceivedRequest) {
-                    console.log(`🔍 [useFriendStatus] ✅ Found in received requests, setting status to "pending_received"`);
-                    setStatus("pending_received");
-                    setHasCompletedInitialCheck(true);
-                    return;
-                }
-
-                // 3. Check if WE sent a request to them
-                const hasSentRequest = sentRequests.some((u: User) => u.id === targetUserId);
-                if (hasSentRequest) {
-                    console.log(`🔍 [useFriendStatus] ✅ Found in sent requests, setting status to "pending_sent"`);
-                    setStatus("pending_sent");
-                    setHasCompletedInitialCheck(true);
-                    return;
-                }
-
-                // 4. No relationship found
-                console.log(`🔍 [useFriendStatus] ❌ No relationship found, setting status to "none"`);
-                setStatus("none");
-                setHasCompletedInitialCheck(true);
+                setStatus(newStatus);
             } catch (err) {
                 console.error("Error checking friendship status:", err);
                 if (!cancelled) {
                     setError("Không thể kiểm tra trạng thái bạn bè");
-                    setStatus("none");
-                    setHasCompletedInitialCheck(true);
+                    // Only set to "none" if this was the first load
+                    if (isNewTarget) {
+                        setStatus("none");
+                    }
+                    loadedTargetIdRef.current = targetUserId;
                 }
             }
         };
@@ -243,6 +234,7 @@ export function useFriendStatus(targetUserId: number | undefined): UseFriendStat
 
     // Refresh status - triggers re-run of useEffect
     const refresh = useCallback(async () => {
+        loadedTargetIdRef.current = null; // Reset to trigger loading state
         setStatus("loading");
         setManualRefreshCount(c => c + 1);
     }, []);
