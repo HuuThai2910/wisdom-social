@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { CheckCircle, MapPin, Users } from "lucide-react";
 import type { Page } from "../../types";
 import { formatCount } from "../../utils/format";
+import { followPage, unfollowPage } from "../../api/pageApi";
 
 interface PageCardProps {
     page: Page;
@@ -10,6 +11,23 @@ interface PageCardProps {
 
 export default function PageCard({ page }: PageCardProps) {
     const [isFollowed, setIsFollowed] = useState(page.isFollowed ?? false);
+    const [loading, setLoading] = useState(false);
+
+    const handleFollowToggle = async () => {
+        setLoading(true);
+        try {
+            if (isFollowed) {
+                await unfollowPage(page.id);
+            } else {
+                await followPage(page.id);
+            }
+            setIsFollowed(!isFollowed);
+        } catch {
+            // revert on error — state stays as-is
+        } finally {
+            setLoading(false);
+        }
+    };
 
     return (
         <div className="bg-white dark:bg-[#262626] border border-gray-200 dark:border-[#363636] rounded-xl overflow-hidden hover:shadow-md transition-shadow">
@@ -81,8 +99,9 @@ export default function PageCard({ page }: PageCardProps) {
 
                 {/* Follow Button */}
                 <button
-                    onClick={() => setIsFollowed(!isFollowed)}
-                    className={`w-full py-2 rounded-lg text-sm font-semibold transition-colors ${
+                    onClick={handleFollowToggle}
+                    disabled={loading}
+                    className={`w-full py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-60 ${
                         isFollowed
                             ? "bg-gray-100 dark:bg-[#363636] text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-[#404040]"
                             : "bg-[#0095f6] hover:bg-[#1877f2] text-white"

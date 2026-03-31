@@ -2,6 +2,7 @@ import { useState } from "react";
 import { CheckCircle, Globe, MapPin, MoreHorizontal, Users } from "lucide-react";
 import type { Page } from "../../types";
 import { formatCount } from "../../utils/format";
+import { followPage, unfollowPage } from "../../api/pageApi";
 
 interface PageHeaderProps {
     page: Page;
@@ -9,6 +10,23 @@ interface PageHeaderProps {
 
 export default function PageHeader({ page }: PageHeaderProps) {
     const [isFollowed, setIsFollowed] = useState(page.isFollowed ?? false);
+    const [loading, setLoading] = useState(false);
+
+    const handleFollowToggle = async () => {
+        setLoading(true);
+        try {
+            if (isFollowed) {
+                await unfollowPage(page.id);
+            } else {
+                await followPage(page.id);
+            }
+            setIsFollowed(!isFollowed);
+        } catch {
+            // revert on error — state stays as-is
+        } finally {
+            setLoading(false);
+        }
+    };
 
     return (
         <div className="bg-white dark:bg-[#000] border-b border-gray-200 dark:border-[#262626]">
@@ -56,8 +74,9 @@ export default function PageHeader({ page }: PageHeaderProps) {
                                     )}
                                 </div>
                                 <button
-                                    onClick={() => setIsFollowed(!isFollowed)}
-                                    className={`px-6 py-[7px] rounded-lg text-sm font-semibold transition-colors ${
+                                    onClick={handleFollowToggle}
+                                    disabled={loading}
+                                    className={`px-6 py-[7px] rounded-lg text-sm font-semibold transition-colors disabled:opacity-60 ${
                                         isFollowed
                                             ? "bg-[#efefef] dark:bg-[#262626] hover:bg-[#dbdbdb] dark:hover:bg-[#363636] dark:text-white"
                                             : "bg-[#0095f6] hover:bg-[#1877f2] text-white"

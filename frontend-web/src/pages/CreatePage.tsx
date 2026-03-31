@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ImagePlus, X } from "lucide-react";
+import { ImagePlus, Loader2, X } from "lucide-react";
 import type { PageCategory } from "../types";
+import { createPage } from "../api/pageApi";
 
 const categories: PageCategory[] = [
     "Business",
@@ -26,6 +27,8 @@ export default function CreatePage() {
     const [location, setLocation] = useState("");
     const [avatar, setAvatar] = useState<string | null>(null);
     const [coverImage, setCoverImage] = useState<string | null>(null);
+    const [submitting, setSubmitting] = useState(false);
+    const [submitError, setSubmitError] = useState<string | null>(null);
 
     const handleImageUpload = (
         e: React.ChangeEvent<HTMLInputElement>,
@@ -42,19 +45,29 @@ export default function CreatePage() {
         }
     };
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        console.log("Creating page:", {
-            name,
-            username,
-            category,
-            description,
-            website,
-            location,
-            avatar,
-            coverImage,
-        });
-        navigate("/pages");
+        if (!category) return;
+
+        setSubmitting(true);
+        setSubmitError(null);
+        try {
+            await createPage({
+                name: name.trim(),
+                username: username.trim(),
+                category,
+                description: description.trim() || undefined,
+                website: website.trim() || undefined,
+                location: location.trim() || undefined,
+                avatar: avatar ?? undefined,
+                coverImage: coverImage ?? undefined,
+            });
+            navigate("/pages");
+        } catch {
+            setSubmitError("Failed to create page. Please try again.");
+        } finally {
+            setSubmitting(false);
+        }
     };
 
     const isValid = name.trim() && username.trim() && category;
@@ -76,13 +89,16 @@ export default function CreatePage() {
                         </h2>
                         <button
                             onClick={handleSubmit}
-                            disabled={!isValid}
-                            className={`text-sm font-semibold ${
-                                isValid
+                            disabled={!isValid || submitting}
+                            className={`text-sm font-semibold flex items-center gap-1 ${
+                                isValid && !submitting
                                     ? "text-[#0095f6] hover:text-[#00376b]"
                                     : "text-[#0095f6] opacity-30 cursor-not-allowed"
                             }`}
                         >
+                            {submitting && (
+                                <Loader2 size={14} className="animate-spin" />
+                            )}
                             Create
                         </button>
                     </div>
@@ -308,6 +324,11 @@ export default function CreatePage() {
 
                 {/* Helper */}
                 <div className="mt-4 text-center">
+                    {submitError && (
+                        <p className="text-sm text-red-500 dark:text-red-400 mb-2">
+                            {submitError}
+                        </p>
+                    )}
                     <p className="text-xs text-gray-500 dark:text-gray-400">
                         Fields marked with{" "}
                         <span className="text-red-500">*</span> are required.
