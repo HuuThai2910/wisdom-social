@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { UserPlus, Send, RefreshCw } from "lucide-react";
-import FriendRequestsList from "../components/FriendRequestsList";
-import SentRequestsList from "../components/SentRequestsList";
+import FriendRequestsList from "../components/friend/FriendRequestsList";
+import SentRequestsList from "../components/friend/SentRequestsList";
 import { useFriendData } from "../contexts/FriendDataContext";
 
 type TabType = "received" | "sent";

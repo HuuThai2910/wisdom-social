@@ -7,8 +7,8 @@ import axiosClient from "../../api/axiosClient";
 import NoteModal from "./NoteModal";
 import FriendsModal from "./FriendsModal";
 import { buildS3Url } from "../../utils/s3";
-import BlockUnblockButton from "../BlockUnblockButton";
-import FriendActions from "../FriendActions";
+import BlockUnblockButton from "../friend/BlockUnblockButton";
+import FriendActions from "../friend/FriendActions";
 
 interface NoteMusic {
   title: string;

@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { UserPlus, Loader2, AlertCircle, RefreshCw } from "lucide-react";
-import { useFriendData } from "../contexts/FriendDataContext";
+import { useFriendData } from "../../contexts/FriendDataContext";
 import FriendRequestItem from "./FriendRequestItem";
 
 interface FriendRequestsListProps {

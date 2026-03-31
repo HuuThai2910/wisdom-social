@@ -1,6 +1,6 @@
 import { UserPlus, UserMinus, UserCheck, Clock, Loader2, X } from "lucide-react";
-import { useFriendStatus, type FriendshipStatus } from "../hooks/useFriendStatus";
-import { useCurrentUser } from "../hooks/useCurrentUser";
+import { useFriendStatus, type FriendshipStatus } from "../../hooks/useFriendStatus";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 
 interface FriendActionsProps {
     targetUserId: number;

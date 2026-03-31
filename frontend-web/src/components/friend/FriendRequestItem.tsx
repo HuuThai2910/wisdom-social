@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Check, X, Loader2 } from "lucide-react";
-import { buildS3Url } from "../utils/s3";
-import type { User } from "../types";
+import { buildS3Url } from "../../utils/s3";
+import type { User } from "../../types";
 
 interface FriendRequestItemProps {
     user: User;

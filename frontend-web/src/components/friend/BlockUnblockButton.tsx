@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Ban, Loader2 } from "lucide-react";
-import friendService from "../services/friendService";
-import { useCurrentUser } from "../hooks/useCurrentUser";
+import friendService from "../../services/friendService";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 
 interface BlockUnblockButtonProps {
     userId: number;

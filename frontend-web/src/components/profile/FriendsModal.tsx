@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { X, Loader2, AlertCircle } from "lucide-react";
 import friendService from "../../services/friendService";
-import BlockUnblockButton from "../BlockUnblockButton";
+import BlockUnblockButton from "../friend/BlockUnblockButton";
 import { buildS3Url } from "../../utils/s3";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import type { User } from "../../types";

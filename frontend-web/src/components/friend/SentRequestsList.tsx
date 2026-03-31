@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { Send, Loader2, AlertCircle, X, RefreshCw } from "lucide-react";
-import friendService from "../services/friendService";
-import { useCurrentUser } from "../hooks/useCurrentUser";
-import { buildS3Url } from "../utils/s3";
-import type { User } from "../types";
+import friendService from "../../services/friendService";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
+import { buildS3Url } from "../../utils/s3";
+import type { User } from "../../types";
 
 interface SentRequestsListProps {
     onRequestCanceled?: () => void;
