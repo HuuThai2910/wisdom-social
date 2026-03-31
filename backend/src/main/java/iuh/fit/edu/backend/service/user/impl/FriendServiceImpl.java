@@ -288,6 +288,48 @@ public class FriendServiceImpl implements FriendService {
     }
 
     @Override
+    public List<User> getSentRequestsOfUser(long userId) {
+        User user = userService.findUserById(userId);
+        if (user != null) {
+            List<User> listUser = new ArrayList<>();
+            Set<Long> addedUserIds = new HashSet<>();
+            
+            // Get from Redis first (faster)
+            String sentKey = buildSentRequestKey(userId);
+            Set<String> receiverIds = redisTemplate.opsForSet().members(sentKey);
+            
+            if (receiverIds != null) {
+                for (String receiverIdStr : receiverIds) {
+                    long receiverId = Long.parseLong(receiverIdStr);
+                    User receiver = userService.findUserById(receiverId);
+                    if (receiver != null) {
+                        listUser.add(receiver);
+                        addedUserIds.add(receiverId);
+                    }
+                }
+            }
+
+            // Also check database for any pending requests where user is the sender
+            List<Friend> friends = friendRepository.findFriendsByUser(user);
+            for (Friend friend : friends) {
+                if (FriendStatus.PENDING.equals(friend.getStatus())) {
+                    long receiverId = friend.getFriend().getId();
+                    if (!addedUserIds.contains(receiverId)) {
+                        User receiver = userService.findUserById(receiverId);
+                        if (receiver != null) {
+                            listUser.add(receiver);
+                            addedUserIds.add(receiverId);
+                        }
+                    }
+                }
+            }
+            
+            return listUser;
+        }
+        return new ArrayList<>();
+    }
+
+    @Override
     public List<User> getFriendsOfUser(long userId) {
         User user=userService.findUserById(userId);
         List<User> listUser=new ArrayList<>();

@@ -8,6 +8,7 @@ import NoteModal from "./NoteModal";
 import FriendsModal from "./FriendsModal";
 import { buildS3Url } from "../../utils/s3";
 import BlockUnblockButton from "../BlockUnblockButton";
+import FriendActions from "../FriendActions";
 
 interface NoteMusic {
   title: string;
@@ -179,9 +180,11 @@ export default function ProfileHeader({
                   </>
                 ) : (
                   <>
-                    <button className="px-6 py-[7px] bg-[#0095f6] hover:bg-[#1877f2] text-white rounded-lg text-sm font-semibold">
-                      Follow
-                    </button>
+                    <FriendActions 
+                      targetUserId={user.id} 
+                      targetUsername={user.username}
+                      size="md"
+                    />
                     <button className="px-6 py-[7px] bg-[#efefef] dark:bg-[#262626] hover:bg-[#dbdbdb] dark:hover:bg-[#363636] rounded-lg text-sm font-semibold dark:text-white">
                       Message
                     </button>

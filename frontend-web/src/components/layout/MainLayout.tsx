@@ -1,19 +1,22 @@
 import { Outlet } from "react-router-dom";
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import Sidebar from "../nav/Sidebar";
 import BottomNav from "../nav/BottomNav";
 import { suggestedUsers } from "../../api/mockData";
 import { Link } from "react-router-dom";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
+import { FriendNotificationProvider } from "../../contexts/FriendNotificationContext";
+import { FriendDataProvider, useFriendData } from "../../contexts/FriendDataContext";
 
-export default function MainLayout() {
+// Inner component that uses FriendDataContext
+function MainLayoutContent() {
   const currentUser = useCurrentUser();
   const [isRightSidebarExpanded, setIsRightSidebarExpanded] = useState(false);
 
   return (
-    <div className="min-h-screen bg-[#fafafa] dark:bg-[#000]">
-      {/* Sidebar for desktop */}
-      <Sidebar />
+      <div className="min-h-screen bg-[#fafafa] dark:bg-[#000]">
+        {/* Sidebar for desktop */}
+        <Sidebar />
 
       {/* Main Content */}
       <main className="md:ml-[72px] xl:mr-[72px] min-h-screen pb-16 md:pb-0">
@@ -150,5 +153,54 @@ export default function MainLayout() {
       {/* Bottom Navigation for mobile */}
       <BottomNav />
     </div>
+  );
+}
+
+// Wrapper component that connects notifications to data refresh
+function MainLayoutWithNotifications() {
+  const { refreshFriendRequests, refreshFriends, triggerRefreshAll } = useFriendData();
+
+  // Callback khi nhận friend request mới - auto refresh danh sách
+  const handleFriendRequest = useCallback(() => {
+    console.log("📬 New friend request notification - refreshing list...");
+    triggerRefreshAll();
+  }, [triggerRefreshAll]);
+
+  // Callback khi friend request được accept - refresh cả 2 list
+  const handleFriendAccept = useCallback(() => {
+    console.log("✅ Friend request accepted - refreshing both lists...");
+    triggerRefreshAll();
+  }, [triggerRefreshAll]);
+
+  // Callback khi friend request bị reject
+  const handleFriendReject = useCallback(() => {
+    console.log("❌ Friend request rejected - refreshing requests...");
+    triggerRefreshAll();
+  }, [triggerRefreshAll]);
+
+  // Callback khi friend request bị cancel hoặc unfriend
+  const handleFriendCancel = useCallback(() => {
+    console.log("🚫 Friend canceled - refreshing both lists...");
+    triggerRefreshAll();
+  }, [triggerRefreshAll]);
+
+  return (
+    <FriendNotificationProvider
+      onFriendRequest={handleFriendRequest}
+      onFriendAccept={handleFriendAccept}
+      onFriendReject={handleFriendReject}
+      onFriendCancel={handleFriendCancel}
+    >
+      <MainLayoutContent />
+    </FriendNotificationProvider>
+  );
+}
+
+// Main export - provides FriendDataContext first
+export default function MainLayout() {
+  return (
+    <FriendDataProvider>
+      <MainLayoutWithNotifications />
+    </FriendDataProvider>
   );
 }

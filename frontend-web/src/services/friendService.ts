@@ -10,13 +10,27 @@ export interface FriendRequest {
 export const friendService = {
     // Get all friends for a user
     async getFriends(userId: string | number): Promise<User[]> {
-        const response = await axiosClient.get(`friends/${userId}`);
+        // Add timestamp to prevent browser caching
+        const response = await axiosClient.get(`friends/${userId}`, {
+            params: { _t: Date.now() }
+        });
         return response.data.data;
     },
 
-    // Get pending friend requests for a user
+    // Get pending friend requests for a user (received)
     async getFriendRequests(userId: string | number): Promise<User[]> {
-        const response = await axiosClient.get(`friends/requests/${userId}`);
+        // Add timestamp to prevent browser caching
+        const response = await axiosClient.get(`friends/requests/${userId}`, {
+            params: { _t: Date.now() }
+        });
+        return response.data.data;
+    },
+
+    // Get sent friend requests for a user
+    async getSentRequests(userId: string | number): Promise<User[]> {
+        const response = await axiosClient.get(`friends/sent-requests/${userId}`, {
+            params: { _t: Date.now() }
+        });
         return response.data.data;
     },
 

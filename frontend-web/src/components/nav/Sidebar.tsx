@@ -14,16 +14,22 @@ import {
     Settings,
     Bookmark,
     RefreshCw,
+    UserPlus,
 } from "lucide-react";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { buildS3Url } from "../../utils/s3";
+import { useFriendDataSafe } from "../../contexts/FriendDataContext";
 
 export default function Sidebar() {
     const location = useLocation();
     const { isDark, toggleTheme } = useTheme();
     const currentUser = useCurrentUser();
     const [showMoreMenu, setShowMoreMenu] = useState(false);
+    
+    // Get friend requests count for badge (safe - returns 0 if not in provider)
+    const { friendRequests } = useFriendDataSafe();
+    const friendRequestsCount = friendRequests?.length || 0;
 
     const navItems = [
         { icon: Home, label: "Home", path: "/" },
@@ -32,6 +38,7 @@ export default function Sidebar() {
         { icon: Clapperboard, label: "Reels", path: "/reels" },
         { icon: MessageCircle, label: "Messages", path: "/messages" },
         { icon: Heart, label: "Notifications", path: "/notifications" },
+        { icon: UserPlus, label: "Friend Requests", path: "/friend-requests", badge: friendRequestsCount },
         { icon: PlusSquare, label: "Create", path: "/create" },
     ];
 
@@ -56,6 +63,7 @@ export default function Sidebar() {
                     {navItems.map((item) => {
                         const Icon = item.icon;
                         const active = isActive(item.path);
+                        const badge = 'badge' in item ? (item as any).badge : 0;
 
                         return (
                             <li key={item.path}>
@@ -65,11 +73,18 @@ export default function Sidebar() {
                                         active ? "font-bold" : "font-normal"
                                     } dark:text-white`}
                                 >
-                                    <Icon
-                                        className={active ? "fill-current" : ""}
-                                        size={26}
-                                        strokeWidth={active ? 2.5 : 1.5}
-                                    />
+                                    <div className="relative">
+                                        <Icon
+                                            className={active ? "fill-current" : ""}
+                                            size={26}
+                                            strokeWidth={active ? 2.5 : 1.5}
+                                        />
+                                        {badge > 0 && (
+                                            <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1">
+                                                {badge > 99 ? '99+' : badge}
+                                            </span>
+                                        )}
+                                    </div>
                                     <span className="text-[16px]">
                                         {item.label}
                                     </span>

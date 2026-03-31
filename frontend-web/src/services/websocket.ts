@@ -681,6 +681,62 @@ class WebSocketService {
     isConnected(): boolean {
         return this.client?.connected || false;
     }
+
+    /**
+     * Subscribe một topic generic để nhận events real-time
+     * Dùng cho các event như friend notifications, system notifications, etc.
+     *
+     * @param destination - Topic destination (e.g., /topic/user/{phone}/friend-request)
+     * @param callback - Hàm được gọi khi nhận message
+     */
+    subscribeToTopic(destination: string, callback: (message: any) => void) {
+        if (!this.client?.connected) {
+            console.error("WebSocket not connected, cannot subscribe to topic:", destination);
+            return;
+        }
+
+        // Check if already subscribed
+        const existingSubscription = this.subscriptions.get(destination);
+        if (existingSubscription) {
+            console.log(`Already subscribed to ${destination}`);
+            return;
+        }
+
+        const subscription = this.client.subscribe(
+            destination,
+            (message: IMessage) => {
+                try {
+                    // Try to parse as JSON, fallback to raw string
+                    let parsedMessage;
+                    try {
+                        parsedMessage = JSON.parse(message.body);
+                    } catch {
+                        parsedMessage = message.body;
+                    }
+                    callback(parsedMessage);
+                } catch (error) {
+                    console.error(`Error handling message from ${destination}:`, error);
+                }
+            }
+        );
+
+        this.subscriptions.set(destination, subscription);
+        console.log(`Subscribed to ${destination}`);
+    }
+
+    /**
+     * Unsubscribe from a generic topic
+     *
+     * @param destination - Topic destination to unsubscribe from
+     */
+    unsubscribeFromTopic(destination: string) {
+        const subscription = this.subscriptions.get(destination);
+        if (subscription) {
+            subscription.unsubscribe();
+            this.subscriptions.delete(destination);
+            console.log(`Unsubscribed from ${destination}`);
+        }
+    }
 }
 
 /**
