@@ -1,0 +1,169 @@
+import { useState } from "react";
+import { Search } from "lucide-react";
+import PageCard from "../components/page/PageCard";
+import { mockPages } from "../api/mockData";
+import type { PageCategory } from "../types";
+import { Link } from "react-router-dom";
+
+const categories: PageCategory[] = [
+    "Business",
+    "Brand",
+    "Artist",
+    "Entertainment",
+    "Education",
+    "Community",
+    "Technology",
+    "Sports",
+    "Food",
+    "Travel",
+];
+
+export default function Pages() {
+    const [searchQuery, setSearchQuery] = useState("");
+    const [selectedCategory, setSelectedCategory] = useState<
+        PageCategory | "All"
+    >("All");
+
+    const followedPages = mockPages.filter((p) => p.isFollowed);
+    const suggestedPages = mockPages.filter((p) => !p.isFollowed);
+
+    const filteredPages = mockPages.filter((page) => {
+        const matchesSearch =
+            searchQuery === "" ||
+            page.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            page.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            page.description
+                ?.toLowerCase()
+                .includes(searchQuery.toLowerCase());
+
+        const matchesCategory =
+            selectedCategory === "All" || page.category === selectedCategory;
+
+        return matchesSearch && matchesCategory;
+    });
+
+    const isFiltering = searchQuery !== "" || selectedCategory !== "All";
+
+    return (
+        <div className="max-w-[935px] mx-auto">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-6">
+                <h1 className="text-2xl font-semibold dark:text-white">
+                    Pages
+                </h1>
+                <Link
+                    to="/pages/create"
+                    className="px-4 py-2 bg-[#0095f6] hover:bg-[#1877f2] text-white rounded-lg text-sm font-semibold"
+                >
+                    + Create Page
+                </Link>
+            </div>
+
+            {/* Search */}
+            <div className="relative mb-4">
+                <Search
+                    size={16}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                />
+                <input
+                    type="text"
+                    placeholder="Search pages..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2.5 bg-gray-100 dark:bg-[#262626] border border-transparent focus:border-gray-300 dark:focus:border-[#363636] rounded-xl text-sm outline-none dark:text-white dark:placeholder-gray-500"
+                />
+            </div>
+
+            {/* Category Filters */}
+            <div className="flex gap-2 overflow-x-auto pb-2 mb-6 scrollbar-none">
+                <button
+                    onClick={() => setSelectedCategory("All")}
+                    className={`flex-shrink-0 px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                        selectedCategory === "All"
+                            ? "bg-gray-900 dark:bg-white text-white dark:text-black"
+                            : "bg-gray-100 dark:bg-[#262626] text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-[#363636]"
+                    }`}
+                >
+                    All
+                </button>
+                {categories.map((cat) => (
+                    <button
+                        key={cat}
+                        onClick={() => setSelectedCategory(cat)}
+                        className={`flex-shrink-0 px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                            selectedCategory === cat
+                                ? "bg-gray-900 dark:bg-white text-white dark:text-black"
+                                : "bg-gray-100 dark:bg-[#262626] text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-[#363636]"
+                        }`}
+                    >
+                        {cat}
+                    </button>
+                ))}
+            </div>
+
+            {isFiltering ? (
+                /* Filtered results */
+                <div>
+                    <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 mb-4">
+                        {filteredPages.length} result
+                        {filteredPages.length !== 1 ? "s" : ""}
+                    </h2>
+                    {filteredPages.length === 0 ? (
+                        <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+                            <p className="text-lg font-medium">No pages found</p>
+                            <p className="text-sm mt-1">
+                                Try a different search or category
+                            </p>
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {filteredPages.map((page) => (
+                                <PageCard key={page.id} page={page} />
+                            ))}
+                        </div>
+                    )}
+                </div>
+            ) : (
+                <div className="space-y-8">
+                    {/* Pages You Follow */}
+                    {followedPages.length > 0 && (
+                        <section>
+                            <div className="flex items-center justify-between mb-4">
+                                <h2 className="text-base font-semibold dark:text-white">
+                                    Pages You Follow
+                                </h2>
+                                <button className="text-sm font-semibold text-[#0095f6] hover:text-[#00376b]">
+                                    See All
+                                </button>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                                {followedPages.map((page) => (
+                                    <PageCard key={page.id} page={page} />
+                                ))}
+                            </div>
+                        </section>
+                    )}
+
+                    {/* Suggested Pages */}
+                    {suggestedPages.length > 0 && (
+                        <section>
+                            <div className="flex items-center justify-between mb-4">
+                                <h2 className="text-base font-semibold dark:text-white">
+                                    Suggested Pages
+                                </h2>
+                                <button className="text-sm font-semibold text-[#0095f6] hover:text-[#00376b]">
+                                    See All
+                                </button>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                                {suggestedPages.map((page) => (
+                                    <PageCard key={page.id} page={page} />
+                                ))}
+                            </div>
+                        </section>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}

@@ -29,6 +29,14 @@ import ProfileSavedPost from "./pages/ProfileSavedPost";
 import ProfileGeneral from "./pages/ProfileGeneral";
 import CreatePost from "./pages/CreatePost";
 
+// Pages Feature
+import Pages from "./pages/Pages";
+import PageProfile, {
+    PageProfilePosts,
+    PageProfileAbout,
+} from "./pages/PageProfile";
+import CreatePage from "./pages/CreatePage";
+
 // Other Pages
 import General from "./pages/General";
 import Misc from "./pages/Misc";
@@ -98,6 +106,25 @@ function App() {
                         <Route
                             path="/profile/:username/general"
                             element={<ProfileGeneral />}
+                        />
+
+                        {/* Pages Routes */}
+                        <Route path="/pages" element={<Pages />} />
+                        <Route
+                            path="/pages/create"
+                            element={<CreatePage />}
+                        />
+                        <Route
+                            path="/pages/:pageId"
+                            element={<PageProfile />}
+                        />
+                        <Route
+                            path="/pages/:pageId/posts"
+                            element={<PageProfilePosts />}
+                        />
+                        <Route
+                            path="/pages/:pageId/about"
+                            element={<PageProfileAbout />}
                         />
                     </Route>
 

@@ -14,6 +14,7 @@ import {
     Settings,
     Bookmark,
     RefreshCw,
+    Flag,
 } from "lucide-react";
 import { currentUser } from "../../api/mockData";
 import { useTheme } from "../../contexts/ThemeContext";
@@ -31,6 +32,7 @@ export default function Sidebar() {
         { icon: MessageCircle, label: "Messages", path: "/messages" },
         { icon: Heart, label: "Notifications", path: "/notifications" },
         { icon: PlusSquare, label: "Create", path: "/create" },
+        { icon: Flag, label: "Pages", path: "/pages" },
     ];
 
     const isActive = (path: string) => {

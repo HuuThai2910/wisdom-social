@@ -77,3 +77,34 @@ export interface Notification {
     createdAt: string;
     isRead?: boolean;
 }
+
+// Page Types
+export type PageCategory =
+    | 'Business'
+    | 'Brand'
+    | 'Artist'
+    | 'Entertainment'
+    | 'Education'
+    | 'Community'
+    | 'Technology'
+    | 'Sports'
+    | 'Food'
+    | 'Travel';
+
+export interface Page {
+    id: string;
+    name: string;
+    username: string;
+    avatar: string;
+    coverImage?: string;
+    category: PageCategory;
+    description?: string;
+    website?: string;
+    location?: string;
+    followersCount: number;
+    postsCount: number;
+    isFollowed?: boolean;
+    isVerified?: boolean;
+    createdAt: string;
+    owner: User;
+}
