@@ -13,6 +13,7 @@ export interface UserRequestCreatePage {
     website?: string;
     address?: string;
     isVerified?: boolean;
+    status?: "PUBLIC" | "PRIVATE";
 }
 
 export interface UserRequestUpdatePage {
@@ -27,6 +28,7 @@ export interface UserRequestUpdatePage {
     website?: string;
     address?: string;
     isVerified?: boolean;
+    status?: "PUBLIC" | "PRIVATE";
 }
 
 export interface UserRequestPage {
@@ -187,6 +189,7 @@ export const pageService = {
     async generateUploadUrl(type: string, extension: string): Promise<{
         imageUrl: string;
         uploadUrl: string;
+        uuid: string;
     }> {
         const response = await axiosClient.get(`page/upload-avatar`, {
             params: { type, extension }

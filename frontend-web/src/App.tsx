@@ -41,6 +41,14 @@ import EditPost from "./pages/EditPost";
 import Settings from "./pages/Settings";
 import ProfileLayout from "./components/profile/ProfileLayout";
 
+// Pages Feature
+import Pages from "./pages/Pages";
+import CreatePageForm from "./pages/CreatePageForm";
+import PageDetail from "./pages/PageDetail";
+import PageSettings from "./pages/PageSettings";
+import EditPageForm from "./pages/EditPageForm";
+import PagePosts from "./pages/PagePosts";
+
 // Other Pages
 import General from "./pages/General";
 import Misc from "./pages/Misc";
@@ -135,6 +143,14 @@ function App() {
               <Route path="/user-management" element={<UserManagement />} />
               <Route path="/blocked-users" element={<BlockedUsers />} />
               <Route path="/friend-requests" element={<FriendRequests />} />
+
+              {/* Pages Routes */}
+              <Route path="/pages" element={<Pages />} />
+              <Route path="/pages/create" element={<CreatePageForm />} />
+              <Route path="/pages/:pageId" element={<PageDetail />} />
+              <Route path="/pages/:pageId/edit" element={<EditPageForm />} />
+              <Route path="/pages/:pageId/posts" element={<PagePosts />} />
+              <Route path="/pages/:pageId/settings" element={<PageSettings />} />
             </Route>
 
             {/* Other Routes */}

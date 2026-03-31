@@ -15,6 +15,7 @@ import {
     Bookmark,
     RefreshCw,
     UserPlus,
+    Flag,
 } from "lucide-react";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
@@ -39,6 +40,7 @@ export default function Sidebar() {
         { icon: MessageCircle, label: "Messages", path: "/messages" },
         { icon: Heart, label: "Notifications", path: "/notifications" },
         { icon: UserPlus, label: "Friend Requests", path: "/friend-requests", badge: friendRequestsCount },
+        { icon: Flag, label: "Pages", path: "/pages" },
         { icon: PlusSquare, label: "Create", path: "/create" },
     ];
 
