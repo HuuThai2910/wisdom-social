@@ -14,6 +14,7 @@ import iuh.fit.edu.backend.repository.mysql.DeviceRepository;
 import iuh.fit.edu.backend.repository.mysql.UserRepository;
 import iuh.fit.edu.backend.service.user.BlockUserService;
 import iuh.fit.edu.backend.service.user.UserService;
+import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.core.Authentication;
@@ -22,7 +23,9 @@ import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.*;
 
+import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -420,6 +423,20 @@ public class UserServiceImpl implements UserService {
         String sep = separators[random.nextInt(separators.length)];
 
         return part1 + sep + part2 + number;
+    }
+
+    // Hàm cập nhật lần hoạt động cuối cùng user
+    @Transactional
+    @Override
+    public Instant updateLastActiveAt(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy User"));
+
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        user.setLastActiveAt(now);
+        userRepository.save(user);
+
+        return now;
     }
 
 }

@@ -3,11 +3,7 @@ package iuh.fit.edu.backend.controller;
 import iuh.fit.edu.backend.domain.entity.mysql.User;
 import iuh.fit.edu.backend.dto.request.friend.FriendRequest;
 import iuh.fit.edu.backend.dto.request.user.*;
-import iuh.fit.edu.backend.dto.response.user.UserResponseConfirmRegister;
-import iuh.fit.edu.backend.dto.response.user.UserResponseLogin;
-import iuh.fit.edu.backend.dto.response.user.UserResponseOTPPassword;
-import iuh.fit.edu.backend.dto.response.user.UserResponseRegister;
-import iuh.fit.edu.backend.dto.response.user.UserProfileResponse;
+import iuh.fit.edu.backend.dto.response.user.*;
 import iuh.fit.edu.backend.dto.response.ApiResponse;
 import iuh.fit.edu.backend.service.user.BlockUserService;
 import iuh.fit.edu.backend.service.user.UserService;
@@ -236,4 +232,24 @@ public class UserController {
         }
         return request.getRemoteAddr();
     }
+
+//    @PostMapping("/status/bulk")
+//    public ResponseEntity<ApiResponse<List<UserStatusResponse>>> getBulkUserStatus(
+//            @RequestBody List<Long> userIds) {
+//
+//        // 1. Lấy thông tin từ DB (Nên có hàm findUsersByIds trong UserService)
+//        List<User> users = userService.findUsersByIds(userIds);
+//
+//        // 2. Map dữ liệu kết hợp với Cache
+//        List<UserStatusResponse> statuses = users.stream().map(user -> {
+//            boolean isOnline = userCacheService.isUserOnline(user.getId());
+//            return UserStatusResponse.builder()
+//                    .userId(user.getId())
+//                    .isOnline(isOnline)
+//                    .lastSeen(isOnline ? null : user.getLastActiveAt())
+//                    .build();
+//        }).toList();
+//
+//        return ResponseEntity.ok(new ApiResponse<>(200, "Thành công", statuses));
+//    }
 }

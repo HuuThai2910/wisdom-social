@@ -6,11 +6,8 @@ package iuh.fit.edu.backend.event.listener;
 
 import iuh.fit.edu.backend.dto.response.message.MessageRecalledResponse;
 import iuh.fit.edu.backend.dto.response.message.MessageSeenResponse;
-import iuh.fit.edu.backend.event.payload.MessageCreatedEvent;
-import iuh.fit.edu.backend.event.payload.MessageRecalledEvent;
+import iuh.fit.edu.backend.event.payload.*;
 import iuh.fit.edu.backend.dto.response.message.MessageResponse;
-import iuh.fit.edu.backend.event.payload.MessageSeenEvent;
-import iuh.fit.edu.backend.event.payload.TypingEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.event.EventListener;
@@ -75,6 +72,15 @@ public class ChatEventListener {
                 destination,
                 event.getTypingResponse().getUserId(),
                 event.getTypingResponse().isTyping());
+
+        messagingTemplate.convertAndSend(destination, event);
+    }
+
+    @EventListener
+    public void handleUserStatusEvent(UserStatusEvent event) {
+        // Kênh này dùng chung cho toàn bộ user đang mở app
+        // Có thể tối ưu hơn bằng cách chỉ bắn cho danh sách bạn bè, nhưng tạm thời dùng kênh public cho dễ test
+        String destination = "/topic/public/users/status";
 
         messagingTemplate.convertAndSend(destination, event);
     }
