@@ -6,6 +6,7 @@ import iuh.fit.edu.backend.domain.entity.mysql.Session;
 import iuh.fit.edu.backend.domain.entity.mysql.User;
 import iuh.fit.edu.backend.dto.request.user.UserRequestQRLogin;
 import iuh.fit.edu.backend.dto.response.user.UserResponseLogin;
+import iuh.fit.edu.backend.dto.response.user.UserResponseQRLoginToken;
 import iuh.fit.edu.backend.dto.response.user.UserResponseScanQRLogin;
 import iuh.fit.edu.backend.service.user.SessionService;
 import iuh.fit.edu.backend.service.user.UserService;
@@ -59,13 +60,20 @@ public class SessionController {
     }
 
     @GetMapping("/qr-login/access-token/{session_id}")
-    @ApiMessage("Get QR login status")
-    public ResponseEntity<String> getAccessToken(@PathVariable String session_id){
+    @ApiMessage("Get QR login token")
+    public ResponseEntity<UserResponseQRLoginToken> getAccessToken(@PathVariable String session_id){
         Session session=service.getSessionById(session_id);
         if (session.getStatus().equals(SessionStatus.CONFIRMED)){
-            return ResponseEntity.ok(JwtAuthFilter.generateToken(session.getUser().getPhone()));
+            String accessToken = JwtAuthFilter.generateToken(session.getUser().getPhone());
+            String refreshToken = JwtAuthFilter.generateRefreshToken(session.getUser().getPhone());
+            return ResponseEntity.ok(
+                UserResponseQRLoginToken.builder()
+                    .token(accessToken)
+                    .refreshToken(refreshToken)
+                    .build()
+            );
         }
-        return ResponseEntity.badRequest().body("Get Access token equal login QR failed");
+        return ResponseEntity.badRequest().body(null);
     }
 
     private String getClientIp(HttpServletRequest request) {

@@ -104,7 +104,18 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 .withClaim("phone_number", phone) // ✅ thêm cái này
                 .withIssuer("wis-chat")
                 .withIssuedAt(new Date())
-                .withExpiresAt(new Date(System.currentTimeMillis() + 86400000)) // 1 ngày
+                .withExpiresAt(new Date(System.currentTimeMillis() + 3600000)) // 1 hour
+                .sign(Algorithm.HMAC256(LOCAL_SECRET));
+    }
+
+    public static String generateRefreshToken(String phone) {
+        return JWT.create()
+                .withSubject(phone)
+                .withClaim("phone_number", phone)
+                .withClaim("type", "refresh")
+                .withIssuer("wis-chat")
+                .withIssuedAt(new Date())
+                .withExpiresAt(new Date(System.currentTimeMillis() + 604800000)) // 7 days
                 .sign(Algorithm.HMAC256(LOCAL_SECRET));
     }
 

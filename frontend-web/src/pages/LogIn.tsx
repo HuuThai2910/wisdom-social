@@ -114,6 +114,13 @@ export default function Login() {
           Sign up
         </Link>
       </p>
+
+      <p className="mt-3 text-center text-sm text-gray-600">
+        Hoặc đăng nhập bằng{" "}
+        <Link to="/login/qr" className="font-semibold text-blue-500 hover:text-blue-700">
+          QR Code
+        </Link>
+      </p>
     </div>
   );
 }

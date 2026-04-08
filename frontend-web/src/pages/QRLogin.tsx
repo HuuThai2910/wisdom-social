@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import QRCode from "qrcode";
 import axios from "axios";
+import { setCookie } from "../utils/cookies";
 
 const API_BASE_URL = "http://localhost:8080/api";
 
@@ -55,16 +56,52 @@ export default function QRLogin() {
       try {
         const response = await axios.get(`${API_BASE_URL}/session/qr-login/status/${sessionId}`);
         console.log("QR status response:", response.data.data);
-        const { status} = response.data.data;   
+        const { status} = response.data.data;
         if (status === "CONFIRMED") {
 
           const tokenResponse = await axios.get(`${API_BASE_URL}/session/qr-login/access-token/${sessionId}`);
-          const accessToken = tokenResponse.data;
+          const rawTokenPayload = tokenResponse.data?.data ?? tokenResponse.data;
 
-          document.cookie = `accessToken=${accessToken}; path=/`;
+          // Accept multiple payload shapes from backend for safety.
+          let accessToken: string | undefined;
+          let refreshToken: string | undefined;
 
-          clearInterval(interval);
-          navigate("/");
+          if (typeof rawTokenPayload === "string") {
+            accessToken = rawTokenPayload;
+          } else if (rawTokenPayload && typeof rawTokenPayload === "object") {
+            accessToken =
+              rawTokenPayload.token ??
+              rawTokenPayload.accessToken ??
+              rawTokenPayload.idToken;
+            refreshToken =
+              rawTokenPayload.refreshToken ??
+              rawTokenPayload.refreskToken;
+          }
+
+          if (typeof accessToken === "string") {
+            accessToken = accessToken.replace(/^"|"$/g, "").trim();
+          }
+
+          if (typeof refreshToken === "string") {
+            refreshToken = refreshToken.replace(/^"|"$/g, "").trim();
+          }
+
+          if (accessToken && accessToken.length > 20) {
+            // Store tokens using setCookie function only (not localStorage for security)
+            setCookie('accessToken', accessToken, 0.042); // 1 hour
+
+            if (refreshToken && refreshToken.length > 20) {
+              setCookie('refreshToken', refreshToken, 7); // 7 days
+            }
+
+            // Mark as authenticated
+            localStorage.setItem('authed', 'true');
+
+            clearInterval(interval);
+            navigate("/");
+          } else {
+            setError("Không thể lấy token. Vui lòng thử lại!");
+          }
         } else if (status === "expired") {
           clearInterval(interval);
           setError("Mã QR đã hết hạn. Vui lòng tạo lại.");
@@ -76,7 +113,7 @@ export default function QRLogin() {
     }, 2000);
 
     return () => clearInterval(interval);
-  }, [sessionId]);
+  }, [sessionId, navigate]);
 
 
   return (

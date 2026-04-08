@@ -1,11 +1,10 @@
-import { setCookie, getCookie, deleteCookie } from './cookies';
+import { getCookie, setCookie, clearAuthStorage } from './cookies';
 import type  { UserRequestLogin, UserRequestRegister, UserRequestForgotPassword, UserRequestResetPassword } from '../services/userService';
 import userService from '../services/userService';
 
 const AUTH_KEY = 'authed';
 const USER_KEY = 'current_user';
 const ACCESS_TOKEN_KEY = 'accessToken';
-const REFRESH_TOKEN_KEY = 'refreshToken';
 
 // Callback để thông báo khi auth state thay đổi
 let authChangeCallback: (() => void) | null = null;
@@ -116,26 +115,20 @@ export const login = async (phone: string, password: string): Promise<boolean> =
             throw new Error('Số điện thoại hoặc mật khẩu không chính xác.');
         }
 
-        const token = userData?.token;
+        // Note: userService.login() already stores tokens to cookies only (not localStorage)
+        // userService handles accessToken and refreshToken storage
+        localStorage.setItem(AUTH_KEY, 'true');
 
-        if (token) {
-            // Store JWT token in cookie (accessToken - to match backend filter)
-            setCookie(ACCESS_TOKEN_KEY, token, 7); // Expires in 7 days
-            localStorage.setItem(AUTH_KEY, 'true');
-
-            const currentUser = await userService.getCurrentUser();
-            if (currentUser) {
-                localStorage.setItem(USER_KEY, JSON.stringify(currentUser));
-            }
-
-            console.log('Token saved to cookie:', ACCESS_TOKEN_KEY);
-            if (authChangeCallback) {
-                authChangeCallback();
-            }
-            return true;
-        } else {
-            throw new Error('Số điện thoại hoặc mật khẩu không chính xác.');
+        const currentUser = await userService.getCurrentUser();
+        if (currentUser) {
+            localStorage.setItem(USER_KEY, JSON.stringify(currentUser));
         }
+
+        console.log('Login successful, tokens stored');
+        if (authChangeCallback) {
+            authChangeCallback();
+        }
+        return true;
     } catch (error: any) {
         console.error('Login error:', error);
         if (error.response?.data?.message) {
@@ -153,35 +146,19 @@ export const getToken = (): string | null => {
 };
 
 export const logout = async (): Promise<void> => {
+    // Clear client data immediately so redirect/navigation cannot interrupt cleanup.
+    clearAuthStorage();
+
     try {
         // Call logout API
         await userService.logout();
-
-        // Remove cookies
-        deleteCookie(ACCESS_TOKEN_KEY);
-        deleteCookie(REFRESH_TOKEN_KEY);
-
-        // Remove localStorage items
-        localStorage.removeItem(AUTH_KEY);
-        localStorage.removeItem(USER_KEY);
-
-        console.log('Logged out, cookies and localStorage cleared');
-
-        // Trigger callback để cập nhật AuthContext
-        if (authChangeCallback) {
-            authChangeCallback();
-        }
     } catch (error) {
         console.error('Logout error:', error);
-        // Still clear local data even if API call fails
-        deleteCookie(ACCESS_TOKEN_KEY);
-        deleteCookie(REFRESH_TOKEN_KEY);
-        localStorage.removeItem(AUTH_KEY);
-        localStorage.removeItem(USER_KEY);
+    }
 
-        if (authChangeCallback) {
-            authChangeCallback();
-        }
+    // Trigger callback để cập nhật AuthContext
+    if (authChangeCallback) {
+        authChangeCallback();
     }
 };
 

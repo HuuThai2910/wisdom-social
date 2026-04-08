@@ -1,5 +1,6 @@
 import axiosClient from "../api/axiosClient";
 import type { User, ApiResponse } from '../types';
+import { setCookie } from '../utils/cookies';
 
 export interface UserRequestRegister {
     phone: string;
@@ -35,7 +36,7 @@ export interface UserRequestLogin {
 
 export interface UserResponseLogin {
     token: string;
-    refreskToken?: string;
+    refreskToken: string;
     idToken?: string;
     id?: string | number;
     phone: string;
@@ -104,7 +105,18 @@ export const userService = {
 
     async login(data: UserRequestLogin): Promise<UserResponseLogin> {
         const response = await axiosClient.post(`auth/login`, data);
-        return response.data.data;
+        const loginData = response.data.data;
+
+        if (loginData.token) {
+            setCookie('accessToken', loginData.token, 0.042); // 1 hour
+        }
+
+        if (loginData.refreskToken) {
+            setCookie('refreshToken', loginData.refreskToken, 7); // 7 days
+        }
+
+
+        return loginData;
     },
 
     async logout(): Promise<void> {

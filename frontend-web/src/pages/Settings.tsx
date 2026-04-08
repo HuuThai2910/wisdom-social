@@ -5,8 +5,8 @@ import { logout } from "../utils/auth";
 export default function SettingsPage() {
   const navigate = useNavigate();
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     window.location.href = "/login";
   };
 

@@ -39,7 +39,7 @@ const GRID_ITEM_SIZE = (SCREEN_WIDTH - GRID_GAP * 4) / 3;
 const GENDER_OPTIONS = [
     { label: 'Nam', value: 'MALE' },
     { label: 'Nữ', value: 'FEMALE' },
-    { label: 'Ẩn', value: 'HIDDEN' },
+    { label: 'Khác', value: 'Other' },
 ];
 
 const S3_BASE = 'https://cnmt-hk1-amz.s3.ap-southeast-1.amazonaws.com/';
@@ -322,7 +322,7 @@ export default function ProfileScreen() {
         const userId = displayUser?.id;
         if (!userId) return;
 
-        // Validate form (sync)
+        // Validate form
         const validation = validateProfileForm(
             editForm.name,
             editForm.username,
@@ -340,18 +340,16 @@ export default function ProfileScreen() {
             return;
         }
 
-        // Skip async username check if it didn't change
-        if (editForm.username !== displayUser?.username) {
-            const usernameValidation = await validateUsernameAsync(editForm.username, displayUser?.username || '');
-            if (!usernameValidation.isValid) {
-                setEditFormModalData({
-                    type: 'error',
-                    title: 'Lỗi xác thực',
-                    message: usernameValidation.error || 'Tên người dùng không hợp lệ',
-                });
-                setEditFormModalVisible(true);
-                return;
-            }
+        // Check if username exists (async validation)
+        const usernameValidation = await validateUsernameAsync(editForm.username, displayUser?.username || '');
+        if (!usernameValidation.isValid) {
+            setEditFormModalData({
+                type: 'error',
+                title: 'Lỗi xác thực',
+                message: usernameValidation.error || 'Tên người dùng không hợp lệ',
+            });
+            setEditFormModalVisible(true);
+            return;
         }
 
         setIsSaving(true);
@@ -363,55 +361,58 @@ export default function ProfileScreen() {
         setEditFormModalVisible(true);
 
         try {
-            // Build payload
-            const payload: any = {};
-            if (editForm.name) payload.name = editForm.name;
-            if (editForm.username) payload.username = editForm.username;
-            payload.bio = editForm.bio || '';
-            if (editForm.birthday) payload.birthday = editForm.birthday;
-            if (editForm.gender) payload.gender = editForm.gender;
+            let newAvatarUrl: string | undefined = editForm.avatarUrl || undefined;
 
-            // Parallelize: upload avatar and update profile simultaneously
-            const uploadPromise = pendingAvatarAsset ? (async () => {
+            if (pendingAvatarAsset) {
                 setIsUploadingAvatar(true);
                 const uploadUrl = await userService.getUpdateProfileUploadUrl(pendingAvatarAsset.extension);
-                if (!uploadUrl) throw new Error('Failed to get upload URL');
+                if (!uploadUrl) throw new Error();
                 const blob = await fetch(pendingAvatarAsset.uri).then(r => r.blob());
                 const uploadRes = await fetch(uploadUrl, {
                     method: 'PUT',
                     headers: { 'Content-Type': pendingAvatarAsset.mimeType },
                     body: blob,
                 });
-                if (!uploadRes.ok) throw new Error('Upload failed');
+                if (!uploadRes.ok) throw new Error();
+                const fresh = await userService.getProfile();
+                newAvatarUrl = fresh?.avatarUrl ?? undefined;
                 setIsUploadingAvatar(false);
-            })() : Promise.resolve();
+            }
 
-            const updatePromise = userService.updateProfile(userId, payload);
+            const payload: any = {};
+            if (editForm.name) payload.name = editForm.name;
+            if (editForm.username) payload.username = editForm.username;
+            payload.bio = editForm.bio || '';
+            if (editForm.birthday) payload.birthday = editForm.birthday;
+            if (editForm.gender) payload.gender = editForm.gender;
+            if (newAvatarUrl) payload.avatarUrl = newAvatarUrl;
 
-            // Wait both simultaneously
-            await Promise.all([uploadPromise, updatePromise]);
-
-            setPendingAvatarAsset(null);
-            setAvatarLocalUri('');
-            setEditFormModalData({
-                type: 'success',
-                title: 'Thành công',
-                message: 'Cập nhật hồ sơ thành công!',
-            });
-
-            // Optimistic close modal after 1s
-            setTimeout(() => {
+            const success = await userService.updateProfile(userId, payload);
+            if (success) {
+                setPendingAvatarAsset(null);
+                setAvatarLocalUri('');
                 setEditFormModalVisible(false);
                 setShowEditModal(false);
-                loadProfile(); // Refresh in background
-            }, 1000);
-        } catch (error: any) {
-            console.error('Error saving profile:', error);
+                const fresh = await userService.getProfile();
+                if (fresh) {
+                    setProfileData(fresh);
+                    await updateUser(fresh);
+                }
+            } else {
+                setEditFormModalData({
+                    type: 'error',
+                    title: 'Lỗi',
+                    message: 'Không thể cập nhật hồ sơ. Vui lòng thử lại.',
+                });
+                setEditFormModalVisible(true);
+            }
+        } catch {
             setEditFormModalData({
                 type: 'error',
                 title: 'Lỗi',
-                message: error?.message || 'Không thể cập nhật hồ sơ. Vui lòng thử lại.',
+                message: 'Không thể tải ảnh lên hoặc cập nhật hồ sơ. Vui lòng thử lại.',
             });
+            setEditFormModalVisible(true);
         } finally {
             setIsSaving(false);
             setIsUploadingAvatar(false);

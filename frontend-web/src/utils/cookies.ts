@@ -32,12 +32,41 @@ export const getCookie = (name: string): string | null => {
  * Delete a cookie by name
  */
 export const deleteCookie = (name: string): void => {
-    document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`;
+    // Try multiple ways to ensure cookie is deleted
+    document.cookie = `${name}=;max-age=0;path=/`;
+    document.cookie = `${name}=;max-age=0;path=/;SameSite=Lax`;
+    document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/`;
 };
 
 /**
- * Check if a cookie exists
+ * Clear all authentication-related data from cookies and localStorage
  */
-export const hasCookie = (name: string): boolean => {
-    return getCookie(name) !== null;
+export const clearAuthStorage = (): void => {
+    // Explicitly delete known auth cookies
+    const cookieNames = [
+        'accessToken',
+        'refreshToken',
+        'idToken',
+        'token',
+        'authed',
+    ];
+
+    cookieNames.forEach(name => {
+        deleteCookie(name);
+    });
+
+    // Also try to delete all cookies by iterating
+    const allCookies = document.cookie.split(';');
+    allCookies.forEach(cookie => {
+        const cookieName = cookie.split('=')[0].trim();
+        if (cookieName) {
+            deleteCookie(cookieName);
+        }
+    });
+
+    // Clear all localStorage data on logout
+    localStorage.clear();
+
+    console.log('All auth data cleared');
 };
+

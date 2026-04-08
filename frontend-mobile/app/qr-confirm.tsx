@@ -13,6 +13,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import apiClient from '../api/apiClient';
 import { getDeviceInfo } from '../utils/deviceInfo';
+import authService from '../services/authService';
 
 interface ScanResponse {
   seesion_id: string;
@@ -35,6 +36,15 @@ export default function QRConfirm() {
   const [confirming, setConfirming] = useState(false);
   const [sessionData, setSessionData] = useState<ScanResponse | null>(null);
   const [error, setError] = useState('');
+
+  const handleHeaderBack = () => {
+    if (sessionData && !error) {
+      router.replace('/settings' as any);
+      return;
+    }
+
+    router.back();
+  };
 
   useEffect(() => {
 
@@ -67,10 +77,26 @@ export default function QRConfirm() {
         timeout: 15000,
       });
 
-      if (response.data && response.data.data) {
-        setSessionData(response.data.data);
+      const scanData = response.data.data;
+
+      if (
+        scanData &&
+        typeof scanData === 'object' &&
+        ('user' in scanData || 'seesion_id' in scanData || 'session_id' in scanData)
+      ) {
+        setSessionData(scanData);
+        return;
+      }
+      const currentUser = await authService.getCurrentUser();
+      if (currentUser) {
+        setSessionData({
+          seesion_id: sessionId,
+          status: 'SCANNED',
+          user: currentUser,
+          expireAt: new Date(Date.now() + 60_000).toISOString(),
+        });
       } else {
-        console.error('Invalid response format:', response.data);
+        setError('Không thể xác thực mã QR. Vui lòng thử lại.');
       }
     } catch (err: any) {
       const errorMsg =
@@ -159,7 +185,7 @@ export default function QRConfirm() {
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.backButton}
-            onPress={() => router.back()}
+            onPress={handleHeaderBack}
           >
             <Ionicons name="arrow-back" size={24} color="#000" />
           </TouchableOpacity>
@@ -180,7 +206,7 @@ export default function QRConfirm() {
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.backButton}
-            onPress={() => router.back()}
+            onPress={handleHeaderBack}
           >
             <Ionicons name="arrow-back" size={24} color="#000" />
           </TouchableOpacity>
@@ -214,7 +240,7 @@ export default function QRConfirm() {
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}
-          onPress={() => router.back()}
+          onPress={handleHeaderBack}
           disabled={confirming}
         >
           <Ionicons name="arrow-back" size={24} color="#000" />
