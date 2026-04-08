@@ -55,7 +55,7 @@ export default function BottomNav() {
                 }`}
               >
                 <img
-                  src={currentUser.avatar}
+                  src={currentUser.avatarUrl}
                   alt={currentUser.username}
                   className="w-[26px] h-[26px] rounded-full object-cover"
                 />
