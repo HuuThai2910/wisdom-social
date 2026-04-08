@@ -222,6 +222,7 @@ public class S3ServiceImpl implements S3Service {
             case CONVERSATION -> "conversations";
             case USER -> "users";
             case POST -> "posts";
+            case STORY -> "stories";
         };
         // TẠO S3 OBJECT KEY
         // Quy hoạch file gọn gàng: {rootFolder}/{targetId}/{subFolder}/{uuid}.ext
@@ -268,6 +269,7 @@ public class S3ServiceImpl implements S3Service {
             case CONVERSATION -> "conversations";
             case USER -> "users";
             case POST -> "posts";
+            case STORY -> "stories";
         };
         // Validate key phải khớp với module được chỉ định
         if (!s3ObjectKey.startsWith(expectedRootFolder + "/")) {

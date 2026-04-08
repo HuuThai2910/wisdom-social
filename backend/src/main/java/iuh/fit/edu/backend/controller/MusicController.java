@@ -2,7 +2,7 @@ package iuh.fit.edu.backend.controller;
 
 import iuh.fit.edu.backend.domain.entity.nosql.MusicMetadata;
 import iuh.fit.edu.backend.dto.response.ApiResponse;
-import iuh.fit.edu.backend.repository.nosql.MusicMetadataRepository;
+import iuh.fit.edu.backend.service.music.MusicService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -24,7 +24,7 @@ import java.util.List;
 @Slf4j
 public class MusicController {
 
-    private final MusicMetadataRepository musicRepository;
+    private final MusicService musicService;
 
     /**
      * Get all music tracks with pagination
@@ -36,7 +36,7 @@ public class MusicController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         Pageable pageable = PageRequest.of(page, size);
-        Page<MusicMetadata> music = musicRepository.findAll(pageable);
+        Page<MusicMetadata> music = musicService.getAllMusic(pageable);
         log.info("Fetched {} music tracks", music.getContent().size());
         return ResponseEntity.ok(
                 ApiResponse.success(200, "Music list retrieved", music)
@@ -49,7 +49,7 @@ public class MusicController {
     @GetMapping("/search/title")
     public ResponseEntity<ApiResponse<List<MusicMetadata>>> searchByTitle(
             @RequestParam String title) {
-        List<MusicMetadata> results = musicRepository.findByTitleContainingIgnoreCase(title);
+        List<MusicMetadata> results = musicService.searchMusicByTitle(title);
         log.info("Found {} tracks for title: {}", results.size(), title);
         return ResponseEntity.ok(
                 ApiResponse.success(200, "Search results", results)
@@ -62,7 +62,7 @@ public class MusicController {
     @GetMapping("/search/artist")
     public ResponseEntity<ApiResponse<List<MusicMetadata>>> searchByArtist(
             @RequestParam String artist) {
-        List<MusicMetadata> results = musicRepository.findByArtistContainingIgnoreCase(artist);
+        List<MusicMetadata> results = musicService.searchMusicByArtist(artist);
         log.info("Found {} tracks for artist: {}", results.size(), artist);
         return ResponseEntity.ok(
                 ApiResponse.success(200, "Search results", results)
@@ -75,7 +75,7 @@ public class MusicController {
     @GetMapping("/{musicId}")
     public ResponseEntity<ApiResponse<MusicMetadata>> getMusicById(
             @PathVariable String musicId) {
-        return musicRepository.findById(musicId)
+        return musicService.getMusicById(musicId)
                 .map(music -> {
                     log.info("Fetched music: {}", musicId);
                     return ResponseEntity.ok(

@@ -5,9 +5,11 @@
 package iuh.fit.edu.backend.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import iuh.fit.edu.backend.constant.UploadModule;
 import iuh.fit.edu.backend.domain.entity.nosql.Post;
 import iuh.fit.edu.backend.dto.request.post.CreatePostRequest;
 import iuh.fit.edu.backend.dto.response.ApiResponse;
+import iuh.fit.edu.backend.dto.response.PresignedUrlResponse;
 import iuh.fit.edu.backend.service.post.PostService;
 import iuh.fit.edu.backend.service.s3.S3Service;
 import iuh.fit.edu.backend.service.user.UserService;
@@ -38,27 +40,85 @@ public class PostController {
 
     /**
      * Get presigned upload URL for images
-     * @param extension File extension (jpg, png, etc.)
-     * @return Presigned URL
+     * Uses UploadModule.POST for all post media uploads
+     * @param extension File extension (jpg, png, mp4, etc.)
+     * @param originalFilename Original filename for validation
+     * @param contentType MIME type (image/jpeg, video/mp4, etc.)
+     * @return Presigned URL and S3 object key
      */
     @GetMapping("/upload-url")
-    public ResponseEntity<ApiResponse<Map<String, String>>> getPresignedUploadUrl(
-            @RequestParam String extension) {
+    public ResponseEntity<ApiResponse<PresignedUrlResponse>> getPresignedUploadUrl(
+            @RequestParam String extension,
+            @RequestParam(required = false) String originalFilename,
+            @RequestParam(required = false) String contentType) {
         try {
             var currentUser = userService.getCurrentUser();
             if (currentUser == null) {
                 return ResponseEntity.badRequest()
                         .body(ApiResponse.error(401, "Bạn cần đăng nhập", null));
             }
+
+            // Determine content type based on extension if not provided
+            if (contentType == null || contentType.isBlank()) {
+                contentType = getContentType(extension);
+            }
+
+            String filename = originalFilename != null ? originalFilename : "post." + extension;
             
-            Map<String, String> uploadUrl = s3Service.generateUploadUrl("posts", extension);
-            log.info("Alo {}", uploadUrl);
-            return ResponseEntity.ok(ApiResponse.success(200, "Lấy link upload thành công", uploadUrl));
+            PresignedUrlResponse response = s3Service.generatePresignedUrl(
+                    UploadModule.POST,
+                    String.valueOf(currentUser.getId()),
+                    getMediaType(extension),
+                    filename,
+                    contentType
+            );
+            
+            log.info("Generated presigned URL for post upload: {}", response.getObjectKey());
+            return ResponseEntity.ok(ApiResponse.success(200, "Lấy link upload thành công", response));
+        } catch (IllegalArgumentException e) {
+            log.error("Invalid file: {}", e.getMessage());
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error(400, e.getMessage(), null));
         } catch (Exception e) {
             log.error("Error getting presigned URL", e);
             return ResponseEntity.badRequest()
                     .body(ApiResponse.error(400, "Lỗi: " + e.getMessage(), null));
         }
+    }
+
+    /**
+     * Determine media type (IMAGE, VIDEO, FILE) based on extension
+     */
+    private String getMediaType(String extension) {
+        if (extension == null) return "FILE";
+        String ext = extension.toLowerCase();
+        
+        if (ext.matches("jpg|jpeg|png|gif|webp")) {
+            return "IMAGE";
+        } else if (ext.matches("mp4|webm|mov|avi|mkv")) {
+            return "VIDEO";
+        }
+        return "FILE";
+    }
+
+    /**
+     * Get MIME type based on extension
+     */
+    private String getContentType(String extension) {
+        if (extension == null) return "application/octet-stream";
+        
+        return switch (extension.toLowerCase()) {
+            case "jpg", "jpeg" -> "image/jpeg";
+            case "png" -> "image/png";
+            case "gif" -> "image/gif";
+            case "webp" -> "image/webp";
+            case "mp4" -> "video/mp4";
+            case "webm" -> "video/webm";
+            case "mov" -> "video/quicktime";
+            case "avi" -> "video/x-msvideo";
+            case "mkv" -> "video/x-matroska";
+            default -> "application/octet-stream";
+        };
     }
 
     /**
@@ -137,6 +197,7 @@ public class PostController {
 
     /**
      * Delete post by ID
+     * Also deletes associated media from S3
      * @param id Post ID
      * @return Success message
      */
@@ -153,6 +214,24 @@ public class PostController {
             
             Long userId = currentUser.getId();
             log.info("Deleting post {} by user {}", id, userId);
+            
+            // Get post to retrieve media URLs for S3 deletion
+            Post post = postService.getPostById(id);
+            if (post != null && post.getMedia() != null && !post.getMedia().isEmpty()) {
+                // Delete associated media from S3
+                for (var media : post.getMedia()) {
+                    if (media != null && media.getUrl() != null) {
+                        try {
+                            s3Service.deleteByKey(UploadModule.POST, media.getUrl());
+                            log.info("Deleted S3 media: {}", media.getUrl());
+                        } catch (Exception e) {
+                            log.warn("Failed to delete S3 media {}: {}", media.getUrl(), e.getMessage());
+                            // Don't fail post deletion if S3 deletion fails
+                        }
+                    }
+                }
+            }
+            
             postService.deletePost(id, userId);
             return ResponseEntity.ok(ApiResponse.success(200, "Xóa post thành công", null));
         } catch (Exception e) {

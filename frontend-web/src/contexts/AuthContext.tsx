@@ -193,9 +193,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           userId = currentUser.id;
         }
       } else {
-        // For other users, use /auth/users endpoint as fallback
-        console.log("🔍 Fetching other user profile via /auth/users");
-        const response = await axiosClient.get("/auth/users");
+        // For other users, use /auth/users/username/{keyword} endpoint
+        console.log(`🔍 Fetching other user profile for username: ${username}`);
+        const response = await axiosClient.get(
+          `/auth/users/username/${encodeURIComponent(username)}`
+        );
 
         const users = Array.isArray(response.data)
           ? response.data
