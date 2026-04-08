@@ -13,7 +13,7 @@ export interface RegisterRequest {
 
 export interface ConfirmRegisterRequest {
     phone: string;
-    OTP: string;
+    otp: string;
 }
 
 export interface LoginRequest {

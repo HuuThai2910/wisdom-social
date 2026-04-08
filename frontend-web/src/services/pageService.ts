@@ -61,7 +61,12 @@ export interface PageJoinRequest {
 
 export interface Page {
     id: number;
-    userId: number;
+    userId?: number;  // May not be returned directly
+    createdBy?: {     // Backend returns User object
+        id: number;
+        username?: string;
+        name?: string;
+    };
     name: string;
     username: string;
     category: string;
@@ -169,20 +174,20 @@ export const pageService = {
 
     // ========== PAGE IMAGE UPLOAD ==========
 
-    // Get upload URL for avatar
+    // Get upload URL for avatar (backend returns string directly, not wrapped)
     async getUploadAvatarUrl(type: string, pageId: number, extension: string): Promise<string> {
         const response = await axiosClient.get(`page/update/upload-avatar`, {
             params: { type, id: pageId, extension }
         });
-        return response.data.data;
+        return response.data; // Backend returns String directly (not wrapped in ApiResponse)
     },
 
-    // Get upload URL for cover
+    // Get upload URL for cover (backend returns string directly, not wrapped)
     async getUploadCoverUrl(type: string, pageId: number, extension: string): Promise<string> {
         const response = await axiosClient.get(`page/update/upload-cover`, {
             params: { type, id: pageId, extension }
         });
-        return response.data.data;
+        return response.data; // Backend returns String directly (not wrapped in ApiResponse)
     },
 
     // Generate upload URL for new image

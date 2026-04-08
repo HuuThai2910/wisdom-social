@@ -15,6 +15,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import authService from '../services/authService';
 import Logo from '../components/Logo';
+import SuccessModal from '../components/SuccessModal';
+import { validateSignupForm } from '../utils/validation';
 
 export default function SignUpScreen() {
     const router = useRouter();
@@ -24,163 +26,216 @@ export default function SignUpScreen() {
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [loading, setLoading] = useState(false);
+    const [modalVisible, setModalVisible] = useState(false);
+    const [modalData, setModalData] = useState({
+        type: 'success' as 'success' | 'error' | 'loading',
+        title: '',
+        message: '',
+    });
 
     const handleSignUp = async () => {
-        if (!phone || !password || !confirmPassword) {
-            return;
-        }
-
-        if (password !== confirmPassword) {
-            return;
-        }
-
-        if (password.length < 6) {
+        // Validate form
+        const validation = validateSignupForm(phone, password, confirmPassword);
+        if (!validation.isValid) {
+            setModalData({
+                type: 'error',
+                title: 'Lỗi xác thực',
+                message: validation.error || 'Vui lòng kiểm tra thông tin',
+            });
+            setModalVisible(true);
             return;
         }
 
         setLoading(true);
+        setModalData({
+            type: 'loading',
+            title: 'Đang xử lý',
+            message: 'Vui lòng chờ...',
+        });
+        setModalVisible(true);
+
         try {
+            console.log('Attempting to register with:', { phone, password, confirmPassword });
             const result = await authService.register({ phone, password, confirmPassword });
             if (result) {
-                router.push({
-                    pathname: '/verify-otp',
-                    params: { phone, type: 'register' },
+                setModalData({
+                    type: 'success',
+                    title: 'Đăng ký thành công',
+                    message: 'Vui lòng xác nhận OTP được gửi tới số điện thoại của bạn',
                 });
+                setModalVisible(true);
+            } else {
+                setModalData({
+                    type: 'error',
+                    title: 'Đăng ký thất bại',
+                    message: 'Số điện thoại này đã được đăng ký hoặc có lỗi xảy ra',
+                });
+                setModalVisible(true);
             }
-        } catch {
+        } catch (error) {
+            setModalData({
+                type: 'error',
+                title: 'Lỗi',
+                message: 'Có lỗi xảy ra, vui lòng thử lại',
+            });
+            setModalVisible(true);
         } finally {
             setLoading(false);
         }
     };
 
+    const handleModalConfirm = () => {
+        if (modalData.type === 'success') {
+            setModalVisible(false);
+            router.push({
+                pathname: '/verify-otp',
+                params: { phone, type: 'register' },
+            });
+        } else {
+            setModalVisible(false);
+        }
+    };
+
     return (
-        <LinearGradient
-            colors={['#EFF6FF', '#FFFFFF', '#F9FAFB']}
-            style={styles.gradient}
-        >
-            <KeyboardAvoidingView
-                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                style={styles.container}
+        <>
+            <LinearGradient
+                colors={['#EFF6FF', '#FFFFFF', '#F9FAFB']}
+                style={styles.gradient}
             >
-                <ScrollView
-                    contentContainerStyle={styles.scrollContent}
-                    keyboardShouldPersistTaps="handled"
-                    showsVerticalScrollIndicator={false}
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    style={styles.container}
                 >
-                    <Logo showSubtitle />
-                    
-                    <Text style={styles.welcomeText}>
-                        Create Account
-                    </Text>
-                    <Text style={styles.subtitle}>
-                        Sign up with your phone number to get started
-                    </Text>
+                    <ScrollView
+                        contentContainerStyle={styles.scrollContent}
+                        keyboardShouldPersistTaps="handled"
+                        showsVerticalScrollIndicator={false}
+                    >
+                        <Logo showSubtitle />
 
-                    <View style={styles.form}>
-                        <View style={styles.inputWrapper}>
-                            <View style={styles.inputIconContainer}>
-                                <Ionicons name="call-outline" size={20} color="#3B82F6" />
-                            </View>
-                            <TextInput
-                                style={styles.input}
-                                placeholder="Phone Number"
-                                placeholderTextColor="#9CA3AF"
-                                value={phone}
-                                onChangeText={setPhone}
-                                autoCapitalize="none"
-                                keyboardType="phone-pad"
-                            />
-                        </View>
+                        <Text style={styles.welcomeText}>
+                            Create Account
+                        </Text>
+                        <Text style={styles.subtitle}>
+                            Sign up with your phone number to get started
+                        </Text>
 
-                        <View style={styles.inputWrapper}>
-                            <View style={styles.inputIconContainer}>
-                                <Ionicons name="lock-closed-outline" size={20} color="#3B82F6" />
-                            </View>
-                            <TextInput
-                                style={styles.input}
-                                placeholder="Password"
-                                placeholderTextColor="#9CA3AF"
-                                value={password}
-                                onChangeText={setPassword}
-                                secureTextEntry={!showPassword}
-                            />
-                            <TouchableOpacity
-                                style={styles.eyeIcon}
-                                onPress={() => setShowPassword(!showPassword)}
-                            >
-                                <Ionicons
-                                    name={showPassword ? 'eye-outline' : 'eye-off-outline'}
-                                    size={20}
-                                    color="#6B7280"
+                        <View style={styles.form}>
+                            <View style={styles.inputWrapper}>
+                                <View style={styles.inputIconContainer}>
+                                    <Ionicons name="call-outline" size={20} color="#3B82F6" />
+                                </View>
+                                <TextInput
+                                    style={styles.input}
+                                    placeholder="Phone Number"
+                                    placeholderTextColor="#9CA3AF"
+                                    value={phone}
+                                    onChangeText={setPhone}
+                                    autoCapitalize="none"
+                                    keyboardType="phone-pad"
                                 />
-                            </TouchableOpacity>
-                        </View>
-
-                        <View style={styles.inputWrapper}>
-                            <View style={styles.inputIconContainer}>
-                                <Ionicons name="shield-checkmark-outline" size={20} color="#3B82F6" />
                             </View>
-                            <TextInput
-                                style={styles.input}
-                                placeholder="Confirm Password"
-                                placeholderTextColor="#9CA3AF"
-                                value={confirmPassword}
-                                onChangeText={setConfirmPassword}
-                                secureTextEntry={!showConfirmPassword}
-                            />
-                            <TouchableOpacity
-                                style={styles.eyeIcon}
-                                onPress={() => setShowConfirmPassword(!showConfirmPassword)}
-                            >
-                                <Ionicons
-                                    name={showConfirmPassword ? 'eye-outline' : 'eye-off-outline'}
-                                    size={20}
-                                    color="#6B7280"
+
+                            <View style={styles.inputWrapper}>
+                                <View style={styles.inputIconContainer}>
+                                    <Ionicons name="lock-closed-outline" size={20} color="#3B82F6" />
+                                </View>
+                                <TextInput
+                                    style={styles.input}
+                                    placeholder="Password"
+                                    placeholderTextColor="#9CA3AF"
+                                    value={password}
+                                    onChangeText={setPassword}
+                                    secureTextEntry={!showPassword}
                                 />
+                                <TouchableOpacity
+                                    style={styles.eyeIcon}
+                                    onPress={() => setShowPassword(!showPassword)}
+                                >
+                                    <Ionicons
+                                        name={showPassword ? 'eye-outline' : 'eye-off-outline'}
+                                        size={20}
+                                        color="#6B7280"
+                                    />
+                                </TouchableOpacity>
+                            </View>
+
+                            <View style={styles.inputWrapper}>
+                                <View style={styles.inputIconContainer}>
+                                    <Ionicons name="shield-checkmark-outline" size={20} color="#3B82F6" />
+                                </View>
+                                <TextInput
+                                    style={styles.input}
+                                    placeholder="Confirm Password"
+                                    placeholderTextColor="#9CA3AF"
+                                    value={confirmPassword}
+                                    onChangeText={setConfirmPassword}
+                                    secureTextEntry={!showConfirmPassword}
+                                />
+                                <TouchableOpacity
+                                    style={styles.eyeIcon}
+                                    onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                                >
+                                    <Ionicons
+                                        name={showConfirmPassword ? 'eye-outline' : 'eye-off-outline'}
+                                        size={20}
+                                        color="#6B7280"
+                                    />
+                                </TouchableOpacity>
+                            </View>
+
+                            <TouchableOpacity
+                                style={[styles.signUpButton, loading && styles.disabledButton]}
+                                onPress={handleSignUp}
+                                disabled={loading}
+                            >
+                                <LinearGradient
+                                    colors={loading ? ['#93C5FD', '#93C5FD'] : ['#3B82F6', '#2563EB']}
+                                    start={{ x: 0, y: 0 }}
+                                    end={{ x: 1, y: 0 }}
+                                    style={styles.signUpButtonGradient}
+                                >
+                                    {loading ? (
+                                        <ActivityIndicator color="#fff" />
+                                    ) : (
+                                        <View style={styles.buttonContent}>
+                                            <Text style={styles.signUpButtonText}>Sign Up</Text>
+                                            <Ionicons name="checkmark-circle" size={20} color="#fff" />
+                                        </View>
+                                    )}
+                                </LinearGradient>
                             </TouchableOpacity>
                         </View>
 
-                        <TouchableOpacity
-                            style={[styles.signUpButton, loading && styles.disabledButton]}
-                            onPress={handleSignUp}
-                            disabled={loading}
-                        >
-                            <LinearGradient
-                                colors={loading ? ['#93C5FD', '#93C5FD'] : ['#3B82F6', '#2563EB']}
-                                start={{ x: 0, y: 0 }}
-                                end={{ x: 1, y: 0 }}
-                                style={styles.signUpButtonGradient}
-                            >
-                                {loading ? (
-                                    <ActivityIndicator color="#fff" />
-                                ) : (
-                                    <View style={styles.buttonContent}>
-                                        <Text style={styles.signUpButtonText}>Sign Up</Text>
-                                        <Ionicons name="checkmark-circle" size={20} color="#fff" />
-                                    </View>
-                                )}
-                            </LinearGradient>
-                        </TouchableOpacity>
-                    </View>
+                        <Text style={styles.terms}>
+                            By signing up, you agree to our{' '}
+                            <Text style={styles.termsLink}>Terms</Text>,{' '}
+                            <Text style={styles.termsLink}>Privacy Policy</Text> and{' '}
+                            <Text style={styles.termsLink}>Cookies Policy</Text>.
+                        </Text>
 
-                    <Text style={styles.terms}>
-                        By signing up, you agree to our{' '}
-                        <Text style={styles.termsLink}>Terms</Text>,{' '}
-                        <Text style={styles.termsLink}>Privacy Policy</Text> and{' '}
-                        <Text style={styles.termsLink}>Cookies Policy</Text>.
-                    </Text>
+                        <View style={styles.loginContainer}>
+                            <Text style={styles.loginText}>Already have an account? </Text>
+                            <Link href="/login" asChild>
+                                <TouchableOpacity>
+                                    <Text style={styles.loginLink}>Log in</Text>
+                                </TouchableOpacity>
+                            </Link>
+                        </View>
+                    </ScrollView>
+                </KeyboardAvoidingView>
+            </LinearGradient>
 
-                    <View style={styles.loginContainer}>
-                        <Text style={styles.loginText}>Already have an account? </Text>
-                        <Link href="/login" asChild>
-                            <TouchableOpacity>
-                                <Text style={styles.loginLink}>Log in</Text>
-                            </TouchableOpacity>
-                        </Link>
-                    </View>
-                </ScrollView>
-            </KeyboardAvoidingView>
-        </LinearGradient>
+            <SuccessModal
+                visible={modalVisible}
+                type={modalData.type}
+                title={modalData.title}
+                message={modalData.message}
+                onConfirm={handleModalConfirm}
+                onClose={() => setModalVisible(false)}
+                confirmText={modalData.type === 'loading' ? undefined : 'OK'}
+            />
+        </>
     );
 }
 

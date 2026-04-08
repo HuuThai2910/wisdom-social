@@ -36,13 +36,23 @@ export default function PagePosts() {
         
         setLoading(true);
         try {
-            // Check if user is admin/owner first
-            const [memberStatus, pageData] = await Promise.all([
-                pageService.getMemberStatus(Number(pageId), currentUser.id),
+            // Get page data and members list to check access
+            const [pageData, membersList] = await Promise.all([
                 pageService.getPageById(Number(pageId)),
+                pageService.getPageMembers(Number(pageId)),
             ]);
             
-            const hasAccess = memberStatus === "ADMIN" || memberStatus === "OWNER" || pageData.userId === currentUser.id;
+            // Check if current user is owner or admin
+            const currentUserId = Number(currentUser.id);
+            const pageOwnerId = pageData.createdBy?.id 
+                ? Number(pageData.createdBy.id) 
+                : (pageData.userId ? Number(pageData.userId) : null);
+            
+            const isOwner = currentUserId === pageOwnerId;
+            const currentMember = membersList?.find(m => Number(m.userId) === currentUserId);
+            const hasAdminRole = currentMember?.pageRole === "ADMIN" || currentMember?.pageRole === "MODERATOR";
+            
+            const hasAccess = isOwner || hasAdminRole;
             setIsAdmin(hasAccess);
             
             if (!hasAccess) {

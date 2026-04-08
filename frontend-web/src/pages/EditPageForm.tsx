@@ -58,8 +58,13 @@ export default function EditPage() {
         try {
             const data = await pageService.getPageById(Number(pageId));
 
-            // Check if current user is owner
-            if (data.userId !== currentUser.id) {
+            // Check if current user is owner - support both userId and createdBy.id
+            const currentUserId = Number(currentUser.id);
+            const pageOwnerId = data.createdBy?.id 
+                ? Number(data.createdBy.id) 
+                : (data.userId ? Number(data.userId) : null);
+            
+            if (pageOwnerId !== currentUserId) {
                 setAccessDenied(true);
                 setLoading(false);
                 return;
@@ -155,7 +160,7 @@ export default function EditPage() {
             // Upload new avatar if selected
             if (avatarFile) {
                 const extension = avatarFile.name.split('.').pop() || 'jpg';
-                const uploadUrl = await pageService.getUploadAvatarUrl('page', Number(pageId), extension);
+                const uploadUrl = await pageService.getUploadAvatarUrl('pages', Number(pageId), extension);
 
                 await fetch(uploadUrl, {
                     method: 'PUT',
@@ -169,7 +174,7 @@ export default function EditPage() {
             // Upload new cover if selected
             if (coverFile) {
                 const extension = coverFile.name.split('.').pop() || 'jpg';
-                const uploadUrl = await pageService.getUploadCoverUrl('page', Number(pageId), extension);
+                const uploadUrl = await pageService.getUploadCoverUrl('pages', Number(pageId), extension);
 
                 await fetch(uploadUrl, {
                     method: 'PUT',

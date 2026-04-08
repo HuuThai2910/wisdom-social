@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { 
     ArrowLeft, Loader2, Users, UserPlus, UserMinus, Shield, 
     Ban, CheckCircle, XCircle, Clock, Trash2, Settings as SettingsIcon,
-    Edit, Image, MoreVertical, FileText
+    Edit, Image, MoreVertical, FileText, Search, X
 } from "lucide-react";
 import pageService, { type Page, type PageMember } from "../services/pageService";
 import userService from "../services/userService";
@@ -12,6 +12,15 @@ import { buildS3Url } from "../utils/s3";
 import type { User } from "../types";
 
 type TabType = "members" | "pending" | "posts" | "settings";
+type PageRole = "ADMIN" | "EDITOR" | "MODERATOR" | "ANALYST" | "USER";
+
+const PAGE_ROLES: { label: string; value: PageRole }[] = [
+    { label: 'Admin', value: 'ADMIN' },
+    { label: 'Editor', value: 'EDITOR' },
+    { label: 'Moderator', value: 'MODERATOR' },
+    { label: 'Analyst', value: 'ANALYST' },
+    { label: 'User', value: 'USER' },
+];
 
 interface MemberWithUser extends PageMember {
     user?: User;
@@ -31,21 +40,104 @@ export default function PageSettings() {
     const [isOwner, setIsOwner] = useState(false);
     const [isAdmin, setIsAdmin] = useState(false);
 
+    // Add member modal states
+    const [showAddMemberModal, setShowAddMemberModal] = useState(false);
+    const [memberSearchQuery, setMemberSearchQuery] = useState("");
+    const [searchResults, setSearchResults] = useState<User[]>([]);
+    const [selectedUsers, setSelectedUsers] = useState<User[]>([]);
+    const [selectedRole, setSelectedRole] = useState<PageRole>("USER");
+    const [isSearching, setIsSearching] = useState(false);
+    const [isAddingMembers, setIsAddingMembers] = useState(false);
+
+    // Debounced search for users
+    useEffect(() => {
+        if (!memberSearchQuery || memberSearchQuery.length < 2) {
+            setSearchResults([]);
+            return;
+        }
+
+        const timeoutId = setTimeout(async () => {
+            setIsSearching(true);
+            try {
+                const results = await userService.searchUserByUsername(memberSearchQuery);
+                if (results && Array.isArray(results)) {
+                    // Filter out existing members
+                    const memberIds = members.map(m => m.userId);
+                    const filtered = results.filter(u => !memberIds.includes(Number(u.id)));
+                    setSearchResults(filtered);
+                } else {
+                    setSearchResults([]);
+                }
+            } catch {
+                setSearchResults([]);
+            } finally {
+                setIsSearching(false);
+            }
+        }, 300);
+
+        return () => clearTimeout(timeoutId);
+    }, [memberSearchQuery, members]);
+
+    const handleAddMembers = async () => {
+        if (!pageId || selectedUsers.length === 0) return;
+        
+        setIsAddingMembers(true);
+        try {
+            await Promise.all(
+                selectedUsers.map(user =>
+                    pageService.addMember(Number(user.id), Number(pageId), selectedRole)
+                )
+            );
+            alert(`Đã thêm ${selectedUsers.length} thành viên!`);
+            setShowAddMemberModal(false);
+            setMemberSearchQuery("");
+            setSearchResults([]);
+            setSelectedUsers([]);
+            setSelectedRole("USER");
+            // Reload members
+            loadPageData();
+        } catch (error) {
+            console.error("Error adding members:", error);
+            alert("Không thể thêm thành viên");
+        } finally {
+            setIsAddingMembers(false);
+        }
+    };
+
+    const toggleUserSelection = (user: User) => {
+        const isSelected = selectedUsers.some(u => u.id === user.id);
+        if (isSelected) {
+            setSelectedUsers(prev => prev.filter(u => u.id !== user.id));
+        } else {
+            setSelectedUsers(prev => [...prev, user]);
+        }
+    };
+
     const loadPageData = useCallback(async () => {
         if (!pageId || !currentUser?.id) return;
         
         setLoading(true);
         try {
-            const [pageData, membersList, pendingList, memberStatus] = await Promise.all([
+            const [pageData, membersList, pendingList] = await Promise.all([
                 pageService.getPageById(Number(pageId)),
                 pageService.getPageMembers(Number(pageId)),
                 pageService.getPendingJoinRequests(Number(pageId)),
-                pageService.getMemberStatus(Number(pageId), currentUser.id),
             ]);
             
             setPage(pageData);
-            setIsOwner(pageData.userId === currentUser.id);
-            setIsAdmin(memberStatus === "ADMIN" || memberStatus === "OWNER" || pageData.userId === currentUser.id);
+            
+            // Check if owner - support both userId and createdBy.id from backend
+            const currentUserId = Number(currentUser.id);
+            const pageOwnerId = pageData.createdBy?.id 
+                ? Number(pageData.createdBy.id) 
+                : (pageData.userId ? Number(pageData.userId) : null);
+            
+            setIsOwner(pageOwnerId === currentUserId);
+            
+            // Check admin role from members list
+            const currentMember = membersList?.find(m => Number(m.userId) === currentUserId);
+            const hasAdminRole = currentMember?.pageRole === "ADMIN" || currentMember?.pageRole === "MODERATOR";
+            setIsAdmin(hasAdminRole || pageOwnerId === currentUserId);
 
             // Load user info for members
             const membersWithUsers = await Promise.all(
@@ -313,6 +405,17 @@ export default function PageSettings() {
             {/* Members Tab */}
             {activeTab === "members" && (
                 <div className="space-y-3">
+                    {/* Add Member Button */}
+                    {isAdmin && (
+                        <button
+                            onClick={() => setShowAddMemberModal(true)}
+                            className="w-full flex items-center justify-center gap-2 p-4 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-xl border border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors mb-4"
+                        >
+                            <UserPlus size={20} />
+                            <span className="font-medium">Thêm thành viên mới</span>
+                        </button>
+                    )}
+                    
                     {members.length === 0 ? (
                         <div className="text-center py-12 text-gray-500 dark:text-gray-400">
                             Chưa có thành viên nào
@@ -533,6 +636,184 @@ export default function PageSettings() {
                             </div>
                         </div>
                     </button>
+                </div>
+            )}
+
+            {/* Add Member Modal */}
+            {showAddMemberModal && (
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center">
+                    {/* Backdrop */}
+                    <div 
+                        className="absolute inset-0 bg-black/50"
+                        onClick={() => {
+                            setShowAddMemberModal(false);
+                            setMemberSearchQuery("");
+                            setSearchResults([]);
+                            setSelectedUsers([]);
+                        }}
+                    />
+                    
+                    {/* Modal */}
+                    <div className="relative w-full max-w-lg mx-4 bg-white dark:bg-[#262626] rounded-2xl shadow-xl max-h-[80vh] flex flex-col">
+                        {/* Header */}
+                        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-[#363636]">
+                            <h2 className="text-lg font-semibold dark:text-white">Thêm thành viên</h2>
+                            <button
+                                onClick={() => {
+                                    setShowAddMemberModal(false);
+                                    setMemberSearchQuery("");
+                                    setSearchResults([]);
+                                    setSelectedUsers([]);
+                                }}
+                                className="p-1 hover:bg-gray-100 dark:hover:bg-[#363636] rounded-full"
+                            >
+                                <X size={20} className="dark:text-white" />
+                            </button>
+                        </div>
+
+                        {/* Content */}
+                        <div className="flex-1 overflow-y-auto p-4">
+                            {/* Search Input */}
+                            <div className="relative mb-4">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                                <input
+                                    type="text"
+                                    placeholder="Tìm kiếm theo username..."
+                                    value={memberSearchQuery}
+                                    onChange={(e) => setMemberSearchQuery(e.target.value)}
+                                    className="w-full pl-10 pr-4 py-3 bg-gray-100 dark:bg-[#363636] border border-gray-200 dark:border-[#454545] rounded-xl text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                />
+                            </div>
+
+                            {/* Search Results */}
+                            {isSearching && (
+                                <div className="flex items-center justify-center py-8">
+                                    <Loader2 className="animate-spin text-blue-500" size={24} />
+                                </div>
+                            )}
+
+                            {!isSearching && searchResults.length > 0 && (
+                                <div className="mb-4">
+                                    <p className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">
+                                        Kết quả tìm kiếm ({searchResults.length})
+                                    </p>
+                                    <div className="space-y-2">
+                                        {searchResults.map(user => {
+                                            const isSelected = selectedUsers.some(u => u.id === user.id);
+                                            return (
+                                                <button
+                                                    key={user.id}
+                                                    onClick={() => toggleUserSelection(user)}
+                                                    className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-colors ${
+                                                        isSelected
+                                                            ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20"
+                                                            : "border-gray-200 dark:border-[#363636] hover:bg-gray-50 dark:hover:bg-[#363636]"
+                                                    }`}
+                                                >
+                                                    {/* Checkbox */}
+                                                    <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
+                                                        isSelected
+                                                            ? "bg-blue-500 border-blue-500"
+                                                            : "border-gray-300 dark:border-gray-600"
+                                                    }`}>
+                                                        {isSelected && <CheckCircle size={12} className="text-white" />}
+                                                    </div>
+                                                    
+                                                    <img
+                                                        src={buildS3Url(user.avatarUrl) || "https://via.placeholder.com/40"}
+                                                        alt={user.username}
+                                                        className="w-10 h-10 rounded-full object-cover"
+                                                    />
+                                                    <div className="flex-1 text-left">
+                                                        <p className="font-medium dark:text-white">{user.name || user.username}</p>
+                                                        <p className="text-sm text-gray-500 dark:text-gray-400">@{user.username}</p>
+                                                    </div>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+
+                            {!isSearching && memberSearchQuery.length >= 2 && searchResults.length === 0 && (
+                                <div className="flex flex-col items-center justify-center py-8 text-gray-500">
+                                    <Search size={48} className="mb-2 opacity-50" />
+                                    <p>Không tìm thấy người dùng</p>
+                                </div>
+                            )}
+
+                            {/* Selected Users */}
+                            {selectedUsers.length > 0 && (
+                                <div className="mb-4">
+                                    <p className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">
+                                        Đã chọn ({selectedUsers.length})
+                                    </p>
+                                    <div className="flex flex-wrap gap-2">
+                                        {selectedUsers.map(user => (
+                                            <div
+                                                key={user.id}
+                                                className="flex items-center gap-2 px-3 py-1.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded-full"
+                                            >
+                                                <img
+                                                    src={buildS3Url(user.avatarUrl) || "https://via.placeholder.com/20"}
+                                                    alt={user.username}
+                                                    className="w-5 h-5 rounded-full object-cover"
+                                                />
+                                                <span className="text-sm font-medium">@{user.username}</span>
+                                                <button
+                                                    onClick={() => setSelectedUsers(prev => prev.filter(u => u.id !== user.id))}
+                                                    className="hover:text-blue-900 dark:hover:text-blue-200"
+                                                >
+                                                    <X size={14} />
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Role Selection */}
+                            <div>
+                                <p className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">
+                                    Vai trò
+                                </p>
+                                <div className="flex flex-wrap gap-2">
+                                    {PAGE_ROLES.map(role => (
+                                        <button
+                                            key={role.value}
+                                            onClick={() => setSelectedRole(role.value)}
+                                            className={`px-4 py-2 rounded-lg border transition-colors ${
+                                                selectedRole === role.value
+                                                    ? "bg-blue-500 text-white border-blue-500"
+                                                    : "border-gray-200 dark:border-[#363636] text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-[#363636]"
+                                            }`}
+                                        >
+                                            {role.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div className="p-4 border-t border-gray-200 dark:border-[#363636]">
+                            <button
+                                onClick={handleAddMembers}
+                                disabled={selectedUsers.length === 0 || isAddingMembers}
+                                className={`w-full py-3 rounded-xl font-medium transition-colors ${
+                                    selectedUsers.length === 0 || isAddingMembers
+                                        ? "bg-gray-200 dark:bg-[#363636] text-gray-400 cursor-not-allowed"
+                                        : "bg-blue-500 text-white hover:bg-blue-600"
+                                }`}
+                            >
+                                {isAddingMembers ? (
+                                    <Loader2 className="animate-spin mx-auto" size={20} />
+                                ) : (
+                                    `Thêm ${selectedUsers.length} thành viên`
+                                )}
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>

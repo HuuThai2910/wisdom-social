@@ -103,10 +103,12 @@ public class UserServiceImpl implements UserService {
     @Override
     public UserResponseConfirmRegister confirmRegisterUser(UserRequestConfirmRegister confirm) {
         String phone="+84"+confirm.getPhone().substring(1,10);
+
+        System.out.println("Confirming registration for phone: " + phone + " with OTP: " + confirm.getOtp());
         ConfirmSignUpRequest request= ConfirmSignUpRequest.builder()
                 .clientId(userClientId)
                 .username(phone)
-                .confirmationCode(confirm.getOTP())
+                .confirmationCode(confirm.getOtp())
                 .build();
 
         ConfirmSignUpResponse response= cognitoClient.confirmSignUp(request);
