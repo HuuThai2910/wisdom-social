@@ -16,12 +16,14 @@ export default function SettingsPage() {
       title: "Edit Profile",
       description: "Name, bio, avatar",
       action: "Edit",
+      onClick: () => navigate("/edit-profile"),
     },
     {
       icon: Shield,
       title: "Privacy and Security",
       description: "Account privacy, blocked accounts",
       action: "Manage",
+      onClick: () => navigate("/blocked-users"),
     },
     {
       icon: Bell,
@@ -66,6 +68,7 @@ export default function SettingsPage() {
             return (
               <div
                 key={index}
+                onClick={option.onClick}
                 className="flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-[#1a1a1a] rounded-lg transition-colors cursor-pointer border border-transparent hover:border-gray-200 dark:hover:border-[#262626]"
               >
                 <div className="flex items-center gap-4">

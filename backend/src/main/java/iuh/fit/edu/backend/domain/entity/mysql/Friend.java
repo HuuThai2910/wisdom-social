@@ -42,7 +42,6 @@ public class Friend {
     @JoinColumn(name = "friend_id")
     private User friend; // Người nhận lời mời kết bạn
 
-    @Enumerated(EnumType.STRING)
     private FriendStatus status;
     private LocalDateTime friendAt;
 }

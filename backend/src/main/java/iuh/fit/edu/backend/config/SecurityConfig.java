@@ -35,6 +35,7 @@ public class SecurityConfig {
         http
                 .csrf(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(HttpMethod.OPTIONS,"/**").permitAll()
                         .requestMatchers("/ws/**").permitAll()
                         .requestMatchers("/ws-native/**").permitAll()
                         .requestMatchers(HttpMethod.POST,"/api/auth/register").permitAll()
@@ -42,9 +43,12 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST,"/api/auth/confirm").permitAll()
                         .requestMatchers(HttpMethod.POST,"/api/auth/reset-password").permitAll()
                         .requestMatchers(HttpMethod.POST,"/api/auth/forgot-password").permitAll()
-                        .requestMatchers(HttpMethod.GET,"api/session/qr-login/create").permitAll()
-                        .requestMatchers(HttpMethod.GET,"api/session/qr-login/scan").permitAll()
-                        .requestMatchers(HttpMethod.GET,"/api/session/qr-login/status").permitAll()
+                        .requestMatchers(HttpMethod.GET,"/api/session/qr-login/create").permitAll()
+                        .requestMatchers(HttpMethod.POST,"/api/session/qr-login/confirm").permitAll()
+                        .requestMatchers(HttpMethod.GET,"/api/session/qr-login/reject").permitAll()
+                        .requestMatchers(HttpMethod.GET,"/api/session/qr-login/status/**").permitAll()
+                        .requestMatchers(HttpMethod.GET,"/api/session/qr-login/access-token/**").permitAll()
+                        .requestMatchers(HttpMethod.PUT,"/api/auth/users/**").authenticated()
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)

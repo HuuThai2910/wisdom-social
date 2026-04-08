@@ -37,30 +37,47 @@ export default function QRConfirm() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    scanQRCode();
-  }, []);
+
+    // Đợi một chút để đảm bảo params đã được set
+    const timer = setTimeout(() => {
+      if (sessionId && sessionId !== 'undefined' && sessionId !== '') {
+        scanQRCode();
+      } else {
+        setError('Mã QR không hợp lệ');
+        setLoading(false);
+      }
+    }, 50); 
+
+    return () => clearTimeout(timer);
+  }, [sessionId]);
 
   const scanQRCode = async () => {
+    if (!sessionId || sessionId === 'undefined' || sessionId === '') {
+      setError('Mã QR không hợp lệ');
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       setError('');
 
       const response = await apiClient.get('/session/qr-login/scan', {
         params: { session_id: sessionId },
+        timeout: 15000,
       });
 
-      setSessionData(response.data.data);
+      if (response.data && response.data.data) {
+        setSessionData(response.data.data);
+      } else {
+        console.error('Invalid response format:', response.data);
+      }
     } catch (err: any) {
       const errorMsg =
         err.response?.data?.message ||
+        err.message ||
         'Không thể xác thực mã QR. Vui lòng thử lại.';
       setError(errorMsg);
-      Alert.alert('Lỗi', errorMsg, [
-        {
-          text: 'OK',
-          onPress: () => router.back(),
-        },
-      ]);
     } finally {
       setLoading(false);
     }
@@ -87,9 +104,13 @@ export default function QRConfirm() {
         [
           {
             text: 'OK',
-            onPress: () => router.back(),
+            onPress: () => {
+              // Navigate về settings sau khi user ấn OK
+              router.replace('/settings' as any);
+            },
           },
-        ]
+        ],
+        { cancelable: false } // Không cho dismiss bằng cách tap outside
       );
     } catch (err: any) {
       const errorMsg =
@@ -109,12 +130,20 @@ export default function QRConfirm() {
         params: { session_id: sessionId },
       });
 
-      Alert.alert('Đã từ chối', 'Bạn đã từ chối yêu cầu đăng nhập.', [
-        {
-          text: 'OK',
-          onPress: () => router.back(),
-        },
-      ]);
+      Alert.alert(
+        'Đã từ chối',
+        'Bạn đã từ chối yêu cầu đăng nhập.',
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              // Navigate về settings sau khi user ấn OK
+              router.replace('/settings' as any);
+            },
+          },
+        ],
+        { cancelable: false } // Không cho dismiss bằng cách tap outside
+      );
     } catch (err: any) {
       const errorMsg =
         err.response?.data?.message || 'Có lỗi xảy ra. Vui lòng thử lại.';
@@ -160,9 +189,20 @@ export default function QRConfirm() {
         </View>
         <View style={styles.errorContainer}>
           <Ionicons name="alert-circle-outline" size={64} color="#ff3b30" />
-          <Text style={styles.errorText}>{error}</Text>
+          <Text style={styles.errorText}>{error || 'Lỗi không xác định'}</Text>
+          {__DEV__ && (
+            <Text style={styles.debugText}>
+              Session ID: {sessionId || 'undefined'}
+            </Text>
+          )}
           <TouchableOpacity style={styles.retryButton} onPress={scanQRCode}>
             <Text style={styles.retryButtonText}>Thử lại</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.retryButton, styles.backButtonStyle]}
+            onPress={() => router.back()}
+          >
+            <Text style={styles.retryButtonText}>Quay lại</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -323,6 +363,16 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  backButtonStyle: {
+    backgroundColor: '#6c757d',
+    marginTop: 12,
+  },
+  debugText: {
+    marginTop: 12,
+    fontSize: 12,
+    color: '#999',
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
   },
   content: {
     flex: 1,

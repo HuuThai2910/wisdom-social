@@ -65,7 +65,7 @@ export default function ProfileSavedPost() {
 
                 // Fetch author data
                 const authorResponse = await axios.get(
-                  `${API_BASE_URL}/auth/user/id/${post.authorId}`
+                  `${API_BASE_URL}/auth/user/${post.authorId}`
                 );
                 const authorData = authorResponse.data.data;
 

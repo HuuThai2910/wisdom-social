@@ -6,8 +6,8 @@ import {
   useNavigate,
   useLocation,
 } from "react-router-dom";
+import { Toaster } from "react-hot-toast";
 import { ThemeProvider } from "./contexts/ThemeContext";
-import { AuthProvider } from "./contexts/AuthContext";
 import MainLayout from "./components/layout/MainLayout";
 import PublicLayout from "./components/layout/PublicLayout";
 import RequireAuth from "./components/auth/RequireAuth";
@@ -44,6 +44,10 @@ import ProfileLayout from "./components/profile/ProfileLayout";
 // Other Pages
 import General from "./pages/General";
 import Misc from "./pages/Misc";
+import EditProfile from "./pages/EditProfile";
+import UserManagement from "./pages/UserManagement";
+import BlockedUsers from "./pages/BlockedUsers";
+import FriendRequests from "./pages/FriendRequests";
 
 function App() {
   // Modal wrapper component to handle post modal
@@ -67,8 +71,17 @@ function App() {
   }
 
   return (
-    <AuthProvider>
       <ThemeProvider>
+        <Toaster 
+          position="top-right"
+          toastOptions={{
+            duration: 4000,
+            style: {
+              background: '#333',
+              color: '#fff',
+            },
+          }}
+        />
         <BrowserRouter>
           <Routes>
             {/* Public Routes */}
@@ -80,6 +93,7 @@ function App() {
               <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/checkinbox" element={<CheckInbox />} />
               <Route path="/verify-otp" element={<VerifyOTP />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
             </Route>
 
             {/* Private Routes */}
@@ -117,6 +131,10 @@ function App() {
                 element={<ProfileGeneral />}
               />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/edit-profile" element={<EditProfile />} />
+              <Route path="/user-management" element={<UserManagement />} />
+              <Route path="/blocked-users" element={<BlockedUsers />} />
+              <Route path="/friend-requests" element={<FriendRequests />} />
             </Route>
 
             {/* Other Routes */}
@@ -128,7 +146,6 @@ function App() {
           </Routes>
         </BrowserRouter>
       </ThemeProvider>
-    </AuthProvider>
   );
 }
 

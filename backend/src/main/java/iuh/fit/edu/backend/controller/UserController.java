@@ -76,7 +76,7 @@ public class UserController {
         String refreshToken=null;
         if (request.getCookies() != null) {
             for (Cookie cookie : request.getCookies()) {
-                if ("idToken".equals(cookie.getName())) {
+                if ("accessToken".equals(cookie.getName())) {
                     idToken = cookie.getValue();
                 }
                 if ("refreshToken".equals(cookie.getName())) {

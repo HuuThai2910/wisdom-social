@@ -3,7 +3,7 @@ import { deleteCookie } from "../utils/cookies";
 
 const axiosClient: AxiosInstance = axios.create({
     baseURL: "http://localhost:8080/api",
-    withCredentials: true, // Important: Send cookies with requests
+    withCredentials: true,
     headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
@@ -17,7 +17,8 @@ const PUBLIC_ENDPOINTS = [
     '/auth/forgot-password',
     '/auth/reset-password',
     '/session/qr-login/create',
-    '/session/qr-login/status',
+    '/session/qr-login/status/:sessionId',
+    '/session/qr-login/access-token/:sessionId',
 ];
 
 const isPublicEndpoint = (url?: string): boolean => {

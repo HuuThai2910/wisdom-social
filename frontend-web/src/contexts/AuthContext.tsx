@@ -25,7 +25,7 @@ interface AuthContextType {
   loading: boolean;
   error: string | null;
   fetchUserByUsername: (username: string) => Promise<UserProfile | null>;
-  fetchUserStats: (userId: string) => Promise<{
+  fetchUserStats: (userId: number) => Promise<{
     postsCount: number;
     followersCount: number;
     followingCount: number;
@@ -50,7 +50,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const fetchUserStats = async (
-    userId: string
+    userId: number
   ): Promise<{
     postsCount: number;
     followersCount: number;
@@ -158,7 +158,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.log(`📱 Fetching user profile for username: ${username}`);
 
       let userData: any;
-      let userId: string;
+      let userId: number;
 
       // If viewing own profile, use cached currentUser data + /auth/me
       if (currentUser && currentUser.username === username) {
@@ -173,12 +173,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (meResponse.data?.data && meResponse.data.success) {
             // Response wrapped in ApiResponse with data field containing User object
             userData = meResponse.data.data;
-            userId = String(userData.id);
+            userId = userData.id;
             console.log("✅ Got user data from /auth/me:", userData);
           } else if (meResponse.data?.id) {
             // Fallback: Response is direct User object (shouldn't happen with new backend)
             userData = meResponse.data;
-            userId = String(userData.id);
+            userId = userData.id;
             console.log(
               "✅ Got user data (direct format) from /auth/me:",
               userData
@@ -215,7 +215,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setError("User not found");
           return null;
         }
-        userId = String(userData.id);
+        userId = userData.id;
       }
 
       // Fetch additional user stats
@@ -225,14 +225,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         id: userId,
         username: userData.username,
         fullName: userData.name || userData.username,
-        avatar:
+        avatarUrl:
           buildS3Url(userData.avatarUrl) || "https://i.pravatar.cc/150?img=5",
         bio: userData.bio,
         ...stats,
       };
 
       console.log("🖼️ Avatar S3 key from backend:", userData.avatarUrl);
-      console.log("🖼️ Final avatar full URL:", userProfile.avatar);
+      console.log("🖼️ Final avatar full URL:", userProfile.avatarUrl);
 
       // Update cache
       setUserCache((prev) => ({
@@ -253,6 +253,58 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const clearCache = () => {
     setUserCache({});
+  };
+
+  const updateUser = async (
+    userId: string,
+    updateData: any
+  ): Promise<boolean> => {
+    try {
+      // Call update endpoint - should return User object
+      const updateResponse = await axiosClient.put(
+        `/auth/user/${userId}`,
+        updateData
+      );
+
+      // Check if update was successful (status 200)
+      if (updateResponse.status === 200) {
+        // Response should contain User object
+        const updatedUserData = updateResponse.data;
+
+        if (!updatedUserData?.id) {
+          console.error("Invalid response: no user id");
+          return false;
+        }
+
+        // Update with proper User type mapping
+        const updatedUser = {
+          id: updatedUserData.id,
+          username: updatedUserData.username,
+          fullName: updatedUserData.name ?? updatedUserData.username,
+          avatarUrl:
+            buildS3Url(updatedUserData.avatarUrl) ??
+            "https://i.pravatar.cc/150?img=5",
+          bio: updatedUserData.bio ?? "",
+          phone: updatedUserData.phone,
+          gender: updatedUserData.gender,
+          name: updatedUserData.name,
+          birthday: updatedUserData.birthday,
+        };
+
+        // Update state and localStorage
+        setCurrentUser(updatedUser as User);
+        localStorage.setItem("current_user", JSON.stringify(updatedUser));
+
+        // Clear cache to force refresh
+        clearCache();
+
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error("Error updating user:", error);
+      return false;
+    }
   };
 
   useEffect(() => {
