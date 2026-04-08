@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { useState, useEffect } from "react";
 import type { User } from "../../types";
-import { Settings, LogOut, QrCode } from "lucide-react";
+import { Settings, LogOut, QrCode, X } from "lucide-react";
 import { logout } from "../../utils/auth";
 import axiosClient from "../../api/axiosClient";
 import NoteModal from "./NoteModal";
@@ -33,6 +33,13 @@ interface ProfileHeaderProps {
   isOwnProfile?: boolean;
 }
 
+const GENDER_LABELS: Record<string, string> = {
+  MALE: "Nam",
+  FEMALE: "Nữ",
+  HIDDEN: "Ẩn",
+  OTHER: "Khác",
+};
+
 export default function ProfileHeader({
   user,
   isOwnProfile = false,
@@ -41,6 +48,7 @@ export default function ProfileHeader({
   const [note, setNote] = useState<Note | null>(null);
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [showFriendsModal, setShowFriendsModal] = useState(false);
+  const [showAvatarModal, setShowAvatarModal] = useState(false);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -54,6 +62,8 @@ export default function ProfileHeader({
     logout();
     window.location.href = "/login";
   };
+
+  const genderLabel = GENDER_LABELS[user.gender || "HIDDEN"] || "Ẩn";
 
   return (
     <>
@@ -93,16 +103,18 @@ export default function ProfileHeader({
                 </button>
               )}
 
-              {/* Avatar — clickable to open note modal */}
+              {/* Avatar — clickable to view or open note modal */}
               <button
-                onClick={() => setShowNoteModal(true)}
-                className="relative focus:outline-none"
+                onClick={() => isOwnProfile ? setShowNoteModal(true) : setShowAvatarModal(true)}
+                className="relative focus:outline-none hover:opacity-80 transition-opacity"
                 title={
-                  note ? "View note" : isOwnProfile ? "Add a note" : undefined
+                  isOwnProfile
+                    ? note ? "View note" : "Add a note"
+                    : "View avatar"
                 }
               >
                 <img
-                  src={buildS3Url(user.avatarUrl)|| user.avatarUrl}
+                  src={buildS3Url(user.avatarUrl) || user.avatarUrl}
                   alt={user.username}
                   className="w-[77px] h-[77px] md:w-[150px] md:h-[150px] rounded-full object-cover"
                 />
@@ -180,8 +192,8 @@ export default function ProfileHeader({
                   </>
                 ) : (
                   <>
-                    <FriendActions 
-                      targetUserId={user.id} 
+                    <FriendActions
+                      targetUserId={user.id}
                       targetUsername={user.username}
                       size="md"
                     />
@@ -228,7 +240,7 @@ export default function ProfileHeader({
                 </button>
               </div>
 
-              {/* Bio */}
+              {/* Bio and Metadata */}
               <div className="text-sm dark:text-white">
                 <p className="font-semibold mb-1">{user.fullName}</p>
                 {user.bio && (
@@ -236,11 +248,44 @@ export default function ProfileHeader({
                     {user.bio}
                   </p>
                 )}
+
+                {/* Birthday and Gender */}
+                <div className="flex items-center gap-4 mt-2 flex-wrap">
+                  {user.birthday && (
+                    <div className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
+                      <span>📅</span>
+                      <span>{user.birthday}</span>
+                    </div>
+                  )}
+                  {user.gender && (
+                    <div className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
+                      <span>👥</span>
+                      <span>{genderLabel}</span>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
         </div>
       </div>
+
+      {/* Avatar View Modal */}
+      {showAvatarModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90">
+          <button
+            onClick={() => setShowAvatarModal(false)}
+            className="absolute top-4 right-4 text-white hover:text-gray-300 transition-colors"
+          >
+            <X size={32} />
+          </button>
+          <img
+            src={buildS3Url(user.avatarUrl) || user.avatarUrl}
+            alt={user.username}
+            className="max-w-full max-h-[90vh] rounded-lg object-contain"
+          />
+        </div>
+      )}
 
       {/* Note modal */}
       {showNoteModal && (
