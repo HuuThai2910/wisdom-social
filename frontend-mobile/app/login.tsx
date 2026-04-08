@@ -15,6 +15,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../contexts/AuthContext';
 import Logo from '../components/Logo';
+import SuccessModal from '../components/SuccessModal';
+import { validatePhone } from '../utils/validation';
 
 export default function LoginScreen() {
     const router = useRouter();
@@ -23,24 +25,63 @@ export default function LoginScreen() {
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
+    const [modalVisible, setModalVisible] = useState(false);
+    const [modalData, setModalData] = useState({
+        type: 'success' as 'success' | 'error' | 'loading',
+        title: '',
+        message: '',
+    });
 
     const handleLogin = async () => {
         if (!phone || !password) {
+            setModalData({
+                type: 'error',
+                title: 'Lỗi xác thực',
+                message: 'Vui lòng nhập số điện thoại và mật khẩu',
+            });
+            setModalVisible(true);
+            return;
+        }
+
+        // Validate phone format
+        const phoneValidation = validatePhone(phone);
+        if (!phoneValidation.isValid) {
+            setModalData({
+                type: 'error',
+                title: 'Lỗi xác thực',
+                message: phoneValidation.error || 'Số điện thoại không hợp lệ',
+            });
+            setModalVisible(true);
             return;
         }
 
         setLoading(true);
+        setModalData({
+            type: 'loading',
+            title: 'Đang xử lý',
+            message: 'Vui lòng chờ...',
+        });
+        setModalVisible(true);
+
         try {
             await login(phone, password);
+            setModalVisible(false);
             router.replace('/(tabs)');
-        } catch {
+        } catch (error: any) {
+            setModalData({
+                type: 'error',
+                title: 'Đăng nhập thất bại',
+                message: error?.message || 'Tên đăng nhập hoặc mật khẩu không đúng.',
+            });
+            setModalVisible(true);
         } finally {
             setLoading(false);
         }
     };
 
     return (
-        <LinearGradient
+        <>
+            <LinearGradient
             colors={['#EFF6FF', '#FFFFFF', '#F9FAFB']}
             style={styles.gradient}
         >
@@ -142,6 +183,16 @@ export default function LoginScreen() {
                 </ScrollView>
             </KeyboardAvoidingView>
         </LinearGradient>
+
+        <SuccessModal
+            visible={modalVisible}
+            type={modalData.type}
+            title={modalData.title}
+            message={modalData.message}
+            onClose={() => setModalVisible(false)}
+            confirmText={modalData.type === 'loading' ? undefined : 'OK'}
+        />
+        </>
     );
 }
 

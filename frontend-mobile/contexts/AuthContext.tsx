@@ -46,15 +46,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     const login = async (phone: string, password: string) => {
-        try {
-            const response = await authService.login({ phone, password });
-            if (response) {
-                await new Promise(resolve => setTimeout(resolve, 100));
-                const userData = await getUser();
-                setUser(userData);
-                await websocketService.connect();
-            }
-        } catch {
+        const response = await authService.login({ phone, password });
+        if (response) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            const userData = await getUser();
+            setUser(userData);
+            await websocketService.connect();
         }
     };
 

@@ -58,6 +58,32 @@ export interface OTPResponse {
     OTP: string;
 }
 
+const mapResetPasswordError = (rawMessage?: string) => {
+    const message = rawMessage || '';
+    const lower = message.toLowerCase();
+
+    if (lower.includes('invalid code provided')) {
+        return 'Mã OTP không đúng. Vui lòng kiểm tra lại OTP mới nhất.';
+    }
+
+    if (lower.includes('expired') || lower.includes('codeexpired')) {
+        return 'Mã OTP đã hết hạn. Vui lòng yêu cầu gửi lại OTP.';
+    }
+
+    return 'Đặt lại mật khẩu thất bại. Vui lòng thử lại.';
+};
+
+const mapLoginError = (rawMessage?: string) => {
+    const message = rawMessage || '';
+    const lower = message.toLowerCase();
+
+    if (lower.includes('notauthorizedexception') || lower.includes('incorrect username or password')) {
+        return 'Tên đăng nhập hoặc mật khẩu không đúng.';
+    }
+
+    return 'Đăng nhập thất bại. Vui lòng thử lại.';
+};
+
 class AuthService {
     async register(data: RegisterRequest): Promise<RegisterResponse | null> {
         try {
@@ -117,8 +143,9 @@ class AuthService {
             }
 
             return loginData;
-        } catch {
-            return null;
+        } catch (error: any) {
+            const backendMessage = error?.response?.data?.message || error?.message;
+            throw new Error(mapLoginError(backendMessage));
         }
     }
 
@@ -152,8 +179,9 @@ class AuthService {
             };
             const response = await apiClient.post('/auth/reset-password', requestData);
             return response.data.message || 'Password reset successfully';
-        } catch {
-            return null;
+        } catch (error: any) {
+            const backendMessage = error?.response?.data?.message || error?.message;
+            throw new Error(mapResetPasswordError(backendMessage));
         }
     }
 

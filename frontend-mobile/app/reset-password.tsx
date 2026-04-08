@@ -22,7 +22,7 @@ export default function ResetPasswordScreen() {
     const router = useRouter();
     const params = useLocalSearchParams();
     const phone = params.phone as string;
-    const otp = params.otp as string;
+    const [otp, setOtp] = useState((params.otp as string) || '');
 
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
@@ -37,6 +37,16 @@ export default function ResetPasswordScreen() {
     });
 
     const handleResetPassword = async () => {
+        if (!otp || otp.length !== 6) {
+            setModalData({
+                type: 'error',
+                title: 'Lỗi xác thực',
+                message: 'Vui lòng nhập mã OTP gồm 6 chữ số',
+            });
+            setModalVisible(true);
+            return;
+        }
+
         // Validate form
         const validation = validateResetPasswordForm(password, confirmPassword);
         if (!validation.isValid) {
@@ -80,11 +90,11 @@ export default function ResetPasswordScreen() {
                 });
                 setModalVisible(true);
             }
-        } catch (error) {
+        } catch (error: any) {
             setModalData({
                 type: 'error',
                 title: 'Lỗi',
-                message: 'Có lỗi xảy ra, vui lòng thử lại',
+                message: error?.message || 'Có lỗi xảy ra, vui lòng thử lại',
             });
             setModalVisible(true);
         } finally {
@@ -126,9 +136,24 @@ export default function ResetPasswordScreen() {
                         </View>
 
                         <Text style={styles.title}>Reset Password</Text>
-                        <Text style={styles.subtitle}>Enter your new password</Text>
+                        <Text style={styles.subtitle}>Enter OTP and your new password</Text>
 
                         <View style={styles.form}>
+                            <View style={styles.inputWrapper}>
+                                <View style={styles.inputIconContainer}>
+                                    <Ionicons name="key-outline" size={20} color="#9CA3AF" />
+                                </View>
+                                <TextInput
+                                    style={styles.input}
+                                    placeholder="OTP Code"
+                                    placeholderTextColor="#9CA3AF"
+                                    value={otp}
+                                    onChangeText={setOtp}
+                                    keyboardType="number-pad"
+                                    maxLength={6}
+                                />
+                            </View>
+
                             <View style={styles.inputWrapper}>
                                 <View style={styles.inputIconContainer}>
                                     <Ionicons name="lock-closed-outline" size={20} color="#9CA3AF" />
