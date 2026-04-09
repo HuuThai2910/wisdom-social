@@ -143,7 +143,12 @@ public class PostController {
             Long authorId = currentUser.getId();
             log.info("Creating post for user: {}", authorId);
             log.info("Post data: {}", postDataJson);
-            log.info("Image URLs: {}", imageUrls);
+            log.info("Image URLs received: {} items", imageUrls == null ? "null" : imageUrls.size());
+            if (imageUrls != null && !imageUrls.isEmpty()) {
+                for (int i = 0; i < imageUrls.size(); i++) {
+                    log.info("  Image {}: {}", i, imageUrls.get(i));
+                }
+            }
             
             // Parse JSON to CreatePostRequest
             CreatePostRequest request = objectMapper.readValue(postDataJson, CreatePostRequest.class);

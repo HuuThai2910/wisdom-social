@@ -11,12 +11,13 @@ import {
   Settings2,
 } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
-import axios from "axios";
 import { useAuth } from "../contexts/AuthContext";
+import { useEditPostData, useUserFriends } from "../hooks/useProfileHooks";
 import EmojiPicker, {
   type EmojiClickData,
   type Theme,
 } from "emoji-picker-react";
+import axiosClient from "../api/axiosClient";
 import FriendSelectorModal from "../components/post/FriendSelectorModal";
 
 type PrivacyType =
@@ -30,6 +31,16 @@ export default function EditPost() {
   const navigate = useNavigate();
   const { postId } = useParams<{ postId: string }>();
   const { currentUser } = useAuth();
+
+  // Use hooks instead of useEffect
+  const {
+    post,
+    loading: postLoading,
+    error: postError,
+  } = useEditPostData(postId);
+  const { friends } = useUserFriends(currentUser?.id);
+
+  // State for form inputs
   const [caption, setCaption] = useState("");
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
   const [newImages, setNewImages] = useState<File[]>([]);
@@ -48,99 +59,35 @@ export default function EditPost() {
   const [excludedUsers, setExcludedUsers] = useState<string[]>([]);
   const [showSpecificModal, setShowSpecificModal] = useState(false);
   const [showExcludedModal, setShowExcludedModal] = useState(false);
-  const [friends, setFriends] = useState<any[]>([]);
   const [locationSuggestions, setLocationSuggestions] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
 
-  // Fetch post data to edit
+  // Initialize form when post data loads
   useEffect(() => {
-    const fetchPost = async () => {
-      if (!postId) return;
+    if (post) {
+      setCaption(post.content || "");
+      setPrivacy(post.privacy || "PUBLIC");
+      setLocation(
+        typeof post.location === "string"
+          ? post.location
+          : post.location?.name || ""
+      );
+      setAllowComments(post.allowComments !== false);
+      setAllowShares(post.allowShares !== false);
 
-      try {
-        setLoading(true);
-        const response = await axios.get(
-          `http://localhost:8080/api/posts/${postId}`
-        );
-        const post = response.data.data;
-
-        // Pre-fill form with existing post data
-        setCaption(post.content || "");
-        setPrivacy(post.privacy || "PUBLIC");
-        setLocation(
-          typeof post.location === "string"
-            ? post.location
-            : post.location?.name || ""
-        );
-        setAllowComments(post.allowComments !== false);
-        setAllowShares(post.allowShares !== false);
-
-        // Load existing images
-        if (post.mediaList && post.mediaList.length > 0) {
-          setSelectedImages(post.mediaList.map((m: any) => m.url));
-        }
-
-        // Load tagged users
-        if (post.taggedUserIds && post.taggedUserIds.length > 0) {
-          const taggedUsersPromises = post.taggedUserIds.map((userId: string) =>
-            axios
-              .get(`http://localhost:8080/api/auth/user/${userId}`)
-              .catch(() => null)
-          );
-          const taggedUsersResponses = await Promise.all(taggedUsersPromises);
-          const fetchedTaggedUsers = taggedUsersResponses
-            .filter((res) => res !== null)
-            .map((res) => res!.data.data.username);
-          setTaggedUsers(fetchedTaggedUsers);
-        }
-
-        setLoading(false);
-      } catch (error) {
-        console.error("Error fetching post:", error);
-        alert("Không thể tải bài viết!");
-        navigate("/");
+      if (post.mediaList && post.mediaList.length > 0) {
+        setSelectedImages(post.mediaList.map((m: any) => m.url));
       }
-    };
 
-    fetchPost();
-  }, [postId, navigate]);
-
-  // Fetch friends list from backend
-  useEffect(() => {
-    const fetchFriends = async () => {
-      try {
-        if (currentUser?.id) {
-          const response = await axios.get(
-            `http://localhost:8080/api/users/${currentUser.id}/friends`
-          );
-
-          let friendsData = response.data;
-          if (typeof friendsData === "string") {
-            friendsData = JSON.parse(friendsData);
-          }
-
-          const mappedFriends = (friendsData.data || friendsData || []).map(
-            (friend: any) => ({
-              id: friend.userId?.toString() || friend.id?.toString(),
-              username: friend.username,
-              fullName: friend.name || friend.fullName,
-              avatar:
-                friend.avatarUrl ||
-                friend.avatar ||
-                "https://i.pravatar.cc/150?img=5",
-            })
-          );
-
-          setFriends(mappedFriends);
-        }
-      } catch (error) {
-        console.error("Error fetching friends:", error);
-        setFriends([]);
+      if (post.taggedUsernames && post.taggedUsernames.length > 0) {
+        setTaggedUsers(post.taggedUsernames);
       }
-    };
+    }
 
-    fetchFriends();
-  }, []);
+    if (postError) {
+      alert("Không thể tải bài viết!");
+      navigate("/");
+    }
+  }, [post, postError, navigate]);
 
   // Search location suggestions with debounce
   useEffect(() => {
@@ -151,7 +98,7 @@ export default function EditPost() {
       }
 
       try {
-        const response = await axios.get(
+        const response = await axiosClient.get(
           `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
             location
           )}&limit=5&addressdetails=1`,
@@ -257,15 +204,11 @@ export default function EditPost() {
       console.log("Updating post...");
 
       // Send PUT request to backend
-      const response = await axios.put(
-        `http://localhost:8080/api/posts/${postId}`,
-        formData,
-        {
-          headers: {
-            "Content-Type": "multipart/form-data",
-          },
-        }
-      );
+      const response = await axiosClient.put(`/posts/${postId}`, formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      });
 
       console.log("Post updated:", response.data);
       alert("Cập nhật bài viết thành công!");
@@ -283,7 +226,7 @@ export default function EditPost() {
     navigate(-1);
   };
 
-  if (loading) {
+  if (postLoading) {
     return (
       <div className="min-h-screen bg-[#fafafa] dark:bg-[#000] flex items-center justify-center">
         <p className="text-gray-600 dark:text-gray-400">Đang tải...</p>

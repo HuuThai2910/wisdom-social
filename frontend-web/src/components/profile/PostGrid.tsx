@@ -1,6 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
 import { Heart, MessageCircle, Plus } from "lucide-react";
-import { buildS3Url } from "../../utils/s3";
 import type { Post } from "../../types";
 
 interface PostGridProps {
@@ -15,7 +14,7 @@ export default function PostGrid({
   const location = useLocation();
 
   return (
-    <div className="grid grid-cols-3 gap-3">
+    <div className="grid grid-cols-3 gap-3 mt-4">
       {/* Create New Post Card - Only show for own profile */}
       {isOwnProfile && (
         <Link
@@ -45,7 +44,7 @@ export default function PostGrid({
           >
             {imageUrl ? (
               <img
-                src={buildS3Url(imageUrl) || imageUrl}
+                src={imageUrl}
                 alt={post.caption}
                 className="w-full h-full object-cover"
               />

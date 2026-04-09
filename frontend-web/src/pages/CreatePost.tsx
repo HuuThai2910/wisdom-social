@@ -12,11 +12,12 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
+import { useUserFriends } from "../hooks/useProfileHooks";
 import EmojiPicker, {
   type EmojiClickData,
   type Theme,
 } from "emoji-picker-react";
-import { fetchFriends, createPost } from "../services/postService";
+import { createPost } from "../services/postService";
 import FriendSelectorModal from "../components/post/FriendSelectorModal";
 
 type PrivacyType =
@@ -29,6 +30,10 @@ type PrivacyType =
 export default function CreatePost() {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
+
+  // Use hook to fetch friends
+  const { friends } = useUserFriends(currentUser?.id);
+
   const [caption, setCaption] = useState("");
   const [selectedImages, setSelectedImages] = useState<File[]>([]);
   const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([]);
@@ -47,24 +52,7 @@ export default function CreatePost() {
   const [excludedUsers, setExcludedUsers] = useState<string[]>([]);
   const [showSpecificModal, setShowSpecificModal] = useState(false);
   const [showExcludedModal, setShowExcludedModal] = useState(false);
-  const [friends, setFriends] = useState<any[]>([]);
   const [locationSuggestions, setLocationSuggestions] = useState<any[]>([]);
-
-  // Fetch friends list from backend
-  useEffect(() => {
-    const loadFriends = async () => {
-      try {
-        if (currentUser?.id) {
-          const friendsList = await fetchFriends(currentUser.id);
-          setFriends(friendsList);
-        }
-      } catch (error) {
-        console.error("Error fetching friends:", error);
-      }
-    };
-
-    loadFriends();
-  }, [currentUser]);
 
   // Search location suggestions with debounce
   useEffect(() => {
@@ -253,7 +241,9 @@ export default function CreatePost() {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
                 <img
-                  src={currentUser?.avatar || "https://i.pravatar.cc/150?img=5"}
+                  src={
+                    currentUser?.avatarUrl || "https://i.pravatar.cc/150?img=5"
+                  }
                   alt={currentUser?.username || "User"}
                   className="w-10 h-10 rounded-full"
                 />

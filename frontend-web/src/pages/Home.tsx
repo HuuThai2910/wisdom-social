@@ -4,6 +4,7 @@ import StoriesBar from "../components/story/StoriesBar";
 import PostCard from "../components/post/PostCard";
 import axiosClient from "../api/axiosClient";
 import { useCurrentUser } from "../hooks/useCurrentUser";
+import { transformMediaToS3Urls } from "../services/postService";
 import type { Post } from "../types";
 
 interface PostData {
@@ -27,24 +28,20 @@ export default function Home() {
 
     const fetchPosts = async () => {
       try {
-        console.log("🔄 Starting to fetch posts...");
         if (!isMounted) return;
         setLoading(true);
 
         if (!currentUser?.id) {
-          console.log("⚠️ No current user, waiting...");
           if (isMounted) setLoading(false);
           return;
         }
 
-        console.log("✅ Current user:", currentUser.id);
         if (isMounted) setError(null);
 
         let allPosts: PostData[] = [];
 
         try {
           // First, try to fetch from friends
-          console.log("📱 Fetching friends...");
           const friendsResponse = await axiosClient.get(
             `/users/${currentUser.id}/friends`
           );
@@ -54,14 +51,10 @@ export default function Home() {
           const friendsData =
             friendsResponse.data.data || friendsResponse.data || [];
 
-          console.log("👥 Friends found:", friendsData.length);
-
           const friendIds = [
             currentUser.id,
             ...friendsData.map((friend: any) => friend.userId || friend.id),
           ];
-
-          console.log("📋 Fetching posts from", friendIds.length, "users...");
 
           const postsPromises = friendIds.map((id) =>
             axiosClient.get(`/posts/user/${id}`).catch((err) => {
@@ -80,15 +73,12 @@ export default function Home() {
           allPosts = postsResponses.flatMap(
             (response) => response.data.data || []
           );
-
-          console.log("📝 Total posts fetched:", allPosts.length);
         } catch (friendsError: any) {
           console.warn("⚠️ Could not fetch friends:", friendsError.message);
 
           if (!isMounted) return;
 
           // If friends API fails, just fetch current user's posts
-          console.log("📝 Fetching own posts only...");
           const postsResponse = await axiosClient.get(
             `/posts/user/${currentUser.id}`
           );
@@ -96,7 +86,6 @@ export default function Home() {
           if (!isMounted) return;
 
           allPosts = postsResponse.data.data || [];
-          console.log("📝 Own posts fetched:", allPosts.length);
         }
 
         if (!isMounted) return;
@@ -108,9 +97,8 @@ export default function Home() {
         );
 
         // Transform posts to match PostCard format
-        console.log("🔄 Transforming posts...");
         const transformedPosts = await Promise.all(
-          allPosts.map(async (post) => {
+          allPosts.map(async (post, idx) => {
             try {
               // Fetch author data
               const userResponse = await axiosClient.get(
@@ -118,19 +106,21 @@ export default function Home() {
               );
               const userData = userResponse.data.data;
 
+              const transformedImages = transformMediaToS3Urls(
+                post.media,
+                post.authorId
+              );
+
               return {
                 id: post.id,
                 user: {
-                  id: userData.id.toString(),
+                  id: userData.id,
                   username: userData.username,
                   fullName: userData.name || userData.username,
-                  avatar:
+                  avatarUrl:
                     userData.avatarUrl || "https://i.pravatar.cc/150?img=5",
                 },
-                images:
-                  post.media && post.media.length > 0
-                    ? post.media.map((m) => m.url)
-                    : [],
+                images: transformedImages,
                 caption: post.content,
                 privacy: post.privacy as any,
                 likes: post.stats?.reactCount || 0,
@@ -158,7 +148,6 @@ export default function Home() {
         const validPosts = transformedPosts.filter(
           (post) => post !== null
         ) as Post[];
-        console.log("✅ Successfully transformed", validPosts.length, "posts");
 
         if (isMounted) {
           setPosts(validPosts);
@@ -171,7 +160,6 @@ export default function Home() {
         }
       } finally {
         if (isMounted) {
-          console.log("✅ Finished loading posts");
           setLoading(false);
         }
       }
@@ -180,7 +168,6 @@ export default function Home() {
     fetchPosts();
 
     return () => {
-      console.log("🧹 Cleanup: component unmounting");
       isMounted = false;
     };
   }, [currentUser]);

@@ -118,20 +118,33 @@ public class PostServiceImpl implements PostService {
                     String tempUrl = imageUrls.get(i);
                     log.info("Processing image {}: {}", i, tempUrl);
                     
-                    // Move from temp to final location using MongoDB ID (String)
-                    String finalUrl = s3Service.moveUploadUrl("posts", savedPost.getId(), tempUrl);
-                    log.info("Successfully moved image {} to final location: {}", i, finalUrl);
-                    
-                    Media media = Media.builder()
-                            .order(i)
-                            .url(finalUrl)
-                            .type("image")
-                            .build();
-                    mediaList.add(media);
-                    log.info("Created media object for image {}", i);
+                    try {
+                        // Move from temp to final location using MongoDB ID (String)
+                        String finalUrl = s3Service.moveUploadUrl("posts", savedPost.getId(), tempUrl);
+                        log.info("Successfully moved image {} to final location: {}", i, finalUrl);
+                        
+                        Media media = Media.builder()
+                                .order(i)
+                                .url(finalUrl)
+                                .type("image")
+                                .build();
+                        mediaList.add(media);
+                        log.info("Created media object for image {}", i);
+                    } catch (Exception e) {
+                        // If move fails, log warning but continue 
+                        // File might already be in final location
+                        log.warn("Failed to move image {}: {}. Using original URL.", i, e.getMessage());
+                        
+                        Media media = Media.builder()
+                                .order(i)
+                                .url(tempUrl)
+                                .type("image")
+                                .build();
+                        mediaList.add(media);
+                    }
                 }
                 
-                // Update post with final media list
+                // Update post with media list
                 if (!mediaList.isEmpty()) {
                     log.info("Saving post with {} media items", mediaList.size());
                     savedPost.setMedia(mediaList);
@@ -141,9 +154,9 @@ public class PostServiceImpl implements PostService {
                     log.warn("No media items to save");
                 }
             } catch (Exception e) {
-                log.error("Error moving images from temp to final location: {}", e.getMessage());
-                log.error("Stack trace:", e);
-                throw new RuntimeException("Failed to process images: " + e.getMessage(), e);
+                log.error("Error processing images: {}", e.getMessage());
+                // Still return post even if image processing fails
+                // Post has already been created successfully
             }
         } else {
             log.info("No image URLs provided");
@@ -204,6 +217,11 @@ public class PostServiceImpl implements PostService {
         posts.forEach(post -> {
             int mediaCount = post.getMedia() != null ? post.getMedia().size() : 0;
             log.info("Post {}: {} media items", post.getId(), mediaCount);
+            if (post.getMedia() != null && !post.getMedia().isEmpty()) {
+                for (int i = 0; i < post.getMedia().size(); i++) {
+                    log.info("  Media {}: URL={}", i, post.getMedia().get(i).getUrl());
+                }
+            }
         });
         return posts;
     }

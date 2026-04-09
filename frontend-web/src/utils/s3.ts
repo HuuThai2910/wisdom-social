@@ -5,13 +5,15 @@
 
 import axiosClient from "../api/axiosClient";
 
-const S3_BUCKET_NAME = import.meta.env.VITE_S3_BUCKET_NAME || "cnmt-hk1-amz";
+const S3_BUCKET_NAME = import.meta.env.VITE_S3_BUCKET_NAME || "wisdom-social-db";
 const S3_REGION = import.meta.env.VITE_S3_REGION || "ap-southeast-1";
 
 /**
  * Get presigned upload URL and upload metadata from backend
+ * Backend returns: presignedUrl, objectKey, fileName
+ * We extract uuid and extension from objectKey
  * @param extension File extension (jpg, png, etc.)
- * @returns Object with uploadUrl, uuid, extension for S3 upload
+ * @returns Object with uploadUrl, imageUrl, uuid, extension for S3 upload
  */
 export const getPresignedUploadUrl = async (
     extension: string
@@ -21,18 +23,27 @@ export const getPresignedUploadUrl = async (
         const response = await axiosClient.get("/posts/upload-url", {
             params: { extension },
         });
-        console.log(`📋 test:`, response.data.data);
-        const uploadUrl = response.data.data?.uploadUrl;
-        const imageUrl = response.data.data?.imageUrl;
-        const uuid = response.data.data?.uuid;
-        const ext = response.data.data?.extension;
+        console.log(`📋 Backend response:`, response.data.data);
 
-        if (!uploadUrl || !uuid || !ext) {
-            throw new Error("Missing required fields: uploadUrl, uuid, extension");
+        // Backend returns: presignedUrl, objectKey, fileName
+        const uploadUrl = response.data.data?.presignedUrl;
+        const objectKey = response.data.data?.objectKey;
+
+        if (!uploadUrl || !objectKey) {
+            throw new Error("Missing required fields from backend: presignedUrl, objectKey");
         }
 
-        console.log(`✅ [S3] Got presigned URL`, { uuid, extension: ext });
-        return { uploadUrl, imageUrl, uuid, extension: ext };
+        // Extract uuid and extension from objectKey
+        // objectKey format: {basePath}/temp/{uuid}.{ext}
+        // e.g., "images/posts/temp/abc-123-def.jpg"
+        const lastSlashIndex = objectKey.lastIndexOf("/");
+        const filename = objectKey.substring(lastSlashIndex + 1);
+        const lastDotIndex = filename.lastIndexOf(".");
+        const uuid = filename.substring(0, lastDotIndex);
+        const ext = filename.substring(lastDotIndex + 1);
+
+        console.log(`✅ [S3] Got presigned URL`, { uuid, extension: ext, objectKey });
+        return { uploadUrl, imageUrl: objectKey, uuid, extension: ext };
     } catch (error: any) {
         console.error(`❌ [S3] Error getting presigned URL:`, error);
         throw new Error("Failed to get presigned upload URL: " + (error?.message || "Unknown error"));

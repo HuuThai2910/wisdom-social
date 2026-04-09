@@ -15,16 +15,14 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
-import { buildS3Url } from "../../utils/s3";
+import { transformMediaToS3Urls } from "../../services/postService";
 import FriendSelectorModal from "./FriendSelectorModal";
 import EditPostModal from "./EditPostModal";
 import { useAuth } from "../../contexts/AuthContext";
-import type {
-  PostData,
-  UserData,
-  CommentData,
-  PostModalProps,
-} from "../../types/postType";
+import useComments from "../../hooks/useComments";
+import { commentService } from "../../services/commentService";
+import type { PostData, UserData, PostModalProps } from "../../types/postType";
+import type { Comment } from "../../services/commentService";
 import * as postApi from "../../services/postService";
 
 export default function PostModal({ postId, onClose }: PostModalProps) {
@@ -35,9 +33,15 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
   const [error, setError] = useState<string | null>(null);
   const [showMenu, setShowMenu] = useState(false);
   const [taggedUsers, setTaggedUsers] = useState<UserData[]>([]);
-  const [comments, setComments] = useState<CommentData[]>([]);
   const [commentInput, setCommentInput] = useState("");
   const [submittingComment, setSubmittingComment] = useState(false);
+
+  // Use new comment tree hook
+  const { comments, loadRootComments, loadMoreReplies, currentPage, hasMore } =
+    useComments({
+      targetType: "POST",
+      targetId: postId,
+    });
   const [showReactions, setShowReactions] = useState(false);
   const reactionsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
@@ -55,6 +59,9 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
   const [specificViewers, setSpecificViewers] = useState<string[]>([]);
   const [excludedUsers, setExcludedUsers] = useState<string[]>([]);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [transformedMediaUrls, setTransformedMediaUrls] = useState<string[]>(
+    []
+  );
 
   useEffect(() => {
     const fetchPost = async () => {
@@ -65,6 +72,13 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
         // Fetch post
         const postData = await postApi.fetchPostById(postId);
         setPost(postData);
+
+        // Transform media URLs using centralized utility
+        const urls = postApi.transformMediaToS3Urls(
+          postData.media,
+          postData.authorId
+        );
+        setTransformedMediaUrls(urls);
 
         // Fetch author
         const author = await postApi.fetchUserById(postData.authorId);
@@ -78,9 +92,8 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
           setTaggedUsers(fetchedTaggedUsers);
         }
 
-        // Fetch comments
-        const comments = await postApi.fetchPostComments(postId);
-        setComments(comments);
+        // Load root comments using new hook (will be called in useEffect)
+        loadRootComments(0);
 
         // Fetch reactions count
         const reactCount = await postApi.fetchPostReactionsCount(postId);
@@ -88,7 +101,10 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
 
         // Fetch saved status
         if (currentUser?.id) {
-          const isSaved = await postApi.checkPostSaved(currentUser.id, postId);
+          const isSaved = await postApi.checkPostSaved(
+            currentUser.id.toString(),
+            postId
+          );
           setIsSaved(isSaved);
         }
 
@@ -113,7 +129,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
 
       try {
         const reaction = await postApi.fetchUserReaction(
-          currentUser.id,
+          currentUser.id.toString(),
           postId
         );
         if (reaction) {
@@ -179,7 +195,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
     }
 
     try {
-      await postApi.deletePost(postId, currentUser?.id || "");
+      await postApi.deletePost(postId, (currentUser?.id || 0).toString());
 
       alert("Xóa bài viết thành công!");
       onClose(); // Close modal after successful deletion
@@ -201,17 +217,19 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
         return;
       }
 
-      const newComment = await postApi.submitComment(
-        currentUser.id,
+      await commentService.createComment(
+        "POST",
         postId,
-        commentInput
+        commentInput,
+        currentUser.id
       );
 
-      // Add new comment to list
-      setComments([newComment, ...comments]);
+      // Reload first page of comments
+      loadRootComments(0);
       setCommentInput("");
     } catch (error) {
       console.error("Error submitting comment:", error);
+      alert("Failed to submit comment");
     } finally {
       setSubmittingComment(false);
     }
@@ -228,26 +246,10 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
         alert("Please login to delete comment");
         return;
       }
-      await postApi.deleteComment(commentId, currentUser.id);
+      await commentService.deleteComment(commentId, currentUser.id);
 
-      // Recursive function to remove comment and its replies from nested structure
-      const removeCommentRecursive = (
-        commentsList: CommentData[]
-      ): CommentData[] => {
-        return commentsList.filter((c) => {
-          if (c.id === commentId) {
-            return false; // Remove this comment
-          }
-          // Check replies if exists
-          if (c.replies && c.replies.length > 0) {
-            c.replies = removeCommentRecursive(c.replies);
-          }
-          return true;
-        });
-      };
-
-      // Remove comment from main list (handles both top-level and nested)
-      setComments(removeCommentRecursive(comments));
+      // Reload comments
+      loadRootComments(0);
     } catch (error) {
       console.error("Error deleting comment:", error);
       alert("Không thể xóa bình luận");
@@ -276,7 +278,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
         if (afterAt.length > 0) {
           try {
             const mentionUsers = await postApi.searchUsers(
-              currentUser?.id || "",
+              currentUser?.id?.toString() || "",
               afterAt
             );
             setMentionUsers(mentionUsers);
@@ -317,7 +319,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
 
     try {
       const reaction = await postApi.togglePostReaction(
-        currentUser.id,
+        currentUser.id.toString(),
         postId,
         reactionType
       );
@@ -345,7 +347,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
     }
 
     try {
-      await postApi.togglePostSaved(currentUser.id, postId);
+      await postApi.togglePostSaved(currentUser.id.toString(), postId);
 
       // Toggle saved state
       setIsSaved(!isSaved);
@@ -426,10 +428,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
           {hasMedia ? (
             <>
               <img
-                src={
-                  buildS3Url(post.media![currentImageIndex].url) ||
-                  post.media![currentImageIndex].url
-                }
+                src={transformedMediaUrls[currentImageIndex] || ""}
                 alt="Post content"
                 className="max-h-[90vh] max-w-full object-contain"
               />
@@ -506,7 +505,8 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
                 </p>
                 {post.privacy &&
                   (() => {
-                    const isOwnPost = currentUser?.id === author.id.toString();
+                    const isOwnPost =
+                      currentUser?.id.toString() === author.id.toString();
 
                     // Hiển thị cho chủ post
                     if (isOwnPost) {
@@ -739,14 +739,25 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
                   No comments yet
                 </p>
               ) : (
-                comments.map((comment) => (
-                  <CommentItem
-                    key={comment.id}
-                    comment={comment}
-                    onDelete={handleDeleteComment}
-                    postId={postId}
-                  />
-                ))
+                <>
+                  {comments.map((comment) => (
+                    <CommentItem
+                      key={comment.id}
+                      comment={comment}
+                      onDelete={handleDeleteComment}
+                      onLoadMoreReplies={loadMoreReplies}
+                      postId={postId}
+                    />
+                  ))}
+                  {hasMore && (
+                    <button
+                      onClick={() => loadRootComments(currentPage + 1)}
+                      className="w-full py-2 text-sm text-blue-500 hover:text-blue-600 font-semibold"
+                    >
+                      Xem thêm bình luận
+                    </button>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -1027,11 +1038,13 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
 function CommentItem({
   comment,
   onDelete,
+  onLoadMoreReplies,
   postId,
   level = 0,
 }: {
-  comment: CommentData;
+  comment: Comment;
   onDelete: (commentId: string) => void;
+  onLoadMoreReplies: (commentId: string) => void;
   postId: string;
   level?: number;
 }) {
@@ -1043,16 +1056,14 @@ function CommentItem({
   const [showReplyInput, setShowReplyInput] = useState(false);
   const [replyContent, setReplyContent] = useState("");
   const [submittingReply, setSubmittingReply] = useState(false);
-  const [replies, setReplies] = useState<CommentData[]>([]);
   const [showReplies, setShowReplies] = useState(false);
-  const [loadingReplies, setLoadingReplies] = useState(false);
-  const [replyCount, setReplyCount] = useState(comment.replyCount || 0);
 
   // Reaction state
   const [currentReaction, setCurrentReaction] = useState<string | null>(null);
-  const [reactCount, setReactCount] = useState(comment.reactCount || 0);
   const [showReactionPicker, setShowReactionPicker] = useState(false);
-  const [reactionTimeout, setReactionTimeout] = useState<number | null>(null);
+  const [reactionTimeout, setReactionTimeout] = useState<ReturnType<
+    typeof setTimeout
+  > | null>(null);
 
   const renderCommentContent = (content: string) => {
     // Split by mentions (@username) - match @ followed by word characters
@@ -1091,7 +1102,7 @@ function CommentItem({
 
       try {
         const reaction = await postApi.fetchUserCommentReaction(
-          currentUser.id,
+          currentUser.id.toString(),
           comment.id
         );
 
@@ -1106,23 +1117,9 @@ function CommentItem({
     fetchUserReaction();
   }, [currentUser, comment.id]);
 
-  // Fetch replies
-  const fetchReplies = async () => {
-    if (replies.length > 0) {
-      setShowReplies(!showReplies);
-      return;
-    }
-
-    setLoadingReplies(true);
-    try {
-      const fetchedReplies = await postApi.fetchCommentReplies(comment.id);
-      setReplies(fetchedReplies);
-      setShowReplies(true);
-    } catch (error) {
-      console.error("Error fetching replies:", error);
-    } finally {
-      setLoadingReplies(false);
-    }
+  // Toggle replies visibility
+  const toggleReplies = () => {
+    setShowReplies(!showReplies);
   };
 
   // Handle reply submission
@@ -1131,20 +1128,20 @@ function CommentItem({
 
     setSubmittingReply(true);
     try {
-      const newReply = await postApi.submitComment(
-        currentUser.id,
+      await commentService.createComment(
+        "POST",
         postId,
-        replyContent
+        replyContent,
+        currentUser.id,
+        comment.id
       );
-      // Note: Backend needs to handle parentId param for reply structure
 
-      setReplies([...replies, newReply]);
       setReplyContent("");
       setShowReplyInput(false);
       setShowReplies(true);
 
-      // Update reply count
-      setReplyCount((prev) => prev + 1);
+      // Load more replies from scratch
+      onLoadMoreReplies(comment.id);
     } catch (error) {
       console.error("Error submitting reply:", error);
       alert("Failed to submit reply");
@@ -1153,27 +1150,9 @@ function CommentItem({
     }
   };
 
-  // Handle delete reply (also removes from local state)
+  // Handle delete reply
   const handleDeleteReply = (commentId: string) => {
-    // Call parent delete handler
     onDelete(commentId);
-
-    // Also remove from local replies state
-    const removeFromReplies = (repliesList: CommentData[]): CommentData[] => {
-      return repliesList.filter((r) => {
-        if (r.id === commentId) {
-          // Decrease reply count when removing
-          setReplyCount((prev) => Math.max(0, prev - 1));
-          return false;
-        }
-        if (r.replies && r.replies.length > 0) {
-          r.replies = removeFromReplies(r.replies);
-        }
-        return true;
-      });
-    };
-
-    setReplies(removeFromReplies(replies));
   };
 
   // Handle reaction
@@ -1185,7 +1164,7 @@ function CommentItem({
 
     try {
       const reaction = await postApi.toggleCommentReaction(
-        currentUser.id,
+        currentUser.id.toString(),
         comment.id,
         reactionType
       );
@@ -1193,15 +1172,10 @@ function CommentItem({
       if (!reaction) {
         // Reaction removed
         setCurrentReaction(null);
-        setReactCount((prev) => Math.max(0, prev - 1));
       } else {
         // Reaction added or changed
-        const wasNewReaction = currentReaction === null;
         setCurrentReaction(reaction.type);
-        if (wasNewReaction) {
-          setReactCount((prev) => prev + 1);
-        }
-        // If changing reaction type, count stays the same
+        // Count will be synced from server
       }
       setShowReactionPicker(false);
     } catch (error) {
@@ -1274,10 +1248,10 @@ function CommentItem({
             </p>
           </div>
 
-          <div className="flex items-center gap-4 mt-1 px-3">
-            <button className="text-xs text-gray-500 dark:text-gray-400 hover:underline">
+          <div className="flex items-center gap-2 mt-1 px-3 flex-wrap">
+            <span className="text-xs text-gray-500 dark:text-gray-400">
               {timeAgo}
-            </button>
+            </span>
 
             {/* Reaction Button */}
             <div className="relative">
@@ -1338,9 +1312,10 @@ function CommentItem({
             )}
 
             {/* Reaction Count */}
-            {reactCount > 0 && (
+            {comment.reactCount > 0 && (
               <span className="text-xs text-gray-500 dark:text-gray-400">
-                {reactCount} {reactCount === 1 ? "like" : "likes"}
+                {comment.reactCount}{" "}
+                {comment.reactCount === 1 ? "like" : "likes"}
               </span>
             )}
           </div>
@@ -1373,40 +1348,39 @@ function CommentItem({
           )}
 
           {/* Show Replies Button */}
-          {replyCount > 0 && (
+          {comment.replyCount > 0 && (
             <button
-              onClick={fetchReplies}
-              className="mt-2 text-xs text-gray-600 dark:text-gray-400 font-semibold hover:underline flex items-center gap-1"
-              disabled={loadingReplies}
+              onClick={toggleReplies}
+              className="mt-2 text-xs text-gray-600 dark:text-gray-400 font-semibold hover:underline"
             >
-              {loadingReplies ? (
-                "Loading..."
-              ) : showReplies ? (
-                <>
-                  Hide {replyCount} {replyCount === 1 ? "reply" : "replies"}
-                </>
-              ) : (
-                <>
-                  View {replyCount} {replyCount === 1 ? "reply" : "replies"}
-                </>
-              )}
+              {showReplies ? "Hide" : "View"} {comment.replyCount}{" "}
+              {comment.replyCount === 1 ? "reply" : "replies"}
             </button>
           )}
         </div>
       </div>
 
       {/* Nested Replies */}
-      {showReplies && replies.length > 0 && (
+      {showReplies && comment.replies && comment.replies.length > 0 && (
         <div className="mt-3 space-y-3">
-          {replies.map((reply) => (
+          {comment.replies.map((reply) => (
             <CommentItem
               key={reply.id}
               comment={reply}
               onDelete={handleDeleteReply}
+              onLoadMoreReplies={onLoadMoreReplies}
               postId={postId}
               level={level + 1}
             />
           ))}
+          {comment.hasMoreReplies && (
+            <button
+              onClick={() => onLoadMoreReplies(comment.id)}
+              className="ml-10 text-xs text-blue-500 hover:text-blue-600 font-semibold"
+            >
+              Load more replies
+            </button>
+          )}
         </div>
       )}
     </div>

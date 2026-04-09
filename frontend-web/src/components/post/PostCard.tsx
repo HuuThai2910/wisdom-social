@@ -15,9 +15,8 @@ import {
   ChevronRight,
 } from "lucide-react";
 import type { Post, PrivacyType } from "../../types";
-import { buildS3Url } from "../../utils/s3";
 import * as postApi from "../../services/postService";
-import { useCurrentUser } from './../../hooks/useCurrentUser';
+import { useCurrentUser } from "./../../hooks/useCurrentUser";
 
 interface PostCardProps {
   post: Post;
@@ -69,7 +68,7 @@ const getPrivacyDisplay = (
 export default function PostCard({ post }: PostCardProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const currentUser  = useCurrentUser();
+  const currentUser = useCurrentUser();
   const isOwnPost = currentUser?.id === post.user.id;
   const privacyDisplay = getPrivacyDisplay(post.privacy, isOwnPost);
 
@@ -78,12 +77,23 @@ export default function PostCard({ post }: PostCardProps) {
   const [isSaved, setIsSaved] = useState(post.isSaved || false);
   const [showReactions, setShowReactions] = useState(false);
   const [currentReaction, setCurrentReaction] = useState<string | null>(null);
-  const [hideTimeout, setHideTimeout] = useState<number | null>(null);
+  const [hideTimeout, setHideTimeout] = useState<NodeJS.Timeout | null>(null);
   const [showMenu, setShowMenu] = useState(false);
   const [showPrivacyMenu, setShowPrivacyMenu] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
   const totalImages = post.images?.length || 0;
+
+  // Debug logging
+  useEffect(() => {
+    console.log(`🖼️ PostCard ${post.id}: images array`, post.images);
+    console.log(`🖼️ PostCard ${post.id}: totalImages=${totalImages}`);
+    if (post.images && post.images.length > 0) {
+      post.images.forEach((img, idx) => {
+        console.log(`🖼️ PostCard ${post.id}: Image ${idx}:`, img);
+      });
+    }
+  }, [post.id, post.images, totalImages]);
 
   // Fetch user's current reaction, total reaction count, and saved status
   useEffect(() => {
@@ -93,7 +103,7 @@ export default function PostCard({ post }: PostCardProps) {
       try {
         // Fetch user's reaction
         const userReaction = await postApi.fetchUserReaction(
-          currentUser.id,
+          String(currentUser.id),
           post.id
         );
         if (userReaction) {
@@ -109,7 +119,10 @@ export default function PostCard({ post }: PostCardProps) {
         setLikesCount(reactionsCount);
 
         // Fetch saved status
-        const isSaved = await postApi.checkPostSaved(currentUser.id, post.id);
+        const isSaved = await postApi.checkPostSaved(
+          String(currentUser.id),
+          post.id
+        );
         setIsSaved(isSaved);
       } catch (error) {
         console.debug("Error fetching reaction data for post:", post.id);
@@ -128,7 +141,7 @@ export default function PostCard({ post }: PostCardProps) {
       const fetchReactionData = async () => {
         try {
           const userReaction = await postApi.fetchUserReaction(
-            currentUser.id,
+            String(currentUser.id),
             post.id
           );
           if (userReaction) {
@@ -143,7 +156,10 @@ export default function PostCard({ post }: PostCardProps) {
           setLikesCount(reactionsCount);
 
           // Refetch saved status
-          const isSaved = await postApi.checkPostSaved(currentUser.id, post.id);
+          const isSaved = await postApi.checkPostSaved(
+            String(currentUser.id),
+            post.id
+          );
           setIsSaved(isSaved);
         } catch (error) {
           console.debug("Error refetching reaction data");
@@ -180,7 +196,7 @@ export default function PostCard({ post }: PostCardProps) {
       }
 
       const reaction = await postApi.togglePostReaction(
-        currentUser.id,
+        String(currentUser.id),
         post.id,
         reactionType
       );
@@ -227,7 +243,7 @@ export default function PostCard({ post }: PostCardProps) {
     }
 
     try {
-      await postApi.togglePostSaved(currentUser.id, post.id);
+      await postApi.togglePostSaved(String(currentUser.id), post.id);
 
       // Toggle saved state
       setIsSaved(!isSaved);
@@ -266,7 +282,7 @@ export default function PostCard({ post }: PostCardProps) {
         return;
       }
 
-      await postApi.deletePost(currentUser.id, post.id);
+      await postApi.deletePost(post.id, String(currentUser.id));
       alert("Xóa bài viết thành công!");
       setShowMenu(false);
       // Refresh page to update post list
@@ -309,17 +325,17 @@ export default function PostCard({ post }: PostCardProps) {
   };
 
   return (
-    <article className="bg-white dark:bg-[#000] border-b border-gray-200 dark:border-[#262626] mb-5">
+    <article className="bg-white dark:bg-black border-b border-gray-200 dark:border-[#262626] mb-5">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-[14px]">
+      <div className="flex items-center justify-between px-4 py-3.5">
         <Link
           to={`/profile/${post.user.username}`}
           className="flex items-center gap-3"
         >
           <img
-            src={post.user.avatar}
+            src={post.user.avatarUrl}
             alt={post.user.username}
-            className="w-[32px] h-[32px] rounded-full object-cover"
+            className="w-8 h-8 rounded-full object-cover"
           />
           <div>
             <p className="text-sm font-semibold dark:text-white">
@@ -424,13 +440,10 @@ export default function PostCard({ post }: PostCardProps) {
           <Link
             to={`/post/${post.id}`}
             state={{ from: location.pathname }}
-            className="block w-full h-[500px] bg-black"
+            className="block w-full h-125 bg-black"
           >
             <img
-              src={
-                buildS3Url(post.images[currentImageIndex]) ||
-                post.images[currentImageIndex]
-              }
+              src={post.images[currentImageIndex] || ""}
               alt={post.caption}
               className="w-full h-full object-contain cursor-pointer"
             />
@@ -644,7 +657,7 @@ export default function PostCard({ post }: PostCardProps) {
         </button>
 
         {/* Caption */}
-        <div className="text-sm mb-1 leading-[18px]">
+        <div className="text-sm mb-1 leading-4.5">
           <Link
             to={`/profile/${post.user.username}`}
             className="font-semibold hover:opacity-50 mr-1 dark:text-white"

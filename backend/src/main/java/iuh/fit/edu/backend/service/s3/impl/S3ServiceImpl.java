@@ -229,7 +229,7 @@ public class S3ServiceImpl implements S3Service {
         // Ví dụ: users/15/images/abc-xyz.jpg
         // Ví dụ: posts/99/videos/def-123.mp4
         String uuid = UUID.randomUUID().toString();
-        String s3ObjectKey = String.format("%s/%d/%s/%s%s", rootFolder, rootFolder.equals("conversations") ? Integer.parseInt(targetId) : targetId, subFolder, uuid, extension);
+        String s3ObjectKey = String.format("%s/%s/%s/%s%s", rootFolder, targetId, subFolder, uuid, extension);
 
         try {
             // ạo PutObjectRequest (Cấu hình file tải lên)

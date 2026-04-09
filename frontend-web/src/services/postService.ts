@@ -4,7 +4,25 @@
  */
 
 import axiosClient from "../api/axiosClient";
-import type { PostData, UserData, CommentData } from "../types/postType"; import { uploadImageAndGetFormat } from "../utils/s3";
+import type { PostData, UserData, CommentData } from "../types/postType";
+import { uploadImageAndGetFormat, buildS3Url } from "../utils/s3";
+
+/**
+ * Transform media array to full S3 URLs
+ * Builds complete S3 path: posts/{authorId}/images/{filename}
+ */
+export const transformMediaToS3Urls = (
+    media: Array<{ url: string; type: string; order?: number }> | undefined,
+    authorId: string
+): string[] => {
+    if (!media || media.length === 0) return [];
+
+    return media.map((m: any) => {
+        const s3Path = `posts/${authorId}/images/${m.url}`;
+        return buildS3Url(s3Path) || "";
+    });
+};
+
 /**
  * Fetch post details by ID
  */
@@ -368,7 +386,7 @@ export const fetchUserCommentReaction = async (
 export const fetchFriends = async (userId: string | number): Promise<UserData[]> => {
     try {
         console.log(`📥 Fetching friends for user: ${userId}`);
-        const response = await axiosClient.get(`/users/${userId}/friends`);
+        const response = await axiosClient.get(`/friends/${userId}`);
         console.log("Friends response:", response.data);
 
         // Parse response if needed
@@ -458,6 +476,212 @@ export const createPost = async (
         console.error("Response status:", error?.response?.status);
         console.error("Full response data:", JSON.stringify(error?.response?.data, null, 2));
         console.error("Error message from response:", error?.response?.data?.message);
+        throw error;
+    }
+};
+
+/**
+ * Get all saved posts by user ID
+ */
+export const getSavedPostsWithDetails = async (userId: string | number): Promise<any[]> => {
+    try {
+        console.log(`📥 Fetching saved posts for user: ${userId}`);
+        const savedResponse = await axiosClient.get(`/saved-posts/user?userId=${userId}`);
+
+        if (!savedResponse.data.success) {
+            return [];
+        }
+
+        const savedPostsData = savedResponse.data.data || [];
+
+        // Fetch each post's details with author info
+        const postDetailsPromises = savedPostsData.map(async (savedPost: any) => {
+            try {
+                const postResponse = await axiosClient.get(`/posts/${savedPost.targetId}`);
+                const post = postResponse.data.data;
+
+                const authorResponse = await axiosClient.get(`/auth/user/${post.authorId}`);
+                const authorData = authorResponse.data.data;
+
+                const images = transformMediaToS3Urls(post.media, post.authorId);
+                const imageUrl = images && images.length > 0 ? images[0] : null;
+
+                return {
+                    id: post.id,
+                    imageUrl: imageUrl,
+                    likes: post.stats?.reactCount || 0,
+                    comments: post.stats?.commentCount || 0,
+                    caption: post.content,
+                    privacy: post.privacy,
+                    images: images,
+                    user: {
+                        id: authorData.id.toString(),
+                        username: authorData.username,
+                        fullName: authorData.name || authorData.username,
+                        avatar: authorData.avatarUrl || "https://i.pravatar.cc/150?img=5",
+                    },
+                };
+            } catch (error) {
+                console.error(`❌ Error fetching saved post:`, error);
+                return null;
+            }
+        });
+
+        const transformedPosts = (await Promise.all(postDetailsPromises)).filter(
+            (post) => post !== null
+        );
+        console.log(`✅ Saved posts fetched: ${transformedPosts.length}`);
+        return transformedPosts;
+    } catch (error) {
+        console.error("❌ Error fetching saved posts:", error);
+        throw error;
+    }
+};
+
+/**
+ * Get all posts tagged with a user
+ */
+export const getTaggedPostsWithDetails = async (userId: string | number): Promise<any[]> => {
+    try {
+        console.log(`📥 Fetching tagged posts for user: ${userId}`);
+        const postsResponse = await axiosClient.get(`/posts/tagged/${userId}`);
+
+        if (!postsResponse.data.success) {
+            return [];
+        }
+
+        const postsData = postsResponse.data.data || [];
+
+        // Fetch author data for each post
+        const transformedPostsPromises = postsData.map(async (post: any) => {
+            try {
+                const authorResponse = await axiosClient.get(`/auth/user/${post.authorId}`);
+                const authorData = authorResponse.data.data;
+
+                const images = transformMediaToS3Urls(post.media, post.authorId);
+                const imageUrl = images && images.length > 0 ? images[0] : null;
+
+                return {
+                    id: post.id,
+                    imageUrl: imageUrl,
+                    likes: post.stats?.reactCount || 0,
+                    comments: post.stats?.commentCount || 0,
+                    caption: post.content,
+                    privacy: post.privacy,
+                    images: images,
+                    user: {
+                        id: authorData.id.toString(),
+                        username: authorData.username,
+                        fullName: authorData.name || authorData.username,
+                        avatar: authorData.avatarUrl || "https://i.pravatar.cc/150?img=5",
+                    },
+                };
+            } catch (error) {
+                console.error(`❌ Error fetching author for post:`, error);
+                return null;
+            }
+        });
+
+        const transformedPosts = (await Promise.all(transformedPostsPromises)).filter(
+            (post) => post !== null
+        );
+        console.log(`✅ Tagged posts fetched: ${transformedPosts.length}`);
+        return transformedPosts;
+    } catch (error) {
+        console.error("❌ Error fetching tagged posts:", error);
+        throw error;
+    }
+};
+
+/**
+ * Get all posts by user ID
+ */
+export const getUserPostsWithDetails = async (userId: string | number): Promise<any[]> => {
+    try {
+        console.log(`📥 Fetching posts for user: ${userId}`);
+        const response = await axiosClient.get(`/posts/user/${userId}`);
+        const postsData = response.data?.data || [];
+
+        const transformedPosts = postsData.map((post: any) => {
+            const images = transformMediaToS3Urls(post.media, post.authorId);
+            const firstImage = images && images.length > 0 ? images[0] : null;
+
+            return {
+                id: post.id,
+                imageUrl: firstImage,
+                likes: post.stats?.reactCount || 0,
+                comments: post.stats?.commentCount || 0,
+                caption: post.content,
+                privacy: post.privacy,
+                images: images,
+            };
+        });
+
+        console.log(`✅ User posts fetched: ${transformedPosts.length}`);
+        return transformedPosts;
+    } catch (error) {
+        console.error("❌ Error fetching user posts:", error);
+        throw error;
+    }
+};
+
+/**
+ * Get user by username
+ */
+export const getUserByUsername = async (username: string): Promise<any> => {
+    try {
+        console.log(`📥 Fetching user: ${username}`);
+        const response = await axiosClient.get(`/auth/user/${username}`);
+
+        if (!response.data.success) {
+            return null;
+        }
+
+        const userData = response.data.data;
+        return {
+            id: userData.id.toString(),
+            username: userData.username,
+            fullName: userData.name || userData.username,
+            avatarUrl: userData.avatarUrl || "https://i.pravatar.cc/150?img=5",
+            bio: userData.bio,
+            friendsCount: userData.friendCount || 0,
+            followersCount: userData.followerCount || 0,
+            followingCount: userData.followingCount || 0,
+            postsCount: userData.postCount || 0,
+        };
+    } catch (error) {
+        console.error("❌ Error fetching user:", error);
+        throw error;
+    }
+};
+
+/**
+ * Get post with all tagged user details
+ */
+export const getPostWithTaggedUsers = async (postId: string): Promise<any> => {
+    try {
+        console.log(`📥 Fetching post with tags: ${postId}`);
+        const response = await axiosClient.get(`/posts/${postId}`);
+        const post = response.data.data;
+
+        let taggedUsers: string[] = [];
+        if (post.taggedUserIds && post.taggedUserIds.length > 0) {
+            const taggedUsersResponses = await Promise.all(
+                post.taggedUserIds.map((userId: string) =>
+                    axiosClient.get(`/auth/user/${userId}`).catch(() => null)
+                )
+            );
+            taggedUsers = taggedUsersResponses
+                .filter((res) => res !== null)
+                .map((res) => res!.data.data.username);
+        }
+
+        return {
+            ...post,
+            taggedUsernames: taggedUsers,
+        };
+    } catch (error) {
+        console.error("❌ Error fetching post with tags:", error);
         throw error;
     }
 };
