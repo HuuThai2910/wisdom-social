@@ -117,6 +117,7 @@ export const login = async (phone: string, password: string): Promise<boolean> =
 
         // Note: userService.login() already stores tokens to cookies only (not localStorage)
         // userService handles accessToken and refreshToken storage
+        localStorage.setItem('type', 'normal');
         localStorage.setItem(AUTH_KEY, 'true');
 
         const currentUser = await userService.getCurrentUser();
@@ -214,7 +215,10 @@ export const resetPassword = async (
 
 export const refreshTokenAsync = async (): Promise<string> => {
     try {
-        const token = await userService.refreshToken();
+        const authType = localStorage.getItem('type');
+        const token = authType === 'qr'
+            ? await userService.refreshQrToken()
+            : await userService.refreshToken();
         if (token) {
             setCookie(ACCESS_TOKEN_KEY, token, 7);
             return token;

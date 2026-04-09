@@ -89,7 +89,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
-    private DecodedJWT verifyLocalToken(String token) {
+    public static DecodedJWT verifyLocalToken(String token) {
         JWTVerifier verifier = JWT
                 .require(Algorithm.HMAC256(LOCAL_SECRET))
                 .withIssuer("wis-chat")

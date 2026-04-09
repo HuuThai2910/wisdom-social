@@ -8,6 +8,7 @@ import iuh.fit.edu.backend.domain.entity.mysql.*;
 import iuh.fit.edu.backend.dto.request.friend.FriendRequest;
 import iuh.fit.edu.backend.dto.request.user.*;
 import iuh.fit.edu.backend.dto.response.user.*;
+import iuh.fit.edu.backend.config.filter.JwtAuthFilter;
 import iuh.fit.edu.backend.mapper.UserMapper;
 import iuh.fit.edu.backend.repository.mysql.BlackListUserRepository;
 import iuh.fit.edu.backend.repository.mysql.DeviceRepository;
@@ -227,6 +228,26 @@ public class UserServiceImpl implements UserService {
             throw new RuntimeException("Refresh token invalid or expired");
         }
         return resultType.accessToken();
+    }
+
+    @Override
+    public String getNewQrAccessToken(String refreshToken) {
+        if (refreshToken == null || refreshToken.isBlank()) {
+            throw new RuntimeException("QR refresh token is missing");
+        }
+
+        if (blackListUserRepository.existsByAnyToken(refreshToken)) {
+            throw new RuntimeException("Refresh token revoked");
+        }
+
+        var decoded = JwtAuthFilter.verifyLocalToken(refreshToken);
+        String phone = decoded.getClaim("phone_number").asString();
+
+        if (phone == null || phone.isBlank()) {
+            throw new RuntimeException("Invalid QR refresh token");
+        }
+
+        return JwtAuthFilter.generateToken(phone);
     }
 
     @Override

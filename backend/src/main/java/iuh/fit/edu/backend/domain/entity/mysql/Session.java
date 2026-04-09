@@ -15,7 +15,7 @@ public class Session {
     private String seesion_id;
     private SessionStatus status;
 
-    @OneToOne
+    @ManyToOne
     @JoinColumn(name = "user_id")
     private User user;
 

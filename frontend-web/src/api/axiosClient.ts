@@ -22,6 +22,7 @@ const PUBLIC_ENDPOINTS = [
     '/session/qr-login/create',
     '/session/qr-login/status/:sessionId',
     '/session/qr-login/access-token/:sessionId',
+    '/session/qr-login/access-token',
 ];
 
 const isPublicEndpoint = (url?: string): boolean => {
@@ -59,6 +60,11 @@ function getAccessToken(): string | null {
 }
 
 function getRefreshToken(): string | null {
+    const authType = localStorage.getItem('type');
+    if (authType === 'qr') {
+        return getCookie('refreshTokenQr');
+    }
+
     return getCookie('refreshToken');
 }
 
@@ -68,11 +74,21 @@ async function doRefreshToken(): Promise<string | null> {
     if (!refreshToken) return null;
 
     try {
-        // Use axios directly to avoid interceptors, passing refreshToken in Cookie header
-        const response = await axiosClient.get(`/auth/refresh`, {
-            headers: { Cookie: `refreshToken=${refreshToken}` },
+        const authType = localStorage.getItem('type');
+        const isQrAuth = authType === 'qr';
+
+        const response = await axiosClient.get(
+            isQrAuth ? `/session/qr-login/access-token` : `/auth/refresh`,
+            {
+            // Use axios directly to avoid interceptors, passing the matching refresh cookie in the request.
+            headers: {
+                Cookie: isQrAuth
+                    ? `refreshTokenQr=${refreshToken}`
+                    : `refreshToken=${refreshToken}`,
+            },
             timeout: 15000,
-        });
+            }
+        );
 
         let newAccessToken: string = response.data;
 

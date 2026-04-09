@@ -46,6 +46,7 @@ export const clearAuthStorage = (): void => {
     const cookieNames = [
         'accessToken',
         'refreshToken',
+        'refreshTokenQr',
         'idToken',
         'token',
         'authed',

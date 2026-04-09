@@ -8,6 +8,6 @@ import lombok.Data;
 @Builder
 @AllArgsConstructor
 public class UserResponseQRLoginToken {
-    private String token;
+    private String accessToken;
     private String refreshToken;
 }

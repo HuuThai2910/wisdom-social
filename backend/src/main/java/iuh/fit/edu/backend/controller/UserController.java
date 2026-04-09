@@ -73,7 +73,8 @@ public class UserController {
     @PostMapping("/logout")
     public ResponseEntity<String> logoutUser(HttpServletRequest request){
         String idToken = null;
-        String refreshToken=null;
+        String refreshToken = null;
+        String refreshTokenQr = null;
         if (request.getCookies() != null) {
             for (Cookie cookie : request.getCookies()) {
                 if ("accessToken".equals(cookie.getName())) {
@@ -82,7 +83,13 @@ public class UserController {
                 if ("refreshToken".equals(cookie.getName())) {
                     refreshToken = cookie.getValue();
                 }
+                if ("refreshTokenQr".equals(cookie.getName())) {
+                    refreshTokenQr = cookie.getValue();
+                }
             }
+        }
+        if (refreshToken == null) {
+            refreshToken = refreshTokenQr;
         }
         userService.logoutUser(idToken,refreshToken);
         return ResponseEntity.ok("Logout success");

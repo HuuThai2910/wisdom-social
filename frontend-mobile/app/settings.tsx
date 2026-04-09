@@ -53,7 +53,7 @@ export default function SettingsScreen() {
     return (
         <View style={[styles.container, { paddingTop: insets.top }]}>
             <View style={styles.header}>
-                <TouchableOpacity onPress={() => router.back()} hitSlop={12}>
+                <TouchableOpacity onPress={() => router.replace('/(tabs)/profile' as any)} hitSlop={12}>
                     <Ionicons name="arrow-back" size={24} color={colors.text} />
                 </TouchableOpacity>
                 <Text style={styles.headerTitle}>Cài đặt</Text>

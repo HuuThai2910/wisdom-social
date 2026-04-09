@@ -13,6 +13,7 @@ import iuh.fit.edu.backend.service.user.UserService;
 import iuh.fit.edu.backend.util.anotation.ApiMessage;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -68,12 +69,37 @@ public class SessionController {
             String refreshToken = JwtAuthFilter.generateRefreshToken(session.getUser().getPhone());
             return ResponseEntity.ok(
                 UserResponseQRLoginToken.builder()
-                    .token(accessToken)
+                    .accessToken(accessToken)
                     .refreshToken(refreshToken)
                     .build()
             );
         }
         return ResponseEntity.badRequest().body(null);
+    }
+
+    @GetMapping("/qr-login/access-token")
+    @ApiMessage("Refresh QR access token")
+    public ResponseEntity<String> refreshQrAccessToken(HttpServletRequest request) {
+        String refreshToken = null;
+
+        if (request.getCookies() != null) {
+            for (var cookie : request.getCookies()) {
+                if ("refreshTokenQr".equals(cookie.getName())) {
+                    refreshToken = cookie.getValue();
+                    break;
+                }
+            }
+        }
+
+        if (refreshToken == null || refreshToken.isBlank()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(null);
+        }
+
+        try {
+            return ResponseEntity.ok(userService.getNewQrAccessToken(refreshToken));
+        } catch (RuntimeException ex) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(null);
+        }
     }
 
     private String getClientIp(HttpServletRequest request) {

@@ -32,6 +32,11 @@ export default function QRConfirm() {
   const sessionId = params.session_id as string;
   const router = useRouter();
 
+  const navigateToSettingsWithCleanStack = () => {
+    router.dismissAll();
+    router.push('/settings' as any);
+  };
+
   const [loading, setLoading] = useState(true);
   const [confirming, setConfirming] = useState(false);
   const [sessionData, setSessionData] = useState<ScanResponse | null>(null);
@@ -131,8 +136,7 @@ export default function QRConfirm() {
           {
             text: 'OK',
             onPress: () => {
-              // Navigate về settings sau khi user ấn OK
-              router.replace('/settings' as any);
+              navigateToSettingsWithCleanStack();
             },
           },
         ],
@@ -163,8 +167,7 @@ export default function QRConfirm() {
           {
             text: 'OK',
             onPress: () => {
-              // Navigate về settings sau khi user ấn OK
-              router.replace('/settings' as any);
+              navigateToSettingsWithCleanStack();
             },
           },
         ],

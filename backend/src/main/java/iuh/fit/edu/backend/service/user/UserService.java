@@ -15,6 +15,7 @@ public interface UserService {
     void logoutUser(String idToken, String refreshToken);
     User getCurrentUser();
     String getNewAccessToken(String refreshToken);
+    String getNewQrAccessToken(String refreshToken);
     UserResponseOTPPassword forgotPasswordUser(UserRequestForgotPassword requestForgotPassword);
     boolean resetPassword(UserRequestResetPassword requestResetPassword);
     boolean deleteUser(long id);

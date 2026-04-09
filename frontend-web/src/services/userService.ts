@@ -115,6 +115,8 @@ export const userService = {
             setCookie('refreshToken', loginData.refreskToken, 7); // 7 days
         }
 
+        localStorage.setItem('type', 'normal');
+
 
         return loginData;
     },
@@ -126,6 +128,11 @@ export const userService = {
     async refreshToken(): Promise<string> {
         const response = await axiosClient.get(`auth/refresh`);
         return response.data.data;
+    },
+
+    async refreshQrToken(): Promise<string> {
+        const response = await axiosClient.get(`session/qr-login/access-token`);
+        return response.data.data ?? response.data;
     },
 
     async getCurrentUser(): Promise<ApiResponse<User>> {

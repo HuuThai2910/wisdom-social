@@ -62,7 +62,7 @@ export default function QRScanner() {
             pathname: '/qr-confirm' as any,
             params: { session_id: qrData.session_id },
           });
-        }, 100); // Delay nhỏ để đảm bảo state updated
+        }, 1000); // Delay nhỏ để đảm bảo state updated
       } else {
         console.log('Invalid QR code format');
         Alert.alert('Lỗi', 'Mã QR không hợp lệ. Vui lòng quét mã QR đăng nhập.', [

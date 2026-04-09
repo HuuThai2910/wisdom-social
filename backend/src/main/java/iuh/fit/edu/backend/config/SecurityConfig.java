@@ -48,6 +48,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET,"/api/session/qr-login/reject").permitAll()
                         .requestMatchers(HttpMethod.GET,"/api/session/qr-login/status/**").permitAll()
                         .requestMatchers(HttpMethod.GET,"/api/session/qr-login/access-token/**").permitAll()
+                        .requestMatchers(HttpMethod.GET,"/api/session/qr-login/access-token").permitAll()
                         .requestMatchers(HttpMethod.PUT,"/api/auth/users/**").authenticated()
                         .anyRequest().authenticated()
                 )
