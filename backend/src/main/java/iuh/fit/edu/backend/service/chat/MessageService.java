@@ -29,6 +29,10 @@ public interface MessageService {
     @Transactional
     void deleteMessageForMe(String messageId, Long userId);
 
+    void pinMessage(String messageId, Long userId);
+
+    void unpinMessage(String messageId, Long userId);
+
     CursorResponse<List<MessageResponse>> getMessagesByConversation(
             Long conversationId,
             Long userId,

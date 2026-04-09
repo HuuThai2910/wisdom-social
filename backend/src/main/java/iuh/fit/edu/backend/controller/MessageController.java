@@ -61,4 +61,22 @@ public class MessageController {
         return ResponseEntity.status(HttpStatus.OK).build();
     }
 
+    @PostMapping("/{messageId}/pin")
+    public ResponseEntity<Void> pinMessage(
+            @PathVariable String messageId,
+            @RequestParam Long userId
+    ) {
+        this.messageService.pinMessage(messageId, userId);
+        return ResponseEntity.status(HttpStatus.OK).build();
+    }
+
+    @DeleteMapping("/{messageId}/pin")
+    public ResponseEntity<Void> unpinMessage(
+            @PathVariable String messageId,
+            @RequestParam Long userId
+    ) {
+        this.messageService.unpinMessage(messageId, userId);
+        return ResponseEntity.status(HttpStatus.OK).build();
+    }
+
 }

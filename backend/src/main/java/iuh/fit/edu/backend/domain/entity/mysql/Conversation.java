@@ -6,11 +6,13 @@ package iuh.fit.edu.backend.domain.entity.mysql;
 
 import iuh.fit.edu.backend.constant.ConversationType;
 import iuh.fit.edu.backend.constant.MessageType;
+import iuh.fit.edu.backend.util.PinnedMessagesConverter;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 
 /*
@@ -45,4 +47,8 @@ public class Conversation {
 
     @OneToMany(mappedBy = "conversation")
     private List<ConversationMember> members;
+
+    @Column(name = "pinned_messages", columnDefinition = "JSON")
+    @Convert(converter = PinnedMessagesConverter.class)
+    private List<PinnedMessageDetail> pinnedMessages = new ArrayList<>();
 }

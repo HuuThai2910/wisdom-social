@@ -10,9 +10,26 @@ import {
     Trash2,
     Flag,
     MoreHorizontal,
+    ChevronDown,
+    ChevronUp,
+    CircleUserRound,
+    Bell,
+    Pin,
+    Palette,
+    ThumbsUp,
+    Type,
+    Images,
+    FileText,
+    Eye,
+    Lock,
+    TimerReset,
+    EyeOff,
 } from "lucide-react";
 import ChatWindow from "../components/message/ChatWindow";
 import { useMessagesController } from "../hooks/useMessagesController";
+import chatService from "../services/chatService";
+
+type DetailSectionKey = "chatInfo" | "customize" | "media" | "privacy";
 
 export default function Messages() {
     const {
@@ -22,6 +39,7 @@ export default function Messages() {
         error,
         selectedConversationId,
         currentUserId,
+        conversations,
         filteredConversations,
         handleSelectConversation,
         handleDeleteConversationForMe,
@@ -32,7 +50,61 @@ export default function Messages() {
 
     // State để track conversation nào đang mở menu
     const [openMenuConvId, setOpenMenuConvId] = useState<number | null>(null);
+    const [expandedSections, setExpandedSections] = useState<
+        Record<DetailSectionKey, boolean>
+    >({
+        chatInfo: true,
+        customize: true,
+        media: true,
+        privacy: true,
+    });
     const menuRef = useRef<HTMLDivElement>(null);
+
+    const selectedConversation =
+        conversations.find((conv) => conv.id === selectedConversationId) ||
+        null;
+    const selectedDisplayInfo = selectedConversation
+        ? getDisplayInfo(selectedConversation)
+        : null;
+
+    const selectedStatus = selectedConversation?.lastMessage?.lastMessageAt
+        ? `Hoạt động ${formatTime(selectedConversation.lastMessage.lastMessageAt)} trước`
+        : "Đang hoạt động gần đây";
+
+    const toggleDetailSection = useCallback((key: DetailSectionKey) => {
+        setExpandedSections((prev) => ({ ...prev, [key]: !prev[key] }));
+    }, []);
+
+    const handleChangeNickname = useCallback(async () => {
+        if (!selectedConversationId || !selectedConversation) return;
+
+        const targetMember = (selectedConversation.members ?? []).find(
+            (member) => member.userId !== currentUserId,
+        );
+
+        if (!targetMember) {
+            return;
+        }
+
+        const newNickname = window.prompt(
+            "Nhập biệt danh mới",
+            targetMember.nickname || "",
+        );
+
+        if (!newNickname || !newNickname.trim()) {
+            return;
+        }
+
+        try {
+            await chatService.updateConversationMemberNickname({
+                conversationId: selectedConversationId,
+                targetUserId: targetMember.userId,
+                nickname: newNickname.trim(),
+            });
+        } catch {
+            // noop: tên sẽ được đồng bộ lại qua websocket MEMBER_UPDATED
+        }
+    }, [currentUserId, selectedConversation, selectedConversationId]);
 
     // Click outside để đóng menu
     useEffect(() => {
@@ -61,7 +133,7 @@ export default function Messages() {
         "flex items-center gap-3 w-full px-4 py-3 text-sm text-left hover:bg-gray-100 dark:hover:bg-[#363636] transition-colors";
 
     return (
-        <div className="fixed inset-0 left-0 md:left-[245px] lg:left-[335px] xl:right-[383px] bottom-16 md:bottom-0 flex overflow-hidden bg-white dark:bg-black border-r border-gray-200 dark:border-[#262626]">
+        <div className="fixed inset-0 left-0 md:left-61.25 lg:left-83.75 bottom-16 md:bottom-0 flex overflow-hidden bg-white dark:bg-black border-r border-gray-200 dark:border-[#262626]">
             {/* Left Sidebar - Chat List */}
             <div className="w-full md:w-96 border-r border-gray-200 dark:border-[#262626] flex flex-col">
                 {/* Header */}
@@ -118,7 +190,10 @@ export default function Messages() {
                             const isMenuOpen = openMenuConvId === conv.id;
 
                             return (
-                                <div key={conv.id} className="relative group/item">
+                                <div
+                                    key={conv.id}
+                                    className="relative group/item"
+                                >
                                     <div
                                         onClick={() =>
                                             handleSelectConversation(conv.id)
@@ -152,7 +227,8 @@ export default function Messages() {
                                                 {conv.lastMessage
                                                     ?.lastMessageContent ? (
                                                     <>
-                                                        {(conv.type === "GROUP" ||
+                                                        {(conv.type ===
+                                                            "GROUP" ||
                                                             conv.lastMessage
                                                                 .lastSenderId ===
                                                                 currentUserId) && (
@@ -206,7 +282,7 @@ export default function Messages() {
                                     {/* Button "..." - hiện khi hover, đặt bên ngoài conversation row */}
                                     <div
                                         ref={isMenuOpen ? menuRef : null}
-                                        className="absolute right-4 top-1/2 -translate-y-1/2 z-[100]"
+                                        className="absolute right-4 top-1/2 -translate-y-1/2 z-100"
                                     >
                                         <button
                                             onClick={(e) => {
@@ -352,14 +428,276 @@ export default function Messages() {
             </div>
 
             {/* Right Side - Chat Window or Empty State */}
-            <div className="hidden md:flex flex-1 bg-white dark:bg-black">
+            <div className="hidden md:flex flex-1 bg-white dark:bg-black min-w-0">
                 {selectedConversationId ? (
-                    <ChatWindow
-                        key={selectedConversationId}
-                        conversationId={selectedConversationId}
-                        userId={currentUserId}
-                        onMarkAsRead={clearUnreadCount}
-                    />
+                    <div className="flex flex-1 min-w-0">
+                        <div className="flex-1 min-w-0">
+                            <ChatWindow
+                                key={selectedConversationId}
+                                conversationId={selectedConversationId}
+                                userId={currentUserId}
+                                onMarkAsRead={clearUnreadCount}
+                            />
+                        </div>
+
+                        <aside className="hidden xl:flex w-85 shrink-0 border-l border-gray-200 dark:border-[#262626] bg-[#fafafa] dark:bg-[#050505]">
+                            <div className="flex-1 overflow-y-auto px-5 py-6">
+                                <div className="flex flex-col items-center text-center pb-6 border-b border-gray-200 dark:border-[#1f1f1f]">
+                                    <img
+                                        src={selectedDisplayInfo?.avatar}
+                                        alt={selectedDisplayInfo?.name}
+                                        className="w-20 h-20 rounded-full object-cover mb-3"
+                                    />
+                                    <h3 className="text-2xl font-semibold text-gray-900 dark:text-white">
+                                        {selectedDisplayInfo?.name ||
+                                            "Không xác định"}
+                                    </h3>
+                                    <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                                        {selectedStatus}
+                                    </p>
+                                    <span className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-gray-200 dark:bg-[#1c1c1c] text-gray-700 dark:text-gray-200">
+                                        <Lock size={12} />
+                                        Được mã hóa đầu cuối
+                                    </span>
+
+                                    <div className="mt-5 grid grid-cols-3 gap-5 w-full">
+                                        <button className="flex flex-col items-center gap-2 text-xs text-gray-700 dark:text-gray-200 hover:text-black dark:hover:text-white transition-colors">
+                                            <span className="w-10 h-10 rounded-full bg-gray-200 dark:bg-[#1f1f1f] flex items-center justify-center">
+                                                <CircleUserRound size={18} />
+                                            </span>
+                                            Trang cá nhân
+                                        </button>
+                                        <button className="flex flex-col items-center gap-2 text-xs text-gray-700 dark:text-gray-200 hover:text-black dark:hover:text-white transition-colors">
+                                            <span className="w-10 h-10 rounded-full bg-gray-200 dark:bg-[#1f1f1f] flex items-center justify-center">
+                                                <Bell size={18} />
+                                            </span>
+                                            Tắt thông báo
+                                        </button>
+                                        <button className="flex flex-col items-center gap-2 text-xs text-gray-700 dark:text-gray-200 hover:text-black dark:hover:text-white transition-colors">
+                                            <span className="w-10 h-10 rounded-full bg-gray-200 dark:bg-[#1f1f1f] flex items-center justify-center">
+                                                <Search size={18} />
+                                            </span>
+                                            Tìm kiếm
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="pt-4 space-y-1">
+                                    <div className="border-b border-gray-200 dark:border-[#1f1f1f] pb-1">
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                toggleDetailSection("chatInfo")
+                                            }
+                                            className="w-full flex items-center justify-between py-3 text-left"
+                                        >
+                                            <span className="text-lg font-semibold text-gray-900 dark:text-white">
+                                                Thông tin về đoạn chat
+                                            </span>
+                                            {expandedSections.chatInfo ? (
+                                                <ChevronUp
+                                                    size={18}
+                                                    className="text-gray-600 dark:text-gray-300"
+                                                />
+                                            ) : (
+                                                <ChevronDown
+                                                    size={18}
+                                                    className="text-gray-600 dark:text-gray-300"
+                                                />
+                                            )}
+                                        </button>
+                                        {expandedSections.chatInfo && (
+                                            <div className="pb-2">
+                                                <button className="w-full flex items-center gap-3 py-3 text-left text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-[#141414] rounded-lg px-2 transition-colors">
+                                                    <Pin size={18} />
+                                                    <span>
+                                                        Xem tin nhắn đã ghim
+                                                    </span>
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="border-b border-gray-200 dark:border-[#1f1f1f] pb-1">
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                toggleDetailSection("customize")
+                                            }
+                                            className="w-full flex items-center justify-between py-3 text-left"
+                                        >
+                                            <span className="text-lg font-semibold text-gray-900 dark:text-white">
+                                                Tùy chỉnh đoạn chat
+                                            </span>
+                                            {expandedSections.customize ? (
+                                                <ChevronUp
+                                                    size={18}
+                                                    className="text-gray-600 dark:text-gray-300"
+                                                />
+                                            ) : (
+                                                <ChevronDown
+                                                    size={18}
+                                                    className="text-gray-600 dark:text-gray-300"
+                                                />
+                                            )}
+                                        </button>
+                                        {expandedSections.customize && (
+                                            <div className="pb-2">
+                                                <button className="w-full flex items-center gap-3 py-3 text-left text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-[#141414] rounded-lg px-2 transition-colors">
+                                                    <Palette size={18} />
+                                                    <span>Đổi chủ đề</span>
+                                                </button>
+                                                <button className="w-full flex items-center gap-3 py-3 text-left text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-[#141414] rounded-lg px-2 transition-colors">
+                                                    <ThumbsUp size={18} />
+                                                    <span>
+                                                        Thay đổi biểu tượng cảm
+                                                        xúc
+                                                    </span>
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                        void handleChangeNickname()
+                                                    }
+                                                    className="w-full flex items-center gap-3 py-3 text-left text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-[#141414] rounded-lg px-2 transition-colors"
+                                                >
+                                                    <Type size={18} />
+                                                    <span>
+                                                        Chỉnh sửa biệt danh
+                                                    </span>
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="border-b border-gray-200 dark:border-[#1f1f1f] pb-1">
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                toggleDetailSection("media")
+                                            }
+                                            className="w-full flex items-center justify-between py-3 text-left"
+                                        >
+                                            <span className="text-lg font-semibold text-gray-900 dark:text-white">
+                                                File phương tiện & file
+                                            </span>
+                                            {expandedSections.media ? (
+                                                <ChevronUp
+                                                    size={18}
+                                                    className="text-gray-600 dark:text-gray-300"
+                                                />
+                                            ) : (
+                                                <ChevronDown
+                                                    size={18}
+                                                    className="text-gray-600 dark:text-gray-300"
+                                                />
+                                            )}
+                                        </button>
+                                        {expandedSections.media && (
+                                            <div className="pb-2">
+                                                <button className="w-full flex items-center gap-3 py-3 text-left text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-[#141414] rounded-lg px-2 transition-colors">
+                                                    <Images size={18} />
+                                                    <span>
+                                                        File phương tiện
+                                                    </span>
+                                                </button>
+                                                <button className="w-full flex items-center gap-3 py-3 text-left text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-[#141414] rounded-lg px-2 transition-colors">
+                                                    <FileText size={18} />
+                                                    <span>File</span>
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="pb-1">
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                toggleDetailSection("privacy")
+                                            }
+                                            className="w-full flex items-center justify-between py-3 text-left"
+                                        >
+                                            <span className="text-lg font-semibold text-gray-900 dark:text-white">
+                                                Quyền riêng tư và hỗ trợ
+                                            </span>
+                                            {expandedSections.privacy ? (
+                                                <ChevronUp
+                                                    size={18}
+                                                    className="text-gray-600 dark:text-gray-300"
+                                                />
+                                            ) : (
+                                                <ChevronDown
+                                                    size={18}
+                                                    className="text-gray-600 dark:text-gray-300"
+                                                />
+                                            )}
+                                        </button>
+                                        {expandedSections.privacy && (
+                                            <div className="pb-2">
+                                                <button className="w-full flex items-center gap-3 py-3 text-left text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-[#141414] rounded-lg px-2 transition-colors">
+                                                    <BellOff size={18} />
+                                                    <span>Tắt thông báo</span>
+                                                </button>
+                                                <button className="w-full flex items-center gap-3 py-3 text-left text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-[#141414] rounded-lg px-2 transition-colors">
+                                                    <Eye size={18} />
+                                                    <span>Quyền nhắn tin</span>
+                                                </button>
+                                                <button className="w-full flex items-center gap-3 py-3 text-left text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-[#141414] rounded-lg px-2 transition-colors">
+                                                    <TimerReset size={18} />
+                                                    <span>Tin nhắn tự hủy</span>
+                                                </button>
+                                                <button className="w-full flex items-start justify-between gap-3 py-3 text-left text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-[#141414] rounded-lg px-2 transition-colors">
+                                                    <div className="flex items-center gap-3">
+                                                        <Eye size={18} />
+                                                        <div>
+                                                            <p>
+                                                                Thông báo đã đọc
+                                                            </p>
+                                                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                                                                Bật
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                </button>
+                                                <button className="w-full flex items-center gap-3 py-3 text-left text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-[#141414] rounded-lg px-2 transition-colors">
+                                                    <Lock size={18} />
+                                                    <span>
+                                                        Xác minh mã hóa đầu cuối
+                                                    </span>
+                                                </button>
+                                                <button className="w-full flex items-center gap-3 py-3 text-left text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-[#141414] rounded-lg px-2 transition-colors">
+                                                    <EyeOff size={18} />
+                                                    <span>Hạn chế</span>
+                                                </button>
+                                                <button className="w-full flex items-center gap-3 py-3 text-left text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-[#141414] rounded-lg px-2 transition-colors">
+                                                    <Ban size={18} />
+                                                    <span>Chặn</span>
+                                                </button>
+                                                <button className="w-full flex items-start justify-between gap-3 py-3 text-left hover:bg-gray-100 dark:hover:bg-[#141414] rounded-lg px-2 transition-colors">
+                                                    <div className="flex items-start gap-3">
+                                                        <Flag
+                                                            size={18}
+                                                            className="text-black dark:text-white mt-0.5"
+                                                        />
+                                                        <div>
+                                                            <p className="text-gray-900 dark:text-white">
+                                                                Báo cáo
+                                                            </p>
+                                                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                                                                Đóng góp ý kiến
+                                                                và báo cáo cuộc
+                                                                trò chuyện
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </aside>
+                    </div>
                 ) : (
                     <div className="flex-1 flex items-center justify-center">
                         <div className="text-center">

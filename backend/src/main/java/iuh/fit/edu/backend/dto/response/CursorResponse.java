@@ -8,6 +8,7 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.time.Instant;
+import java.util.Map;
 
 /*
  * @description
@@ -21,4 +22,17 @@ public class CursorResponse<T> {
     private T data;                 // List<MessageResponse>
     private Instant nextCursor;     // createdAt của message cũ nhất
     private boolean hasNext;        // còn tin cũ không
+
+    private Map<Long, UserReferenceDTO> referenceUsers; // Chứa người đã rời nhóm
+
+    @Data
+    public static class UserReferenceDTO {
+        private String nickname;
+        private String avatar;
+
+        public UserReferenceDTO(String nickname, String avatar) {
+            this.nickname = nickname;
+            this.avatar = avatar;
+        }
+    }
 }

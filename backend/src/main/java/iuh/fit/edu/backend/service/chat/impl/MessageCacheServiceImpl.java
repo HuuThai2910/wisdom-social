@@ -29,7 +29,7 @@ import java.util.Optional;
 @Service
 @RequiredArgsConstructor
 public class MessageCacheServiceImpl implements iuh.fit.edu.backend.service.chat.MessageCacheService {
-    private final RedisTemplate<String, MessageResponse> redisTemplate;
+    private final RedisTemplate<String, Object> redisTemplate;
 
     // Lưu 60 tin nhắn mới nhất (sẽ scroll được 3 lần)
     private static final int CACHE_SIZE = 60;
@@ -66,7 +66,7 @@ public class MessageCacheServiceImpl implements iuh.fit.edu.backend.service.chat
             return; // Cache trống hoặc đã hết hạn -> Bỏ qua
         }
         // Lấy phần tử cuối cùng trong Redis (Tin nhắn cũ nhất của Cache)
-        MessageResponse lastObj = redisTemplate.opsForList().index(key, -1);
+        MessageResponse lastObj = (MessageResponse) redisTemplate.opsForList().index(key, -1);
         if (lastObj != null) {
             log.info("Alo");
             // Nếu tin nhắn bị thu hồi có thời gian CŨ HƠN tin cũ nhất trong Cache
@@ -76,12 +76,12 @@ public class MessageCacheServiceImpl implements iuh.fit.edu.backend.service.chat
                 return;
             }
             // Lấy toàn bộ List từ Redis về RAM
-            List<MessageResponse> objects = redisTemplate.opsForList().range(key, 0, -1);
+            List<Object> objects = redisTemplate.opsForList().range(key, 0, -1);
             if (objects == null || objects.isEmpty()) return;
 
             // 3. Tìm vị trí (index) của tin nhắn cần thu hồi
             for (int i = 0; i < objects.size(); i++) {
-                MessageResponse cachedMsg = objects.get(i);
+                MessageResponse cachedMsg = (MessageResponse) objects.get(i);
                 // So sánh ID để tìm đúng tin nhắn
                 if (cachedMsg.getId().equals(message.getMessageId())) {
 
@@ -108,14 +108,14 @@ public class MessageCacheServiceImpl implements iuh.fit.edu.backend.service.chat
         }
 
         // Lấy danh sách 60 tin nhắn từ RAM về
-        List<MessageResponse> objects = redisTemplate.opsForList().range(key, 0, -1);
+        List<Object> objects = redisTemplate.opsForList().range(key, 0, -1);
         if (objects == null || objects.isEmpty()) {
             return;
         }
 
         // Tìm vị trí của tin nhắn cần đánh dấu xóa
         for (int i = 0; i < objects.size(); i++) {
-            MessageResponse cachedMsg = objects.get(i);
+            MessageResponse cachedMsg = (MessageResponse) objects.get(i);
 
             // Tìm đúng ID tin nhắn
             if (cachedMsg.getId().equals(messageId)) {
@@ -144,7 +144,6 @@ public class MessageCacheServiceImpl implements iuh.fit.edu.backend.service.chat
         log.info("Đã xóa hoàn toàn List cache của phòng chat {}", conversationId);
     }
 
-
     /**
      * Lấy danh sách tin nhắn từ cache (dùng khi load trang đầu hoặc scroll nếu vẫn còn dữ liệu trong redis)
      * Giúp tăng tốc độ thay vì cứ phải truy vấn xuống db
@@ -152,15 +151,26 @@ public class MessageCacheServiceImpl implements iuh.fit.edu.backend.service.chat
     @Override
     public List<MessageResponse> getListMessage(Long conversationId, Instant cursor, int limit) {
         String key = getKey(conversationId);
-        List<MessageResponse> objects;
+        List<Object> objects;
         // Case 1: Lấy trang đầu từ 0 đến limit - 1
         if (cursor == null) {
             objects = redisTemplate.opsForList().range(key, 0, limit - 1);
-            return objects == null ? Collections.emptyList() : objects;
+
+            if (objects == null || objects.isEmpty()) {
+                return Collections.emptyList();
+            }
+
+            return objects.stream()
+                    .map(object -> (MessageResponse) object)
+                    .toList();
         } else {
             // Case 2: Load lịch sử tin nhắn trong trường hợp vẫn chứa lấy hết 60 tin từ cache
             objects = redisTemplate.opsForList().range(key, 0, -1);
-            List<MessageResponse> allCached = objects == null ? Collections.emptyList() : objects;
+            List<MessageResponse> allCached = objects == null
+                    ? Collections.emptyList()
+                    : objects.stream()
+                    .map(object -> (MessageResponse) object)
+                    .toList();
 
             // Tìm vị trí của Cursor trong danh sách
             int cursorIndex = -1;
@@ -207,7 +217,7 @@ public class MessageCacheServiceImpl implements iuh.fit.edu.backend.service.chat
             // Xóa cũ để đảm bảo không bị dư thừa hay trùng lặp dữ liệu không mong muốn
             redisTemplate.delete(key);
             // Push vào
-            redisTemplate.opsForList().rightPushAll(key, messageResponses);
+            redisTemplate.opsForList().rightPushAll(key, messageResponses.toArray());
 
             // Dù có bao nhiêu luồng push vào cùng lúc, tôi chỉ giữ lại đúng số lượng message response
             // Giữ lại đúng số lượng vừa push (messageResponses.size())
@@ -221,7 +231,7 @@ public class MessageCacheServiceImpl implements iuh.fit.edu.backend.service.chat
         else {
             // Chỉ append nếu key còn tồn tại để tránh sai lệch data
             if (Boolean.TRUE.equals(redisTemplate.hasKey(key))) {
-                MessageResponse lastObj = redisTemplate.opsForList().index(key, -1);
+                MessageResponse lastObj = (MessageResponse) redisTemplate.opsForList().index(key, -1);
                 if (lastObj != null) {
                     MessageResponse lastCachedMsg = lastObj;
                     MessageResponse firstNewMsg = messageResponses.getFirst();
@@ -242,7 +252,7 @@ public class MessageCacheServiceImpl implements iuh.fit.edu.backend.service.chat
                 Long currentSize = redisTemplate.opsForList().size(key);
                 // Nếu trong redis đã đủ 60 dữ liệu rồi thì không push thêm vào nữa
                 if (currentSize != null && currentSize < CACHE_SIZE) {
-                    redisTemplate.opsForList().rightPushAll(key, messageResponses);
+                    redisTemplate.opsForList().rightPushAll(key, messageResponses.toArray());
 
                     // Sau khi push, nếu tổng vượt quá 60 thì mới trim
                     if (currentSize + messageResponses.size() > CACHE_SIZE) {

@@ -14,9 +14,7 @@ package iuh.fit.edu.backend.domain.entity.nosql;
 import iuh.fit.edu.backend.constant.MessageType;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
-import lombok.Getter;
-import lombok.Setter;
-import lombok.ToString;
+import lombok.*;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.mapping.Document;
@@ -60,9 +58,19 @@ public class Message {
     @Field(name = "sender_id")
     private Long senderId;
 
-    private String replyTo;
+    private ReplyInfo replyInfo;
     private IconName iconName;
+
+    @Data
+    @Builder
+    public static class ReplyInfo {
+        private String messageId;
+        private Long senderId;
+        private MessageType type;
+        private String content;
+    }
 }
+
 
 class IconName{
     private  String name;
@@ -72,3 +80,4 @@ class  IconUser{
     private Long userId;
     private int quantity;
 }
+

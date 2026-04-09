@@ -49,7 +49,28 @@ export type DomainEventType =
     | "ROOM_DELETED" // Phòng chat bị xóa
     | "MEMBER_ADDED" // Thành viên mới tham gia
     | "MEMBER_REMOVED" // Thành viên rời khỏi
-    | "MEMBER_ROLE_CHANGED"; // Thay đổi vai trò thành viên
+    | "MEMBER_ROLE_CHANGED" // Thay đổi vai trò thành viên
+    | "PIN_MESSAGE"
+    | "UPIN_MESSAGE"
+    | "MEMBER_UPDATED";
+
+export interface PinUpdatedEvent {
+    domainEventType: "PIN_MESSAGE" | "UPIN_MESSAGE";
+    conversationId: number;
+    currentPins: Array<{
+        messageId: string;
+        pinnerId: number;
+        pinnedAt: string;
+    }>;
+}
+
+export interface MemberUpdatedEvent {
+    domainEventType: "MEMBER_UPDATED";
+    conversationId: number;
+    userId: number;
+    newNickname: string;
+    newAvatar?: string;
+}
 
 /**
  * Interface cho MessageCreatedEvent từ backend
@@ -489,6 +510,86 @@ class WebSocketService {
         }
     }
 
+    subscribeToConversationPins(
+        conversationId: number,
+        onPinUpdated: (event: PinUpdatedEvent) => void,
+    ) {
+        if (!this.client?.connected) {
+            console.error("WebSocket not connected, cannot subscribe to pins");
+            return;
+        }
+
+        const destination = `/topic/conversations/${conversationId}/pins`;
+        const existingSubscription = this.subscriptions.get(destination);
+        if (existingSubscription) return;
+
+        const subscription = this.client.subscribe(
+            destination,
+            (message: IMessage) => {
+                try {
+                    const event = JSON.parse(message.body) as PinUpdatedEvent;
+                    onPinUpdated(event);
+                } catch (error) {
+                    console.error("Error parsing pin update:", error);
+                }
+            },
+        );
+
+        this.subscriptions.set(destination, subscription);
+    }
+
+    unsubscribeFromConversationPins(conversationId: number) {
+        const destination = `/topic/conversations/${conversationId}/pins`;
+        const subscription = this.subscriptions.get(destination);
+
+        if (subscription) {
+            subscription.unsubscribe();
+            this.subscriptions.delete(destination);
+        }
+    }
+
+    subscribeToConversationMembers(
+        conversationId: number,
+        onMemberUpdated: (event: MemberUpdatedEvent) => void,
+    ) {
+        if (!this.client?.connected) {
+            console.error(
+                "WebSocket not connected, cannot subscribe to member updates",
+            );
+            return;
+        }
+
+        const destination = `/topic/conversations/${conversationId}/members`;
+        const existingSubscription = this.subscriptions.get(destination);
+        if (existingSubscription) return;
+
+        const subscription = this.client.subscribe(
+            destination,
+            (message: IMessage) => {
+                try {
+                    const event = JSON.parse(
+                        message.body,
+                    ) as MemberUpdatedEvent;
+                    onMemberUpdated(event);
+                } catch (error) {
+                    console.error("Error parsing member update:", error);
+                }
+            },
+        );
+
+        this.subscriptions.set(destination, subscription);
+    }
+
+    unsubscribeFromConversationMembers(conversationId: number) {
+        const destination = `/topic/conversations/${conversationId}/members`;
+        const subscription = this.subscriptions.get(destination);
+
+        if (subscription) {
+            subscription.unsubscribe();
+            this.subscriptions.delete(destination);
+        }
+    }
+
     /**
      * Subscribe để nhận cập nhật danh sách conversation (sidebar) real-time
      *
@@ -714,7 +815,11 @@ class WebSocketService {
             return;
         }
 
-        console.log("Sending typing signal:", { conversationId, userId, isTyping });
+        console.log("Sending typing signal:", {
+            conversationId,
+            userId,
+            isTyping,
+        });
 
         this.client.publish({
             destination: `/app/chat/${conversationId}/typing`,

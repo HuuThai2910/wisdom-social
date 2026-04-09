@@ -7,7 +7,16 @@ export type MessageType =
     | "VIDEO"
     | "FILE"
     | "AUDIO"
-    | "CALL";
+    | "CALL"
+    | "SYSTEM_PIN"
+    | "SYSTEM_UPIN";
+
+export interface ReplyInfo {
+    messageId: string;
+    senderId?: number;
+    type?: MessageType;
+    content?: string;
+}
 
 export interface Message {
     id: string;
@@ -16,17 +25,24 @@ export interface Message {
     type: MessageType;
     createdAt: string;
     senderId: number;
-    senderName: string;
-    senderAvatar: string;
+    senderName?: string;
+    senderAvatar?: string;
+    replyInfo?: ReplyInfo;
     active?: boolean;
     isActive?: boolean;
     isRecalled?: boolean;
+}
+
+export interface ReferenceUser {
+    nickname: string;
+    avatar?: string;
 }
 
 export interface CursorResponse<T> {
     data: T;
     nextCursor: string | null;
     hasNext: boolean;
+    referenceUsers?: Record<string, ReferenceUser>;
 }
 
 export interface LastMessage {
@@ -38,6 +54,12 @@ export interface LastMessage {
     read: boolean;
 }
 
+export interface PinnedMessageDetail {
+    messageId: string;
+    pinnerId: number;
+    pinnedAt: string;
+}
+
 export interface Conversation {
     id: number;
     name?: string;
@@ -47,6 +69,7 @@ export interface Conversation {
     lastMessage?: LastMessage;
     members?: ConversationMember[];
     unreadCount?: number;
+    pinnedMessages?: PinnedMessageDetail[];
 }
 
 export interface ConversationMember {
@@ -61,6 +84,7 @@ export interface SendMessageRequest {
     content: string;
     type: MessageType;
     conversationId: number;
+    replyToId?: string;
 }
 
 export interface SendCallMessageRequest {
@@ -81,6 +105,34 @@ export interface MessageSeenPayload {
     userId: number;
     lastMessageId: string;
     seenAt: string;
+}
+
+export interface UpdateNicknameRequest {
+    conversationId: number;
+    targetUserId: number;
+    nickname: string;
+}
+
+function normalizeMembersPayload(
+    payload: unknown,
+): Record<string, ConversationMember> {
+    // Chuẩn hoá response members để FE chịu được 2 kiểu backend:
+    // 1) Kiểu bọc ApiResponse: { success, data, ... }
+    // 2) Kiểu map raw: { "1": { ... }, "2": { ... } }
+    // Mục tiêu: tránh lỗi map sai key/userId khiến UI rơi về fallback
+    // "Người dùng" và avatar mặc định.
+    if (!payload || typeof payload !== "object") return {};
+
+    // Case 1: API wrapped format { success, data, ... }
+    if ("data" in (payload as Record<string, unknown>)) {
+        const data = (payload as { data?: unknown }).data;
+        if (data && typeof data === "object") {
+            return data as Record<string, ConversationMember>;
+        }
+    }
+
+    // Case 2: raw map format { "1": {...}, "2": {...} }
+    return payload as Record<string, ConversationMember>;
 }
 
 const chatService = {
@@ -107,7 +159,7 @@ const chatService = {
         const response = await axiosClient.get(
             `/conversations/${conversationId}/messages?${params.toString()}`,
         );
-    
+
         return response.data;
     },
 
@@ -153,10 +205,43 @@ const chatService = {
         );
     },
 
+    async getConversationMembers(
+        conversationId: number,
+    ): Promise<Record<string, ConversationMember>> {
+        const response = await axiosClient.get(
+            `/conversations/${conversationId}/members`,
+        );
+        // Trả ra đúng map members theo userId để controller dùng join dữ liệu
+        // senderId <-> nickname/avatar một cách ổn định.
+        return normalizeMembersPayload(response.data);
+    },
+
+    async updateConversationMemberNickname(
+        request: UpdateNicknameRequest,
+    ): Promise<void> {
+        await axiosClient.patch(
+            `/conversations/${request.conversationId}/members/${request.targetUserId}/nickname`,
+            request.nickname,
+            {
+                headers: {
+                    "Content-Type": "text/plain",
+                },
+            },
+        );
+    },
+
     async recallMessage(messageId: string, userId: number): Promise<void> {
         await axiosClient.delete(
             `/messages/${messageId}/recall?userId=${userId}`,
         );
+    },
+
+    async pinMessage(messageId: string, userId: number): Promise<void> {
+        await axiosClient.post(`/messages/${messageId}/pin?userId=${userId}`);
+    },
+
+    async unpinMessage(messageId: string, userId: number): Promise<void> {
+        await axiosClient.delete(`/messages/${messageId}/pin?userId=${userId}`);
     },
 
     // Bước 1: Xin presigned URL từ BE để upload file lên S3

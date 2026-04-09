@@ -8,12 +8,22 @@ import {
 } from "react";
 import chatService, {
     type Conversation,
+    type ConversationMember,
     type Message,
     type MessageType,
     type SendMessageRequest,
 } from "../services/chatService";
-import websocketService, { type MessageSeenEvent, type TypingEvent } from "../services/websocket";
+import websocketService, {
+    type MemberUpdatedEvent,
+    type MessageSeenEvent,
+    type PinUpdatedEvent,
+    type TypingEvent,
+} from "../services/websocket";
 import { DEFAULT_AVATAR_SMALL_URL, DEFAULT_AVATAR_URL } from "../constants/ui";
+import chatRuntimeStore, {
+    type MembersByUserId,
+    type PinnedMessageDetail,
+} from "../stores/chatRuntimeStore";
 
 /**
  * Các hằng số điều khiển UX & paging.
@@ -42,19 +52,73 @@ export interface ReadReceipt {
 function getConversationDisplayInfo(
     conversation: Conversation,
     userId: number,
+    membersById: MembersByUserId,
 ) {
+    const otherMemberFromStore = Object.values(membersById).find(
+        (m) => m.userId !== userId,
+    );
+
     const displayName =
         conversation.type === "GROUP"
             ? conversation.name
-            : conversation.members?.find((m) => m.userId !== userId)
-                ?.nickname || "Unknown";
+            : otherMemberFromStore?.nickname ||
+              conversation.members?.find((m) => m.userId !== userId)
+                  ?.nickname ||
+              "Unknown";
 
     const displayAvatar =
         conversation.type === "GROUP"
             ? conversation.imageUrl
-            : conversation.members?.find((m) => m.userId !== userId)?.avatar;
+            : otherMemberFromStore?.avatar ||
+              conversation.members?.find((m) => m.userId !== userId)?.avatar;
 
     return { displayName, displayAvatar };
+}
+
+function toMembersByUserId(
+    members:
+        | ConversationMember[]
+        | Record<string, ConversationMember>
+        | null
+        | undefined,
+): MembersByUserId {
+    // Hàm chuẩn hoá members về map { [userId]: member } để render nhanh theo senderId.
+    // Đây là điểm quan trọng của kiến trúc "client-side joining":
+    // - Tin nhắn chỉ cần senderId
+    // - UI sẽ tra nickname/avatar từ members map theo userId
+    // => Tránh phụ thuộc vào dữ liệu senderName/senderAvatar nằm sẵn trong message.
+    const normalized: MembersByUserId = {};
+    if (!members) return normalized;
+
+    if (Array.isArray(members)) {
+        for (const member of members) {
+            normalized[member.userId] = member;
+        }
+        return normalized;
+    }
+
+    for (const [rawUserId, member] of Object.entries(members)) {
+        if (!member || typeof member !== "object") continue;
+
+        // Ưu tiên userId trong value, fallback từ key nếu key là số.
+        // Lý do: backend có thể trả map mà key và value không luôn đồng nhất,
+        // hoặc có lúc response bị bọc khiến key không phải số.
+        const valueUserId = (member as { userId?: unknown }).userId;
+        const userId =
+            typeof valueUserId === "number" ? valueUserId : Number(rawUserId);
+
+        if (!Number.isFinite(userId)) continue;
+
+        const normalizedMember = member as ConversationMember;
+        normalized[userId] = {
+            ...normalizedMember,
+            userId,
+            nickname: normalizedMember.nickname || "Unknown",
+            username: normalizedMember.username || "",
+        };
+    }
+
+    return normalized;
 }
 
 /**
@@ -76,6 +140,10 @@ export function useChatWindowController(args: {
     const [messageText, setMessageText] = useState("");
     const [messages, setMessages] = useState<Message[]>([]);
     const [conversation, setConversation] = useState<Conversation | null>(null);
+    const [membersById, setMembersById] = useState<MembersByUserId>({});
+    const [pinnedMessages, setPinnedMessages] = useState<PinnedMessageDetail[]>(
+        [],
+    );
     const [loading, setLoading] = useState(true);
     const [sending, setSending] = useState(false);
     const [uploading, setUploading] = useState(false);
@@ -98,13 +166,17 @@ export function useChatWindowController(args: {
     // readReceipts: danh sách thông tin "đã xem" của các members (trừ user hiện tại)
     const [readReceipts, setReadReceipts] = useState<ReadReceipt[]>([]);
     // markAsReadTimeoutRef: debounce timer cho API markAsRead
-    const markAsReadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const markAsReadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+        null,
+    );
 
     // ====== Typing Indicator (Đang soạn tin nhắn) ======
     // typingUsers: Map<userId, timeoutId> - Track users đang gõ và timeout để auto-clear
     const [typingUsers, setTypingUsers] = useState<Set<number>>(new Set());
     // typingTimeouts: Map để lưu timeout ID cho mỗi user, tự động xóa sau 10s nếu không có update
-    const typingTimeoutsRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+    const typingTimeoutsRef = useRef<
+        Map<number, ReturnType<typeof setTimeout>>
+    >(new Map());
     // isTypingSent: Track xem đã gửi signal isTyping=true chưa (tránh spam)
     const isTypingSentRef = useRef(false);
     // typingTimeoutRef: Timeout để gửi isTyping=false sau 10s không gõ
@@ -117,7 +189,9 @@ export function useChatWindowController(args: {
     // Set true khi nhận tin nhắn mới (của mình hoặc khi đang ở cuối), reset sau 2s
     const shouldScrollOnMediaLoadRef = useRef(false);
     // shouldScrollOnMediaLoadTimerRef: Timer để reset shouldScrollOnMediaLoadRef
-    const shouldScrollOnMediaLoadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const shouldScrollOnMediaLoadTimerRef = useRef<ReturnType<
+        typeof setTimeout
+    > | null>(null);
 
     const [error, setError] = useState<string | null>(null);
 
@@ -228,84 +302,119 @@ export function useChatWindowController(args: {
         });
     }, [loadingMore, messages.length, scrollToBottom]);
 
-    const loadConversation = useCallback(
-        async (token: number) => {
-            try {
-                // Tải metadata của hội thoại (tên, members, avatar, ...).
-                const conv = await chatService.getConversation(
-                    conversationId,
-                    userId,
-                );
-
-                if (token !== loadTokenRef.current) return;
-                if (conv.success && conv.data) {
-                    setConversation(conv.data);
-
-                    console.log("🔍 DEBUG - Conversation data:", {
-                        conversationId,
-                        userId,
-                        members: conv.data.members,
-                    });
-
-                    // Khôi phục readReceipts từ conversation members
-                    // Parse lastReadMessageId từ các members (trừ chính mình)
-                    const initialReceipts: ReadReceipt[] = (conv.data.members || [])
-                        .filter((m) => {
-                            const shouldInclude = m.userId !== userId && m.lastReadMessageId;
-                            console.log(`🔍 Member ${m.userId}: userId=${m.userId}, lastReadMessageId=${m.lastReadMessageId}, shouldInclude=${shouldInclude}`);
-                            return shouldInclude;
-                        })
-                        .map((m) => ({
-                            userId: m.userId,
-                            lastMessageId: m.lastReadMessageId!,
-                            seenAt: new Date().toISOString(), // Backend không lưu seenAt, dùng giá trị mặc định
-                        }));
-
-                    console.log("📚 Khôi phục readReceipts từ conversation:", initialReceipts);
-                    setReadReceipts(initialReceipts);
-                } else {
-                    setConversation(null);
-                    setError(conv.message || "Không thể tải cuộc trò chuyện");
-                }
-            } catch {
-                if (token !== loadTokenRef.current) return;
-                setConversation(null);
-                setError("Không thể tải cuộc trò chuyện");
-            }
-        },
-        [conversationId, userId],
-    );
-
-    const loadMessages = useCallback(
-        async (token: number, markAsReadFn?: (lastMessageId: string) => void) => {
+    const loadInitialData = useCallback(
+        async (
+            token: number,
+            markAsReadFn?: (lastMessageId: string) => void,
+        ) => {
             try {
                 setError(null);
-                setLoading(true);
 
-                // Initial load: lấy trang tin nhắn mới nhất (theo backend cursor API).
-                const response = await chatService.getMessages(
-                    conversationId,
-                    userId,
-                    null,
-                    PAGE_SIZE,
-                );
+                const [convResponse, membersResponse, messagesResponse] =
+                    await Promise.all([
+                        chatService.getConversation(conversationId, userId),
+                        chatService.getConversationMembers(conversationId),
+                        chatService.getMessages(
+                            conversationId,
+                            userId,
+                            null,
+                            PAGE_SIZE,
+                        ),
+                    ]);
 
                 if (token !== loadTokenRef.current) return;
 
-                const cursorData = response?.success ? response.data : null;
-                const list = Array.isArray(cursorData?.data)
-                    ? cursorData!.data
-                    : [];
-                console.log(list.at(-1));
+                if (!convResponse.success || !convResponse.data) {
+                    setConversation(null);
+                    setError(
+                        convResponse.message || "Không thể tải cuộc trò chuyện",
+                    );
+                    return;
+                }
 
+                const cursorData = messagesResponse?.success
+                    ? messagesResponse.data
+                    : null;
+                const list = Array.isArray(cursorData?.data)
+                    ? cursorData.data
+                    : [];
+
+                const membersFromApi = toMembersByUserId(membersResponse);
+                const sideLoadedRefs = cursorData?.referenceUsers ?? {};
+
+                // Hợp nhất 2 nguồn member:
+                // 1) members endpoint: thành viên hiện tại trong phòng
+                // 2) referenceUsers từ cursor messages: user từng gửi tin nhưng có thể đã rời phòng
+                // Việc merge này giúp lịch sử tin nhắn cũ vẫn hiện đúng nickname/avatar.
+                const mergedMembers: MembersByUserId = {
+                    ...membersFromApi,
+                };
+
+                for (const [rawUserId, reference] of Object.entries(
+                    sideLoadedRefs,
+                )) {
+                    const refUserId = Number(rawUserId);
+                    mergedMembers[refUserId] = {
+                        ...(mergedMembers[refUserId] ?? {
+                            userId: refUserId,
+                            username: "",
+                            nickname: reference.nickname || "Unknown",
+                            avatar: reference.avatar,
+                        }),
+                        userId: refUserId,
+                        nickname:
+                            mergedMembers[refUserId]?.nickname ||
+                            reference.nickname ||
+                            "Unknown",
+                        avatar:
+                            mergedMembers[refUserId]?.avatar ||
+                            reference.avatar,
+                    };
+                }
+
+                const normalizedConversation: Conversation = {
+                    ...convResponse.data,
+                    members: Object.values(mergedMembers),
+                };
+
+                // Pin cần tồn tại sau F5 nên phải lấy từ dữ liệu conversation trả về,
+                // không chỉ dựa vào websocket/runtime store.
+                const initialPins = Array.isArray(
+                    normalizedConversation.pinnedMessages,
+                )
+                    ? normalizedConversation.pinnedMessages
+                    : [];
+
+                chatRuntimeStore.setConversation(
+                    conversationId,
+                    normalizedConversation,
+                );
+                chatRuntimeStore.setMembers(conversationId, mergedMembers);
+                chatRuntimeStore.setMessages(conversationId, list);
+                // Ghi pin vào runtime store để đổi room qua lại không cần chờ fetch lại.
+                chatRuntimeStore.setPins(conversationId, initialPins);
+
+                setMembersById(mergedMembers);
+                setConversation(normalizedConversation);
                 setMessages(list);
+                // Đồng bộ state pin cho UI banner ghim ngay sau initial load.
+                setPinnedMessages(initialPins);
                 setNextCursor(cursorData?.nextCursor ?? null);
                 setHasMore(Boolean(cursorData?.hasNext));
 
-                // Khi mở chat, ưu tiên nhảy xuống tin mới nhất.
+                const initialReceipts: ReadReceipt[] = Object.values(
+                    mergedMembers,
+                )
+                    .filter((m) => m.userId !== userId && m.lastReadMessageId)
+                    .map((m) => ({
+                        userId: m.userId,
+                        lastMessageId: m.lastReadMessageId!,
+                        seenAt: new Date().toISOString(),
+                    }));
+
+                setReadReceipts(initialReceipts);
                 scrollOnNextRenderRef.current = "auto";
 
-                // Đánh dấu đã đọc tin nhắn mới nhất khi mở chat
                 const lastMessage = list.at(-1);
                 if (lastMessage && markAsReadFn) {
                     markAsReadFn(lastMessage.id);
@@ -313,7 +422,9 @@ export function useChatWindowController(args: {
             } catch {
                 if (token !== loadTokenRef.current) return;
                 setMessages([]);
-                setError("Không thể tải tin nhắn");
+                setConversation(null);
+                setMembersById({});
+                setError("Không thể tải dữ liệu cuộc trò chuyện");
             } finally {
                 if (token === loadTokenRef.current) {
                     setLoading(false);
@@ -356,7 +467,37 @@ export function useChatWindowController(args: {
                     ? cursorData!.data
                     : [];
 
-                setMessages((prev) => [...older, ...prev]);
+                const sideLoadedRefs = cursorData?.referenceUsers ?? {};
+                if (Object.keys(sideLoadedRefs).length > 0) {
+                    setMembersById((prev) => {
+                        const next = { ...prev };
+                        for (const [rawUserId, ref] of Object.entries(
+                            sideLoadedRefs,
+                        )) {
+                            const refUserId = Number(rawUserId);
+                            next[refUserId] = {
+                                ...(next[refUserId] ?? {
+                                    userId: refUserId,
+                                    username: "",
+                                    nickname: ref.nickname || "Unknown",
+                                }),
+                                nickname:
+                                    next[refUserId]?.nickname ||
+                                    ref.nickname ||
+                                    "Unknown",
+                                avatar: next[refUserId]?.avatar || ref.avatar,
+                            };
+                        }
+                        chatRuntimeStore.setMembers(conversationId, next);
+                        return next;
+                    });
+                }
+
+                setMessages((prev) => {
+                    const nextMessages = [...older, ...prev];
+                    chatRuntimeStore.setMessages(conversationId, nextMessages);
+                    return nextMessages;
+                });
                 setNextCursor(cursorData?.nextCursor ?? null);
                 setHasMore(Boolean(cursorData?.hasNext));
 
@@ -431,14 +572,19 @@ export function useChatWindowController(args: {
     ]);
 
     const handleNewMessage = useCallback(
-        (newMessage: Message, markAsReadFn?: (lastMessageId: string) => void) => {
+        (
+            newMessage: Message,
+            markAsReadFn?: (lastMessageId: string) => void,
+        ) => {
             const isMyMessage =
                 Number(newMessage.senderId) === Number(userIdRef.current);
             const currentlyNearBottom = isNearBottom();
 
             setMessages((prev) => {
                 if (prev.some((m) => m.id === newMessage.id)) return prev;
-                return [...prev, newMessage];
+                const nextMessages = [...prev, newMessage];
+                chatRuntimeStore.setMessages(conversationId, nextMessages);
+                return nextMessages;
             });
 
             if (isMyMessage || currentlyNearBottom) {
@@ -452,7 +598,10 @@ export function useChatWindowController(args: {
                 // Cần làm này vì khi scroll xuống cuối, media chưa load → chiều cao chưa đúng
                 // Sau khi media load xong, chiều cao tăng → scroll position bị đẩy lên
                 // isNearBottom() sẽ trả về false → không scroll
-                if (newMessage.type === "IMAGE" || newMessage.type === "VIDEO") {
+                if (
+                    newMessage.type === "IMAGE" ||
+                    newMessage.type === "VIDEO"
+                ) {
                     // Clear timer cũ nếu có
                     if (shouldScrollOnMediaLoadTimerRef.current) {
                         clearTimeout(shouldScrollOnMediaLoadTimerRef.current);
@@ -478,13 +627,22 @@ export function useChatWindowController(args: {
         [isNearBottom],
     );
     // Nhận socket MESSAGE_RECALLED: set isRecalled=true cho tin nhắn đó
-    const handleMessageRecalled = useCallback((messageId: string) => {
-        setMessages((prev) =>
-            prev.map((m) =>
-                m.id === messageId ? { ...m, isRecalled: true } : m,
-            ),
-        );
-    }, []);
+    const handleMessageRecalled = useCallback(
+        (messageId: string) => {
+            setMessages((prev) =>
+                prev.map((m) =>
+                    m.id === messageId ? { ...m, isRecalled: true } : m,
+                ),
+            );
+            const cachedMessages = chatRuntimeStore
+                .getMessages(conversationId)
+                .map((m) =>
+                    m.id === messageId ? { ...m, isRecalled: true } : m,
+                );
+            chatRuntimeStore.setMessages(conversationId, cachedMessages);
+        },
+        [conversationId],
+    );
 
     // Gọi API thu hồi tin nhắn (chỉ người gửi, trong 24h)
     const handleRecall = useCallback(
@@ -515,12 +673,16 @@ export function useChatWindowController(args: {
             try {
                 await chatService.deleteMessageForMe(messageId, userId);
                 // API 200 OK → xóa tin nhắn khỏi local state
-                setMessages((prev) => prev.filter((m) => m.id !== messageId));
+                setMessages((prev) => {
+                    const nextMessages = prev.filter((m) => m.id !== messageId);
+                    chatRuntimeStore.setMessages(conversationId, nextMessages);
+                    return nextMessages;
+                });
             } catch {
                 setRecallToast("Không thể xóa tin nhắn");
             }
         },
-        [userId],
+        [conversationId, userId],
     );
 
     // Xóa cuộc trò chuyện ở phía tôi (xóa lịch sử chat)
@@ -529,6 +691,9 @@ export function useChatWindowController(args: {
             await chatService.deleteConversationForMe(conversationId, userId);
             // API 200 OK → xóa toàn bộ tin nhắn khỏi local state
             setMessages([]);
+            chatRuntimeStore.setMessages(conversationId, []);
+            chatRuntimeStore.setMembers(conversationId, {});
+            chatRuntimeStore.setPins(conversationId, []);
             setHasMore(false);
             setNextCursor(null);
         } catch {
@@ -565,7 +730,11 @@ export function useChatWindowController(args: {
                 });
 
                 try {
-                    await chatService.markAsRead(conversationId, userId, lastMessageId);
+                    await chatService.markAsRead(
+                        conversationId,
+                        userId,
+                        lastMessageId,
+                    );
                     console.log("✅ markAsRead API success");
                     // Gọi callback để clear unreadCount ở sidebar
                     onMarkAsRead?.(conversationId);
@@ -593,10 +762,23 @@ export function useChatWindowController(args: {
             console.log("📨 Received MESSAGE_SEEN event:", event);
 
             // Trích xuất payload từ messageSeenResponse
-            const { conversationId: eventConvId, userId: eventUserId, lastMessageId, seenAt } = event.messageSeenResponse;
+            const {
+                conversationId: eventConvId,
+                userId: eventUserId,
+                lastMessageId,
+                seenAt,
+            } = event.messageSeenResponse;
 
-            console.log("📨 Parsed payload:", { eventConvId, eventUserId, lastMessageId, seenAt });
-            console.log("📨 Current state:", { currentConvId: conversationId, currentUserId: userId });
+            console.log("📨 Parsed payload:", {
+                eventConvId,
+                eventUserId,
+                lastMessageId,
+                seenAt,
+            });
+            console.log("📨 Current state:", {
+                currentConvId: conversationId,
+                currentUserId: userId,
+            });
 
             // Bỏ qua nếu không phải conversation đang mở
             if (Number(eventConvId) !== Number(conversationId)) {
@@ -613,7 +795,9 @@ export function useChatWindowController(args: {
 
             setReadReceipts((prev) => {
                 // Tìm xem user này đã có trong readReceipts chưa
-                const existingIndex = prev.findIndex((r) => r.userId === Number(eventUserId));
+                const existingIndex = prev.findIndex(
+                    (r) => r.userId === Number(eventUserId),
+                );
 
                 const newReceipt: ReadReceipt = {
                     userId: Number(eventUserId),
@@ -654,7 +838,11 @@ export function useChatWindowController(args: {
         (event: TypingEvent) => {
             console.log("⌨️ Received TYPING event from WebSocket:", event);
 
-            const { conversationId: eventConvId, userId: eventUserId, isTyping } = event.typingResponse;
+            const {
+                conversationId: eventConvId,
+                userId: eventUserId,
+                isTyping,
+            } = event.typingResponse;
 
             // Bỏ qua nếu không phải conversation đang mở
             if (Number(eventConvId) !== Number(conversationId)) return;
@@ -665,13 +853,17 @@ export function useChatWindowController(args: {
 
             if (isTyping) {
                 // Clear timeout cũ nếu có
-                const existingTimeout = typingTimeoutsRef.current.get(Number(eventUserId));
+                const existingTimeout = typingTimeoutsRef.current.get(
+                    Number(eventUserId),
+                );
                 if (existingTimeout) {
                     clearTimeout(existingTimeout);
                 }
 
                 // Thêm user vào Set đang gõ
-                setTypingUsers((prev) => new Set(prev).add(Number(eventUserId)));
+                setTypingUsers((prev) =>
+                    new Set(prev).add(Number(eventUserId)),
+                );
 
                 // Set timeout 10s để auto-clear (phòng trường hợp user rớt mạng)
                 const timeoutId = setTimeout(() => {
@@ -686,7 +878,9 @@ export function useChatWindowController(args: {
                 typingTimeoutsRef.current.set(Number(eventUserId), timeoutId);
             } else {
                 // Clear timeout
-                const existingTimeout = typingTimeoutsRef.current.get(Number(eventUserId));
+                const existingTimeout = typingTimeoutsRef.current.get(
+                    Number(eventUserId),
+                );
                 if (existingTimeout) {
                     clearTimeout(existingTimeout);
                     typingTimeoutsRef.current.delete(Number(eventUserId));
@@ -715,17 +909,28 @@ export function useChatWindowController(args: {
      */
     const sendTypingSignal = useCallback(
         (isTyping: boolean) => {
-            console.log("⌨️ sendTypingSignal called:", { conversationId, userId, isTyping, alreadySent: isTypingSentRef.current });
+            console.log("⌨️ sendTypingSignal called:", {
+                conversationId,
+                userId,
+                isTyping,
+                alreadySent: isTypingSentRef.current,
+            });
 
             if (!conversationId || !userId) {
-                console.warn("⌨️ Missing conversationId or userId, skipping typing signal");
+                console.warn(
+                    "⌨️ Missing conversationId or userId, skipping typing signal",
+                );
                 return;
             }
 
             if (isTyping) {
                 // Chỉ gửi nếu chưa gửi trước đó
                 if (!isTypingSentRef.current) {
-                    websocketService.sendTypingSignal(conversationId, userId, true);
+                    websocketService.sendTypingSignal(
+                        conversationId,
+                        userId,
+                        true,
+                    );
                     isTypingSentRef.current = true;
                     console.log("⌨️ Sent typing=true");
                 }
@@ -737,7 +942,11 @@ export function useChatWindowController(args: {
 
                 // Set timeout 10s để tự động gử false
                 typingTimeoutRef.current = setTimeout(() => {
-                    websocketService.sendTypingSignal(conversationId, userId, false);
+                    websocketService.sendTypingSignal(
+                        conversationId,
+                        userId,
+                        false,
+                    );
                     isTypingSentRef.current = false;
                     console.log("⌨️ Sent typing=false (10s timeout)");
                 }, 10000);
@@ -750,7 +959,11 @@ export function useChatWindowController(args: {
 
                 // Gửi signal false (chỉ nếu đã gửi true trước đó)
                 if (isTypingSentRef.current) {
-                    websocketService.sendTypingSignal(conversationId, userId, false);
+                    websocketService.sendTypingSignal(
+                        conversationId,
+                        userId,
+                        false,
+                    );
                     isTypingSentRef.current = false;
                     console.log("⌨️ Sent typing=false");
                 }
@@ -777,7 +990,10 @@ export function useChatWindowController(args: {
 
         if (typingUsers.size > 0) {
             // Có người đang gõ
-            if (scrollPositionBeforeTypingRef.current === null && isNearBottom()) {
+            if (
+                scrollPositionBeforeTypingRef.current === null &&
+                isNearBottom()
+            ) {
                 // Lần đầu có typing indicator và user ở cuối
                 // Lưu vị trí scroll và số messages hiện tại
                 scrollPositionBeforeTypingRef.current = container.scrollTop;
@@ -792,7 +1008,8 @@ export function useChatWindowController(args: {
             // Không còn ai gõ
             if (scrollPositionBeforeTypingRef.current !== null) {
                 // Kiểm tra có tin nhắn mới không
-                const hasNewMessages = messages.length > messagesLengthWhenTypingRef.current;
+                const hasNewMessages =
+                    messages.length > messagesLengthWhenTypingRef.current;
 
                 if (!hasNewMessages) {
                     // Không có tin mới → restore vị trí scroll cũ
@@ -815,12 +1032,42 @@ export function useChatWindowController(args: {
         loadTokenRef.current += 1;
         const token = loadTokenRef.current;
 
-        setLoading(true);
+        const cachedConversation =
+            chatRuntimeStore.getConversation(conversationId);
+        const cachedMessages = chatRuntimeStore.getMessages(conversationId);
+        const cachedMembers = chatRuntimeStore.getMembers(conversationId);
+        const cachedPins = chatRuntimeStore.getPins(conversationId);
+
+        // Cache-first hydrate:
+        // hiển thị dữ liệu cũ ngay để chuyển phòng mượt (zero-latency switching),
+        // sau đó loadInitialData sẽ đồng bộ lại dữ liệu mới nhất từ backend.
+
+        if (cachedMessages.length > 0) {
+            setMessages(cachedMessages);
+            scrollOnNextRenderRef.current = "auto";
+        }
+        if (cachedConversation) {
+            setConversation({
+                ...cachedConversation,
+                members:
+                    Object.values(cachedMembers).length > 0
+                        ? Object.values(cachedMembers)
+                        : cachedConversation.members,
+            });
+        }
+        setMembersById(cachedMembers);
+        setPinnedMessages(cachedPins);
+
+        setLoading(!(cachedConversation && cachedMessages.length > 0));
         setError(null);
         setSending(false);
         setMessageText("");
-        setMessages([]);
-        setConversation(null);
+        if (cachedMessages.length === 0) {
+            setMessages([]);
+        }
+        if (!cachedConversation) {
+            setConversation(null);
+        }
         setShowScrollToBottomButton(false);
         setPendingNewMessages(0);
         setLoadingMore(false);
@@ -845,9 +1092,68 @@ export function useChatWindowController(args: {
         // Reset load more guard
         loadMoreRequestedRef.current = false;
 
-        loadConversation(token);
-        // Truyền markAsRead vào loadMessages để đánh dấu đã đọc khi mở chat
-        loadMessages(token, markAsRead);
+        if (cachedMembers[userId]) {
+            const cachedReceipts: ReadReceipt[] = Object.values(cachedMembers)
+                .filter((m) => m.userId !== userId && m.lastReadMessageId)
+                .map((m) => ({
+                    userId: m.userId,
+                    lastMessageId: m.lastReadMessageId!,
+                    seenAt: new Date().toISOString(),
+                }));
+            setReadReceipts(cachedReceipts);
+        }
+
+        void loadInitialData(token, markAsRead);
+
+        const handleMemberUpdated = (event: MemberUpdatedEvent) => {
+            if (Number(event.conversationId) !== Number(conversationId)) return;
+
+            // Sự kiện MEMBER_UPDATED dùng để đổi nickname/avatar realtime.
+            // Cập nhật cả members map và snapshot conversation để mọi nơi render thống nhất.
+            setMembersById((prev) => {
+                const next = {
+                    ...prev,
+                    [event.userId]: {
+                        ...(prev[event.userId] ?? {
+                            userId: event.userId,
+                            username: "",
+                            nickname: event.newNickname || "Unknown",
+                        }),
+                        nickname:
+                            event.newNickname ||
+                            prev[event.userId]?.nickname ||
+                            "Unknown",
+                        avatar: event.newAvatar || prev[event.userId]?.avatar,
+                    },
+                };
+                chatRuntimeStore.setMembers(conversationId, next);
+                setConversation((previousConversation) => {
+                    if (!previousConversation) return previousConversation;
+                    const nextConversation = {
+                        ...previousConversation,
+                        members: Object.values(next),
+                    };
+                    chatRuntimeStore.setConversation(
+                        conversationId,
+                        nextConversation,
+                    );
+                    return nextConversation;
+                });
+                return next;
+            });
+        };
+
+        const handlePinUpdated = (event: PinUpdatedEvent) => {
+            if (Number(event.conversationId) !== Number(conversationId)) return;
+
+            // Sự kiện PIN_MESSAGE/UPIN_MESSAGE từ websocket là nguồn realtime cho banner ghim.
+            // Luôn ghi vào runtime store trước, rồi set state để UI đồng bộ tức thì.
+            const nextPins = Array.isArray(event.currentPins)
+                ? event.currentPins
+                : [];
+            chatRuntimeStore.setPins(conversationId, nextPins);
+            setPinnedMessages(nextPins);
+        };
 
         const setupWebSocket = async () => {
             try {
@@ -865,6 +1171,14 @@ export function useChatWindowController(args: {
                     handleMessageSeen, // Nhận MESSAGE_SEEN event từ topic conversation
                     handleTyping, // Nhận TYPING event từ topic conversation
                 );
+                websocketService.subscribeToConversationMembers(
+                    conversationId,
+                    handleMemberUpdated,
+                );
+                websocketService.subscribeToConversationPins(
+                    conversationId,
+                    handlePinUpdated,
+                );
             } catch {
                 // no-op
             }
@@ -875,6 +1189,8 @@ export function useChatWindowController(args: {
         return () => {
             // Cleanup tránh leak: khi đổi conversation hoặc unmount.
             websocketService.unsubscribeFromConversation(conversationId);
+            websocketService.unsubscribeFromConversationMembers(conversationId);
+            websocketService.unsubscribeFromConversationPins(conversationId);
 
             // Cleanup markAsRead debounce timer
             if (markAsReadTimeoutRef.current) {
@@ -889,7 +1205,9 @@ export function useChatWindowController(args: {
             }
 
             // Cleanup all typing user timeouts
-            typingTimeoutsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
+            typingTimeoutsRef.current.forEach((timeoutId) =>
+                clearTimeout(timeoutId),
+            );
             typingTimeoutsRef.current.clear();
 
             // Cleanup recording: dừng MediaRecorder nếu đang ghi, tránh leak stream
@@ -912,8 +1230,7 @@ export function useChatWindowController(args: {
         handleMessageRecalled,
         handleMessageSeen,
         handleTyping,
-        loadConversation,
-        loadMessages,
+        loadInitialData,
         markAsRead,
     ]);
 
@@ -944,7 +1261,9 @@ export function useChatWindowController(args: {
             // Chỉ scroll nếu chưa ở vị trí cuối tuyệt đối (tránh loop)
             if (typingUsers.size > 0) {
                 const distanceFromBottom =
-                    container.scrollHeight - container.scrollTop - container.clientHeight;
+                    container.scrollHeight -
+                    container.scrollTop -
+                    container.clientHeight;
                 if (distanceFromBottom > 5) {
                     requestAnimationFrame(() => {
                         scrollToBottom("smooth");
@@ -961,7 +1280,14 @@ export function useChatWindowController(args: {
             // Chạm gần top => load trang tin nhắn cũ.
             void loadMoreMessages();
         }
-    }, [hasMore, isNearBottom, loadMoreMessages, loadingMore, scrollToBottom, typingUsers.size]);
+    }, [
+        hasMore,
+        isNearBottom,
+        loadMoreMessages,
+        loadingMore,
+        scrollToBottom,
+        typingUsers.size,
+    ]);
 
     const handleScrollToBottomClick = useCallback(() => {
         scrollToBottom("smooth");
@@ -969,28 +1295,71 @@ export function useChatWindowController(args: {
         setPendingNewMessages(0);
     }, [scrollToBottom]);
 
-    const handleSend = useCallback(async (textOverride?: string) => {
-        const trimmed = (textOverride ?? messageText).trim();
-        if (!trimmed) return;
+    const handleSend = useCallback(
+        async (textOverride?: string, replyToId?: string) => {
+            const trimmed = (textOverride ?? messageText).trim();
+            if (!trimmed) return;
 
-        try {
-            setSending(true);
-            setError(null);
+            try {
+                setSending(true);
+                setError(null);
 
-            await chatService.sendMessage(
-                { content: trimmed, type: "TEXT", conversationId },
-                userId,
-            );
+                const request: SendMessageRequest = {
+                    content: trimmed,
+                    type: "TEXT",
+                    conversationId,
+                };
+                if (replyToId) {
+                    // Backend hiện nhận reply theo trường replyToId.
+                    // Không gửi replyInfo từ FE để tránh lỗi parse JSON (500).
+                    request.replyToId = replyToId;
+                }
 
-            setMessageText("");
-            // Sau khi send, thường server sẽ broadcast lại qua WS; dù vậy ta vẫn chủ động scroll.
-            scrollOnNextRenderRef.current = "smooth";
-        } catch {
-            setError("Không thể gửi tin nhắn");
-        } finally {
-            setSending(false);
-        }
-    }, [conversationId, messageText, userId]);
+                await chatService.sendMessage(request, userId);
+
+                setMessageText("");
+                // Sau khi send, thường server sẽ broadcast lại qua WS; dù vậy ta vẫn chủ động scroll.
+                scrollOnNextRenderRef.current = "smooth";
+            } catch {
+                setError("Không thể gửi tin nhắn");
+            } finally {
+                setSending(false);
+            }
+        },
+        [conversationId, messageText, userId],
+    );
+
+    const handlePinMessage = useCallback(
+        async (messageId: string) => {
+            try {
+                // Kiểm tra: nếu đã có 3 tin ghim rồi, báo cho user
+                // (backend sẽ tự động bỏ ghim tin cũ nhất, nhưng frontend cũng nên kiểm tra)
+
+                await chatService.pinMessage(messageId, userId);
+            } catch (error) {
+                const errorMsg =
+                    (error as { response?: { data?: { message?: string } } })
+                        ?.response?.data?.message || "Không thể ghim tin nhắn";
+                setRecallToast(errorMsg);
+            }
+        },
+        [userId, pinnedMessages.length],
+    );
+
+    const handleUnpinMessage = useCallback(
+        async (messageId: string) => {
+            try {
+                await chatService.unpinMessage(messageId, userId);
+            } catch (error) {
+                const errorMsg =
+                    (error as { response?: { data?: { message?: string } } })
+                        ?.response?.data?.message ||
+                    "Không thể bỏ ghim tin nhắn";
+                setRecallToast(errorMsg);
+            }
+        },
+        [userId],
+    );
 
     // Upload file/image/video/audio: presign → S3 PUT → sendMessage với objectKey
     const handleFileUpload = useCallback(
@@ -1180,12 +1549,14 @@ export function useChatWindowController(args: {
             return { displayName: "", displayAvatar: null as string | null };
         }
         // Memo hoá để tránh tính lại tên/avatar mỗi render không cần thiết.
-        return getConversationDisplayInfo(conversation, userId);
-    }, [conversation, userId]);
+        return getConversationDisplayInfo(conversation, userId, membersById);
+    }, [conversation, membersById, userId]);
 
     return {
         conversation,
+        membersById,
         messages,
+        pinnedMessages,
         loading,
         loadingMore,
         hasMore,
@@ -1209,6 +1580,8 @@ export function useChatWindowController(args: {
         handleScroll,
         handleScrollToBottomClick,
         handleSend,
+        handlePinMessage,
+        handleUnpinMessage,
         handleRecall,
         handleDeleteMessageForMe,
         handleDeleteConversationForMe,

@@ -30,26 +30,40 @@ public abstract class MessageMapper {
     protected String cdnDomain;
 
     // 2. MapStruct vẫn tự động map tự động các trường như cũ
-    @Mapping(target = "senderName", ignore = true)
-    @Mapping(target = "senderAvatar", ignore = true)
     @Mapping(source = "messageType", target = "type")
     public abstract MessageResponse toMessageResponse(Message message);
+
+    private String buildContentWithCdn(String content, MessageType type) {
+        boolean shouldPrefixCdn = type == MessageType.IMAGE
+                || type == MessageType.VIDEO
+                || type == MessageType.FILE
+                || type == MessageType.AUDIO;
+
+        if (shouldPrefixCdn &&
+                content != null &&
+                !content.isEmpty()) {
+            return cdnDomain + content;
+        }
+
+        return content;
+    }
+
+    protected MessageResponse.ReplyInfo mapReplyInfo(Message.ReplyInfo replyInfo) {
+        if (replyInfo == null) return null;
+
+        return MessageResponse.ReplyInfo.builder()
+                .messageId(replyInfo.getMessageId())
+                .senderId(replyInfo.getSenderId())
+                .type(replyInfo.getType())
+                .content(buildContentWithCdn(replyInfo.getContent(), replyInfo.getType()))
+                .build();
+    }
 
     // 3. Logic tùy biến chạy NGAY SAU KHI MapStruct map xong
     @AfterMapping
     protected void customizeContent(Message message, @MappingTarget MessageResponse response) {
-        // Chỉ nối CDN cho các loại media/file lưu bằng object key.
-        boolean shouldPrefixCdn = message.getMessageType() == MessageType.IMAGE
-                || message.getMessageType() == MessageType.VIDEO
-                || message.getMessageType() == MessageType.FILE
-                || message.getMessageType() == MessageType.AUDIO;
-
-        if (shouldPrefixCdn &&
-                message.getContent() != null &&
-                !message.getContent().isEmpty()) {
-
-            // Nối chuỗi Domain với S3 Key
-            response.setContent(cdnDomain + message.getContent());
-        }
+        response.setContent(
+                buildContentWithCdn(message.getContent(), message.getMessageType())
+        );
     }
 }

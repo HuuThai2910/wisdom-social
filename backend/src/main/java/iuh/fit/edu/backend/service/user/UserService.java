@@ -4,6 +4,7 @@ import iuh.fit.edu.backend.domain.entity.mysql.User;
 import iuh.fit.edu.backend.dto.request.friend.FriendRequest;
 import iuh.fit.edu.backend.dto.request.user.*;
 import iuh.fit.edu.backend.dto.response.user.*;
+import jakarta.transaction.Transactional;
 
 import java.time.Instant;
 import java.util.List;

@@ -16,6 +16,8 @@ public enum DomainEventType {
     MESSAGE_RECALLED,
     MESSAGE_SEEN,
     TYPING,
+    PIN_MESSAGE,
+    UPIN_MESSAGE,
     USER_STATUS,
 
 
@@ -28,5 +30,7 @@ public enum DomainEventType {
     MEMBER_ADDED,
     MEMBER_REMOVED,
     MEMBER_ROLE_CHANGED,
+    MEMBER_UPDATED,
+
 }
 

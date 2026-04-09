@@ -60,6 +60,14 @@ public class ChatEventListener {
 
         log.info("Broadcast MessageSeenEvent to {}", destination);
     }
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void handlePinUpdatedEvent(PinUpdatedEvent event) {
+        log.info("Phát sóng sự kiện cập nhật GHIM cho phòng chat: {}", event.getConversationId());
+        String destination = "/topic/conversations/" + event.getConversationId() + "/pins";
+
+        // Bắn toàn bộ object PinUpdatedEvent (đã chứa sẵn DomainEventType và list Pins) xuống FE
+        messagingTemplate.convertAndSend(destination, event);
+    }
 
     @EventListener
     public void handleTypingEvent(TypingEvent event) {

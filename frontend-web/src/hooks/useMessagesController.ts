@@ -177,7 +177,8 @@ export function useMessagesController() {
                                     // Kiểm tra lại lần nữa để tránh duplicate
                                     if (
                                         prev.some(
-                                            (conv) => conv.id === conversationId,
+                                            (conv) =>
+                                                conv.id === conversationId,
                                         )
                                     ) {
                                         return prev;
@@ -315,7 +316,7 @@ export function useMessagesController() {
                 conv.type === "GROUP"
                     ? conv.name
                     : conv.members?.find((m) => m.userId !== currentUserId)
-                        ?.nickname;
+                          ?.nickname;
             return displayName?.toLowerCase().includes(trimmed);
         });
     }, [conversations, currentUserId, searchQuery]);
@@ -399,6 +400,7 @@ export function useMessagesController() {
 
         selectedConversationId,
         currentUserId,
+        conversations,
 
         filteredConversations,
         handleSelectConversation,

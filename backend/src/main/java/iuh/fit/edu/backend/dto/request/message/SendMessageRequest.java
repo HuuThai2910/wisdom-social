@@ -20,4 +20,5 @@ public class SendMessageRequest {
     private String content;
     private MessageType type;
     private Long conversationId;
+    private String replyToId;
 }

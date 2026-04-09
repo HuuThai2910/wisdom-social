@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import iuh.fit.edu.backend.constant.MessageType;
 import iuh.fit.edu.backend.constant.UploadModule;
 import iuh.fit.edu.backend.domain.entity.mysql.Conversation;
+import iuh.fit.edu.backend.domain.entity.mysql.PinnedMessageDetail;
 import iuh.fit.edu.backend.domain.entity.mysql.User;
 import iuh.fit.edu.backend.domain.entity.nosql.Message;
 import iuh.fit.edu.backend.dto.request.SendCallMessageRequest;
@@ -22,6 +23,7 @@ import iuh.fit.edu.backend.dto.response.conversation.ConversationMemberResponse;
 import iuh.fit.edu.backend.dto.response.message.LastMessageResponse;
 import iuh.fit.edu.backend.dto.response.message.MessageResponse;
 import iuh.fit.edu.backend.event.payload.MessageRecalledEvent;
+import iuh.fit.edu.backend.event.payload.PinUpdatedEvent;
 import iuh.fit.edu.backend.mapper.ConversationMapper;
 import iuh.fit.edu.backend.mapper.MessageMapper;
 import iuh.fit.edu.backend.repository.mysql.ConversationMemberRepository;
@@ -68,6 +70,9 @@ public class MessageServiceImpl implements MessageService {
     private final S3Service s3Service;
     private final ObjectMapper objectMapper;
 
+    /**
+     * Hàm xử lý việc gửi tin nhắn
+     */
     @Override
     @Transactional
     public MessageResponse sendMessage(SendMessageRequest sendMessageRequest, Long userId) {
@@ -89,13 +94,166 @@ public class MessageServiceImpl implements MessageService {
         newMessage.setSenderId(senderInfo.getUserId());
         newMessage.setConversationId(sendMessageRequest.getConversationId());
         newMessage.setCreatedAt(Instant.now().truncatedTo(ChronoUnit.MILLIS));
+        newMessage.setReplyInfo(buildReplyInfo(sendMessageRequest.getReplyToId()));
+
         Message savedMessage = messageRepository.save(newMessage);
+
+        // Tạo full response cho người đang chat
+        MessageResponse messageResponse = this.messageMapper.toMessageResponse(savedMessage);
+
+
+        // XỬ LÝ SIDE EFFECTS (CÁC TÁC VỤ PHỤ)
+        LastMessageResponse lastMessageResponse = processPostMessageSideEffects(
+                conversation, savedMessage, senderInfo, messageResponse
+        );
+
+        // Ban su kien gui tin nhan di cho cac noi dang ky
+        publishMessageEvents(conversation.getId(), messageResponse, lastMessageResponse);
+
+        return messageResponse;
+    }
+
+    /**
+     * Hàm xử lý việc ghim tin nhắn
+     */
+    @Override
+    @Transactional
+    public void pinMessage(String messageId, Long userId) {
+        Message targetMessage = messageRepository.findById(messageId)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy tin nhắn"));
+        Long conversationId = targetMessage.getConversationId();
+
+        Conversation conversation = conversationRepository.findById(conversationId)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy cuộc trò chuyện"));
+
+        ConversationMemberResponse senderInfo = conversationMemberService
+                .getMemberInfo(conversationId, userId);
+        if (senderInfo == null) {
+            throw new RuntimeException("Bạn không phải thành viên của cuộc trò chuyện");
+        }
+
+        List<PinnedMessageDetail> pinnedList = conversation.getPinnedMessages() != null
+            ? new ArrayList<>(conversation.getPinnedMessages())
+            : new ArrayList<>();
+
+        // Kiểm tra nếu tin nhắn đã ghim rồi thì không ghim lại
+        if (pinnedList.stream().anyMatch(p -> p.getMessageId().equals(messageId))) {
+            throw new RuntimeException("Tin nhắn này đã được ghim");
+        }
+
+        // Luôn đảm bảo danh sách ghim không quá 3 tin
+        // Nếu đã có 3 tin, bỏ ghim tin cũ nhất (index 0) trước khi thêm tin mới
+        if (pinnedList.size() > 2) {
+            PinnedMessageDetail oldest = pinnedList.remove(0);
+            // Tạo tin nhắn hệ thống thông báo "Bỏ ghim"
+            // User sẽ thấy: "{user_name} đã bỏ ghim một tin nhắn"
+            createAndPublishSystemMessage(oldest.getMessageId(), userId, conversationId,
+                    MessageType.SYSTEM_UPIN, "đã bỏ ghim một tin nhắn");
+        }
+
+        // Thêm tin mới vào danh sách ghim
+        pinnedList.add(new PinnedMessageDetail(messageId, userId, Instant.now().truncatedTo(ChronoUnit.MILLIS)));
+
+        // Gán list mới để Hibernate detect dirty cho cột JSON pin list
+        conversation.setPinnedMessages(pinnedList);
+        conversationRepository.save(conversation);
+
+        // Tạo tin nhắn hệ thống thông báo "Đã ghim"
+        // User sẽ thấy: "{user_name} đã ghim một tin nhắn"
+        createAndPublishSystemMessage(messageId, userId, conversationId,
+                MessageType.SYSTEM_PIN, "đã ghim một tin nhắn");
+
+        // Bắn event cập nhật danh sách ghim trên Header cho tất cả members
+        eventPublisher.publishEvent(new PinUpdatedEvent(conversationId, pinnedList));
+    }
+
+    @Override
+    @Transactional
+    public void unpinMessage(String messageId, Long userId) {
+        Message targetMessage = messageRepository.findById(messageId)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy tin nhắn"));
+        Long conversationId = targetMessage.getConversationId();
+
+        Conversation conversation = conversationRepository.findById(conversationId)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy cuộc trò chuyện"));
+
+        ConversationMemberResponse senderInfo = conversationMemberService
+                .getMemberInfo(conversationId, userId);
+        if (senderInfo == null) {
+            throw new RuntimeException("Bạn không phải thành viên của cuộc trò chuyện");
+        }
+
+        List<PinnedMessageDetail> pinnedList = conversation.getPinnedMessages() != null
+            ? new ArrayList<>(conversation.getPinnedMessages())
+            : new ArrayList<>();
+
+        // Kiểm tra nếu tin nhắn không có trong danh sách ghim thì báo lỗi
+        boolean removed = pinnedList.removeIf(p -> p.getMessageId().equals(messageId));
+        if (!removed) {
+            throw new RuntimeException("Tin nhắn này chưa được ghim");
+        }
+
+        // Cập nhật danh sách ghim
+        conversation.setPinnedMessages(pinnedList);
+        conversationRepository.save(conversation);
+
+        // Tạo tin nhắn hệ thống thông báo "Bỏ ghim"
+        createAndPublishSystemMessage(messageId, userId, conversationId,
+                MessageType.SYSTEM_UPIN, "đã bỏ ghim một tin nhắn");
+
+        // Bắn event cập nhật danh sách ghim trên Header cho tất cả members
+        eventPublisher.publishEvent(new PinUpdatedEvent(conversationId, pinnedList));
+    }
+
+    // --- HÀM TẠO TIN NHẮN HỆ THỐNG VÀ CẬP NHẬT SIDEBAR ---
+    private void createAndPublishSystemMessage(String targetMsgId, Long senderId, Long convId, MessageType type, String content) {
+        Conversation conversation = conversationRepository.findById(convId).get();
+        ConversationMemberResponse senderInfo = conversationMemberService.getMemberInfo(convId, senderId);
+
+        // 1. Lưu Mongo
+        Message systemMsg = new Message();
+        systemMsg.setMessageType(type);
+        systemMsg.setContent(content);
+        systemMsg.setSenderId(senderId);
+        systemMsg.setConversationId(convId);
+        systemMsg.setCreatedAt(Instant.now().truncatedTo(ChronoUnit.MILLIS));
+        systemMsg.setReplyInfo(buildReplyInfo(targetMsgId));
+        Message savedMsg = messageRepository.save(systemMsg);
+
+        // 2. Map sang Response
+        MessageResponse resp = messageMapper.toMessageResponse(savedMsg);
+
+        // 3. Xử lý hệ quả (Sidebar, Redis, MySQL Unread)
+        LastMessageResponse sidebarResp = processPostMessageSideEffects(conversation, savedMsg, senderInfo, resp);
+
+        // 4. Phát tán sự kiện (WebSocket)
+        publishMessageEvents(convId, resp, sidebarResp);
+    }
+
+    // Hàm dùng để bắn sự kiện cho các kênh đăng ký
+    private void publishMessageEvents(Long conversationId, MessageResponse msgResp, LastMessageResponse sidebarResp) {
+        // Kênh trong phòng
+        this.eventPublisher.publishEvent(new MessageCreatedEvent(msgResp));
+        // Kênh Sidebar
+        Set<Long> memberIds = this.conversationMemberService.getAllMemberId(conversationId);
+        this.eventPublisher.publishEvent(new ConversationUpdatedEvent(conversationId, sidebarResp, memberIds));
+    }
+
+
+    // Hàm xử lý hệ quả (MySQL, Cache)
+    private LastMessageResponse processPostMessageSideEffects(
+            Conversation conversation, Message savedMessage,
+            ConversationMemberResponse senderInfo, MessageResponse messageResponse) {
+
+        // Lưu vào redis cache (giúp lần sau load nhanh hơn, tiết kiệm thời gian phải truy vấn xuống db)
+        messageCacheService.cacheNewMessage(messageResponse);
 
         // Cập nhật trạng thái phòng khi người dùng nhắn tin (gồm tin nhắn mới nhất, người nhắn, thời gian)
         String sidebarPreview = getSidebarPreview(savedMessage.getMessageType(), savedMessage.getContent());
         conversation.setLastMessageContent(sidebarPreview);
         conversation.setLastMessageAt(savedMessage.getCreatedAt());
         conversation.setLastSenderId(savedMessage.getSenderId());
+
         // Snapshot sidebar dùng type tương thích DB cũ; nội dung vẫn thể hiện cuộc gọi rõ ràng.
         MessageType sidebarMessageType = savedMessage.getMessageType() == MessageType.CALL
                 ? MessageType.TEXT
@@ -105,33 +263,36 @@ public class MessageServiceImpl implements MessageService {
 
         // Tăng unreadCount cho các thành viên khác trong DB
         conversationMemberRepository.incrementUnreadCount(savedConversation.getId(), senderInfo.getUserId());
-
         // Reset isHidden về false cho tất cả members (để conversation hiện lại nếu đã bị ẩn)
         conversationMemberRepository.unhideConversationForAllMembers(savedConversation.getId());
 
-        // Tạo full response cho người đang chat
-        MessageResponse messageResponse = this.messageMapper.toMessageResponse(savedMessage);
-        messageResponse.setSenderName(senderInfo.getNickname());
-        messageResponse.setSenderAvatar(senderInfo.getAvatar());
-
-        // Lưu vào redis cache (giúp lần sau load nhanh hơn, tiết kiệm thời gian phải truy vấn xuống db)
-        messageCacheService.cacheNewMessage(messageResponse);
-
-        // Tạo short message response cho sidebar
-        LastMessageResponse lastMessageResponse = this.conversationMapper.toLastMessageResponse(conversation);
+        // 4. Build Sidebar Response
+        LastMessageResponse lastMessageResponse = this.conversationMapper.toLastMessageResponse(savedConversation);
         lastMessageResponse.setLastSenderName(senderInfo.getNickname());
         lastMessageResponse.setRead(false);
 
-        // Publish Event
-        // Event 1: Cho user đang mở cuộc hội thoại
-        this.eventPublisher.publishEvent(new MessageCreatedEvent(messageResponse));
+        return lastMessageResponse;
+    }
 
-        // Event 2: Cho side bar của user
-        Set<Long> memberIds = this.conversationMemberService.getAllMemberId(conversation.getId());
-        this.eventPublisher
-                .publishEvent(new ConversationUpdatedEvent(conversation.getId(), lastMessageResponse, memberIds));
+    // Lay ra duoc thong tin neu day la tin nhan phan hoi
+    private Message.ReplyInfo buildReplyInfo(String replyToId){
+        if(replyToId == null || replyToId.trim().isEmpty()){
+            return null;
+        }
+        Message originalMsg = this.messageRepository.findById(replyToId)
+                .orElseThrow(() -> new RuntimeException("Tin nhan goc khong ton tai"));
 
-        return messageResponse;
+        String previewContent = originalMsg.getContent();
+        if(previewContent != null && previewContent.length() > 50 && originalMsg.getMessageType() == MessageType.TEXT){
+            previewContent = previewContent.substring(0, 47) + "...";
+        }
+
+        return  Message.ReplyInfo.builder()
+                .messageId(originalMsg.getId())
+                .senderId(originalMsg.getSenderId())
+                .type(originalMsg.getMessageType())
+                .content(previewContent)
+                .build();
     }
 
     @Override
@@ -157,6 +318,8 @@ public class MessageServiceImpl implements MessageService {
             case FILE -> "[Tệp đính kèm]";
             case AUDIO -> "[Tin nhắn thoại]";
             case CALL -> getCallPreview(content);
+            case SYSTEM_PIN -> "Đã ghim một tin nhắn";
+            case SYSTEM_UPIN -> "Đã bỏ ghim một tin nhắn";
             case TEXT -> content; // Text thì in ra bình thường
             default -> "Đã gửi một tin nhắn";
         };
@@ -295,10 +458,7 @@ public class MessageServiceImpl implements MessageService {
         // Nếu FE yêu cầu load trang cũ hơn mốc user đã xóa -> Chắc chắn rỗng.
         // Trả về ngay lập tức, KHÔNG chạm vào Redis, KHÔNG chạm vào Mongo!
         // =========================================================================
-        log.info("Before {}", before== null ? "Null" : before);
-        log.info("clearedAt {}", clearedAt== null ? "Null" : clearedAt);
         if (clearedAt != null && before != null && before.toEpochMilli() <= clearedAt.toEpochMilli()) {
-            log.info("Test");
             return CursorResponse.<List<MessageResponse>>builder()
                     .data(Collections.emptyList())
                     .nextCursor(null)
@@ -323,8 +483,9 @@ public class MessageServiceImpl implements MessageService {
             List<Message> mongoMessages = fetchMessagesFromDb(conversationId, before, limit + 1);
             log.info("List message from mongo {}", mongoMessages.size());
 
-            // Map sang Response (Điền tên/avatar)
-            finalResponseList = enrichMessageResponses(conversationId, mongoMessages);
+            finalResponseList = mongoMessages.stream()
+                    .map(messageMapper::toMessageResponse)
+                    .collect(Collectors.toList());
 
             // Chỉ cache phần dữ liệu chính (bỏ phần tử dư dùng check hasNext)
             List<MessageResponse> toCache = finalResponseList.size() > limit
@@ -366,16 +527,37 @@ public class MessageServiceImpl implements MessageService {
         List<MessageResponse> ascResponseList = new ArrayList<>(filteredList);
         Collections.reverse(ascResponseList);
 
+        // Lay ra thong tin cua nhung nguoi da roi khoi nhom
+        Map<Long, CursorResponse.UserReferenceDTO> referenceUsers = new HashMap<>();
+        Map<Long, ConversationMemberResponse> currentMembers = conversationMemberService.getMembersMap(conversationId);
+
+        Set<Long> missingSenderIds = ascResponseList.stream()
+                .map(MessageResponse::getSenderId)
+                .filter(id -> !currentMembers.containsKey(id))
+                .collect(Collectors.toSet());
+
+        // Nếu có ai đó bị thiếu, query bảng User gốc để lấy Tên và Avatar của họ bù vào
+        if (!missingSenderIds.isEmpty()) {
+            List<User> leftUsers = userRepository.findAllById(missingSenderIds);
+            leftUsers.forEach(u -> referenceUsers.put(
+                    u.getId(),
+                    new CursorResponse.UserReferenceDTO(u.getName(), u.getAvatarUrl())
+            ));
+        }
+
+
         ascResponseList.forEach(msg -> msg.setDeletedFor(null));
 
 
-        log.info("Final List message returned to user {}", ascResponseList);
-        log.info("Final List message returned to user {}", ascResponseList.size());
+        log.info("Final List message returned to user. Size: {}, Data: {}",
+                ascResponseList.size(),
+                ascResponseList);
 
         return CursorResponse.<List<MessageResponse>>builder()
                 .data(ascResponseList)
                 .nextCursor(nextCursor)
                 .hasNext(hasNext)
+            .referenceUsers(referenceUsers)
                 .build();
     }
 
@@ -394,51 +576,5 @@ public class MessageServiceImpl implements MessageService {
         }
     }
 
-    /**
-     * Map từ Message Entity sang MessageResponse có đầy đủ thông tin Sender
-     * Logic Bulk Query tối ưu N+1
-     */
-    private List<MessageResponse> enrichMessageResponses(Long conversationId, List<Message> messages) {
-        if (messages.isEmpty())
-            return Collections.emptyList();
 
-        // Lấy ra toàn bộ id của thành viên trong nhóm và không trùng
-        Set<Long> senderIds = messages.stream()
-                .map(Message::getSenderId)
-                .collect(Collectors.toSet());
-
-        // Lấy thành viên hiện tại
-        Map<Long, ConversationMemberResponse> currentMembers = conversationMemberService.getMembersMap(conversationId,
-                senderIds);
-
-        // Lọc ra những thành viên không còn trong nhóm nhưng vẫn còn tin nhắn
-        Map<Long, User> leftUsers = senderIds.stream()
-                .filter(id -> !currentMembers.containsKey(id))
-                .collect(Collectors.collectingAndThen(
-                        Collectors.toSet(),
-                        ids -> ids.isEmpty()
-                                ? Map.of()
-                                : userRepository.findAllById(ids).stream()
-                                        .collect(Collectors.toMap(User::getId, u -> u))));
-
-        return messages.stream()
-                .map(message -> {
-                    MessageResponse res = messageMapper.toMessageResponse(message);
-                    Long senderId = message.getSenderId();
-
-                    ConversationMemberResponse member = currentMembers.get(senderId);
-                    if (member != null) {
-                        res.setSenderName(member.getNickname());
-                        res.setSenderAvatar(member.getAvatar());
-                    } else if (leftUsers.containsKey(senderId)) {
-                        User user = leftUsers.get(senderId);
-                        res.setSenderName(user.getName());
-                        res.setSenderAvatar(user.getAvatarUrl());
-                    } else {
-                        res.setSenderName("Người dùng ẩn");
-                    }
-                    return res;
-                })
-                .collect(Collectors.toList()); // Trả về list DESC
-    }
 }
