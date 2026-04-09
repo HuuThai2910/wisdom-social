@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { useState, useEffect } from "react";
 import type { User } from "../../types";
-import { Settings, LogOut, QrCode, X } from "lucide-react";
+import { Settings, LogOut, QrCode, X, MessageCircle } from "lucide-react";
 import { logout } from "../../utils/auth";
 import axiosClient from "../../api/axiosClient";
 import NoteModal from "./NoteModal";
@@ -67,201 +67,172 @@ export default function ProfileHeader({
 
   return (
     <>
-      <div className="bg-white dark:bg-[#000] px-4 py-8 md:px-8 md:py-12 border-b border-gray-200 dark:border-[#262626]">
-        <div className="max-w-[935px] mx-auto">
-          <div className="flex gap-7 md:gap-[75px] mb-11">
-            {/* Avatar with Note */}
-            <div className="flex-shrink-0 relative flex flex-col items-center">
-              {/* Note bubble — shown above avatar when a note exists */}
-              {note && (
-                <button
-                  onClick={() => setShowNoteModal(true)}
-                  className="mb-2 max-w-[130px] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-2xl rounded-bl-none px-3 py-2 shadow-sm hover:shadow-md transition-shadow text-left"
-                >
-                  {note.content ? (
-                    <span className="text-xs text-gray-700 dark:text-gray-200 line-clamp-2 leading-snug break-words">
-                      {note.content}
-                    </span>
-                  ) : note.music ? (
-                    <span className="flex items-center gap-1.5 min-w-0">
-                      {note.music.coverUrl && (
-                        <img
-                          src={note.music.coverUrl}
-                          alt=""
-                          className="w-6 h-6 rounded flex-shrink-0 object-cover"
-                        />
-                      )}
-                      <span className="text-xs text-gray-700 dark:text-gray-200 line-clamp-2 leading-snug break-words min-w-0">
-                        🎵 {note.music.title}
+      <div className="bg-white dark:bg-black px-6 md:px-8 py-8 md:py-12">
+        <div className="max-w-6xl mx-auto">
+          {/* Main Profile Card - Web-appropriate sizing */}
+          <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl p-8 border border-gray-200 dark:border-[#262626]">
+
+            {/* Settings button - top right */}
+            {isOwnProfile && (
+              <div className="absolute top-8 right-8">
+                <div className="relative">
+                  <button
+                    onClick={() => setShowSettingsMenu(!showSettingsMenu)}
+                    className="p-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors"
+                  >
+                    <Settings size={24} />
+                  </button>
+
+                  {showSettingsMenu && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-40"
+                        onClick={() => setShowSettingsMenu(false)}
+                      />
+                      <div className="absolute right-0 top-full mt-2 w-48 bg-white dark:bg-[#262626] rounded-lg shadow-lg overflow-hidden z-50">
+                        <button className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-[#363636] dark:text-gray-200 transition-colors text-sm border-b border-gray-200 dark:border-[#363636]">
+                          <QrCode size={18} />
+                          QR code
+                        </button>
+                        <button
+                          onClick={handleLogout}
+                          className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-[#363636] text-red-600 dark:text-red-400 transition-colors text-sm font-medium"
+                        >
+                          <LogOut size={18} />
+                          Đăng xuất
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Top section: Avatar + User Info */}
+            <div className="flex gap-8 md:gap-10">
+              {/* Avatar Column */}
+              <div className="flex flex-col items-center flex-shrink-0">
+                {note && (
+                  <button
+                    onClick={() => setShowNoteModal(true)}
+                    className="mb-3 w-24 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-2xl rounded-bl-none px-3 py-2 shadow-sm text-left text-xs hover:shadow-md transition-all"
+                  >
+                    {note.content ? (
+                      <span className="text-gray-700 dark:text-gray-200 line-clamp-2 break-words">
+                        {note.content}
                       </span>
-                    </span>
-                  ) : note.location ? (
-                    <span className="text-xs text-gray-700 dark:text-gray-200 line-clamp-2 leading-snug break-words">
-                      📍 {note.location}
-                    </span>
-                  ) : null}
-                </button>
-              )}
-
-              {/* Avatar — clickable to view or open note modal */}
-              <button
-                onClick={() => isOwnProfile ? setShowNoteModal(true) : setShowAvatarModal(true)}
-                className="relative focus:outline-none hover:opacity-80 transition-opacity"
-                title={
-                  isOwnProfile
-                    ? note ? "View note" : "Add a note"
-                    : "View avatar"
-                }
-              >
-                <img
-                  src={buildS3Url(user.avatarUrl) || user.avatarUrl}
-                  alt={user.username}
-                  className="w-[77px] h-[77px] md:w-[150px] md:h-[150px] rounded-full object-cover"
-                />
-              </button>
-
-              {/* "Note" label under avatar for own profile */}
-              {isOwnProfile && !note && (
+                    ) : note.music ? (
+                      <span>🎵 {note.music.title}</span>
+                    ) : note.location ? (
+                      <span>📍 {note.location}</span>
+                    ) : null}
+                  </button>
+                )}
                 <button
-                  onClick={() => setShowNoteModal(true)}
-                  className="mt-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors"
+                  onClick={() => isOwnProfile ? setShowNoteModal(true) : setShowAvatarModal(true)}
+                  className="relative mb-2 hover:opacity-80 transition-opacity"
                 >
-                  + Note
+                  <img
+                    src={buildS3Url(user.avatarUrl) || user.avatarUrl || "https://i.pravatar.cc/150"}
+                    alt={user.username}
+                    className="w-32 h-32 rounded-full object-cover border-4 border-gray-200 dark:border-[#363636]"
+                  />
+                  <div className="absolute bottom-2 right-2 w-5 h-5 bg-green-500 rounded-full border-3 border-white dark:border-[#1a1a1a]" />
                 </button>
-              )}
-            </div>
-
-            {/* Info */}
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-3 mb-5">
-                <h1 className="text-xl font-normal dark:text-white">
-                  {user.username}
-                </h1>
-                {isOwnProfile ? (
-                  <>
-                    <Link
-                      to="/edit-profile"
-                      className="px-4 py-[7px] bg-[#efefef] dark:bg-[#262626] hover:bg-[#dbdbdb] dark:hover:bg-[#363636] rounded-lg text-sm font-semibold dark:text-white"
-                    >
-                      Edit profile
-                    </Link>
-                    <Link
-                      to="/settings"
-                      className="px-4 py-[7px] bg-[#efefef] dark:bg-[#262626] hover:bg-[#dbdbdb] dark:hover:bg-[#363636] rounded-lg text-sm font-semibold dark:text-white"
-                    >
-                      View archive
-                    </Link>
-                    <div className="relative">
-                      <button
-                        onClick={() => setShowSettingsMenu(!showSettingsMenu)}
-                        className="p-2 text-gray-900 dark:text-gray-200 hover:text-gray-500 dark:hover:text-gray-400"
-                      >
-                        <Settings size={24} />
-                      </button>
-
-                      {/* Settings Dropdown Menu */}
-                      {showSettingsMenu && (
-                        <>
-                          <div
-                            className="fixed inset-0 z-40"
-                            onClick={() => setShowSettingsMenu(false)}
-                          />
-                          <div className="absolute right-0 top-full mt-2 w-[266px] bg-white dark:bg-[#262626] rounded-2xl shadow-[0_4px_12px_rgba(0,0,0,0.15)] dark:shadow-[0_4px_12px_rgba(0,0,0,0.5)] overflow-hidden z-50">
-                            {/* QR Code Button */}
-                            <button className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-gray-50 dark:hover:bg-[#3a3a3a] dark:text-white transition-colors">
-                              <QrCode size={18} />
-                              <span className="text-[14px]">QR code</span>
-                            </button>
-
-                            <div className="h-[1px] bg-gray-200 dark:bg-[#363636]" />
-
-                            {/* Log Out Button */}
-                            <button
-                              onClick={handleLogout}
-                              className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-gray-50 dark:hover:bg-[#3a3a3a] text-red-600 dark:text-red-400 transition-colors"
-                            >
-                              <LogOut size={18} />
-                              <span className="text-[14px] font-semibold">
-                                Log out
-                              </span>
-                            </button>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <FriendActions
-                      targetUserId={user.id}
-                      targetUsername={user.username}
-                      size="md"
-                    />
-                    <button className="px-6 py-[7px] bg-[#efefef] dark:bg-[#262626] hover:bg-[#dbdbdb] dark:hover:bg-[#363636] rounded-lg text-sm font-semibold dark:text-white">
-                      Message
-                    </button>
-                    <BlockUnblockButton userId={user.id} username={user.username} />
-                  </>
+                {isOwnProfile && !note && (
+                  <button
+                    onClick={() => setShowNoteModal(true)}
+                    className="text-sm text-blue-500 hover:text-blue-600 font-medium mt-1"
+                  >
+                    + Thêm ghi chú
+                  </button>
                 )}
               </div>
 
-              {/* Stats */}
-              <div className="flex items-center gap-10 mb-5">
-                <div className="text-base dark:text-white">
-                  <span className="font-semibold">{user.postsCount}</span>{" "}
-                  <span className="text-gray-900 dark:text-gray-300">
-                    posts
-                  </span>
+              {/* Right column: Info + Stats */}
+              <div className="flex-1 min-w-0">
+                {/* Name and username */}
+                <div className="mb-4">
+                  <h1 className="text-2xl font-bold dark:text-white">
+                    {user.fullName || user.username}
+                  </h1>
+                  {user.username && (
+                    <p className="text-gray-600 dark:text-gray-400 text-base">
+                      @{user.username}
+                    </p>
+                  )}
                 </div>
-                <button
-                  onClick={() => setShowFriendsModal(true)}
-                  className="hover:text-gray-500 dark:hover:text-gray-400 text-base dark:text-white transition-colors"
-                >
-                  <span className="font-semibold">
-                    {user.friendsCount?.toLocaleString()}
-                  </span>{" "}
-                  <span className="text-gray-900 dark:text-gray-300">
-                    friends
-                  </span>
-                </button>
-                <button className="hover:text-gray-500 dark:hover:text-gray-400 text-base dark:text-white">
-                  <span className="font-semibold">
-                    {user.followersCount?.toLocaleString()}
-                  </span>{" "}
-                  <span className="text-gray-900 dark:text-gray-300">
-                    followers
-                  </span>
-                </button>
-                <button className="hover:text-gray-500 dark:hover:text-gray-400 text-base dark:text-white">
-                  <span className="font-semibold">{user.followingCount}</span>{" "}
-                  <span className="text-gray-900 dark:text-gray-300">
-                    following
-                  </span>
-                </button>
-              </div>
 
-              {/* Bio and Metadata */}
-              <div className="text-sm dark:text-white">
-                <p className="font-semibold mb-1">{user.fullName}</p>
+                {/* Bio */}
                 {user.bio && (
-                  <p className="whitespace-pre-line dark:text-gray-300 mt-1">
+                  <p className="text-base dark:text-gray-300 mb-4 leading-relaxed">
                     {user.bio}
                   </p>
                 )}
 
-                {/* Birthday and Gender */}
-                <div className="flex items-center gap-4 mt-2 flex-wrap">
+                {/* Birthday & Gender */}
+                <div className="flex flex-wrap gap-4 mb-6 text-sm text-gray-600 dark:text-gray-400">
                   {user.birthday && (
-                    <div className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
+                    <div className="flex items-center gap-2">
                       <span>📅</span>
                       <span>{user.birthday}</span>
                     </div>
                   )}
                   {user.gender && (
-                    <div className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
+                    <div className="flex items-center gap-2">
                       <span>👥</span>
-                      <span>{genderLabel}</span>
+                      <span>{GENDER_LABELS[user.gender] || "Ẩn"}</span>
                     </div>
+                  )}
+                </div>
+
+                {/* Stats Grid */}
+                <div className="grid grid-cols-2 gap-8 mb-6 pb-6 border-b border-gray-200 dark:border-[#262626]">
+                  <div>
+                    <p className="text-2xl font-bold dark:text-white">{user.postsCount || 0}</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">Bài viết</p>
+                  </div>
+                  <button
+                    onClick={() => setShowFriendsModal(true)}
+                    className="text-left hover:opacity-70 transition-opacity"
+                  >
+                    <p className="text-2xl font-bold dark:text-white">
+                      {user.friendsCount?.toLocaleString() || 0}
+                    </p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">Bạn bè</p>
+                  </button>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex gap-3 flex-wrap">
+                  {isOwnProfile ? (
+                    <>
+                      <Link
+                        to="/edit-profile"
+                        className="flex-1 min-w-[140px] px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-semibold transition-colors text-center"
+                      >
+                        ✎ Chỉnh sửa hồ sơ
+                      </Link>
+                      <Link
+                        to="/settings"
+                        className="px-6 py-3 bg-gray-200 dark:bg-[#262626] hover:bg-gray-300 dark:hover:bg-[#363636] dark:text-white rounded-lg font-semibold transition-colors"
+                      >
+                        Cài đặt
+                      </Link>
+                    </>
+                  ) : (
+                    <>
+                      <FriendActions
+                        targetUserId={user.id}
+                        targetUsername={user.username}
+                        size="md"
+                      />
+                      <button className="flex-1 min-w-[140px] px-6 py-3 bg-gray-200 dark:bg-[#262626] hover:bg-gray-300 dark:hover:bg-[#363636] dark:text-white rounded-lg font-semibold transition-colors flex items-center justify-center gap-2">
+                        <MessageCircle size={18} />
+                        Nhắn tin
+                      </button>
+                      <BlockUnblockButton userId={user.id} username={user.username} />
+                    </>
                   )}
                 </div>
               </div>

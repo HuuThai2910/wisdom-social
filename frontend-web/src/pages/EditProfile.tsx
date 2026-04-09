@@ -244,7 +244,7 @@ export default function EditProfile() {
             <ArrowLeft size={24} className="dark:text-white" />
           </Link>
           <h1 className="text-xl font-semibold dark:text-white">
-            Edit profile
+            Chỉnh sửa hồ sơ
           </h1>
         </div>
       </div>
@@ -277,7 +277,7 @@ export default function EditProfile() {
           <div className="flex items-center gap-6 bg-gray-50 dark:bg-[#121212] rounded-2xl p-6">
             <div className="flex-shrink-0 relative">
               <img
-                src={previewAvatar.startsWith('data:') ? previewAvatar : buildS3Url(previewAvatar) || "https://i.pravatar.cc/150"}
+                src={previewAvatar.startsWith('data:') ? previewAvatar : buildS3Url(previewAvatar)}
                 alt="avatar"
                 className="w-20 h-20 rounded-full object-cover"
               />
@@ -296,7 +296,7 @@ export default function EditProfile() {
               </p>
               {selectedFile && (
                 <p className="text-xs text-blue-500 mt-1">
-                  {selectedFile.name} selected
+                  {selectedFile.name} đã chọn
                 </p>
               )}
             </div>
@@ -315,18 +315,9 @@ export default function EditProfile() {
                 className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-semibold text-sm transition-colors disabled:opacity-50 flex items-center gap-2"
               >
                 <Upload size={16} />
-                Choose photo
+                Chọn ảnh
               </button>
-              {selectedFile && (
-                <button
-                  type="button"
-                  onClick={handleUploadAvatar}
-                  disabled={uploading}
-                  className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg font-semibold text-sm transition-colors disabled:opacity-50"
-                >
-                  {uploading ? "Uploading..." : "Upload"}
-                </button>
-              )}
+              
             </div>
           </div>
 

@@ -8,6 +8,7 @@ import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useAvatarBuster } from "../../context/AvatarContext";
 import { FriendNotificationProvider } from "../../contexts/FriendNotificationContext";
 import { FriendDataProvider, useFriendData } from "../../contexts/FriendDataContext";
+import { buildS3Url } from "../../utils/s3";
 
 // Inner component that uses FriendDataContext
 function MainLayoutContent() {
@@ -45,7 +46,7 @@ function MainLayoutContent() {
               className="flex items-center gap-3 py-2 overflow-hidden"
             >
               <img
-                src={`${currentUser.avatarUrl}?bust=${avatarBuster}`}
+                src={buildS3Url(currentUser.avatarUrl) + `?bust=${avatarBuster}`}
                 alt={currentUser.username}
                 className="w-11 h-11 rounded-full shrink-0"
               />
@@ -88,7 +89,7 @@ function MainLayoutContent() {
                     className="flex items-center gap-3 flex-1 min-w-0"
                   >
                     <img
-                      src={user.avatarUrl}
+                      src={buildS3Url(user.avatarUrl)|| "https://i.pravatar.cc/150"}
                       alt={user.username}
                       className="w-11 h-11 rounded-full flex-shrink-0"
                     />

@@ -25,7 +25,20 @@ export default function ProfileLayout() {
 
         const users = await userService.searchUserByUsername(username);
         if (users && users.length > 0) {
-          const userData = users[0];
+          let userData = users[0];
+
+          // Load additional counts
+          try {
+            const [friends] = await Promise.all([
+              friendService.getFriends(userData.id),
+            ]);
+            userData = {
+              ...userData,
+              friendsCount: friends?.length || 0,
+            };
+          } catch (err) {
+            console.error("Error loading counts:", err);
+          }
 
           // Check if this is the current user's profile
           const currentUser = await getCurrentUser();
@@ -34,7 +47,6 @@ export default function ProfileLayout() {
             setUser(userData as any);
           } else if (currentUser) {
             // Check if this user has blocked the current user
-            // by checking if we can't see their profile
             try {
               const blockedByThis = await friendService.getBlockedUsers(userData.id);
               const isBlockedByThisUser = blockedByThis.some((u: User) => u.id === currentUser.id);
@@ -47,10 +59,12 @@ export default function ProfileLayout() {
                 setIsOwnProfile(false);
               }
             } catch (err) {
-              // If we can't fetch blocked users list, assume profile is accessible
               setUser(userData as any);
               setIsOwnProfile(false);
             }
+          } else {
+            setUser(userData as any);
+            setIsOwnProfile(false);
           }
         }
       } catch (error) {
@@ -99,10 +113,12 @@ export default function ProfileLayout() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto p-4 md:p-6">
+    <div className="bg-white dark:bg-black min-h-screen">
       <ProfileHeader user={user} isOwnProfile={isOwnProfile} />
       <ProfileTabs username={user.username} />
-      <Outlet context={{ user, isOwnProfile }} />
+      <div className="max-w-6xl mx-auto px-6 md:px-8 py-8 md:py-12">
+        <Outlet context={{ user, isOwnProfile }} />
+      </div>
     </div>
   );
 }
