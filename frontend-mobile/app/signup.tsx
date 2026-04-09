@@ -73,10 +73,14 @@ export default function SignUpScreen() {
                 setModalVisible(true);
             }
         } catch (error) {
+            const errorMessage =
+                error instanceof Error && error.message
+                    ? error.message
+                    : 'Có lỗi xảy ra, vui lòng thử lại';
             setModalData({
                 type: 'error',
                 title: 'Lỗi',
-                message: 'Có lỗi xảy ra, vui lòng thử lại',
+                message: errorMessage,
             });
             setModalVisible(true);
         } finally {

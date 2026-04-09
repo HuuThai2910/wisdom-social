@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from "react";
+import  { createContext, useContext, useState, useCallback, useEffect } from "react";
+import type  {ReactNode} from "react";
 import friendService from "../services/friendService";
 import { useCurrentUser } from "../hooks/useCurrentUser";
 import type { User } from "../types";
@@ -60,17 +61,21 @@ export function FriendDataProvider({ children }: { children: ReactNode }) {
 
     // Load friend requests (received)
     const refreshFriendRequests = useCallback(async () => {
-        if (!currentUser?.id) return;
-        
+        if (!currentUser?.id) {
+            console.log("⚠️  Cannot refresh friend requests: no currentUser.id");
+            return;
+        }
+
         setFriendRequestsLoading(true);
         setFriendRequestsError("");
         try {
-            console.log("🔄 Refreshing friend requests...");
+            console.log("🔄 Refreshing friend requests for user:", currentUser.id);
             const requests = await friendService.getFriendRequests(currentUser.id);
+            console.log("✅ Friend requests loaded:", requests?.length || 0, "requests");
             setFriendRequests(requests || []);
             console.log(`✅ Loaded ${requests?.length || 0} friend requests`);
         } catch (err: any) {
-            console.error("Error loading friend requests:", err);
+            console.error("❌ Error loading friend requests:", err);
             setFriendRequestsError("Không thể tải danh sách lời mời kết bạn");
         } finally {
             setFriendRequestsLoading(false);

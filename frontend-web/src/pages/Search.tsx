@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Search as SearchIcon, X, Loader2 } from "lucide-react";
 import userService from "../services/userService";
 import pageService from "../services/pageService";
+import friendService from "../services/friendService";
 import { useCurrentUser } from "../hooks/useCurrentUser";
 import { buildS3Url } from "../utils/s3";
 import type { User } from "../types";
@@ -21,6 +22,7 @@ export default function Search() {
 
     const [allUsers, setAllUsers] = useState<User[]>([]);
     const [allPages, setAllPages] = useState<Page[]>([]);
+    const [blockedUserIds, setBlockedUserIds] = useState<Set<number>>(new Set());
 
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [recentSearches, setRecentSearches] = useState<string[]>([]);
@@ -43,14 +45,19 @@ export default function Search() {
 
         setLoading(true);
         try {
-            const [users, pages] = await Promise.all([
-                userService.getAllUsers(),
+            const [users, pages, blockedUsers] = await Promise.all([
+                userService.getAllUsersSearch(currentUser?.id),
                 pageService.getAllPages(),
+                friendService.getBlockedUsers(userId),
             ]);
 
-            // Filter out current user
+            // Create set of blocked user IDs for quick lookup
+            const blockedIds = new Set(blockedUsers.map((u: User) => u.id));
+            setBlockedUserIds(blockedIds);
+
+            // Filter out current user and blocked users
             const filteredUsers = users.filter(
-                (u: User) => u.id !== userId
+                (u: User) => u.id !== userId && !blockedIds.has(u.id)
             );
 
             setAllUsers(filteredUsers);

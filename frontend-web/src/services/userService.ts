@@ -158,6 +158,11 @@ export const userService = {
         return response.data.data;
     },
 
+        async getAllUsersSearch(id:number): Promise<User[]> {
+        const response = await axiosClient.get(`auth/users/${id}`);
+        return response.data.data;
+    },
+
     async deleteUser(id: number): Promise<string> {
         const response = await axiosClient.delete(`auth/users/${id}`);
         return response.data.data;
@@ -191,6 +196,11 @@ export const userService = {
             params: { type, extension }
         });
         return response.data;
+    },
+
+    async getUsersBlockedByMe(userId: string | number): Promise<User[]> {
+        const response = await axiosClient.get(`auth/users/blocked/${userId}`);
+        return response.data.data;
     },
 };
 

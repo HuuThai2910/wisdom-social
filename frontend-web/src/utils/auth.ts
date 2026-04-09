@@ -50,6 +50,21 @@ const mapLoginError = (rawMessage?: string) => {
     return 'Đăng nhập thất bại. Vui lòng thử lại.';
 };
 
+const mapRegisterError = (rawMessage?: string) => {
+    const message = rawMessage || '';
+    const lower = message.toLowerCase();
+
+    if (
+        lower.includes('user already exists') ||
+        lower.includes('usernameexistsexception') ||
+        lower.includes('already exists')
+    ) {
+        return 'Số điện thoại đã được đăng ký. Vui lòng dùng số khác hoặc đăng nhập.';
+    }
+
+    return 'Đăng ký thất bại. Vui lòng thử lại.';
+};
+
 export const setAuthChangeCallback = (callback: () => void) => {
     authChangeCallback = callback;
 };
@@ -76,12 +91,12 @@ export const register = async (phone: string, password: string, confirmPassword:
     } catch (error: any) {
         console.error('Register error:', error);
         if (error.response?.data?.message) {
-            throw new Error(error.response.data.message);
+            throw new Error(mapRegisterError(error.response.data.message));
         }
         if (error.message) {
-            throw error;
+            throw new Error(mapRegisterError(error.message));
         }
-        throw new Error('Đăng ký thất bại. Vui lòng thử lại.');
+        throw new Error(mapRegisterError());
     }
 };
 

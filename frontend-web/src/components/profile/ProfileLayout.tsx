@@ -5,12 +5,15 @@ import ProfileTabs from "./ProfileTabs";
 import type { User } from "../../types";
 import { getCurrentUser } from "../../utils/auth";
 import userService from "../../services/userService";
+import friendService from "../../services/friendService";
 
 export default function ProfileLayout() {
   const { username } = useParams();
   const [user, setUser] = useState<User | null>(null);
   const [isOwnProfile, setIsOwnProfile] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     const loadUserProfile = async () => {
@@ -18,21 +21,41 @@ export default function ProfileLayout() {
 
       try {
         setLoading(true);
+        setError("");
+
         const users = await userService.searchUserByUsername(username);
         if (users && users.length > 0) {
           const userData = users[0];
-          setUser(userData as any);
 
           // Check if this is the current user's profile
           const currentUser = await getCurrentUser();
           if (currentUser && currentUser.username === userData.username) {
             setIsOwnProfile(true);
-          } else {
-            setIsOwnProfile(false);
+            setUser(userData as any);
+          } else if (currentUser) {
+            // Check if this user has blocked the current user
+            // by checking if we can't see their profile
+            try {
+              const blockedByThis = await friendService.getBlockedUsers(userData.id);
+              const isBlockedByThisUser = blockedByThis.some((u: User) => u.id === currentUser.id);
+
+              if (isBlockedByThisUser) {
+                setIsBlocked(true);
+                setError(`Bạn không thể xem hồ sơ này vì người dùng đã chặn bạn.`);
+              } else {
+                setUser(userData as any);
+                setIsOwnProfile(false);
+              }
+            } catch (err) {
+              // If we can't fetch blocked users list, assume profile is accessible
+              setUser(userData as any);
+              setIsOwnProfile(false);
+            }
           }
         }
       } catch (error) {
         console.error("Error fetching user profile:", error);
+        setError("Không thể tải hồ sơ người dùng");
       } finally {
         setLoading(false);
       }
@@ -49,13 +72,26 @@ export default function ProfileLayout() {
     );
   }
 
+  if (isBlocked) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-white dark:bg-[#000]">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold mb-2 dark:text-white">Không thể xem hồ sơ</h2>
+          <p className="text-gray-500 dark:text-gray-400">
+            {error || "Người dùng này đã chặn bạn."}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-white dark:bg-[#000]">
         <div className="text-center">
-          <h2 className="text-2xl font-bold mb-2">User not found</h2>
-          <p className="text-gray-500">
-            The user you're looking for doesn't exist.
+          <h2 className="text-2xl font-bold mb-2 dark:text-white">Không tìm thấy</h2>
+          <p className="text-gray-500 dark:text-gray-400">
+            {error || "Người dùng không tồn tại."}
           </p>
         </div>
       </div>

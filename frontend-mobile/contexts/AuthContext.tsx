@@ -15,6 +15,15 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Helper function to convert phone to international format
+const convertPhoneToInternational = (phone: string): string => {
+    if (!phone) return '';
+    if (phone.startsWith('+84')) return phone;
+    if (phone.startsWith('0')) return '+84' + phone.substring(1);
+    if (phone.startsWith('84')) return '+' + phone;
+    return '+84' + phone;
+};
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [user, setUser] = useState<any | null>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -26,6 +35,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         
         return () => clearTimeout(timer);
     }, []);
+
+    // Subscribe to profile updates via WebSocket
+    useEffect(() => {
+        if (!user?.phone) return;
+
+        const handleProfileUpdate = (message: any) => {
+            try {
+                const updatedUser = typeof message === 'string' ? JSON.parse(message) : message;
+                console.log('📱 Profile updated via WebSocket:', updatedUser);
+                setUser(updatedUser);
+                saveUser(updatedUser);
+            } catch (error) {
+                console.error('❌ Error parsing profile update:', error);
+            }
+        };
+
+        const setupProfileUpdates = async () => {
+            try {
+                const internationalPhone = convertPhoneToInternational(user.phone);
+
+                // Subscribe to profile update events
+                websocketService.on('profile-update', handleProfileUpdate);
+
+                console.log('✅ Subscribed to profile updates for:', internationalPhone);
+            } catch (error) {
+                console.error('❌ Error setting up profile updates:', error);
+            }
+        };
+
+        setupProfileUpdates();
+
+        // Cleanup: unsubscribe when component unmounts or user changes
+        return () => {
+            websocketService.off('profile-update', handleProfileUpdate);
+        };
+    }, [user?.phone]);
 
     const checkAuth = async () => {
         try {

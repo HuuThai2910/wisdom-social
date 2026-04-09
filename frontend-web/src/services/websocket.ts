@@ -203,19 +203,24 @@ class WebSocketService {
         onConnect?: () => void,
         onError?: (error: any) => void,
     ): Promise<void> {
+        console.log("🔵 WebSocket connect() called");
+
         // BƯỚC 1: Kiểm tra nếu đang có quá trình kết nối
         // Trả về promise hiện tại để tránh tạo nhiều kết nối
         if (this.connectPromise) {
+            console.log("🟠 Already connecting, returning existing promise");
             return this.connectPromise;
         }
 
         // BƯỚC 2: Kiểm tra nếu đã kết nối rồi
         // client.connected = true nghĩa là STOMP handshake đã hoàn tất
         if (this.client?.connected) {
-            // console.log("WebSocket already connected");
+            console.log("🟢 WebSocket already connected");
             onConnect?.();
             return Promise.resolve();
         }
+
+        console.log("🟡 Starting new WebSocket connection...");
 
         // BƯỚC 3: Tạo Promise mới cho quá trình kết nối
         this.connectPromise = new Promise<void>((resolve, reject) => {
@@ -226,14 +231,17 @@ class WebSocketService {
                  * Sử dụng SockJS làm fallback cho các browser không hỗ trợ WebSocket
                  * Endpoint: http://localhost:8080/ws (backend Spring Boot)
                  */
-                webSocketFactory: () => new SockJS("http://localhost:8080/ws"),
+                webSocketFactory: () => {
+                    console.log("🟡 Creating SockJS connection to http://localhost:8080/ws");
+                    return new SockJS("http://localhost:8080/ws");
+                },
 
                 /**
                  * debug: Hàm log để debug STOMP protocol
                  * Hiển thị các STOMP frame: CONNECT, CONNECTED, SUBSCRIBE, MESSAGE, etc.
                  */
-                debug: (_str) => {
-                    // console.log("STOMP: " + str);
+                debug: (str) => {
+                    console.log("🔷 STOMP: " + str);
                 },
 
                 /**
@@ -262,7 +270,7 @@ class WebSocketService {
                  * Lúc này có thể bắt đầu subscribe các topic
                  */
                 onConnect: () => {
-                    // console.log("Connected to WebSocket");
+                    console.log("🟢🟢🟢 STOMP Connected to server 🟢🟢🟢");
                     this.connectPromise = null; // Reset promise
                     onConnect?.(); // Gọi callback của caller
                     resolve(); // Resolve promise để caller biết đã kết nối xong
@@ -274,9 +282,9 @@ class WebSocketService {
                  */
                 onStompError: (frame) => {
                     console.error(
-                        "Broker reported error: " + frame.headers["message"],
+                        "🔴 Broker reported error: " + frame.headers["message"],
                     );
-                    console.error("Additional details: " + frame.body);
+                    console.error("🔴 Additional details: " + frame.body);
                     this.connectPromise = null; // Reset promise
                     onError?.(frame);
                     reject(frame); // Reject promise để caller xử lý lỗi
@@ -287,7 +295,7 @@ class WebSocketService {
                  * VD: network error, connection refused, timeout, etc.
                  */
                 onWebSocketError: (error) => {
-                    console.error("WebSocket error:", error);
+                    console.error("🔴 WebSocket error:", error);
                     this.connectPromise = null; // Reset promise
                     onError?.(error);
                     reject(error); // Reject promise
@@ -302,6 +310,7 @@ class WebSocketService {
              * 3. Đợi CONNECTED frame từ server
              * 4. Gọi onConnect callback
              */
+            console.log("🟡 Calling client.activate()");
             this.client.activate();
         });
 
@@ -735,6 +744,79 @@ class WebSocketService {
             subscription.unsubscribe();
             this.subscriptions.delete(destination);
             console.log(`Unsubscribed from ${destination}`);
+        }
+    }
+
+    /**
+     * Subscribe to user profile updates
+     * Notified when the user's profile is updated (name, avatar, bio, etc.)
+     *
+     * @param phone - User's phone number (international format)
+     * @param callback - Function called when profile is updated with the new user data
+     */
+    subscribeToProfileUpdates(
+        phone: string,
+        callback: (updatedUser: any) => void,
+    ) {
+        console.log("🔵 subscribeToProfileUpdates called with phone:", phone);
+        console.log("🔵 WebSocket client connected?", this.client?.connected);
+
+        if (!this.client?.connected) {
+            console.error(
+                "🔴 WebSocket not connected, cannot subscribe to profile updates",
+            );
+            return;
+        }
+
+        const destination = `/topic/user/${phone}/profile-update`;
+        console.log("🟡 Destination:", destination);
+
+        const existingSubscription = this.subscriptions.get(destination);
+        if (existingSubscription) {
+            console.log(`🟠 Already subscribed to ${destination}`);
+            return;
+        }
+
+        console.log("🟡 Creating subscription to", destination);
+        const subscription = this.client.subscribe(
+            destination,
+            (message: IMessage) => {
+                console.log("🟢🟢🟢 RECEIVED MESSAGE FROM WEBSOCKET 🟢🟢🟢");
+                console.log("📨 Message object:", message);
+                console.log("📨 Message headers:", message.headers);
+                console.log("📨 Raw body string:", message.body);
+                console.log("📨 Body length:", message.body.length);
+                console.log("📨 Body first 100 chars:", message.body.substring(0, 100));
+
+                try {
+                    const updatedUser = JSON.parse(message.body);
+                    console.log("✅ Successfully parsed:", updatedUser);
+                    console.log("✅ Calling callback with:", updatedUser);
+                    callback(updatedUser);
+                } catch (error) {
+                    console.error(`🔴 Error parsing profile update:`, error);
+                    console.error("🔴 Failed to parse body:", message.body);
+                }
+            },
+        );
+
+        this.subscriptions.set(destination, subscription);
+        console.log(`🟢 Subscribed to profile updates for ${phone}`);
+    }
+
+    /**
+     * Unsubscribe from user profile updates
+     *
+     * @param phone - User's phone number (international format)
+     */
+    unsubscribeFromProfileUpdates(phone: string) {
+        const destination = `/topic/user/${phone}/profile-update`;
+        const subscription = this.subscriptions.get(destination);
+
+        if (subscription) {
+            subscription.unsubscribe();
+            this.subscriptions.delete(destination);
+            console.log(`Unsubscribed from profile updates for ${phone}`);
         }
     }
 }

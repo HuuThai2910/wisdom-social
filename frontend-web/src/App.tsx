@@ -8,6 +8,9 @@ import {
 } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import { AvatarProvider } from "./context/AvatarContext";
+import { FriendNotificationProvider } from "./contexts/FriendNotificationContext";
+import FriendDataProvider from "./contexts/FriendDataContext";
 import MainLayout from "./components/layout/MainLayout";
 import PublicLayout from "./components/layout/PublicLayout";
 import RequireAuth from "./components/auth/RequireAuth";
@@ -80,17 +83,20 @@ function App() {
 
   return (
       <ThemeProvider>
-        <Toaster 
-          position="top-right"
-          toastOptions={{
-            duration: 4000,
-            style: {
-              background: '#333',
-              color: '#fff',
-            },
-          }}
-        />
-        <BrowserRouter>
+        <AvatarProvider>
+          <FriendDataProvider>
+            <FriendNotificationProvider>
+              <Toaster
+            position="top-right"
+            toastOptions={{
+              duration: 4000,
+              style: {
+                background: '#333',
+                color: '#fff',
+              },
+            }}
+          />
+          <BrowserRouter>
           <Routes>
             {/* Public Routes */}
             <Route element={<PublicLayout />}>
@@ -161,6 +167,9 @@ function App() {
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
+            </FriendNotificationProvider>
+          </FriendDataProvider>
+        </AvatarProvider>
       </ThemeProvider>
   );
 }

@@ -8,6 +8,7 @@ import java.util.List;
 
 public interface BlockUserService {
     List<BlockedUser> getBlockUser(User user);
+    List<BlockedUser> getBlockedByUser(User user);
     boolean blockUser(BlockedUser blockedUser);
     boolean cancelBlockUser(BlockedUser blockedUser);
     BlockedUser getBlockUserByBlockerAndBlocked(FriendRequest friendRequest);
