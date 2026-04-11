@@ -41,7 +41,8 @@ export interface ReferenceUser {
 export interface CursorResponse<T> {
     data: T;
     nextCursor: string | null;
-    hasNext: boolean;
+    hasMoreOlder: boolean;
+    hasMoreNewer: boolean;
     referenceUsers?: Record<string, ReferenceUser>;
 }
 
@@ -150,6 +151,7 @@ const chatService = {
         userId: number,
         before?: string | null,
         limit: number = 20,
+        signal?: AbortSignal,
     ): Promise<ApiResponse<CursorResponse<Message[]>>> {
         const params = new URLSearchParams({
             userId: userId.toString(),
@@ -158,8 +160,40 @@ const chatService = {
         if (before) params.append("before", before);
         const response = await axiosClient.get(
             `/conversations/${conversationId}/messages?${params.toString()}`,
+            { signal },
         );
 
+        return response.data;
+    },
+
+    async getNewerMessages(
+        conversationId: number,
+        userId: number,
+        after: string,
+        limit: number = 20,
+    ): Promise<ApiResponse<CursorResponse<Message[]>>> {
+        const params = new URLSearchParams({
+            userId: userId.toString(),
+            limit: limit.toString(),
+            after,
+        });
+        const response = await axiosClient.get(
+            `/conversations/${conversationId}/messages/newer?${params.toString()}`,
+        );
+        return response.data;
+    },
+
+    async jumpToMessage(
+        conversationId: number,
+        targetMessageId: string,
+        userId: number,
+    ): Promise<ApiResponse<CursorResponse<Message[]>>> {
+        const params = new URLSearchParams({
+            userId: userId.toString(),
+        });
+        const response = await axiosClient.get(
+            `/conversations/${conversationId}/messages/${targetMessageId}/jump?${params.toString()}`,
+        );
         return response.data;
     },
 

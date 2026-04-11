@@ -38,4 +38,9 @@ public interface MessageService {
             Long userId,
             Instant before,
             int limit);
+
+    CursorResponse<List<MessageResponse>> getNewerMessages(
+            Long conversationId, Long userId, Instant after, int limit);
+
+    CursorResponse<List<MessageResponse>> jumpToMessage(Long conversationId, String targetMessageId, Long userId);
 }

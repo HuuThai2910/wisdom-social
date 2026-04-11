@@ -21,7 +21,9 @@ import java.util.Map;
 public class CursorResponse<T> {
     private T data;                 // List<MessageResponse>
     private Instant nextCursor;     // createdAt của message cũ nhất
-    private boolean hasNext;        // còn tin cũ không
+
+    private boolean hasMoreOlder; // Cờ cho phép cuộn lên
+    private boolean hasMoreNewer; // Cờ cho phép cuộn xuống (Trở về hiện tại)
 
     private Map<Long, UserReferenceDTO> referenceUsers; // Chứa người đã rời nhóm
 

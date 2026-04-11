@@ -13,10 +13,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 
 /*
  * @description
@@ -263,5 +260,42 @@ public class MessageCacheServiceImpl implements iuh.fit.edu.backend.service.chat
                 }
             }
         }
+    }
+
+    @Override
+    public List<MessageResponse> getJumpMessagesFromCache(Long conversationId, String targetMessageId) {
+        String key = getKey(conversationId);
+
+        // Kéo toàn bộ 60 tin nhắn từ Redis về RAM (Tối đa 60 nên rất nhanh)
+        List<Object> objects = redisTemplate.opsForList().range(key, 0, -1);
+        if (objects == null || objects.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        // Chuyển đổi sang List<MessageResponse>
+        List<MessageResponse> cachedMessages = objects.stream()
+                .map(obj -> (MessageResponse) obj)
+                .toList();
+
+        // Tìm vị trí của tin nhắn mục tiêu
+        int targetIndex = -1;
+        for (int i = 0; i < cachedMessages.size(); i++) {
+            if (cachedMessages.get(i).getId().equals(targetMessageId)) {
+                targetIndex = i;
+                break;
+            }
+        }
+
+        // Nếu tìm thấy (Redis Hit)
+        if (targetIndex != -1) {
+            // Lấy từ tin mới nhất (index 0) đến tin mục tiêu + 10 tin cũ hơn làm ngữ cảnh
+            int endIndex = Math.min(targetIndex + 11, cachedMessages.size());
+
+            // Cắt mảng và tạo bản sao mới để tránh lỗi SubList của Jackson khi trả về
+            return new ArrayList<>(cachedMessages.subList(0, endIndex));
+        }
+
+        // Không tìm thấy trong 60 tin đầu (Redis Miss)
+        return Collections.emptyList();
     }
 }

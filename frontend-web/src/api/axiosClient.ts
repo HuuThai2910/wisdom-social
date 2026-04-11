@@ -2,8 +2,10 @@ import axios, { type AxiosInstance } from "axios";
 import { deleteCookie } from "../utils/cookies";
 
 const axiosClient: AxiosInstance = axios.create({
-    baseURL: "http://localhost:5173/api",
-    withCredentials: true, // Important: Send cookies with requests
+    // Dùng đường dẫn tương đối để đi qua proxy của Vite.
+    // Nhờ vậy request sẽ cùng origin với frontend (5174) và tránh lỗi CORS khi gửi cookie.
+    baseURL: "/api",
+    withCredentials: true, // Gửi cookie phiên đăng nhập qua proxy
     headers: {
         "Content-Type": "application/json",
         Accept: "application/json",

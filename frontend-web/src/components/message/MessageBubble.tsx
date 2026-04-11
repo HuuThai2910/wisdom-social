@@ -776,15 +776,20 @@ export function MessageBubble({
                                     )}
                                 </>
                             ) : message.type === "IMAGE" ? (
-                                <img
-                                    src={message.content}
-                                    alt="Hình ảnh"
-                                    className="max-w-full block cursor-pointer"
+                                <button
+                                    type="button"
+                                    className="block w-60 sm:w-64 md:w-72 h-72 md:h-80 bg-gray-100 dark:bg-gray-800 cursor-zoom-in"
                                     onClick={() =>
                                         window.open(message.content, "_blank")
                                     }
-                                    onLoad={onMediaLoad}
-                                />
+                                >
+                                    <img
+                                        src={message.content}
+                                        alt="Hình ảnh"
+                                        className="h-full w-full object-cover"
+                                        onLoad={onMediaLoad}
+                                    />
+                                </button>
                             ) : message.type === "VIDEO" ? (
                                 <video
                                     src={message.content}
@@ -899,7 +904,7 @@ export function MessageBubble({
                 {!isLastInGroup && (
                     <div
                         className={`absolute top-1/2 -translate-y-1/2 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 whitespace-nowrap z-50 ${
-                            isOwn ? "right-full mr-2" : "left-full ml-2" 
+                            isOwn ? "right-full mr-2" : "left-full ml-2"
                         }`}
                     >
                         <span className="text-xs bg-gray-800 dark:bg-gray-900 text-white px-2 py-1 rounded-md shadow-lg">

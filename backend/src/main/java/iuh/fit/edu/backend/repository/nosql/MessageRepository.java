@@ -35,4 +35,12 @@ public interface MessageRepository extends MongoRepository<Message, String> {
     );
 
 
+
+    List<Message> findTop10ByConversationIdAndCreatedAtAfterOrderByCreatedAtAsc(Long conversationId, Instant createdAt);
+
+    List<Message> findTop11ByConversationIdAndCreatedAtBeforeOrderByCreatedAtDesc(Long conversationId, Instant createdAt);
+
+    List<Message> findTop21ByConversationIdAndCreatedAtAfterOrderByCreatedAtAsc(Long conversationId, Instant after);
+
+    List<Message> findTop11ByConversationIdAndCreatedAtAfterOrderByCreatedAtAsc(Long conversationId, Instant createdAt);
 }

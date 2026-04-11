@@ -10,6 +10,13 @@ export interface PinnedMessageDetail {
     pinnedAt: string;
 }
 
+export interface ConversationPagingState {
+    hasMoreOlder: boolean;
+    hasMoreNewer: boolean;
+    isHistoricalMode: boolean;
+    olderCursor: string | null;
+}
+
 export type MembersByUserId = Record<number, ConversationMember>;
 
 class ChatRuntimeStore {
@@ -30,6 +37,20 @@ class ChatRuntimeStore {
         number,
         PinnedMessageDetail[]
     >();
+
+    private readonly pagingByConversation = new Map<
+        number,
+        ConversationPagingState
+    >();
+
+    private createDefaultPagingState(): ConversationPagingState {
+        return {
+            hasMoreOlder: false,
+            hasMoreNewer: false,
+            isHistoricalMode: false,
+            olderCursor: null,
+        };
+    }
 
     getMembers(conversationId: number): MembersByUserId {
         return this.membersByConversation.get(conversationId) ?? {};
@@ -89,6 +110,38 @@ class ChatRuntimeStore {
 
     setPins(conversationId: number, pins: PinnedMessageDetail[]): void {
         this.pinsByConversation.set(conversationId, pins);
+    }
+
+    getPaging(conversationId: number): ConversationPagingState {
+        return (
+            this.pagingByConversation.get(conversationId) ??
+            this.createDefaultPagingState()
+        );
+    }
+
+    setPaging(
+        conversationId: number,
+        paging: ConversationPagingState,
+    ): ConversationPagingState {
+        this.pagingByConversation.set(conversationId, paging);
+        return paging;
+    }
+
+    patchPaging(
+        conversationId: number,
+        patch: Partial<ConversationPagingState>,
+    ): ConversationPagingState {
+        const next = {
+            ...this.getPaging(conversationId),
+            ...patch,
+        };
+        this.pagingByConversation.set(conversationId, next);
+        return next;
+    }
+
+    clearConversationRuntime(conversationId: number): void {
+        this.messagesByConversation.delete(conversationId);
+        this.pagingByConversation.delete(conversationId);
     }
 }
 

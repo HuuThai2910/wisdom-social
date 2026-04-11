@@ -83,9 +83,6 @@ public class MessageServiceImpl implements MessageService {
         // Lấy ra thông tin của người gửi (lần đầu tiên thì lấy từ db, những lần khác còn trong thời gian thì lấy từ redis cache)
         ConversationMemberResponse senderInfo = conversationMemberService
                 .getMemberInfo(sendMessageRequest.getConversationId(), userId);
-        if (senderInfo == null) {
-            throw new RuntimeException("Bạn không phải thành viên của cuộc trò chuyện");
-        }
 
         // Lưu tin nhắn vào mongo
         Message newMessage = new Message();
@@ -133,8 +130,8 @@ public class MessageServiceImpl implements MessageService {
         }
 
         List<PinnedMessageDetail> pinnedList = conversation.getPinnedMessages() != null
-            ? new ArrayList<>(conversation.getPinnedMessages())
-            : new ArrayList<>();
+                ? new ArrayList<>(conversation.getPinnedMessages())
+                : new ArrayList<>();
 
         // Kiểm tra nếu tin nhắn đã ghim rồi thì không ghim lại
         if (pinnedList.stream().anyMatch(p -> p.getMessageId().equals(messageId))) {
@@ -147,8 +144,10 @@ public class MessageServiceImpl implements MessageService {
             PinnedMessageDetail oldest = pinnedList.remove(0);
             // Tạo tin nhắn hệ thống thông báo "Bỏ ghim"
             // User sẽ thấy: "{user_name} đã bỏ ghim một tin nhắn"
-            createAndPublishSystemMessage(oldest.getMessageId(), userId, conversationId,
-                    MessageType.SYSTEM_UPIN, "đã bỏ ghim một tin nhắn");
+            createAndPublishSystemMessage(
+                    oldest.getMessageId(), userId, conversationId,
+                    MessageType.SYSTEM_UPIN, "đã bỏ ghim một tin nhắn"
+            );
         }
 
         // Thêm tin mới vào danh sách ghim
@@ -160,13 +159,18 @@ public class MessageServiceImpl implements MessageService {
 
         // Tạo tin nhắn hệ thống thông báo "Đã ghim"
         // User sẽ thấy: "{user_name} đã ghim một tin nhắn"
-        createAndPublishSystemMessage(messageId, userId, conversationId,
-                MessageType.SYSTEM_PIN, "đã ghim một tin nhắn");
+        createAndPublishSystemMessage(
+                messageId, userId, conversationId,
+                MessageType.SYSTEM_PIN, "đã ghim một tin nhắn"
+        );
 
         // Bắn event cập nhật danh sách ghim trên Header cho tất cả members
         eventPublisher.publishEvent(new PinUpdatedEvent(conversationId, pinnedList));
     }
 
+    /**
+     * Hàm xử lý việc bỏ ghim tin nhắn
+     */
     @Override
     @Transactional
     public void unpinMessage(String messageId, Long userId) {
@@ -184,8 +188,8 @@ public class MessageServiceImpl implements MessageService {
         }
 
         List<PinnedMessageDetail> pinnedList = conversation.getPinnedMessages() != null
-            ? new ArrayList<>(conversation.getPinnedMessages())
-            : new ArrayList<>();
+                ? new ArrayList<>(conversation.getPinnedMessages())
+                : new ArrayList<>();
 
         // Kiểm tra nếu tin nhắn không có trong danh sách ghim thì báo lỗi
         boolean removed = pinnedList.removeIf(p -> p.getMessageId().equals(messageId));
@@ -198,14 +202,371 @@ public class MessageServiceImpl implements MessageService {
         conversationRepository.save(conversation);
 
         // Tạo tin nhắn hệ thống thông báo "Bỏ ghim"
-        createAndPublishSystemMessage(messageId, userId, conversationId,
-                MessageType.SYSTEM_UPIN, "đã bỏ ghim một tin nhắn");
+        createAndPublishSystemMessage(
+                messageId, userId, conversationId,
+                MessageType.SYSTEM_UPIN, "đã bỏ ghim một tin nhắn"
+        );
 
         // Bắn event cập nhật danh sách ghim trên Header cho tất cả members
         eventPublisher.publishEvent(new PinUpdatedEvent(conversationId, pinnedList));
     }
 
-    // --- HÀM TẠO TIN NHẮN HỆ THỐNG VÀ CẬP NHẬT SIDEBAR ---
+    /**
+     * Hàm xử lý việc gọi
+     */
+    @Override
+    @Transactional
+    public MessageResponse sendCallMessage(SendCallMessageRequest sendCallMessageRequest, Long userId) {
+        SendMessageRequest request = new SendMessageRequest();
+        request.setConversationId(sendCallMessageRequest.getConversationId());
+        request.setType(MessageType.CALL);
+        request.setContent(buildCallMessageContent(sendCallMessageRequest));
+        return sendMessage(request, userId);
+    }
+
+    /**
+     * Hàm xử lý việc thu hồi tin nhắn
+     */
+    @Transactional
+    @Override
+    public MessageRecalledResponse recallMessage(String messageId, Long userId) {
+        Message message = this.messageRepository.findById(messageId)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy tin nhắn"));
+        if (!userId.equals(message.getSenderId())) {
+            throw new AccessDeniedException("Không có quyền truy cập");
+        }
+        Instant messageTime = message.getCreatedAt();
+
+        if (Instant.now().isAfter(messageTime.plus(Duration.ofHours(24)))) {
+            throw new IllegalArgumentException("Bạn chỉ có thể thu hồi tin nhắn trong vòng 24 giờ");
+        }
+        if (message.getMessageType() != MessageType.TEXT) {
+            this.s3Service.deleteByKey(UploadModule.CONVERSATION, message.getContent()); // Truyền Key gốc trong DB vào
+        }
+        message.setContent("");
+        message.setRecalled(true);
+        this.messageRepository.save(message);
+
+        MessageRecalledResponse messageRecalledResponse = new MessageRecalledResponse();
+        messageRecalledResponse.setMessageId(message.getId());
+        messageRecalledResponse.setConversationId(message.getConversationId());
+        messageRecalledResponse.setCreatedAt(message.getCreatedAt());
+
+        // Cập nhật Redis cache để tránh trả về tin nhắn cũ
+        messageCacheService.updateMessage(messageRecalledResponse);
+
+        //Publish Event
+        this.eventPublisher.publishEvent(new MessageRecalledEvent(messageRecalledResponse));
+        // Xử lý sidebar (danh sách cuộc hội thoại bên ngoài)
+        Conversation conversation = conversationRepository.findById(message.getConversationId())
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy cuộc trò chuyện"));
+
+        // CHỈ THỰC HIỆN NẾU ĐÂY LÀ TIN NHẮN MỚI NHẤT
+        if (message.getCreatedAt().toEpochMilli() == conversation.getLastMessageAt().toEpochMilli()) {
+
+            // Cập nhật Database MySQL
+            // Backend lưu 1 chuỗi chung chung, không chứa chữ "Bạn"
+            conversation.setLastMessageContent("Tin nhắn đã được thu hồi");
+            // Quan trọng: Vẫn giữ nguyên LastSenderId là của người vừa thu hồi
+            conversationRepository.save(conversation);
+
+            // Tạo Data để bắn Socket cho Sidebar
+            LastMessageResponse sidebarResponse = conversationMapper.toLastMessageResponse(conversation);
+
+            // Lấy tên người gửi (có thể lấy từ Service hoặc Cache nếu cần thiết)
+            // Nếu Frontend của bạn không hiện tên khi thu hồi thì có thể bỏ qua dòng setLastSenderName
+            ConversationMemberResponse senderInfo = conversationMemberService.getMemberInfo(
+                    conversation.getId(),
+                    userId
+            );
+            sidebarResponse.setLastSenderName(senderInfo.getNickname());
+            sidebarResponse.setRead(true);
+
+            // Bắn Socket Event Cập nhật Sidebar cho TẤT CẢ thành viên
+            Set<Long> memberIds = this.conversationMemberService.getAllMemberId(conversation.getId());
+            this.eventPublisher
+                    .publishEvent(new ConversationUpdatedEvent(conversation.getId(), sidebarResponse, memberIds));
+        }
+        return messageRecalledResponse;
+    }
+
+    /**
+     * Hàm xử lý việc xóa tin nhắn ở một phía
+     */
+    @Transactional
+    @Override
+    public void deleteMessageForMe(String messageId, Long userId) {
+        Message message = this.messageRepository.findById(messageId)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy tin nhắn"));
+
+        if (message.getDeletedFor() == null) {
+            message.setDeletedFor(new HashSet<>());
+        }
+        message.getDeletedFor().add(userId);
+        messageRepository.save(message);
+        this.messageCacheService.addDeletedUserToMessage(messageId, message.getConversationId(), userId);
+    }
+
+    /**
+     * Lấy ra tin nhắn trong cuộc hội thoại
+     * Mặc định limit = 20
+     */
+    @Override
+    public CursorResponse<List<MessageResponse>> getMessagesByConversation(
+            Long conversationId,
+            Long userId,
+            Instant before,
+            int limit
+    ) {
+        ConversationMemberResponse member = conversationMemberService.getMemberInfo(conversationId, userId);
+
+        Instant clearedAt = member.getClearedAt();
+        // =========================================================================
+        // Nếu FE yêu cầu load trang cũ hơn mốc user đã xóa -> Chắc chắn rỗng.
+        // Trả về ngay lập tức, KHÔNG chạm vào Redis, KHÔNG chạm vào Mongo!
+        // =========================================================================
+        if (clearedAt != null && before != null && before.toEpochMilli() <= clearedAt.toEpochMilli()) {
+            return CursorResponse.<List<MessageResponse>>builder()
+                    .data(Collections.emptyList())
+                    .nextCursor(null)
+                    .hasMoreOlder(false) // Không còn tin cũ
+                    .hasMoreNewer(false)
+                    .build();
+        }
+        List<MessageResponse> finalResponseList;
+
+        // Cần check để xem được lấy từ db hay redis
+        // Vì cách check hasNext ở db và redis sẽ khác nhau
+        boolean isFromCache = false;
+        log.info("Fetch messages before Instant: {}", before);
+
+        // Ưu tiên lấy từ redis trước (bao gồm cả việc load trang đầu hoặc khi scroll)
+        List<MessageResponse> cachedMessages = this.messageCacheService.getListMessage(conversationId, before, limit);
+        if (!cachedMessages.isEmpty()) {
+            log.info("List message from cache {}", cachedMessages);
+            finalResponseList = cachedMessages;
+            isFromCache = true;
+        } else {
+            // Lấy dư 1 để check hasNext
+            List<Message> mongoMessages = fetchMessagesFromDb(conversationId, before, limit + 1);
+            log.info("List message from mongo {}", mongoMessages.size());
+
+            finalResponseList = mongoMessages.stream()
+                    .map(messageMapper::toMessageResponse)
+                    .collect(Collectors.toList());
+
+            // Chỉ cache phần dữ liệu chính (bỏ phần tử dư dùng check hasNext)
+            List<MessageResponse> toCache = finalResponseList.size() > limit
+                    ? finalResponseList.subList(0, limit)
+                    : finalResponseList;
+
+            // Tự động quyết định ghi đè hay nối chuỗi
+            this.messageCacheService.cacheListMessage(conversationId, toCache, before);
+        }
+        boolean hasMoreOlder;
+        if (isFromCache) {
+            // Nếu redis trả về >= 20 tin -> giả định là vẫn còn tin nhắn cũ
+            // Nếu redis trả về < 20 tin (VD: 15) -> chắc chắn là hết tin nhắn
+            hasMoreOlder = finalResponseList.size() >= limit;
+        } else {
+            // Nếu db trả về > 20 (VD: 21) -> chắc chắn vẫn còn tin nhắn cũ
+            hasMoreOlder = finalResponseList.size() > limit;
+            if (hasMoreOlder) {
+                finalResponseList = finalResponseList.subList(0, limit);
+            }
+        }
+        // Cursor là createdAt của tin nhắn CŨ NHẤT trong list (tin cuối cùng của list DESC)
+        Instant nextCursor = null;
+        if (!finalResponseList.isEmpty()) {
+            nextCursor = finalResponseList.getLast().getCreatedAt();
+        }
+        if (clearedAt != null && nextCursor != null && nextCursor.toEpochMilli() <= clearedAt.toEpochMilli()) {
+            // Mặc dù hệ thống chung vẫn còn tin nhắn cũ, nhưng đối với User này thì coi như hết!
+            hasMoreOlder = false;
+            nextCursor = null;
+        }
+
+        List<MessageResponse> filteredList = finalResponseList.stream()
+                .filter(msg -> clearedAt == null || msg.getCreatedAt().toEpochMilli() > clearedAt.toEpochMilli())
+                .filter(msg -> msg.getDeletedFor() == null || !msg.getDeletedFor().contains(userId))
+                .toList();
+
+        // Đảo ngược danh sách để Frontend hiển thị từ trên xuống (Cũ -> Mới)
+        List<MessageResponse> ascResponseList = new ArrayList<>(filteredList);
+        Collections.reverse(ascResponseList);
+
+        // Lấy ra thông tin của những người đã rời khỏi nhóm
+        Map<Long, CursorResponse.UserReferenceDTO> referenceUsers = buildReferenceUsers(conversationId, ascResponseList);
+
+        ascResponseList.forEach(msg -> msg.setDeletedFor(null));
+
+
+        log.info(
+                "Final List message returned to user. Size: {}, Data: {}",
+                ascResponseList.size(),
+                ascResponseList
+        );
+
+        return CursorResponse.<List<MessageResponse>>builder()
+                .data(ascResponseList)
+                .nextCursor(nextCursor)
+                .hasMoreOlder(hasMoreOlder)
+                .hasMoreNewer(false)
+                .referenceUsers(referenceUsers)
+                .build();
+    }
+    @Override
+    public CursorResponse<List<MessageResponse>> getNewerMessages(
+            Long conversationId, Long userId, Instant after, int limit) {
+
+        // Kiểm tra quyền
+        conversationMemberService.getMemberInfo(conversationId, userId);
+
+        // Truy vấn MongoDB lấy dữ liệu mới hơn (Lấy dư 1 để check hasNext)
+        List<Message> mongoMessages = messageRepository
+                .findTop21ByConversationIdAndCreatedAtAfterOrderByCreatedAtAsc(conversationId, after);
+
+        // Phân trang (Check còn dữ liệu mới hơn nữa không)
+        boolean hasMoreNewer = mongoMessages.size() > limit;
+        if (hasMoreNewer) {
+            mongoMessages = mongoMessages.subList(0, limit);
+        }
+
+        // 4. Map sang DTO
+        List<MessageResponse> responseList = mongoMessages.stream()
+                .map(messageMapper::toMessageResponse)
+                .collect(Collectors.toList());
+
+        // Xác định nextCursor cho lần cuộn xuống tiếp theo (Là phần tử cuối mảng)
+        Instant nextCursor = responseList.isEmpty() ? null : responseList.getLast().getCreatedAt();
+
+        // Đắp Side-loading (Người đã rời nhóm)
+        Map<Long, CursorResponse.UserReferenceDTO> referenceUsers = buildReferenceUsers(conversationId, responseList);
+        responseList.forEach(msg -> msg.setDeletedFor(null));
+
+
+        return CursorResponse.<List<MessageResponse>>builder()
+                .data(responseList)
+                .nextCursor(nextCursor)
+                .hasMoreOlder(true)        // Đang lơ lửng ở quá khứ tiến lên, nên chắc chắn phía trên còn tin cũ
+                .hasMoreNewer(hasMoreNewer) // Còn tin mới hơn không?
+                .referenceUsers(referenceUsers)
+                .build();
+    }
+    /**
+     * Hàm xử lý việc nhảy tin nhắn (khi người dùng click vào tin nhắn phản hồi và tin nhắn ghim)
+     */
+    @Override
+    public CursorResponse<List<MessageResponse>> jumpToMessage(Long conversationId, String targetMessageId, Long userId) {
+        log.info("Jump to message");
+        ConversationMemberResponse member = conversationMemberService.getMemberInfo(conversationId, userId);
+
+        List<MessageResponse> resultList;
+        boolean hasMoreOlder = false;
+        boolean hasMoreNewer = false;
+        // Kiểm tra xem có nằm trong redis không (nếu có thì sẽ lấy ra luôn)
+        List<MessageResponse> cacheMessages = messageCacheService.getJumpMessagesFromCache(conversationId, targetMessageId);
+
+        if (!cacheMessages.isEmpty()) {
+            log.info("Jump mode: List message from redis {}", targetMessageId);
+            resultList = new ArrayList<>(cacheMessages);
+            Collections.reverse(resultList);
+            hasMoreOlder = true;  // Vẫn còn lịch sử trong DB để cuộn lên
+            hasMoreNewer = false;
+        } else {
+            // Chuyển qua lấy từ db
+            Message targetMsg = messageRepository.findById(targetMessageId)
+                    .orElseThrow(() -> new RuntimeException("Tin nhắn không tồn tại"));
+
+
+            // Tin cũ sẽ lấy ra 11 dữ liệu để kiểm tra xem còn dữ liệu cũ hơn nữa không
+            List<Message> older = messageRepository.findTop11ByConversationIdAndCreatedAtBeforeOrderByCreatedAtDesc(
+                    conversationId, targetMsg.getCreatedAt());
+            List<Message> newer = messageRepository.findTop11ByConversationIdAndCreatedAtAfterOrderByCreatedAtAsc(
+                    conversationId, targetMsg.getCreatedAt());
+
+            // Kiểm tra xem còn dư dữ liệu không
+            hasMoreOlder = older.size() > 10;
+            if (hasMoreOlder) {
+                older = older.subList(0, 10);
+            }
+
+            hasMoreNewer = newer.size() > 10;
+            if (hasMoreNewer) {
+                newer = newer.subList(0, 10);
+            }
+
+            resultList = new ArrayList<>();
+
+            // Nạp tin cũ (đảo ngược để đúng chiều thời gian)
+            List<MessageResponse> olderDtos = older.stream().map(messageMapper::toMessageResponse).toList();
+            for (int i = olderDtos.size() - 1; i >= 0; i--)
+                resultList.add(olderDtos.get(i));
+
+            // Nạp tin mới
+            resultList.add(messageMapper.toMessageResponse(targetMsg));
+
+            // Nạp tin gốc
+            resultList.addAll(newer.stream().map(messageMapper::toMessageResponse).toList());
+        }
+
+        // Xử lý thông tin của những người đã rời khỏi nhóm
+        Map<Long, CursorResponse.UserReferenceDTO> referenceUsers = buildReferenceUsers(conversationId, resultList);
+
+        // Xóa cờ deletedFor trước khi trả về
+        resultList.forEach(msg -> msg.setDeletedFor(null));
+
+        return CursorResponse.<List<MessageResponse>>builder()
+                .data(resultList)
+                .hasMoreOlder(hasMoreOlder)
+                .hasMoreNewer(hasMoreNewer)
+                .referenceUsers(referenceUsers) // Đắp từ điển vào Response
+                .build();
+    }
+
+
+    // Hàm dùng để lấy ra thông tin của những người đã rời khỏi cuộc trò chuyện
+    private Map<Long, CursorResponse.UserReferenceDTO> buildReferenceUsers(
+            Long conversationId,
+            List<MessageResponse> messages) {
+
+        Map<Long, CursorResponse.UserReferenceDTO> referenceUsers = new HashMap<>();
+        Map<Long, ConversationMemberResponse> currentMembers = conversationMemberService.getMembersMap(conversationId);
+
+        // Quét tìm những ID có gửi tin nhắn nhưng không nằm trong danh sách Member hiện tại
+        Set<Long> missingSenderIds = messages.stream()
+                .map(MessageResponse::getSenderId)
+                .filter(id -> id != null && !currentMembers.containsKey(id)) // Thêm check null cho chắc chắn
+                .collect(Collectors.toSet());
+
+        // Nếu có ai đó bị thiếu, query bảng User gốc để lấy Tên và Avatar của họ bù vào
+        if (!missingSenderIds.isEmpty()) {
+            List<User> leftUsers = userRepository.findAllById(missingSenderIds);
+            leftUsers.forEach(u -> referenceUsers.put(
+                    u.getId(),
+                    new CursorResponse.UserReferenceDTO(u.getName(), u.getAvatarUrl())
+            ));
+        }
+
+        return referenceUsers;
+    }
+
+    /**
+     * Dùng để lấy dữ liệu từ db
+     * Không có before thì sẽ lấy 20 tin nhắn đầu
+     * Có before thì sẽ lấy tin nhắn cũ hơn
+     */
+    private List<Message> fetchMessagesFromDb(Long conversationId, Instant before, int limit) {
+        Pageable pageable = PageRequest.of(0, limit);
+        if (before == null) {
+            return messageRepository.findByConversationIdOrderByCreatedAtDesc(conversationId, pageable);
+        } else {
+            return messageRepository.findByConversationIdAndCreatedAtLessThanOrderByCreatedAtDesc(
+                    conversationId, before, pageable);
+        }
+    }
+
+    //  HÀM TẠO TIN NHẮN HỆ THỐNG VÀ CẬP NHẬT SIDEBAR
     private void createAndPublishSystemMessage(String targetMsgId, Long senderId, Long convId, MessageType type, String content) {
         Conversation conversation = conversationRepository.findById(convId).get();
         ConversationMemberResponse senderInfo = conversationMemberService.getMemberInfo(convId, senderId);
@@ -275,34 +636,24 @@ public class MessageServiceImpl implements MessageService {
     }
 
     // Lay ra duoc thong tin neu day la tin nhan phan hoi
-    private Message.ReplyInfo buildReplyInfo(String replyToId){
-        if(replyToId == null || replyToId.trim().isEmpty()){
+    private Message.ReplyInfo buildReplyInfo(String replyToId) {
+        if (replyToId == null || replyToId.trim().isEmpty()) {
             return null;
         }
         Message originalMsg = this.messageRepository.findById(replyToId)
                 .orElseThrow(() -> new RuntimeException("Tin nhan goc khong ton tai"));
 
         String previewContent = originalMsg.getContent();
-        if(previewContent != null && previewContent.length() > 50 && originalMsg.getMessageType() == MessageType.TEXT){
+        if (previewContent != null && previewContent.length() > 50 && originalMsg.getMessageType() == MessageType.TEXT) {
             previewContent = previewContent.substring(0, 47) + "...";
         }
 
-        return  Message.ReplyInfo.builder()
+        return Message.ReplyInfo.builder()
                 .messageId(originalMsg.getId())
                 .senderId(originalMsg.getSenderId())
                 .type(originalMsg.getMessageType())
                 .content(previewContent)
                 .build();
-    }
-
-    @Override
-    @Transactional
-    public MessageResponse sendCallMessage(SendCallMessageRequest sendCallMessageRequest, Long userId) {
-        SendMessageRequest request = new SendMessageRequest();
-        request.setConversationId(sendCallMessageRequest.getConversationId());
-        request.setType(MessageType.CALL);
-        request.setContent(buildCallMessageContent(sendCallMessageRequest));
-        return sendMessage(request, userId);
     }
 
     /**
@@ -327,8 +678,10 @@ public class MessageServiceImpl implements MessageService {
 
     private String getCallPreview(String content) {
         try {
-            Map<String, Object> payload = objectMapper.readValue(content, new TypeReference<>() {
-            });
+            Map<String, Object> payload = objectMapper.readValue(
+                    content, new TypeReference<>() {
+                    }
+            );
             String callType = String.valueOf(payload.getOrDefault("callType", "audio")).toLowerCase();
             Object durationObj = payload.getOrDefault("durationSeconds", 0);
             Number durationSecondsRaw = durationObj instanceof Number ? (Number) durationObj : 0;
@@ -349,230 +702,20 @@ public class MessageServiceImpl implements MessageService {
 
     private String buildCallMessageContent(SendCallMessageRequest sendCallMessageRequest) {
         Map<String, Object> payload = new HashMap<>();
-        payload.put("callType",
-                Optional.ofNullable(sendCallMessageRequest.getCallType()).orElse("audio").toLowerCase());
+        payload.put(
+                "callType",
+                Optional.ofNullable(sendCallMessageRequest.getCallType()).orElse("audio").toLowerCase()
+        );
         payload.put("status", Optional.ofNullable(sendCallMessageRequest.getStatus()).orElse("ended").toLowerCase());
-        payload.put("durationSeconds",
-                Math.max(0, Optional.ofNullable(sendCallMessageRequest.getDurationSeconds()).orElse(0L)));
+        payload.put(
+                "durationSeconds",
+                Math.max(0, Optional.ofNullable(sendCallMessageRequest.getDurationSeconds()).orElse(0L))
+        );
 
         try {
             return objectMapper.writeValueAsString(payload);
         } catch (JsonProcessingException e) {
             throw new RuntimeException("Không thể tạo nội dung cuộc gọi", e);
-        }
-    }
-
-    @Transactional
-    @Override
-    public MessageRecalledResponse recallMessage(String messageId, Long userId) {
-        Message message = this.messageRepository.findById(messageId)
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy tin nhắn"));
-        if (!userId.equals(message.getSenderId())) {
-            throw new AccessDeniedException("Không có quyền truy cập");
-        }
-        Instant messageTime = message.getCreatedAt();
-
-        if (Instant.now().isAfter(messageTime.plus(Duration.ofHours(24)))) {
-            throw new IllegalArgumentException("Bạn chỉ có thể thu hồi tin nhắn trong vòng 24 giờ");
-        }
-        if (message.getMessageType() != MessageType.TEXT) {
-            this.s3Service.deleteByKey(UploadModule.CONVERSATION, message.getContent()); // Truyền Key gốc trong DB vào
-        }
-        message.setContent("");
-        message.setRecalled(true);
-        this.messageRepository.save(message);
-
-        MessageRecalledResponse messageRecalledResponse = new MessageRecalledResponse();
-        messageRecalledResponse.setMessageId(message.getId());
-        messageRecalledResponse.setConversationId(message.getConversationId());
-        messageRecalledResponse.setCreatedAt(message.getCreatedAt());
-
-        // Cập nhật Redis cache để tránh trả về tin nhắn cũ
-        messageCacheService.updateMessage(messageRecalledResponse);
-
-        //Publish Event
-        this.eventPublisher.publishEvent(new MessageRecalledEvent(messageRecalledResponse));
-        // Xử lý sidebar (danh sách cuộc hội thoại bên ngoài)
-        Conversation conversation = conversationRepository.findById(message.getConversationId())
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy cuộc trò chuyện"));
-
-        // CHỈ THỰC HIỆN NẾU ĐÂY LÀ TIN NHẮN MỚI NHẤT
-        if (message.getCreatedAt().toEpochMilli() == conversation.getLastMessageAt().toEpochMilli()) {
-
-            // Cập nhật Database MySQL
-            // Backend lưu 1 chuỗi chung chung, không chứa chữ "Bạn"
-            conversation.setLastMessageContent("Tin nhắn đã được thu hồi");
-            // Quan trọng: Vẫn giữ nguyên LastSenderId là của người vừa thu hồi
-            conversationRepository.save(conversation);
-
-            // Tạo Data để bắn Socket cho Sidebar
-            LastMessageResponse sidebarResponse = conversationMapper.toLastMessageResponse(conversation);
-
-            // Lấy tên người gửi (có thể lấy từ Service hoặc Cache nếu cần thiết)
-            // Nếu Frontend của bạn không hiện tên khi thu hồi thì có thể bỏ qua dòng setLastSenderName
-            ConversationMemberResponse senderInfo = conversationMemberService.getMemberInfo(conversation.getId(),
-                    userId);
-            sidebarResponse.setLastSenderName(senderInfo.getNickname());
-            sidebarResponse.setRead(true);
-
-            // Bắn Socket Event Cập nhật Sidebar cho TẤT CẢ thành viên
-            Set<Long> memberIds = this.conversationMemberService.getAllMemberId(conversation.getId());
-            this.eventPublisher
-                    .publishEvent(new ConversationUpdatedEvent(conversation.getId(), sidebarResponse, memberIds));
-        }
-        return messageRecalledResponse;
-    }
-
-    @Transactional
-    @Override
-    public void deleteMessageForMe(String messageId, Long userId){
-        Message message = this.messageRepository.findById(messageId)
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy tin nhắn"));
-
-        if (message.getDeletedFor() == null) {
-            message.setDeletedFor(new HashSet<>());
-        }
-        message.getDeletedFor().add(userId);
-        messageRepository.save(message);
-        this.messageCacheService.addDeletedUserToMessage(messageId, message.getConversationId(), userId);
-    }
-
-    /**
-     * Lấy ra tin nhắn trong cuộc hội thoại
-     * Mặc định limit = 20
-     */
-    @Override
-    public CursorResponse<List<MessageResponse>> getMessagesByConversation(
-            Long conversationId,
-            Long userId,
-            Instant before,
-            int limit
-    ) {
-        ConversationMemberResponse member = conversationMemberService.getMemberInfo(conversationId, userId);
-        // Check member
-        if (member == null) {
-            throw new RuntimeException("Bạn không phải thành viên của cuộc trò chuyện");
-        }
-        Instant clearedAt = member.getClearedAt();
-        // =========================================================================
-        // Nếu FE yêu cầu load trang cũ hơn mốc user đã xóa -> Chắc chắn rỗng.
-        // Trả về ngay lập tức, KHÔNG chạm vào Redis, KHÔNG chạm vào Mongo!
-        // =========================================================================
-        if (clearedAt != null && before != null && before.toEpochMilli() <= clearedAt.toEpochMilli()) {
-            return CursorResponse.<List<MessageResponse>>builder()
-                    .data(Collections.emptyList())
-                    .nextCursor(null)
-                    .hasNext(false) // Dừng FE lại ngay
-                    .build();
-        }
-        List<MessageResponse> finalResponseList;
-
-        // Cần check để xem được lấy từ db hay redis
-        // Vì cách check hasNext ở db và redis sẽ khác nhau
-        boolean isFromCache = false;
-        log.info("Fetch messages before Instant: {}", before);
-
-        // Ưu tiên lấy từ redis trước (bao gồm cả việc load trang đầu hoặc khi scroll)
-        List<MessageResponse> cachedMessages = this.messageCacheService.getListMessage(conversationId, before, limit);
-        if (!cachedMessages.isEmpty()) {
-            log.info("List message from cache {}", cachedMessages);
-            finalResponseList = cachedMessages;
-            isFromCache = true;
-        } else {
-            // Lấy dư 1 để check hasNext
-            List<Message> mongoMessages = fetchMessagesFromDb(conversationId, before, limit + 1);
-            log.info("List message from mongo {}", mongoMessages.size());
-
-            finalResponseList = mongoMessages.stream()
-                    .map(messageMapper::toMessageResponse)
-                    .collect(Collectors.toList());
-
-            // Chỉ cache phần dữ liệu chính (bỏ phần tử dư dùng check hasNext)
-            List<MessageResponse> toCache = finalResponseList.size() > limit
-                    ? finalResponseList.subList(0, limit)
-                    : finalResponseList;
-
-            // Tự động quyết định ghi đè hay nối chuỗi
-            this.messageCacheService.cacheListMessage(conversationId, toCache, before);
-        }
-        boolean hasNext;
-        if (isFromCache) {
-            // Nếu redis trả về >= 20 tin -> giả định là vẫn còn tin nhắn cũ
-            // Nếu redis trả về < 20 tin (VD: 15) -> chắc chắn là hết tin nhắn
-            hasNext = finalResponseList.size() >= limit;
-        } else {
-            // Nếu db trả về > 20 (VD: 21) -> chắc chắn vẫn còn tin nhắn cũ
-            hasNext = finalResponseList.size() > limit;
-            if (hasNext) {
-                finalResponseList = finalResponseList.subList(0, limit);
-            }
-        }
-        // Cursor là createdAt của tin nhắn CŨ NHẤT trong list (tin cuối cùng của list DESC)
-        Instant nextCursor = null;
-        if (!finalResponseList.isEmpty()) {
-            nextCursor = finalResponseList.getLast().getCreatedAt();
-        }
-        if (clearedAt != null && nextCursor != null && nextCursor.toEpochMilli() <= clearedAt.toEpochMilli()) {
-            // Mặc dù hệ thống chung vẫn còn tin nhắn cũ, nhưng đối với User này thì coi như hết!
-            hasNext = false;
-            nextCursor = null;
-        }
-
-        List<MessageResponse> filteredList = finalResponseList.stream()
-                .filter(msg -> clearedAt == null || msg.getCreatedAt().toEpochMilli() > clearedAt.toEpochMilli())
-                .filter(msg -> msg.getDeletedFor() == null || !msg.getDeletedFor().contains(userId))
-                .toList();
-
-        // Đảo ngược danh sách để Frontend hiển thị từ trên xuống (Cũ -> Mới)
-        List<MessageResponse> ascResponseList = new ArrayList<>(filteredList);
-        Collections.reverse(ascResponseList);
-
-        // Lay ra thong tin cua nhung nguoi da roi khoi nhom
-        Map<Long, CursorResponse.UserReferenceDTO> referenceUsers = new HashMap<>();
-        Map<Long, ConversationMemberResponse> currentMembers = conversationMemberService.getMembersMap(conversationId);
-
-        Set<Long> missingSenderIds = ascResponseList.stream()
-                .map(MessageResponse::getSenderId)
-                .filter(id -> !currentMembers.containsKey(id))
-                .collect(Collectors.toSet());
-
-        // Nếu có ai đó bị thiếu, query bảng User gốc để lấy Tên và Avatar của họ bù vào
-        if (!missingSenderIds.isEmpty()) {
-            List<User> leftUsers = userRepository.findAllById(missingSenderIds);
-            leftUsers.forEach(u -> referenceUsers.put(
-                    u.getId(),
-                    new CursorResponse.UserReferenceDTO(u.getName(), u.getAvatarUrl())
-            ));
-        }
-
-
-        ascResponseList.forEach(msg -> msg.setDeletedFor(null));
-
-
-        log.info("Final List message returned to user. Size: {}, Data: {}",
-                ascResponseList.size(),
-                ascResponseList);
-
-        return CursorResponse.<List<MessageResponse>>builder()
-                .data(ascResponseList)
-                .nextCursor(nextCursor)
-                .hasNext(hasNext)
-            .referenceUsers(referenceUsers)
-                .build();
-    }
-
-    /**
-     * Dùng để lấy dữ liệu từ db
-     * Không có before thì sẽ lấy 20 tin nhắn đầu
-     * Có before thì sẽ lấy tin nhắn cũ hơn
-     */
-    private List<Message> fetchMessagesFromDb(Long conversationId, Instant before, int limit) {
-        Pageable pageable = PageRequest.of(0, limit);
-        if (before == null) {
-            return messageRepository.findByConversationIdOrderByCreatedAtDesc(conversationId, pageable);
-        } else {
-            return messageRepository.findByConversationIdAndCreatedAtLessThanOrderByCreatedAtDesc(
-                    conversationId, before, pageable);
         }
     }
 

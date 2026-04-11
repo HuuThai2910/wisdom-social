@@ -81,13 +81,6 @@ public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat
         Conversation conversation = conversationMember.getConversation();
         ConversationResponse response = conversationMapper.toConversationResponse(conversation, userId);
 
-//        // MapStruct có thể map theo tên field, nhưng để chắc chắn đường refresh luôn nhận được
-//        // dữ liệu pin từ DB, mình gán trực tiếp pinnedMessages vào response ở đây.
-//        response.setPinnedMessages(
-//            conversation.getPinnedMessages() == null
-//                ? Collections.emptyList()
-//                : new ArrayList<>(conversation.getPinnedMessages())
-//        );
         log.info("Conversation: {}", response);
         return response;
     }

@@ -69,6 +69,8 @@ export default function ChatWindow({
         showScrollToBottomButton,
         pendingNewMessages,
 
+        isHistoricalMode,
+        handleJumpToMessage,
         handleScroll,
         handleScrollToBottomClick,
         handleSend,
@@ -93,6 +95,8 @@ export default function ChatWindow({
         isNearBottom,
         isInitialLoad,
         shouldScrollOnMediaLoad,
+        shouldForceAutoScroll,
+        stabilizeMediaLayoutOnMediaLoad,
 
         readReceipts,
         typingUsers,
@@ -218,8 +222,10 @@ export default function ChatWindow({
     const [highlightedMessageId, setHighlightedMessageId] = useState<
         string | null
     >(null);
+    const [jumpRequestToken, setJumpRequestToken] = useState(0);
     const plusMenuRef = useRef<HTMLDivElement>(null);
     const emojiPickerRef = useRef<HTMLDivElement>(null);
+    const pendingJumpMessageIdRef = useRef<string | null>(null);
     const messageElementRefs = useRef<Record<string, HTMLDivElement | null>>(
         {},
     );
@@ -300,26 +306,54 @@ export default function ChatWindow({
         [getMessagePreviewText, membersById],
     );
 
-    const scrollToMessageById = useCallback((messageId: string) => {
-        const target = messageElementRefs.current[messageId];
-        if (!target) return;
+    const focusAndHighlightMessage = useCallback(
+        (messageId: string): boolean => {
+            const tryHighlight = (attempt: number) => {
+                const target = messageElementRefs.current[messageId];
+                if (!target) {
+                    if (attempt < 12) {
+                        requestAnimationFrame(() => tryHighlight(attempt + 1));
+                    }
+                    return;
+                }
 
-        target.scrollIntoView({ behavior: "smooth", block: "center" });
-        setHighlightedMessageId(messageId);
+                target.scrollIntoView({ behavior: "smooth", block: "center" });
+                setHighlightedMessageId(messageId);
 
-        setTimeout(() => {
-            setHighlightedMessageId((prev) =>
-                prev === messageId ? null : prev,
-            );
-        }, 1400);
-    }, []);
+                setTimeout(() => {
+                    setHighlightedMessageId((prev) =>
+                        prev === messageId ? null : prev,
+                    );
+                }, 1400);
+            };
+
+            requestAnimationFrame(() => tryHighlight(0));
+            return true;
+        },
+        [],
+    );
+
+    const requestJumpToMessage = useCallback(
+        async (messageId: string) => {
+            pendingJumpMessageIdRef.current = messageId;
+
+            const jumpOk = await handleJumpToMessage(messageId);
+            if (!jumpOk) {
+                pendingJumpMessageIdRef.current = null;
+                return;
+            }
+
+            setJumpRequestToken((token) => token + 1);
+        },
+        [handleJumpToMessage],
+    );
 
     // Click vào item ghim ở banner/list sẽ cuộn tới đúng tin gốc trong đoạn chat.
     const handleOpenPinnedMessage = useCallback(
         (messageId: string) => {
-            scrollToMessageById(messageId);
+            void requestJumpToMessage(messageId);
         },
-        [scrollToMessageById],
+        [requestJumpToMessage],
     );
 
     // Focus vào input khi component mount hoặc chuyển conversation
@@ -486,6 +520,7 @@ export default function ChatWindow({
             items.push(
                 <div
                     key={stableMessageKey}
+                    data-message-id={message.id}
                     className={isFirstInGroup ? "mt-3" : "mt-2"}
                     ref={(element) => {
                         messageElementRefs.current[message.id] = element;
@@ -506,11 +541,12 @@ export default function ChatWindow({
                             void handleUnpinMessage(messageId)
                         }
                         onReply={handleReplyMessage}
-                        onJumpToMessage={scrollToMessageById}
+                        onJumpToMessage={requestJumpToMessage}
                         onRecall={handleRecall}
                         onRecallCall={(callType) => void startCall(callType)}
                         onDeleteForMe={handleDeleteMessageForMe}
                         onMediaLoad={() => {
+                            stabilizeMediaLayoutOnMediaLoad();
                             // Chỉ cuộn xuống cuối khi:
                             // 1. Đang trong giai đoạn initial load (F5/mở chat)
                             // 2. User đang ở gần cuối (đang xem tin mới)
@@ -521,7 +557,9 @@ export default function ChatWindow({
                                 isNearBottom() ||
                                 shouldScrollOnMediaLoad()
                             ) {
-                                scrollToBottom("smooth");
+                                scrollToBottom(
+                                    shouldForceAutoScroll() ? "auto" : "smooth",
+                                );
                             }
                         }}
                         isFirstInGroup={isFirstInGroup}
@@ -573,11 +611,21 @@ export default function ChatWindow({
         shouldScrollOnMediaLoad,
         messages,
         readReceipts,
-        scrollToMessageById,
+        requestJumpToMessage,
         scrollToBottom,
         startCall,
         userId,
     ]);
+
+    useEffect(() => {
+        const pendingId = pendingJumpMessageIdRef.current;
+        if (!pendingId) return;
+
+        const focused = focusAndHighlightMessage(pendingId);
+        if (focused) {
+            pendingJumpMessageIdRef.current = null;
+        }
+    }, [focusAndHighlightMessage, jumpRequestToken, messageItems.length]);
 
     if (loading) {
         return (
@@ -763,13 +811,13 @@ export default function ChatWindow({
                 <div
                     ref={messagesContainerRef}
                     onScroll={handleScroll}
-                    className="h-full overflow-y-auto p-4 pb-4 flex flex-col"
-                    style={{ overflowAnchor: "auto" }}
+                    className="relative h-full overflow-y-auto p-4 pb-4 flex flex-col"
+                    style={{ overflowAnchor: "none" }}
                 >
                     {/* Loading more indicator (hiện khi kéo lên load tin cũ) */}
                     {loadingMore && (
                         <div
-                            className="sticky top-0 z-10 -mx-4 -mt-4 px-4 pt-3 pb-2 flex justify-center"
+                            className="pointer-events-none absolute top-2 left-0 right-0 z-10 flex justify-center"
                             style={{ overflowAnchor: "none" }}
                         >
                             <div className="inline-flex items-center rounded-full bg-white/90 dark:bg-gray-900/90 border border-gray-200 dark:border-gray-700 shadow-sm px-3 py-2">
@@ -813,13 +861,22 @@ export default function ChatWindow({
                 </div>
 
                 {/* Nút cuộn xuống cuối (Messenger/Zalo style) */}
-                {showScrollToBottomButton && (
+                {(showScrollToBottomButton ||
+                    (isHistoricalMode && !isNearBottom())) && (
                     <button
                         type="button"
                         onClick={handleScrollToBottomClick}
                         className="absolute bottom-4 right-4 h-11 w-11 rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-lg flex items-center justify-center hover:bg-gray-50 dark:hover:bg-gray-700"
-                        aria-label="Cuộn xuống tin nhắn mới nhất"
-                        title="Cuộn xuống tin nhắn mới nhất"
+                        aria-label={
+                            isHistoricalMode
+                                ? "Trở về hiện tại"
+                                : "Cuộn xuống tin nhắn mới nhất"
+                        }
+                        title={
+                            isHistoricalMode
+                                ? "Trở về hiện tại"
+                                : "Cuộn xuống tin nhắn mới nhất"
+                        }
                     >
                         <ArrowDown
                             size={18}

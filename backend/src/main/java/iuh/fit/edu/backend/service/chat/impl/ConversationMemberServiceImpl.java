@@ -70,7 +70,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
 
         ConversationMemberResponse response = conversationMemberRepository.findByConversation_IdAndUser_Id(conversationId, userId)
                 .map(conversationMemberMapper::toConversationMemberResponse)
-                .orElse(null);
+                        .orElseThrow(() -> new RuntimeException("Không tim thấy thành viên cuộc trò chuyện"));
 
         cacheService.saveMemberInfo(conversationId, userId, response);
         return response;

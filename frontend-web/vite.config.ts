@@ -6,15 +6,20 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
     plugins: [
         react(),
-        tailwindcss({
-            config: "./tailwind.config.js",
-        }),
+        // Tailwind sẽ tự đọc cấu hình mặc định của project, không cần truyền config ở đây.
+        tailwindcss(),
     ],
     server: {
         proxy: {
             "/api": {
                 target: "http://localhost:8080",
                 changeOrigin: true,
+            },
+            // Proxy riêng cho SockJS/WebSocket handshake để tránh lỗi CORS khi dev.
+            "/ws": {
+                target: "http://localhost:8080",
+                changeOrigin: true,
+                ws: true,
             },
         },
     },

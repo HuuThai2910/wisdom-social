@@ -61,6 +61,31 @@ public class ConversationController {
                 )
         );
     }
+    @GetMapping("/{conversationId}/messages/newer")
+    public ResponseEntity<CursorResponse<List<MessageResponse>>> getNewerMessages(
+            @PathVariable Long conversationId,
+            @RequestParam Long userId,
+            @RequestParam Instant after, // Không để required = false vì thao tác này luôn cần mốc thời gian
+            @RequestParam(defaultValue = "20") int limit
+    ) {
+        return ResponseEntity.ok(
+                messageService.getNewerMessages(
+                        conversationId,
+                        userId,
+                        after,
+                        limit
+                )
+        );
+    }
+    @GetMapping("/{id}/messages/{targetMessageId}/jump")
+    public ResponseEntity<CursorResponse<List<MessageResponse>>> jumpToMessage(
+            @PathVariable Long id,
+            @PathVariable String targetMessageId,
+            @RequestParam Long userId) {
+
+        return ResponseEntity.ok(messageService.jumpToMessage(id, targetMessageId, userId));
+    }
+
 
     @PutMapping("/{id}/read")
     public ResponseEntity<Void> markAsRead(@PathVariable Long id, @RequestParam Long userId, @RequestParam(required = false) String lastMessageId){

@@ -37,8 +37,11 @@ const NEAR_BOTTOM_THRESHOLD_PX = 200;
 const LOAD_MORE_TRIGGER_PX = 100;
 const SCROLLABLE_EPSILON_PX = 2;
 const MARK_AS_READ_DEBOUNCE_MS = 1000; // Debounce 1 giây cho API markAsRead
+const MESSAGE_WINDOW_LIMIT = 200;
+const MESSAGE_TRIM_BATCH = 20;
 
-type LoadMoreOptions = { keepAtBottom?: boolean };
+type LoadOlderOptions = { keepAtBottom?: boolean };
+type VisibleAnchorSnapshot = { messageId: string; topOffset: number };
 
 /**
  * Interface cho read receipt - lưu thông tin "đã xem" của mỗi user
@@ -221,10 +224,13 @@ export function useChatWindowController(args: {
         useState(false);
     const [pendingNewMessages, setPendingNewMessages] = useState(0);
 
-    // ====== Cursor pagination ======
-    const [hasMore, setHasMore] = useState(false);
+    // ====== Cursor pagination (2 chiều) ======
+    const [hasMoreOlder, setHasMoreOlder] = useState(false);
+    const [hasMoreNewer, setHasMoreNewer] = useState(false);
+    const [isHistoricalMode, setIsHistoricalMode] = useState(false);
+    const isHistoricalModeRef = useRef(false);
     const [loadingMore, setLoadingMore] = useState(false);
-    const [nextCursor, setNextCursor] = useState<string | null>(null);
+    const [olderCursor, setOlderCursor] = useState<string | null>(null);
 
     // Refs: DOM anchors cho scroll.
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -235,12 +241,34 @@ export function useChatWindowController(args: {
 
     // autoFillPendingRef: chặn việc auto-fill gọi liên tiếp (tránh spam loadMore).
     const autoFillPendingRef = useRef(false);
+    // skipAutoFillOnceRef: bỏ qua đúng 1 vòng auto-fill (dùng cho nút trở về hiện tại).
+    const skipAutoFillOnceRef = useRef(false);
+    // suppressPagingLoadRef: chặn auto-fill và load-on-scroll ngay sau jump.
+    const suppressPagingLoadRef = useRef(false);
+    const suppressPagingLoadTimerRef = useRef<ReturnType<
+        typeof setTimeout
+    > | null>(null);
+    const jumpPagingLockRef = useRef(false);
+    const jumpPagingLockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+        null,
+    );
+    const pendingOlderPrefetchAfterJumpRef = useRef(false);
 
     // loadTokenRef: token tăng dần để bỏ qua kết quả API của request "cũ".
     const loadTokenRef = useRef(0);
 
     // scrollOnNextRenderRef: cờ yêu cầu scroll xuống cuối sau khi render xong.
     const scrollOnNextRenderRef = useRef<ScrollBehavior | null>(null);
+    const forceAutoScrollUntilRef = useRef(0);
+
+    const armForceAutoScroll = useCallback((durationMs = 2500) => {
+        forceAutoScrollUntilRef.current = Date.now() + durationMs;
+    }, []);
+
+    const shouldForceAutoScroll = useCallback(
+        () => Date.now() < forceAutoScrollUntilRef.current,
+        [],
+    );
 
     // initialLoadRef: cờ đánh dấu đang trong giai đoạn load ban đầu (F5/mở chat).
     // Trong giai đoạn này, luôn scroll xuống cuối khi media load (bất kể vị trí hiện tại).
@@ -252,11 +280,37 @@ export function useChatWindowController(args: {
 
     // loadMoreRequestedRef: ngăn gọi API duplicate khi scroll
     const loadMoreRequestedRef = useRef(false);
+    const olderMessagesAbortRef = useRef<AbortController | null>(null);
+    const returningToPresentRef = useRef(false);
+    const mediaLoadStabilizerRef = useRef<{
+        activeUntil: number;
+        lastScrollHeight: number;
+        anchorMessageId: string | null;
+        anchorTopOffset: number;
+    }>({
+        activeUntil: 0,
+        lastScrollHeight: 0,
+        anchorMessageId: null,
+        anchorTopOffset: 0,
+    });
+
+    const resetMediaLoadStabilizer = useCallback(() => {
+        mediaLoadStabilizerRef.current = {
+            activeUntil: 0,
+            lastScrollHeight: 0,
+            anchorMessageId: null,
+            anchorTopOffset: 0,
+        };
+    }, []);
 
     useEffect(() => {
         // Đồng bộ ref mỗi khi userId thay đổi.
         userIdRef.current = userId;
     }, [userId]);
+
+    useEffect(() => {
+        isHistoricalModeRef.current = isHistoricalMode;
+    }, [isHistoricalMode]);
 
     const isNearBottom = useCallback(
         (thresholdPx = NEAR_BOTTOM_THRESHOLD_PX) => {
@@ -284,6 +338,218 @@ export function useChatWindowController(args: {
         },
         [],
     );
+
+    const captureVisibleAnchor =
+        useCallback((): VisibleAnchorSnapshot | null => {
+            const container = messagesContainerRef.current;
+            if (!container) return null;
+
+            const containerRect = container.getBoundingClientRect();
+            const nodes =
+                container.querySelectorAll<HTMLElement>("[data-message-id]");
+
+            for (const node of nodes) {
+                const rect = node.getBoundingClientRect();
+                if (rect.bottom <= containerRect.top + 1) continue;
+
+                const messageId = node.dataset.messageId;
+                if (!messageId) continue;
+
+                return {
+                    messageId,
+                    topOffset: rect.top - containerRect.top,
+                };
+            }
+
+            return null;
+        }, []);
+
+    const restoreVisibleAnchor = useCallback(
+        (
+            snapshot: VisibleAnchorSnapshot | null,
+            prevScrollTop: number,
+            prevScrollHeight: number,
+        ) => {
+            const applyFallback = () => {
+                const container = messagesContainerRef.current;
+                if (!container) return;
+
+                const deltaHeight = container.scrollHeight - prevScrollHeight;
+                if (deltaHeight > 0) {
+                    container.scrollTop = prevScrollTop + deltaHeight;
+                    lastScrollTopRef.current = container.scrollTop;
+                }
+            };
+
+            requestAnimationFrame(() => {
+                const container = messagesContainerRef.current;
+                if (!container) return;
+
+                if (!snapshot) {
+                    applyFallback();
+                    return;
+                }
+
+                const nodes =
+                    container.querySelectorAll<HTMLElement>(
+                        "[data-message-id]",
+                    );
+                const anchorNode = Array.from(nodes).find(
+                    (node) => node.dataset.messageId === snapshot.messageId,
+                );
+
+                if (!anchorNode) {
+                    // Virtualized list có thể chưa render anchor kịp, fallback theo delta chiều cao.
+                    applyFallback();
+                    return;
+                }
+
+                const containerRect = container.getBoundingClientRect();
+                const currentOffset =
+                    anchorNode.getBoundingClientRect().top - containerRect.top;
+                const delta = currentOffset - snapshot.topOffset;
+                if (Math.abs(delta) > 0.5) {
+                    container.scrollTop += delta;
+                    lastScrollTopRef.current = container.scrollTop;
+                }
+            });
+        },
+        [],
+    );
+
+    const armMediaLoadStabilizer = useCallback(
+        (anchorSnapshot: VisibleAnchorSnapshot | null, durationMs = 8000) => {
+            const container = messagesContainerRef.current;
+            if (!container) return;
+
+            const activeUntil = Date.now() + durationMs;
+            mediaLoadStabilizerRef.current = {
+                activeUntil,
+                lastScrollHeight: container.scrollHeight,
+                anchorMessageId: anchorSnapshot?.messageId ?? null,
+                anchorTopOffset: anchorSnapshot?.topOffset ?? 0,
+            };
+
+            // Cập nhật baseline thêm vài nhịp sau render để bắt đúng chiều cao
+            // trước khi ảnh/video trong batch cũ bắt đầu load dần.
+            requestAnimationFrame(() => {
+                const current = messagesContainerRef.current;
+                if (!current) return;
+                if (Date.now() > mediaLoadStabilizerRef.current.activeUntil)
+                    return;
+                mediaLoadStabilizerRef.current.lastScrollHeight =
+                    current.scrollHeight;
+            });
+
+            setTimeout(() => {
+                const current = messagesContainerRef.current;
+                if (!current) return;
+                if (Date.now() > mediaLoadStabilizerRef.current.activeUntil)
+                    return;
+                mediaLoadStabilizerRef.current.lastScrollHeight =
+                    current.scrollHeight;
+            }, 120);
+        },
+        [],
+    );
+
+    const stabilizeMediaLayoutOnMediaLoad = useCallback(() => {
+        const container = messagesContainerRef.current;
+        if (!container) return;
+
+        const stabilizer = mediaLoadStabilizerRef.current;
+        if (Date.now() > stabilizer.activeUntil) return;
+        if (!isHistoricalModeRef.current) {
+            stabilizer.lastScrollHeight = container.scrollHeight;
+            return;
+        }
+
+        const nextScrollHeight = container.scrollHeight;
+        const delta = nextScrollHeight - stabilizer.lastScrollHeight;
+
+        const anchorId = stabilizer.anchorMessageId;
+        if (anchorId) {
+            const containerRect = container.getBoundingClientRect();
+            const anchorNode = container.querySelector<HTMLElement>(
+                `[data-message-id="${anchorId}"]`,
+            );
+            if (anchorNode) {
+                const currentOffset =
+                    anchorNode.getBoundingClientRect().top - containerRect.top;
+                const anchorDelta = currentOffset - stabilizer.anchorTopOffset;
+
+                if (Math.abs(anchorDelta) > 0.5 && !isNearBottom()) {
+                    container.scrollTop += anchorDelta;
+                    lastScrollTopRef.current = container.scrollTop;
+                    stabilizer.activeUntil = Date.now() + 1500;
+                }
+
+                stabilizer.lastScrollHeight = nextScrollHeight;
+                return;
+            }
+        }
+
+        if (delta > 0.5 && !isNearBottom()) {
+            container.scrollTop += delta;
+            lastScrollTopRef.current = container.scrollTop;
+            // Gia hạn nhẹ khi còn ảnh đang load nối tiếp để tránh đợt 2 bị trôi.
+            stabilizer.activeUntil = Date.now() + 1500;
+        }
+
+        stabilizer.lastScrollHeight = nextScrollHeight;
+    }, [isNearBottom]);
+
+    const mergeReferenceUsers = useCallback(
+        (
+            baseMembers: MembersByUserId,
+            referenceUsers: Record<
+                string,
+                { nickname: string; avatar?: string }
+            >,
+        ): MembersByUserId => {
+            if (Object.keys(referenceUsers).length === 0) return baseMembers;
+
+            const nextMembers = { ...baseMembers };
+            for (const [rawUserId, reference] of Object.entries(
+                referenceUsers,
+            )) {
+                const refUserId = Number(rawUserId);
+                if (!Number.isFinite(refUserId)) continue;
+
+                nextMembers[refUserId] = {
+                    ...(nextMembers[refUserId] ?? {
+                        userId: refUserId,
+                        username: "",
+                        nickname: reference.nickname || "Unknown",
+                        avatar: reference.avatar,
+                    }),
+                    userId: refUserId,
+                    nickname:
+                        nextMembers[refUserId]?.nickname ||
+                        reference.nickname ||
+                        "Unknown",
+                    avatar: nextMembers[refUserId]?.avatar || reference.avatar,
+                };
+            }
+            return nextMembers;
+        },
+        [],
+    );
+
+    const applyWindowForOlder = useCallback((nextMessages: Message[]) => {
+        if (nextMessages.length <= MESSAGE_WINDOW_LIMIT) {
+            return { messages: nextMessages, trimmedTail: false };
+        }
+        const trimmed = nextMessages.slice(0, MESSAGE_WINDOW_LIMIT);
+        return { messages: trimmed, trimmedTail: true };
+    }, []);
+
+    const applyWindowForNewer = useCallback((nextMessages: Message[]) => {
+        if (nextMessages.length <= MESSAGE_WINDOW_LIMIT) {
+            return nextMessages;
+        }
+        return nextMessages.slice(MESSAGE_TRIM_BATCH);
+    }, []);
 
     // Thực thi scroll *sau render* để tránh trường hợp:
     // - setMessages vừa chạy nhưng DOM chưa update scrollHeight
@@ -341,36 +607,10 @@ export function useChatWindowController(args: {
 
                 const membersFromApi = toMembersByUserId(membersResponse);
                 const sideLoadedRefs = cursorData?.referenceUsers ?? {};
-
-                // Hợp nhất 2 nguồn member:
-                // 1) members endpoint: thành viên hiện tại trong phòng
-                // 2) referenceUsers từ cursor messages: user từng gửi tin nhưng có thể đã rời phòng
-                // Việc merge này giúp lịch sử tin nhắn cũ vẫn hiện đúng nickname/avatar.
-                const mergedMembers: MembersByUserId = {
-                    ...membersFromApi,
-                };
-
-                for (const [rawUserId, reference] of Object.entries(
+                const mergedMembers = mergeReferenceUsers(
+                    membersFromApi,
                     sideLoadedRefs,
-                )) {
-                    const refUserId = Number(rawUserId);
-                    mergedMembers[refUserId] = {
-                        ...(mergedMembers[refUserId] ?? {
-                            userId: refUserId,
-                            username: "",
-                            nickname: reference.nickname || "Unknown",
-                            avatar: reference.avatar,
-                        }),
-                        userId: refUserId,
-                        nickname:
-                            mergedMembers[refUserId]?.nickname ||
-                            reference.nickname ||
-                            "Unknown",
-                        avatar:
-                            mergedMembers[refUserId]?.avatar ||
-                            reference.avatar,
-                    };
-                }
+                );
 
                 const normalizedConversation: Conversation = {
                     ...convResponse.data,
@@ -393,14 +633,27 @@ export function useChatWindowController(args: {
                 chatRuntimeStore.setMessages(conversationId, list);
                 // Ghi pin vào runtime store để đổi room qua lại không cần chờ fetch lại.
                 chatRuntimeStore.setPins(conversationId, initialPins);
+                chatRuntimeStore.setPaging(conversationId, {
+                    hasMoreOlder: Boolean(cursorData?.hasMoreOlder),
+                    hasMoreNewer: Boolean(cursorData?.hasMoreNewer),
+                    isHistoricalMode: false,
+                    olderCursor: cursorData?.nextCursor ?? null,
+                });
 
                 setMembersById(mergedMembers);
                 setConversation(normalizedConversation);
                 setMessages(list);
                 // Đồng bộ state pin cho UI banner ghim ngay sau initial load.
                 setPinnedMessages(initialPins);
-                setNextCursor(cursorData?.nextCursor ?? null);
-                setHasMore(Boolean(cursorData?.hasNext));
+                setOlderCursor(cursorData?.nextCursor ?? null);
+                setHasMoreOlder(Boolean(cursorData?.hasMoreOlder));
+                setHasMoreNewer(Boolean(cursorData?.hasMoreNewer));
+                setIsHistoricalMode(false);
+                suppressPagingLoadRef.current = false;
+                if (suppressPagingLoadTimerRef.current) {
+                    clearTimeout(suppressPagingLoadTimerRef.current);
+                    suppressPagingLoadTimerRef.current = null;
+                }
 
                 const initialReceipts: ReadReceipt[] = Object.values(
                     mergedMembers,
@@ -427,127 +680,353 @@ export function useChatWindowController(args: {
                 setError("Không thể tải dữ liệu cuộc trò chuyện");
             } finally {
                 if (token === loadTokenRef.current) {
+                    returningToPresentRef.current = false;
                     setLoading(false);
                 }
             }
         },
-        [conversationId, userId],
+        [conversationId, mergeReferenceUsers, userId],
     );
 
-    const loadMoreMessages = useCallback(
-        async (options?: LoadMoreOptions) => {
-            // Guard: ngăn gọi API duplicate
-            if (!hasMore || loadingMore || !nextCursor) return;
+    const loadOlderMessages = useCallback(
+        async (options?: LoadOlderOptions) => {
+            if (returningToPresentRef.current) return;
+            if (!hasMoreOlder || loadingMore || !olderCursor) return;
+            if (jumpPagingLockRef.current) return;
             if (loadMoreRequestedRef.current) return;
 
             loadMoreRequestedRef.current = true;
             const keepAtBottom = Boolean(options?.keepAtBottom);
             const token = loadTokenRef.current;
+            const controller = new AbortController();
+            olderMessagesAbortRef.current = controller;
 
             try {
                 setLoadingMore(true);
 
-                // Lưu scroll position trước khi load
                 const container = messagesContainerRef.current;
-                const prevScrollHeight = container?.scrollHeight ?? 0;
                 const prevScrollTop = container?.scrollTop ?? 0;
+                const prevScrollHeight = container?.scrollHeight ?? 0;
 
-                // Load trang cũ hơn (before=nextCursor).
+                const anchorSnapshot = keepAtBottom
+                    ? null
+                    : captureVisibleAnchor();
+
                 const response = await chatService.getMessages(
                     conversationId,
                     userId,
-                    nextCursor,
+                    olderCursor,
                     PAGE_SIZE,
+                    controller.signal,
                 );
 
                 if (token !== loadTokenRef.current) return;
 
                 const cursorData = response?.success ? response.data : null;
                 const older = Array.isArray(cursorData?.data)
-                    ? cursorData!.data
+                    ? cursorData.data
                     : [];
 
-                const sideLoadedRefs = cursorData?.referenceUsers ?? {};
-                if (Object.keys(sideLoadedRefs).length > 0) {
-                    setMembersById((prev) => {
-                        const next = { ...prev };
-                        for (const [rawUserId, ref] of Object.entries(
-                            sideLoadedRefs,
-                        )) {
-                            const refUserId = Number(rawUserId);
-                            next[refUserId] = {
-                                ...(next[refUserId] ?? {
-                                    userId: refUserId,
-                                    username: "",
-                                    nickname: ref.nickname || "Unknown",
-                                }),
-                                nickname:
-                                    next[refUserId]?.nickname ||
-                                    ref.nickname ||
-                                    "Unknown",
-                                avatar: next[refUserId]?.avatar || ref.avatar,
-                            };
-                        }
-                        chatRuntimeStore.setMembers(conversationId, next);
-                        return next;
-                    });
-                }
-
-                setMessages((prev) => {
-                    const nextMessages = [...older, ...prev];
-                    chatRuntimeStore.setMessages(conversationId, nextMessages);
-                    return nextMessages;
+                setMembersById((prev) => {
+                    const merged = mergeReferenceUsers(
+                        prev,
+                        cursorData?.referenceUsers ?? {},
+                    );
+                    chatRuntimeStore.setMembers(conversationId, merged);
+                    return merged;
                 });
-                setNextCursor(cursorData?.nextCursor ?? null);
-                setHasMore(Boolean(cursorData?.hasNext));
+
+                let didTrimTail = false;
+                setMessages((prev) => {
+                    const merged = [...older, ...prev];
+                    const trimmedResult = applyWindowForOlder(merged);
+                    didTrimTail = trimmedResult.trimmedTail;
+                    chatRuntimeStore.setMessages(
+                        conversationId,
+                        trimmedResult.messages,
+                    );
+                    return trimmedResult.messages;
+                });
+
+                const nextHasMoreOlder = Boolean(cursorData?.hasMoreOlder);
+                // API older đôi khi trả hasMoreNewer=false dù phía dưới vẫn còn dữ liệu.
+                // Giữ cờ true nếu trước đó đã ở historical mode hoặc đã biết còn newer.
+                const nextHasMoreNewer =
+                    Boolean(cursorData?.hasMoreNewer) ||
+                    isHistoricalMode ||
+                    hasMoreNewer;
+                const nextHistorical = didTrimTail
+                    ? true
+                    : isHistoricalMode || nextHasMoreNewer;
+
+                setOlderCursor(cursorData?.nextCursor ?? null);
+                setHasMoreOlder(nextHasMoreOlder);
+                setHasMoreNewer(nextHasMoreNewer);
+                setIsHistoricalMode(nextHistorical);
+                setShowScrollToBottomButton(nextHistorical);
+                setPendingNewMessages(0);
+                suppressPagingLoadRef.current = false;
+                chatRuntimeStore.setPaging(conversationId, {
+                    hasMoreOlder: nextHasMoreOlder,
+                    hasMoreNewer: nextHasMoreNewer,
+                    isHistoricalMode: nextHistorical,
+                    olderCursor: cursorData?.nextCursor ?? null,
+                });
 
                 if (keepAtBottom) {
-                    // Auto-fill: luôn giữ user ở cuối để không mất ngữ cảnh.
                     scrollOnNextRenderRef.current = "auto";
                     setShowScrollToBottomButton(false);
                     setPendingNewMessages(0);
                 } else {
-                    // Prepend tin cũ: giữ nguyên vị trí nhìn
-                    // Dùng nhiều lần adjustment để handle images load sau
-                    const adjustScroll = () => {
-                        const current = messagesContainerRef.current;
-                        if (!current) return;
-                        const delta = current.scrollHeight - prevScrollHeight;
-                        if (delta > 0) {
-                            current.scrollTop = prevScrollTop + delta;
-                            // Cập nhật lastScrollTopRef để không bị detect là scroll up
-                            lastScrollTopRef.current = current.scrollTop;
-                        }
-                    };
-
-                    // Chạy adjustment nhiều lần để handle async image loading
-                    requestAnimationFrame(adjustScroll);
-                    setTimeout(adjustScroll, 100);
-                    setTimeout(adjustScroll, 300);
+                    restoreVisibleAnchor(
+                        anchorSnapshot,
+                        prevScrollTop,
+                        prevScrollHeight,
+                    );
+                    requestAnimationFrame(() => {
+                        requestAnimationFrame(() => {
+                            armMediaLoadStabilizer(captureVisibleAnchor());
+                        });
+                    });
                 }
-            } catch {
-                setError("Không thể tải thêm tin nhắn");
+            } catch (error) {
+                const isAbort =
+                    (error as { code?: string; name?: string })?.code ===
+                        "ERR_CANCELED" ||
+                    (error as { code?: string; name?: string })?.name ===
+                        "CanceledError";
+                if (isAbort) return;
+                setError("Không thể tải thêm tin nhắn cũ");
             } finally {
+                if (olderMessagesAbortRef.current === controller) {
+                    olderMessagesAbortRef.current = null;
+                }
                 if (token === loadTokenRef.current) {
                     setLoadingMore(false);
                 }
-                // Reset guard sau khi hoàn thành (delay để tránh trigger lại ngay)
                 setTimeout(() => {
                     loadMoreRequestedRef.current = false;
                 }, 500);
             }
         },
-        [conversationId, hasMore, loadingMore, nextCursor, userId],
+        [
+            applyWindowForOlder,
+            conversationId,
+            hasMoreOlder,
+            hasMoreNewer,
+            isHistoricalMode,
+            loadingMore,
+            mergeReferenceUsers,
+            olderCursor,
+            captureVisibleAnchor,
+            restoreVisibleAnchor,
+            armMediaLoadStabilizer,
+            userId,
+        ],
+    );
+
+    const loadNewerMessages = useCallback(async () => {
+        if (returningToPresentRef.current) return;
+        if (!isHistoricalMode || !hasMoreNewer || loadingMore) return;
+        if (jumpPagingLockRef.current) return;
+        if (loadMoreRequestedRef.current) return;
+
+        // User đang đi về phía tin mới hơn, không cần giữ anchor của nhánh load older nữa.
+        resetMediaLoadStabilizer();
+
+        const newest = messages.at(-1);
+        const after = newest?.createdAt;
+        if (!after) return;
+
+        loadMoreRequestedRef.current = true;
+        const token = loadTokenRef.current;
+
+        try {
+            setLoadingMore(true);
+
+            const response = await chatService.getNewerMessages(
+                conversationId,
+                userId,
+                after,
+                PAGE_SIZE,
+            );
+
+            if (token !== loadTokenRef.current) return;
+
+            const cursorData = response?.success ? response.data : null;
+            const newer = Array.isArray(cursorData?.data)
+                ? cursorData.data
+                : [];
+
+            setMembersById((prev) => {
+                const merged = mergeReferenceUsers(
+                    prev,
+                    cursorData?.referenceUsers ?? {},
+                );
+                chatRuntimeStore.setMembers(conversationId, merged);
+                return merged;
+            });
+
+            setMessages((prev) => {
+                const merged = [...prev, ...newer];
+                const trimmed = applyWindowForNewer(merged);
+                chatRuntimeStore.setMessages(conversationId, trimmed);
+                return trimmed;
+            });
+
+            const nextHasMoreOlder = Boolean(cursorData?.hasMoreOlder);
+            const nextHasMoreNewer = Boolean(cursorData?.hasMoreNewer);
+            const nextHistorical = nextHasMoreNewer;
+
+            setHasMoreOlder(nextHasMoreOlder);
+            setHasMoreNewer(nextHasMoreNewer);
+            setIsHistoricalMode(nextHistorical);
+            suppressPagingLoadRef.current = true;
+            if (suppressPagingLoadTimerRef.current) {
+                clearTimeout(suppressPagingLoadTimerRef.current);
+            }
+            suppressPagingLoadTimerRef.current = setTimeout(() => {
+                suppressPagingLoadRef.current = false;
+                suppressPagingLoadTimerRef.current = null;
+            }, 400);
+            chatRuntimeStore.patchPaging(conversationId, {
+                hasMoreOlder: nextHasMoreOlder,
+                hasMoreNewer: nextHasMoreNewer,
+                isHistoricalMode: nextHistorical,
+            });
+        } catch {
+            setError("Không thể tải tin nhắn mới hơn");
+        } finally {
+            if (token === loadTokenRef.current) {
+                setLoadingMore(false);
+            }
+            setTimeout(() => {
+                loadMoreRequestedRef.current = false;
+            }, 500);
+        }
+    }, [
+        applyWindowForNewer,
+        conversationId,
+        hasMoreNewer,
+        isHistoricalMode,
+        loadingMore,
+        mergeReferenceUsers,
+        messages,
+        resetMediaLoadStabilizer,
+        userId,
+    ]);
+
+    const jumpToMessage = useCallback(
+        async (targetMessageId: string): Promise<boolean> => {
+            const token = loadTokenRef.current;
+            resetMediaLoadStabilizer();
+            jumpPagingLockRef.current = true;
+            if (jumpPagingLockTimerRef.current) {
+                clearTimeout(jumpPagingLockTimerRef.current);
+                jumpPagingLockTimerRef.current = null;
+            }
+            if (olderMessagesAbortRef.current) {
+                olderMessagesAbortRef.current.abort();
+                olderMessagesAbortRef.current = null;
+            }
+
+            try {
+                setLoadingMore(true);
+                const response = await chatService.jumpToMessage(
+                    conversationId,
+                    targetMessageId,
+                    userId,
+                );
+
+                if (token !== loadTokenRef.current) return false;
+
+                const cursorData = response?.success ? response.data : null;
+                const jumped = Array.isArray(cursorData?.data)
+                    ? cursorData.data
+                    : [];
+
+                setMembersById((prev) => {
+                    const merged = mergeReferenceUsers(
+                        prev,
+                        cursorData?.referenceUsers ?? {},
+                    );
+                    chatRuntimeStore.setMembers(conversationId, merged);
+                    return merged;
+                });
+
+                setMessages(jumped);
+                chatRuntimeStore.setMessages(conversationId, jumped);
+
+                const nextHasMoreOlder = Boolean(cursorData?.hasMoreOlder);
+                const nextHasMoreNewer = Boolean(cursorData?.hasMoreNewer);
+                const nextHistorical = nextHasMoreNewer;
+                const fallbackOlderCursor = jumped[0]?.createdAt ?? null;
+                const resolvedOlderCursor =
+                    cursorData?.nextCursor ?? fallbackOlderCursor;
+                pendingOlderPrefetchAfterJumpRef.current = nextHasMoreOlder;
+
+                setOlderCursor(resolvedOlderCursor);
+                setHasMoreOlder(nextHasMoreOlder);
+                setHasMoreNewer(nextHasMoreNewer);
+                setIsHistoricalMode(nextHistorical);
+                suppressPagingLoadRef.current = true;
+                if (suppressPagingLoadTimerRef.current) {
+                    clearTimeout(suppressPagingLoadTimerRef.current);
+                }
+                suppressPagingLoadTimerRef.current = setTimeout(() => {
+                    suppressPagingLoadRef.current = false;
+                    suppressPagingLoadTimerRef.current = null;
+                }, 600);
+                chatRuntimeStore.setPaging(conversationId, {
+                    hasMoreOlder: nextHasMoreOlder,
+                    hasMoreNewer: nextHasMoreNewer,
+                    isHistoricalMode: nextHistorical,
+                    olderCursor: resolvedOlderCursor,
+                });
+
+                return true;
+            } catch {
+                setError("Không thể nhảy tới tin nhắn");
+                return false;
+            } finally {
+                if (token === loadTokenRef.current) {
+                    setLoadingMore(false);
+                }
+                jumpPagingLockTimerRef.current = setTimeout(() => {
+                    jumpPagingLockRef.current = false;
+                    jumpPagingLockTimerRef.current = null;
+                }, 1200);
+            }
+        },
+        [conversationId, mergeReferenceUsers, resetMediaLoadStabilizer, userId],
+    );
+
+    const handleJumpToMessage = useCallback(
+        async (targetMessageId: string): Promise<boolean> => {
+            const existed = messages.some(
+                (message) => message.id === targetMessageId,
+            );
+            if (existed) return true;
+            return jumpToMessage(targetMessageId);
+        },
+        [jumpToMessage, messages],
     );
 
     useEffect(() => {
         // Auto-fill chỉ chạy khi:
         // - đã load xong initial (loading=false)
-        // - backend nói còn hasMore
+        // - backend nói còn hasMoreOlder
         // - container chưa scrollable (ít tin quá)
         // Mục tiêu: tránh tình trạng UI không scroll được nhưng user vẫn muốn xem "gần đây".
         if (loading) return;
-        if (!hasMore || loadingMore || !nextCursor) return;
+        if (!isHistoricalMode) return;
+        if (skipAutoFillOnceRef.current) {
+            skipAutoFillOnceRef.current = false;
+            return;
+        }
+        if (jumpPagingLockRef.current) return;
+        if (suppressPagingLoadRef.current) return;
+        if (!hasMoreOlder || loadingMore || !olderCursor) return;
         if (autoFillPendingRef.current) return;
 
         const container = messagesContainerRef.current;
@@ -559,16 +1038,47 @@ export function useChatWindowController(args: {
         if (canScroll) return;
 
         autoFillPendingRef.current = true;
-        loadMoreMessages({ keepAtBottom: true }).finally(() => {
+        loadOlderMessages({ keepAtBottom: true }).finally(() => {
             autoFillPendingRef.current = false;
         });
     }, [
-        hasMore,
-        loadMoreMessages,
+        hasMoreOlder,
+        isHistoricalMode,
+        loadOlderMessages,
         loading,
         loadingMore,
         messages.length,
-        nextCursor,
+        olderCursor,
+    ]);
+
+    useEffect(() => {
+        if (!pendingOlderPrefetchAfterJumpRef.current) return;
+        if (loadingMore) return;
+        if (jumpPagingLockRef.current) return;
+
+        const container = messagesContainerRef.current;
+        if (!container) return;
+
+        if (!hasMoreOlder || !olderCursor) {
+            pendingOlderPrefetchAfterJumpRef.current = false;
+            return;
+        }
+
+        // Chỉ prefetch khi sau jump bị dính gần đỉnh.
+        if (container.scrollTop > LOAD_MORE_TRIGGER_PX) {
+            pendingOlderPrefetchAfterJumpRef.current = false;
+            return;
+        }
+
+        pendingOlderPrefetchAfterJumpRef.current = false;
+        void loadOlderMessages();
+    }, [
+        hasMoreOlder,
+        jumpPagingLockRef,
+        loadOlderMessages,
+        loadingMore,
+        olderCursor,
+        messages.length,
     ]);
 
     const handleNewMessage = useCallback(
@@ -580,9 +1090,15 @@ export function useChatWindowController(args: {
                 Number(newMessage.senderId) === Number(userIdRef.current);
             const currentlyNearBottom = isNearBottom();
 
+            if (isHistoricalModeRef.current) {
+                setShowScrollToBottomButton(true);
+                setPendingNewMessages((count) => count + 1);
+                return;
+            }
+
             setMessages((prev) => {
                 if (prev.some((m) => m.id === newMessage.id)) return prev;
-                const nextMessages = [...prev, newMessage];
+                const nextMessages = applyWindowForNewer([...prev, newMessage]);
                 chatRuntimeStore.setMessages(conversationId, nextMessages);
                 return nextMessages;
             });
@@ -624,7 +1140,7 @@ export function useChatWindowController(args: {
                 setPendingNewMessages((c) => c + 1);
             }
         },
-        [isNearBottom],
+        [applyWindowForNewer, conversationId, isNearBottom],
     );
     // Nhận socket MESSAGE_RECALLED: set isRecalled=true cho tin nhắn đó
     const handleMessageRecalled = useCallback(
@@ -694,8 +1210,21 @@ export function useChatWindowController(args: {
             chatRuntimeStore.setMessages(conversationId, []);
             chatRuntimeStore.setMembers(conversationId, {});
             chatRuntimeStore.setPins(conversationId, []);
-            setHasMore(false);
-            setNextCursor(null);
+            setHasMoreOlder(false);
+            setHasMoreNewer(false);
+            setIsHistoricalMode(false);
+            setOlderCursor(null);
+            jumpPagingLockRef.current = false;
+            if (jumpPagingLockTimerRef.current) {
+                clearTimeout(jumpPagingLockTimerRef.current);
+                jumpPagingLockTimerRef.current = null;
+            }
+            chatRuntimeStore.setPaging(conversationId, {
+                hasMoreOlder: false,
+                hasMoreNewer: false,
+                isHistoricalMode: false,
+                olderCursor: null,
+            });
         } catch {
             setRecallToast("Không thể xóa cuộc trò chuyện");
         }
@@ -1034,18 +1563,8 @@ export function useChatWindowController(args: {
 
         const cachedConversation =
             chatRuntimeStore.getConversation(conversationId);
-        const cachedMessages = chatRuntimeStore.getMessages(conversationId);
         const cachedMembers = chatRuntimeStore.getMembers(conversationId);
         const cachedPins = chatRuntimeStore.getPins(conversationId);
-
-        // Cache-first hydrate:
-        // hiển thị dữ liệu cũ ngay để chuyển phòng mượt (zero-latency switching),
-        // sau đó loadInitialData sẽ đồng bộ lại dữ liệu mới nhất từ backend.
-
-        if (cachedMessages.length > 0) {
-            setMessages(cachedMessages);
-            scrollOnNextRenderRef.current = "auto";
-        }
         if (cachedConversation) {
             setConversation({
                 ...cachedConversation,
@@ -1058,21 +1577,31 @@ export function useChatWindowController(args: {
         setMembersById(cachedMembers);
         setPinnedMessages(cachedPins);
 
-        setLoading(!(cachedConversation && cachedMessages.length > 0));
+        setLoading(true);
         setError(null);
         setSending(false);
         setMessageText("");
-        if (cachedMessages.length === 0) {
-            setMessages([]);
-        }
+        setMessages([]);
         if (!cachedConversation) {
             setConversation(null);
         }
         setShowScrollToBottomButton(false);
         setPendingNewMessages(0);
         setLoadingMore(false);
-        setHasMore(false);
-        setNextCursor(null);
+        setHasMoreOlder(false);
+        setHasMoreNewer(false);
+        setIsHistoricalMode(false);
+        setOlderCursor(null);
+        suppressPagingLoadRef.current = false;
+        jumpPagingLockRef.current = false;
+        if (suppressPagingLoadTimerRef.current) {
+            clearTimeout(suppressPagingLoadTimerRef.current);
+            suppressPagingLoadTimerRef.current = null;
+        }
+        if (jumpPagingLockTimerRef.current) {
+            clearTimeout(jumpPagingLockTimerRef.current);
+            jumpPagingLockTimerRef.current = null;
+        }
         setReadReceipts([]); // Reset read receipts khi đổi conversation
         setTypingUsers(new Set()); // Reset typing users khi đổi conversation
         isTypingSentRef.current = false; // Reset typing sent flag khi đổi conversation
@@ -1091,6 +1620,14 @@ export function useChatWindowController(args: {
         lastScrollTopRef.current = 0;
         // Reset load more guard
         loadMoreRequestedRef.current = false;
+        mediaLoadStabilizerRef.current = {
+            activeUntil: 0,
+            lastScrollHeight: 0,
+            anchorMessageId: null,
+            anchorTopOffset: 0,
+        };
+        // Theo đặc tả room switching: luôn bỏ cache messages/paging của room cũ.
+        chatRuntimeStore.clearConversationRuntime(conversationId);
 
         if (cachedMembers[userId]) {
             const cachedReceipts: ReadReceipt[] = Object.values(cachedMembers)
@@ -1191,6 +1728,21 @@ export function useChatWindowController(args: {
             websocketService.unsubscribeFromConversation(conversationId);
             websocketService.unsubscribeFromConversationMembers(conversationId);
             websocketService.unsubscribeFromConversationPins(conversationId);
+            chatRuntimeStore.clearConversationRuntime(conversationId);
+
+            if (suppressPagingLoadTimerRef.current) {
+                clearTimeout(suppressPagingLoadTimerRef.current);
+                suppressPagingLoadTimerRef.current = null;
+            }
+            if (jumpPagingLockTimerRef.current) {
+                clearTimeout(jumpPagingLockTimerRef.current);
+                jumpPagingLockTimerRef.current = null;
+            }
+            if (olderMessagesAbortRef.current) {
+                olderMessagesAbortRef.current.abort();
+                olderMessagesAbortRef.current = null;
+            }
+            jumpPagingLockRef.current = false;
 
             // Cleanup markAsRead debounce timer
             if (markAsReadTimeoutRef.current) {
@@ -1238,9 +1790,23 @@ export function useChatWindowController(args: {
         const container = messagesContainerRef.current;
         if (!container) return;
 
+        const previousScrollTop = lastScrollTopRef.current;
         const currentScrollTop = container.scrollTop;
-        const isScrollingUp = currentScrollTop < lastScrollTopRef.current;
+        const isScrollingUp = currentScrollTop < previousScrollTop;
+        const isScrollingDown = currentScrollTop > previousScrollTop;
         lastScrollTopRef.current = currentScrollTop;
+
+        if ((isScrollingUp || isScrollingDown) && jumpPagingLockRef.current) {
+            jumpPagingLockRef.current = false;
+            if (jumpPagingLockTimerRef.current) {
+                clearTimeout(jumpPagingLockTimerRef.current);
+                jumpPagingLockTimerRef.current = null;
+            }
+        }
+
+        if (isScrollingDown) {
+            resetMediaLoadStabilizer();
+        }
 
         // Ngay khi user scroll LÊN → thoát khỏi giai đoạn initial load
         // Đây là cách phát hiện user chủ động muốn xem tin cũ
@@ -1273,27 +1839,93 @@ export function useChatWindowController(args: {
         }
 
         if (
+            !jumpPagingLockRef.current &&
+            !suppressPagingLoadRef.current &&
+            isScrollingUp &&
             container.scrollTop < LOAD_MORE_TRIGGER_PX &&
-            hasMore &&
+            hasMoreOlder &&
             !loadingMore
         ) {
             // Chạm gần top => load trang tin nhắn cũ.
-            void loadMoreMessages();
+            void loadOlderMessages();
+        }
+
+        const distanceFromBottom =
+            container.scrollHeight -
+            container.scrollTop -
+            container.clientHeight;
+        if (
+            distanceFromBottom < LOAD_MORE_TRIGGER_PX &&
+            isHistoricalMode &&
+            hasMoreNewer &&
+            !loadingMore
+        ) {
+            void loadNewerMessages();
         }
     }, [
-        hasMore,
+        hasMoreNewer,
+        hasMoreOlder,
+        isHistoricalMode,
         isNearBottom,
-        loadMoreMessages,
+        loadNewerMessages,
+        loadOlderMessages,
         loadingMore,
+        resetMediaLoadStabilizer,
         scrollToBottom,
         typingUsers.size,
     ]);
 
     const handleScrollToBottomClick = useCallback(() => {
-        scrollToBottom("smooth");
+        if (isHistoricalMode) {
+            returningToPresentRef.current = true;
+            resetMediaLoadStabilizer();
+            pendingOlderPrefetchAfterJumpRef.current = false;
+            if (olderMessagesAbortRef.current) {
+                olderMessagesAbortRef.current.abort();
+                olderMessagesAbortRef.current = null;
+            }
+            loadMoreRequestedRef.current = false;
+            armForceAutoScroll();
+            setMessages([]);
+            chatRuntimeStore.setMessages(conversationId, []);
+            setPendingNewMessages(0);
+            setIsHistoricalMode(false);
+            setHasMoreOlder(false);
+            setHasMoreNewer(false);
+            setOlderCursor(null);
+            setLoadingMore(false);
+            setShowScrollToBottomButton(false);
+            skipAutoFillOnceRef.current = true;
+            suppressPagingLoadRef.current = false;
+            jumpPagingLockRef.current = false;
+            if (suppressPagingLoadTimerRef.current) {
+                clearTimeout(suppressPagingLoadTimerRef.current);
+                suppressPagingLoadTimerRef.current = null;
+            }
+            if (jumpPagingLockTimerRef.current) {
+                clearTimeout(jumpPagingLockTimerRef.current);
+                jumpPagingLockTimerRef.current = null;
+            }
+            void loadInitialData(loadTokenRef.current, markAsRead).then(() => {
+                scrollOnNextRenderRef.current = "auto";
+            });
+            return;
+        }
+
+        resetMediaLoadStabilizer();
+        pendingOlderPrefetchAfterJumpRef.current = false;
+        scrollToBottom("auto");
         setShowScrollToBottomButton(false);
         setPendingNewMessages(0);
-    }, [scrollToBottom]);
+    }, [
+        armForceAutoScroll,
+        conversationId,
+        isHistoricalMode,
+        loadInitialData,
+        markAsRead,
+        resetMediaLoadStabilizer,
+        scrollToBottom,
+    ]);
 
     const handleSend = useCallback(
         async (textOverride?: string, replyToId?: string) => {
@@ -1559,7 +2191,9 @@ export function useChatWindowController(args: {
         pinnedMessages,
         loading,
         loadingMore,
-        hasMore,
+        hasMoreOlder,
+        hasMoreNewer,
+        isHistoricalMode,
         sending,
         uploading,
         error,
@@ -1576,7 +2210,9 @@ export function useChatWindowController(args: {
         showScrollToBottomButton,
         pendingNewMessages,
 
-        loadMoreMessages,
+        loadOlderMessages,
+        loadNewerMessages,
+        handleJumpToMessage,
         handleScroll,
         handleScrollToBottomClick,
         handleSend,
@@ -1611,6 +2247,10 @@ export function useChatWindowController(args: {
         // Set true khi nhận tin nhắn mới (của mình hoặc khi đang ở cuối) với type IMAGE/VIDEO
         // Reset sau 3s hoặc khi đổi conversation
         shouldScrollOnMediaLoad: () => shouldScrollOnMediaLoadRef.current,
+        shouldForceAutoScroll,
+
+        // Ổn định viewport khi media load trễ trong chế độ historical.
+        stabilizeMediaLayoutOnMediaLoad,
 
         // === Read Receipt (Đánh dấu đã đọc) ===
         // readReceipts: danh sách thông tin "đã xem" của các members (trừ user hiện tại)
