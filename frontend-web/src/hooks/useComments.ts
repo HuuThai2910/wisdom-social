@@ -1,20 +1,40 @@
-import { useState, useCallback } from 'react';
-import { commentService } from '../services/commentService'
-import type { Comment } from '../services/commentService';
+import { useState, useCallback } from "react";
+import { commentService } from "../services/commentService";
+import type { Comment } from "../services/commentService";
+import {
+    appendReplyToComment,
+    insertReplyToComment,
+    deleteCommentFromTree,
+    deduplicateComments,
+    findCommentInTree,
+} from "../utils/commentTreeHelpers";
 
 interface UseCommentsParams {
     targetType: string;
     targetId: string;
 }
 
+/**
+ * FIXED useComments Hook
+ *
+ * Key improvements:
+ * 1. Deduplicates replies when loading more (fixes duplicate bug)
+ * 2. Uses tree helpers to avoid full reloads
+ * 3. Optimistic updates for create/delete (fixes state sync)
+ * 4. Ready for unlimited nesting (no depth limit)
+ */
 export const useComments = ({ targetType, targetId }: UseCommentsParams) => {
     const [comments, setComments] = useState<Comment[]>([]);
     const [loading, setLoading] = useState(false);
     const [currentPage, setCurrentPage] = useState(0);
     const [hasMore, setHasMore] = useState(false);
     const [totalCount, setTotalCount] = useState(0);
+    const [operationInProgress, setOperationInProgress] = useState(false);
 
-    // Load root comments
+    /**
+     * Load root comments (page-based pagination)
+     * Fetches fresh data for specified page
+     */
     const loadRootComments = useCallback(
         async (page = 0) => {
             try {
@@ -27,16 +47,21 @@ export const useComments = ({ targetType, targetId }: UseCommentsParams) => {
                 );
 
                 if (page === 0) {
-                    setComments(response.data.data);
+                    // First page: replace all
+                    setComments(response.data);
                 } else {
-                    setComments((prev) => [...prev, ...response.data.data]);
+                    // Subsequent pages: append with deduplication
+                    setComments((prev) => {
+                        const combined = [...prev, ...response.data];
+                        return deduplicateComments(combined);
+                    });
                 }
 
-                setHasMore(response.data.hasMore);
-                setTotalCount(response.data.totalCount);
+                setHasMore(response.hasMore);
+                setTotalCount(response.totalCount);
                 setCurrentPage(page);
             } catch (error) {
-                console.error('Error loading root comments:', error);
+                console.error("❌ Error loading root comments:", error);
             } finally {
                 setLoading(false);
             }
@@ -44,12 +69,18 @@ export const useComments = ({ targetType, targetId }: UseCommentsParams) => {
         [targetType, targetId]
     );
 
-    // Load more replies for a comment
+    /**
+     * Load more replies for a specific comment (cursor-based pagination)
+     * Carefully appends replies with deduplication
+     */
     const loadMoreReplies = useCallback(
         async (commentId: string) => {
             try {
-                const comment = findCommentById(commentId);
-                if (!comment) return;
+                const comment = findCommentInTree(commentId, comments);
+                if (!comment) {
+                    console.warn(`Comment ${commentId} not found in tree`);
+                    return;
+                }
 
                 const response = await commentService.getMoreReplies(
                     commentId,
@@ -57,70 +88,85 @@ export const useComments = ({ targetType, targetId }: UseCommentsParams) => {
                     10
                 );
 
-                updateCommentReplies(
-                    commentId,
-                    response.data.data,
-                    response.data.hasMore,
-                    response.data.nextCursor
-                );
+                // Use tree helper to append replies with deduplication
+                setComments((prev) => {
+                    const updated = appendReplyToComment(prev, commentId, response.data);
+
+                    // Also update hasMoreReplies and nextCursor for this comment
+                    const updatedComment = findCommentInTree(commentId, updated);
+                    if (updatedComment) {
+                        updatedComment.hasMoreReplies = response.hasMore;
+                        updatedComment.nextCursor = response.nextCursor;
+                    }
+
+                    return updated;
+                });
             } catch (error) {
-                console.error('Error loading more replies:', error);
+                console.error(
+                    `❌ Error loading more replies for ${commentId}:`,
+                    error
+                );
             }
         },
         [comments]
     );
 
-    // Find comment by ID recursively
-    const findCommentById = (commentId: string, list = comments): Comment | null => {
-        for (const comment of list) {
-            if (comment.id === commentId) return comment;
-            if (comment.replies && comment.replies.length > 0) {
-                const found = findCommentById(commentId, comment.replies);
-                if (found) return found;
-            }
-        }
-        return null;
-    };
+    /**
+     * Optimistic insert: Add new comment to tree immediately
+     * Called after createComment API succeeds
+     */
+    const insertNewReply = useCallback(
+        (parentId: string | null, newComment: Comment) => {
+            setComments((prev) => {
+                if (parentId === null) {
+                    // Root comment: prepend to beginning
+                    return [newComment, ...prev];
+                }
 
-    // Update comment with more replies
-    const updateCommentReplies = (
-        commentId: string,
-        newReplies: Comment[],
-        hasMoreReplies: boolean,
-        nextCursor: string | null
-    ) => {
-        const updateRecursive = (list: Comment[]): Comment[] =>
-            list.map((comment) => {
-                if (comment.id === commentId) {
-                    return {
-                        ...comment,
-                        replies: [...(comment.replies || []), ...newReplies],
-                        hasMoreReplies,
-                        nextCursor,
-                    };
-                }
-                if (comment.replies && comment.replies.length > 0) {
-                    return {
-                        ...comment,
-                        replies: updateRecursive(comment.replies),
-                    };
-                }
-                return comment;
+                // Nested reply: insert into parent's replies
+                return insertReplyToComment(prev, parentId, newComment);
             });
+        },
+        []
+    );
 
-        setComments(updateRecursive(comments));
-    };
+    /**
+     * Remove comment from tree
+     * Called after deleteComment API succeeds
+     */
+    const removeComment = useCallback(
+        (commentId: string, parentId: string | null) => {
+            setComments((prev) => deleteCommentFromTree(prev, commentId, parentId));
+        },
+        []
+    );
+
+    /**
+     * Find comment anywhere in tree
+     */
+    const findComment = useCallback(
+        (commentId: string): Comment | null => {
+            return findCommentInTree(commentId, comments);
+        },
+        [comments]
+    );
 
     return {
         comments,
         loading,
+        operationInProgress,
         hasMore,
         totalCount,
         currentPage,
+        // API loaders
         loadRootComments,
         loadMoreReplies,
-        findCommentById,
-        updateCommentReplies,
+        // Optimistic mutations
+        insertNewReply,
+        removeComment,
+        // Utilities
+        findComment,
+        setOperationInProgress,
     };
 };
 

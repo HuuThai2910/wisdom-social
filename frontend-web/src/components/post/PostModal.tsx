@@ -15,14 +15,14 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
-import { transformMediaToS3Urls } from "../../services/postService";
 import FriendSelectorModal from "./FriendSelectorModal";
 import EditPostModal from "./EditPostModal";
 import { useAuth } from "../../contexts/AuthContext";
 import useComments from "../../hooks/useComments";
 import { commentService } from "../../services/commentService";
-import type { PostData, UserData, PostModalProps } from "../../types/postType";
 import type { Comment } from "../../services/commentService";
+import CommentItem from "../comment/CommentItem";
+import type { PostData, UserData, PostModalProps } from "../../types/postType";
 import * as postApi from "../../services/postService";
 
 export default function PostModal({ postId, onClose }: PostModalProps) {
@@ -37,11 +37,18 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
   const [submittingComment, setSubmittingComment] = useState(false);
 
   // Use new comment tree hook
-  const { comments, loadRootComments, loadMoreReplies, currentPage, hasMore } =
-    useComments({
-      targetType: "POST",
-      targetId: postId,
-    });
+  const {
+    comments,
+    loadRootComments,
+    loadMoreReplies,
+    currentPage,
+    hasMore,
+    insertNewReply,
+    removeComment,
+  } = useComments({
+    targetType: "POST",
+    targetId: postId,
+  });
   const [showReactions, setShowReactions] = useState(false);
   const reactionsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
@@ -217,25 +224,34 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
         return;
       }
 
-      await commentService.createComment(
+      const newComment = await commentService.createComment(
         "POST",
         postId,
         commentInput,
         currentUser.id
       );
 
-      // Reload first page of comments
-      loadRootComments(0);
+      // Optimistic update: prepend to comments (null parentId = root comment)
+      insertNewReply(null, newComment);
       setCommentInput("");
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error submitting comment:", error);
-      alert("Failed to submit comment");
+      const errorMsg =
+        error?.response?.data?.message ||
+        error?.message ||
+        "Failed to submit comment";
+      console.error("Error details:", {
+        status: error?.response?.status,
+        data: error?.response?.data,
+        message: errorMsg,
+      });
+      alert(errorMsg);
     } finally {
       setSubmittingComment(false);
     }
   };
 
-  const handleDeleteComment = async (commentId: string) => {
+  const handleDeleteComment = async (commentId: string, parentId?: string) => {
     if (
       !confirm("Bạn có chắc muốn xóa bình luận này? (Tất cả replies sẽ bị xóa)")
     )
@@ -248,12 +264,17 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
       }
       await commentService.deleteComment(commentId, currentUser.id);
 
-      // Reload comments
-      loadRootComments(0);
+      // Optimistic update: remove from tree (parentId = null means root)
+      removeComment(commentId, parentId ?? null);
     } catch (error) {
       console.error("Error deleting comment:", error);
       alert("Không thể xóa bình luận");
     }
+  };
+
+  // Called by CommentItem after creating a reply
+  const handleReplyCreated = (parentId: string, newReply: Comment) => {
+    insertNewReply(parentId, newReply);
   };
 
   const handleCommentInputChange = async (
@@ -481,7 +502,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
               )}
             </>
           ) : (
-            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900">
+            <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900">
               <p className="text-4xl font-bold text-gray-400 dark:text-gray-600 px-8 text-center">
                 {post.content}
               </p>
@@ -490,7 +511,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
         </div>
 
         {/* Right side - Details */}
-        <div className="w-[400px] flex flex-col bg-white dark:bg-gray-900">
+        <div className="w-100 flex flex-col bg-white dark:bg-gray-900">
           {/* Header */}
           <div className="p-4 border-b dark:border-gray-800 flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -746,6 +767,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
                       comment={comment}
                       onDelete={handleDeleteComment}
                       onLoadMoreReplies={loadMoreReplies}
+                      onReplyCreated={handleReplyCreated}
                       postId={postId}
                     />
                   ))}
@@ -936,7 +958,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
               <div className="flex items-center gap-3">
                 <div className="relative flex-1">
                   {/* Highlighted text background layer */}
-                  <div className="absolute inset-0 text-sm pointer-events-none whitespace-pre-wrap break-words dark:text-white opacity-0">
+                  <div className="absolute inset-0 text-sm pointer-events-none whitespace-pre-wrap wrap-break-word dark:text-white opacity-0">
                     {commentInput
                       .split(/(@[a-zA-Z0-9_]+)/g)
                       .map((part, index) => {
@@ -1029,359 +1051,6 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
             setIsEditing(false);
           }}
         />
-      )}
-    </div>
-  );
-}
-
-// Comment Item Component
-function CommentItem({
-  comment,
-  onDelete,
-  onLoadMoreReplies,
-  postId,
-  level = 0,
-}: {
-  comment: Comment;
-  onDelete: (commentId: string) => void;
-  onLoadMoreReplies: (commentId: string) => void;
-  postId: string;
-  level?: number;
-}) {
-  const [commentUser, setCommentUser] = useState<UserData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const { currentUser } = useAuth();
-
-  // Reply state
-  const [showReplyInput, setShowReplyInput] = useState(false);
-  const [replyContent, setReplyContent] = useState("");
-  const [submittingReply, setSubmittingReply] = useState(false);
-  const [showReplies, setShowReplies] = useState(false);
-
-  // Reaction state
-  const [currentReaction, setCurrentReaction] = useState<string | null>(null);
-  const [showReactionPicker, setShowReactionPicker] = useState(false);
-  const [reactionTimeout, setReactionTimeout] = useState<ReturnType<
-    typeof setTimeout
-  > | null>(null);
-
-  const renderCommentContent = (content: string) => {
-    // Split by mentions (@username) - match @ followed by word characters
-    const parts = content.split(/(@[a-zA-Z0-9_]+)/g);
-    return parts.map((part, index) => {
-      if (part.match(/^@[a-zA-Z0-9_]+$/)) {
-        return (
-          <span key={index} className="text-blue-500 font-semibold">
-            {part}
-          </span>
-        );
-      }
-      return part;
-    });
-  };
-
-  // Fetch comment user
-  useEffect(() => {
-    const fetchUser = async () => {
-      try {
-        const user = await postApi.fetchUserById(comment.userId);
-        setCommentUser(user);
-      } catch (error) {
-        console.error("Error fetching comment user:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchUser();
-  }, [comment.userId]);
-
-  // Fetch user's reaction on comment
-  useEffect(() => {
-    const fetchUserReaction = async () => {
-      if (!currentUser?.id) return;
-
-      try {
-        const reaction = await postApi.fetchUserCommentReaction(
-          currentUser.id.toString(),
-          comment.id
-        );
-
-        if (reaction) {
-          setCurrentReaction(reaction.type);
-        }
-      } catch (error) {
-        console.debug("No reaction found for comment:", comment.id);
-      }
-    };
-
-    fetchUserReaction();
-  }, [currentUser, comment.id]);
-
-  // Toggle replies visibility
-  const toggleReplies = () => {
-    setShowReplies(!showReplies);
-  };
-
-  // Handle reply submission
-  const handleSubmitReply = async () => {
-    if (!replyContent.trim() || !currentUser?.id) return;
-
-    setSubmittingReply(true);
-    try {
-      await commentService.createComment(
-        "POST",
-        postId,
-        replyContent,
-        currentUser.id,
-        comment.id
-      );
-
-      setReplyContent("");
-      setShowReplyInput(false);
-      setShowReplies(true);
-
-      // Load more replies from scratch
-      onLoadMoreReplies(comment.id);
-    } catch (error) {
-      console.error("Error submitting reply:", error);
-      alert("Failed to submit reply");
-    } finally {
-      setSubmittingReply(false);
-    }
-  };
-
-  // Handle delete reply
-  const handleDeleteReply = (commentId: string) => {
-    onDelete(commentId);
-  };
-
-  // Handle reaction
-  const handleReaction = async (reactionType: string) => {
-    if (!currentUser?.id) {
-      alert("Please login to react");
-      return;
-    }
-
-    try {
-      const reaction = await postApi.toggleCommentReaction(
-        currentUser.id.toString(),
-        comment.id,
-        reactionType
-      );
-
-      if (!reaction) {
-        // Reaction removed
-        setCurrentReaction(null);
-      } else {
-        // Reaction added or changed
-        setCurrentReaction(reaction.type);
-        // Count will be synced from server
-      }
-      setShowReactionPicker(false);
-    } catch (error) {
-      console.error("Error toggling reaction:", error);
-    }
-  };
-
-  const handleLikeClick = () => {
-    if (currentReaction) {
-      // If already has reaction, clicking again will remove it
-      // Just call handleReaction with current reaction, backend will toggle it off
-      handleReaction(currentReaction);
-    } else {
-      // Add like
-      handleReaction("LIKE");
-    }
-  };
-
-  const handleReactionMouseEnter = () => {
-    if (reactionTimeout) {
-      clearTimeout(reactionTimeout);
-      setReactionTimeout(null);
-    }
-    setShowReactionPicker(true);
-  };
-
-  const handleReactionMouseLeave = () => {
-    const timeout = setTimeout(() => {
-      setShowReactionPicker(false);
-    }, 300);
-    setReactionTimeout(timeout);
-  };
-
-  const getReactionEmoji = (type: string) => {
-    const emojis: Record<string, string> = {
-      LIKE: "👍",
-      LOVE: "❤️",
-      HAHA: "😂",
-      WOW: "😮",
-      SAD: "😢",
-      ANGRY: "😡",
-    };
-    return emojis[type] || "👍";
-  };
-
-  if (loading || !commentUser) {
-    return (
-      <div className="h-12 bg-gray-100 dark:bg-gray-800 animate-pulse rounded" />
-    );
-  }
-
-  const timeAgo = new Date(comment.createdAt).toLocaleDateString("vi-VN");
-  const maxLevel = 3; // Maximum nesting level for replies
-
-  return (
-    <div className={level > 0 ? "ml-10" : ""}>
-      <div className="flex gap-3 px-4">
-        <img
-          src={commentUser.avatarUrl || "https://i.pravatar.cc/150?img=5"}
-          alt={commentUser.username}
-          className="w-8 h-8 rounded-full shrink-0"
-        />
-        <div className="flex-1">
-          <div className="bg-gray-100 dark:bg-gray-800 rounded-2xl px-3 py-2">
-            <p className="font-semibold text-sm dark:text-white">
-              {commentUser.username}
-            </p>
-            <p className="text-sm dark:text-white">
-              {renderCommentContent(comment.content)}
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2 mt-1 px-3 flex-wrap">
-            <span className="text-xs text-gray-500 dark:text-gray-400">
-              {timeAgo}
-            </span>
-
-            {/* Reaction Button */}
-            <div className="relative">
-              <button
-                onClick={handleLikeClick}
-                onMouseEnter={handleReactionMouseEnter}
-                onMouseLeave={handleReactionMouseLeave}
-                className={`text-xs font-semibold hover:underline ${
-                  currentReaction
-                    ? "text-blue-500 dark:text-blue-400"
-                    : "text-gray-500 dark:text-gray-400"
-                }`}
-              >
-                {currentReaction ? getReactionEmoji(currentReaction) : "Like"}
-              </button>
-
-              {/* Reaction Picker */}
-              {showReactionPicker && (
-                <div
-                  onMouseEnter={handleReactionMouseEnter}
-                  onMouseLeave={handleReactionMouseLeave}
-                  className="absolute bottom-full left-0 mb-1 bg-white dark:bg-gray-800 rounded-full shadow-lg border border-gray-200 dark:border-gray-700 px-2 py-1 flex gap-1 z-10"
-                >
-                  {["LIKE", "LOVE", "HAHA", "WOW", "SAD", "ANGRY"].map(
-                    (type) => (
-                      <button
-                        key={type}
-                        onClick={() => handleReaction(type)}
-                        className="text-xl hover:scale-125 transition-transform"
-                        title={type}
-                      >
-                        {getReactionEmoji(type)}
-                      </button>
-                    )
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Reply Button */}
-            {level < maxLevel && (
-              <button
-                onClick={() => setShowReplyInput(!showReplyInput)}
-                className="text-xs text-gray-500 dark:text-gray-400 font-semibold hover:underline"
-              >
-                Reply
-              </button>
-            )}
-
-            {/* Delete Button */}
-            {currentUser && comment.userId === currentUser.id.toString() && (
-              <button
-                onClick={() => onDelete(comment.id)}
-                className="text-xs text-red-500 dark:text-red-400 font-semibold hover:underline"
-              >
-                Delete
-              </button>
-            )}
-
-            {/* Reaction Count */}
-            {comment.reactCount > 0 && (
-              <span className="text-xs text-gray-500 dark:text-gray-400">
-                {comment.reactCount}{" "}
-                {comment.reactCount === 1 ? "like" : "likes"}
-              </span>
-            )}
-          </div>
-
-          {/* Reply Input */}
-          {showReplyInput && (
-            <div className="mt-2 flex gap-2">
-              <input
-                type="text"
-                value={replyContent}
-                onChange={(e) => setReplyContent(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSubmitReply();
-                  }
-                }}
-                placeholder={`Reply to ${commentUser.username}...`}
-                className="flex-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-full bg-gray-50 dark:bg-gray-900 dark:text-white outline-none focus:border-blue-500"
-                disabled={submittingReply}
-              />
-              <button
-                onClick={handleSubmitReply}
-                disabled={!replyContent.trim() || submittingReply}
-                className="px-3 py-1.5 text-sm text-blue-500 font-semibold hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {submittingReply ? "..." : "Post"}
-              </button>
-            </div>
-          )}
-
-          {/* Show Replies Button */}
-          {comment.replyCount > 0 && (
-            <button
-              onClick={toggleReplies}
-              className="mt-2 text-xs text-gray-600 dark:text-gray-400 font-semibold hover:underline"
-            >
-              {showReplies ? "Hide" : "View"} {comment.replyCount}{" "}
-              {comment.replyCount === 1 ? "reply" : "replies"}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Nested Replies */}
-      {showReplies && comment.replies && comment.replies.length > 0 && (
-        <div className="mt-3 space-y-3">
-          {comment.replies.map((reply) => (
-            <CommentItem
-              key={reply.id}
-              comment={reply}
-              onDelete={handleDeleteReply}
-              onLoadMoreReplies={onLoadMoreReplies}
-              postId={postId}
-              level={level + 1}
-            />
-          ))}
-          {comment.hasMoreReplies && (
-            <button
-              onClick={() => onLoadMoreReplies(comment.id)}
-              className="ml-10 text-xs text-blue-500 hover:text-blue-600 font-semibold"
-            >
-              Load more replies
-            </button>
-          )}
-        </div>
       )}
     </div>
   );

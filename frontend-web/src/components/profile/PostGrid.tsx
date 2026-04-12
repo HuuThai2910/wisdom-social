@@ -19,7 +19,7 @@ export default function PostGrid({
       {isOwnProfile && (
         <Link
           to="/create"
-          className="aspect-[4/5] relative group overflow-hidden bg-gradient-to-br from-purple-100 to-blue-100 dark:from-purple-900/30 dark:to-blue-900/30 flex items-center justify-center hover:from-purple-200 hover:to-blue-200 dark:hover:from-purple-900/50 dark:hover:to-blue-900/50 transition-all border-2 border-dashed border-gray-300 dark:border-gray-600"
+          className="aspect-4/5 relative group overflow-hidden bg-linear-to-br from-purple-100 to-blue-100 dark:from-purple-900/30 dark:to-blue-900/30 flex items-center justify-center hover:from-purple-200 hover:to-blue-200 dark:hover:from-purple-900/50 dark:hover:to-blue-900/50 transition-all border-2 border-dashed border-gray-300 dark:border-gray-600"
         >
           <div className="flex flex-col items-center gap-2 text-gray-600 dark:text-gray-400 group-hover:text-gray-800 dark:group-hover:text-gray-200">
             <div className="w-16 h-16 rounded-full bg-white dark:bg-gray-800 flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
@@ -40,7 +40,7 @@ export default function PostGrid({
             key={post.id}
             to={`/post/${post.id}`}
             state={{ from: location.pathname }}
-            className="aspect-[4/5] relative group overflow-hidden bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900"
+            className="aspect-4/5 relative group overflow-hidden bg-linear-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900"
           >
             {imageUrl ? (
               <img
