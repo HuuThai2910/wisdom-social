@@ -2,14 +2,17 @@
  * @ (#) .java    1.0
  * Copyright (c)  IUH. All rights reserved.
  */
-package iuh.fit.edu.backend.event.listener;
+package iuh.fit.edu.backend.event.handler;
 
 import iuh.fit.edu.backend.event.payload.MemberUpdatedEvent;
+import iuh.fit.edu.backend.event.payload.MessageCreatedEvent;
+import iuh.fit.edu.backend.event.type.DomainEventType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.event.EventListener;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
+
+import java.util.Set;
 
 /*
  * @description
@@ -20,19 +23,29 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class MemberEventListener {
+public class MemberUpdatedEventHandler implements RedisEventHandler {
 
     private final SimpMessagingTemplate messagingTemplate;
 
-    @EventListener
-    public void handleMemberUpdatedEvent(MemberUpdatedEvent event) {
-        log.info("Bắn WebSocket: Cập nhật thông tin Member {} trong phòng {}",
-                event.getUserId(), event.getConversationId());
+    @Override
+    public Class<?> getSupportedClass() {
+        return MemberUpdatedEvent.class;
+    }
 
+    @Override
+    public String getSupportedEventType() {
+        return DomainEventType.MEMBER_UPDATED.toString();
+    }
+
+    // Hàm xử lý sự kiện cập nhật thông tin của một thành viên cho tất cả user đăng ký conversation
+    @Override
+    public void handle(Object eventPayload, Set<Long> targetMemberIds) {
+        MemberUpdatedEvent event = (MemberUpdatedEvent) eventPayload;
         // Kênh để Frontend subscribe. Ví dụ: /topic/conversations/123/members
         String destination = "/topic/conversations/" + event.getConversationId() + "/members";
 
         // Gửi toàn bộ Object (có chứa newNickname, newAvatar) xuống cho FE
         messagingTemplate.convertAndSend(destination, event);
+        log.info("Send update member to {}", destination);
     }
 }

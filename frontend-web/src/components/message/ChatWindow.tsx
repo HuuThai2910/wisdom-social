@@ -302,6 +302,11 @@ export default function ChatWindow({
                 senderName: sender?.nickname || "Người dùng",
                 content: getMessagePreviewText(message),
             });
+
+            // Click menu có thể làm input blur, nên refocus ở frame kế tiếp.
+            requestAnimationFrame(() => {
+                messageInputRef.current?.focus();
+            });
         },
         [getMessagePreviewText, membersById],
     );

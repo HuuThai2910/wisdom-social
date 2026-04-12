@@ -506,7 +506,7 @@ export function MessageBubble({
             {!message.isRecalled && (
                 <div
                     ref={menuRef}
-                    className={`relative opacity-0 group-hover:opacity-100 transition-opacity self-center ${isOwn ? "order-first" : "order-last"}`}
+                    className={`relative z-60 opacity-0 group-hover:opacity-100 transition-opacity self-center ${isOwn ? "order-first" : "order-last"}`}
                 >
                     <button
                         onClick={() => setMenuOpen((v) => !v)}
@@ -518,7 +518,7 @@ export function MessageBubble({
 
                     {menuOpen && (
                         <div
-                            className={`absolute bottom-full mb-1 ${isOwn ? "right-0" : "left-0"} bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-2xl shadow-xl py-1.5 z-30 w-56`}
+                            className={`absolute bottom-full mb-1 ${isOwn ? "right-0" : "left-0"} bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-2xl shadow-xl py-1.5 z-70 w-56`}
                         >
                             <button
                                 onClick={handleCopy}
@@ -903,8 +903,8 @@ export function MessageBubble({
                 {/* Tooltip giờ bên cạnh — hiện khi hover, chỉ tin KHÔNG phải cuối group */}
                 {!isLastInGroup && (
                     <div
-                        className={`absolute top-1/2 -translate-y-1/2 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 whitespace-nowrap z-50 ${
-                            isOwn ? "right-full mr-2" : "left-full ml-2"
+                        className={`absolute top-1/2 -translate-y-1/2 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 whitespace-nowrap z-20 ${
+                            isOwn ? "right-full mr-10" : "left-full ml-10"
                         }`}
                     >
                         <span className="text-xs bg-gray-800 dark:bg-gray-900 text-white px-2 py-1 rounded-md shadow-lg">

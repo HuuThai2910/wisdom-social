@@ -1,25 +1,10 @@
-package iuh.fit.edu.backend.event.listener;
+package iuh.fit.edu.backend.event.publisher;
 
-import iuh.fit.edu.backend.dto.response.user.UserStatusResponse;
-import iuh.fit.edu.backend.event.payload.UserStatusEvent;
-import iuh.fit.edu.backend.service.user.UserCacheService;
-import iuh.fit.edu.backend.service.user.UserService;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.context.event.EventListener;
-import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
-import org.springframework.stereotype.Component;
-import org.springframework.web.socket.messaging.SessionConnectedEvent;
-import org.springframework.web.socket.messaging.SessionDisconnectEvent;
-
-import java.security.Principal;
-import java.time.Instant;
 //
 //@Slf4j
 //@Component
 //@RequiredArgsConstructor
-public class UserStatusWebSocketListener {
+public class UserStatusEventPublisher {
 
 //    private final UserCacheService userCacheService;
 //    private final UserService userService;
