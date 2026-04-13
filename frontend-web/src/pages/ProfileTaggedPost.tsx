@@ -57,7 +57,7 @@ export default function ProfileTaggedPost() {
           const transformedPostsPromises = postsData.map(async (post: Post) => {
             try {
               const authorResponse = await axios.get(
-                `${API_BASE_URL}/auth/user/id/${post.authorId}`
+                `${API_BASE_URL}/auth/user/${post.authorId}`
               );
               const authorData = authorResponse.data.data;
 

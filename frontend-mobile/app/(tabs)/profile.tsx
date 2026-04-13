@@ -28,6 +28,9 @@ import blockService from '../../services/blockService';
 import websocketService from '../../services/websocketService';
 import { mockPosts } from '../../constants/mockData';
 import type { Post, User } from '../../types';
+import DatePickerField from '../../components/DatePickerField';
+import SuccessModal from '../../components/SuccessModal';
+import { validateProfileForm } from '../../utils/validation';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const GRID_GAP = 2;
@@ -36,7 +39,7 @@ const GRID_ITEM_SIZE = (SCREEN_WIDTH - GRID_GAP * 4) / 3;
 const GENDER_OPTIONS = [
     { label: 'Nam', value: 'MALE' },
     { label: 'Nữ', value: 'FEMALE' },
-    { label: 'Ẩn', value: 'HIDDEN' },
+    { label: 'Khác', value: 'Other' },
 ];
 
 const S3_BASE = 'https://cnmt-hk1-amz.s3.ap-southeast-1.amazonaws.com/';
@@ -60,11 +63,19 @@ export default function ProfileScreen() {
     const [blockedUsers, setBlockedUsers] = useState<User[]>([]);
     const [isLoadingBlocked, setIsLoadingBlocked] = useState(false);
 
+    const [showAvatarModal, setShowAvatarModal] = useState(false);
+
     const [showEditModal, setShowEditModal] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
     const [avatarLocalUri, setAvatarLocalUri] = useState('');
     const [pendingAvatarAsset, setPendingAvatarAsset] = useState<{ uri: string; mimeType: string; extension: string } | null>(null);
+    const [editFormModalVisible, setEditFormModalVisible] = useState(false);
+    const [editFormModalData, setEditFormModalData] = useState({
+        type: 'success' as 'success' | 'error' | 'loading',
+        title: '',
+        message: '',
+    });
     const [editForm, setEditForm] = useState({
         name: '',
         username: '',
@@ -73,6 +84,12 @@ export default function ProfileScreen() {
         gender: '',
         avatarUrl: '',
         backgroundUrl: '',
+    });
+    const [editFormErrors, setEditFormErrors] = useState({
+        name: '',
+        username: '',
+        birthday: '',
+        gender: '',
     });
 
     const loadProfile = useCallback(async () => {
@@ -151,6 +168,105 @@ export default function ProfileScreen() {
         router.replace('/login');
     };
 
+
+    const validateField = useCallback((field: 'name' | 'username' | 'birthday' | 'gender', value: string) => {
+        let error = '';
+
+        if (field === 'name') {
+            if (!value || value.trim() === '') {
+                error = 'Họ và tên không được để trống';
+            } else if (value.trim().length < 2) {
+                error = 'Họ và tên phải ít nhất 2 ký tự';
+            } else if (value.trim().length > 50) {
+                error = 'Họ và tên không được vượt quá 50 ký tự';
+            }
+        } else if (field === 'username') {
+            if (!value || value.trim() === '') {
+                error = 'Tên người dùng không được để trống';
+            } else if (!/^[a-zA-Z0-9_]{3,20}$/.test(value)) {
+                error = 'Tên người dùng phải từ 3-20 ký tự (chữ, số, gạch dưới)';
+            }
+        } else if (field === 'birthday') {
+            if (!value || value.trim() === '') {
+                error = 'Ngày sinh không được để trống';
+            } else {
+                const dateRegex = /^(\d{2})\/(\d{2})\/(\d{4})$/;
+                const match = value.match(dateRegex);
+                if (!match) {
+                    error = 'Ngày sinh phải có định dạng DD/MM/YYYY';
+                } else {
+                    const [, day, month, year] = match;
+                    const dayNum = parseInt(day, 10);
+                    const monthNum = parseInt(month, 10);
+                    const yearNum = parseInt(year, 10);
+
+                    if (monthNum < 1 || monthNum > 12) {
+                        error = 'Tháng phải từ 01 đến 12';
+                    } else {
+                        const daysInMonth = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+                        if (yearNum % 4 === 0 && (yearNum % 100 !== 0 || yearNum % 400 === 0)) {
+                            daysInMonth[1] = 29;
+                        }
+                        if (dayNum < 1 || dayNum > daysInMonth[monthNum - 1]) {
+                            error = `Ngày phải từ 01 đến ${daysInMonth[monthNum - 1]}`;
+                        } else {
+                            const birthDate = new Date(yearNum, monthNum - 1, dayNum);
+                            const today = new Date();
+                            if (birthDate > today) {
+                                error = 'Ngày sinh không được lớn hơn ngày hiện tại';
+                            } else {
+                                const age = today.getFullYear() - birthDate.getFullYear();
+                                if (age < 13) {
+                                    error = 'Phải ít nhất 13 tuổi để sử dụng';
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else if (field === 'gender') {
+            if (!value || value.trim() === '') {
+                error = 'Giới tính không được để trống';
+            }
+        }
+
+        setEditFormErrors(prev => ({ ...prev, [field]: error }));
+        return error === '';
+    }, []);
+
+    const checkUsernameExists = useCallback(async (username: string, currentUsername: string) => {
+        if (!username) return false;
+
+        // Don't check if username hasn't changed
+        if (username === currentUsername) return false;
+
+        try {
+            const users = await userService.getUserByUsername(username);
+            return users && users.length > 0;
+        } catch {
+            return false;
+        }
+    }, []);
+
+    const validateUsernameAsync = useCallback(async (value: string, currentUsername: string) => {
+        let error = '';
+
+        if (!value || value.trim() === '') {
+            error = 'Tên người dùng không được để trống';
+        } else if (!/^[a-zA-Z0-9_]{3,20}$/.test(value)) {
+            error = 'Tên người dùng phải từ 3-20 ký tự (chữ, số, gạch dưới)';
+        } else {
+            // Check if username already exists
+            const exists = await checkUsernameExists(value, currentUsername);
+            if (exists) {
+                error = 'Tên người dùng này đã tồn tại';
+            }
+        }
+
+        setEditFormErrors(prev => ({ ...prev, username: error }));
+        return { isValid: error === '', error };
+    }, [checkUsernameExists]);
+
     const handleEditProfile = () => {
         const d = displayUser;
         setEditForm({
@@ -162,6 +278,7 @@ export default function ProfileScreen() {
             avatarUrl: d?.avatarUrl || '',
             backgroundUrl: d?.backgroundUrl || '',
         });
+        setEditFormErrors({ name: '', username: '', birthday: '', gender: '' });
         setAvatarLocalUri('');
         setPendingAvatarAsset(null);
         setShowEditModal(true);
@@ -204,10 +321,47 @@ export default function ProfileScreen() {
     const handleSaveProfile = async () => {
         const userId = displayUser?.id;
         if (!userId) return;
+
+        // Validate form
+        const validation = validateProfileForm(
+            editForm.name,
+            editForm.username,
+            editForm.birthday,
+            editForm.gender
+        );
+
+        if (!validation.isValid) {
+            setEditFormModalData({
+                type: 'error',
+                title: 'Lỗi xác thực',
+                message: validation.error || 'Vui lòng kiểm tra thông tin',
+            });
+            setEditFormModalVisible(true);
+            return;
+        }
+
+        // Check if username exists (async validation)
+        const usernameValidation = await validateUsernameAsync(editForm.username, displayUser?.username || '');
+        if (!usernameValidation.isValid) {
+            setEditFormModalData({
+                type: 'error',
+                title: 'Lỗi xác thực',
+                message: usernameValidation.error || 'Tên người dùng không hợp lệ',
+            });
+            setEditFormModalVisible(true);
+            return;
+        }
+
         setIsSaving(true);
+        setEditFormModalData({
+            type: 'loading',
+            title: 'Đang lưu',
+            message: 'Vui lòng chờ...',
+        });
+        setEditFormModalVisible(true);
+
         try {
             let newAvatarUrl: string | undefined = editForm.avatarUrl || undefined;
-            let newBackgroundUrl: string | undefined = editForm.backgroundUrl || undefined;
 
             if (pendingAvatarAsset) {
                 setIsUploadingAvatar(true);
@@ -225,8 +379,6 @@ export default function ProfileScreen() {
                 setIsUploadingAvatar(false);
             }
 
-            
-
             const payload: any = {};
             if (editForm.name) payload.name = editForm.name;
             if (editForm.username) payload.username = editForm.username;
@@ -239,6 +391,7 @@ export default function ProfileScreen() {
             if (success) {
                 setPendingAvatarAsset(null);
                 setAvatarLocalUri('');
+                setEditFormModalVisible(false);
                 setShowEditModal(false);
                 const fresh = await userService.getProfile();
                 if (fresh) {
@@ -246,10 +399,20 @@ export default function ProfileScreen() {
                     await updateUser(fresh);
                 }
             } else {
-                Alert.alert('Lỗi', 'Không thể cập nhật hồ sơ. Vui lòng thử lại.');
+                setEditFormModalData({
+                    type: 'error',
+                    title: 'Lỗi',
+                    message: 'Không thể cập nhật hồ sơ. Vui lòng thử lại.',
+                });
+                setEditFormModalVisible(true);
             }
         } catch {
-            Alert.alert('Lỗi', 'Không thể tải ảnh lên. Vui lòng thử lại.');
+            setEditFormModalData({
+                type: 'error',
+                title: 'Lỗi',
+                message: 'Không thể tải ảnh lên hoặc cập nhật hồ sơ. Vui lòng thử lại.',
+            });
+            setEditFormModalVisible(true);
         } finally {
             setIsSaving(false);
             setIsUploadingAvatar(false);
@@ -319,9 +482,6 @@ export default function ProfileScreen() {
                 contentContainerStyle={{ paddingTop: insets.top, paddingBottom: 40 }}
             >
                 <View style={ds.card}>
-                    {displayUser.backgroundUrl ? (
-                        <Image source={{ uri: buildS3Url(displayUser.backgroundUrl) }} style={ds.coverImage} />
-                    ) : null}
                     <TouchableOpacity
                         style={ds.settingsBtn}
                         onPress={() => router.push('/settings' as any)}
@@ -331,7 +491,11 @@ export default function ProfileScreen() {
                     </TouchableOpacity>
 
                     <View style={ds.topRow}>
-                        <View style={ds.avatarWrap}>
+                        <TouchableOpacity
+                            style={ds.avatarWrap}
+                            onPress={() => setShowAvatarModal(true)}
+                            activeOpacity={0.7}
+                        >
                             {displayUser.avatarUrl ? (
                                 <Image source={{ uri: buildS3Url(displayUser.avatarUrl) }} style={ds.avatar} />
                             ) : (
@@ -340,7 +504,7 @@ export default function ProfileScreen() {
                                 </View>
                             )}
                             <View style={ds.onlineDot} />
-                        </View>
+                        </TouchableOpacity>
 
                         <View style={ds.statsRow}>
                             <StatBlock label="Bài viết" value={displayUser.postsCount || 0} colors={colors} />
@@ -485,7 +649,10 @@ export default function ProfileScreen() {
                         <View style={ds.dragBar} />
 
                         <View style={ds.sheetHeader}>
-                            <TouchableOpacity onPress={() => setShowEditModal(false)} hitSlop={12}>
+                            <TouchableOpacity onPress={() => {
+                                setShowEditModal(false);
+                                setEditFormErrors({ name: '', username: '', birthday: '', gender: '' });
+                            }} hitSlop={12}>
                                 <Text style={ds.sheetCancel}>Hủy</Text>
                             </TouchableOpacity>
                             <Text style={ds.sheetTitle}>Chỉnh sửa hồ sơ</Text>
@@ -523,12 +690,18 @@ export default function ProfileScreen() {
                             </TouchableOpacity>
 
                             <Field label="Họ tên" value={editForm.name}
-                                onChange={(v) => setEditForm(f => ({ ...f, name: v }))}
-                                placeholder="Nhập họ tên" colors={colors} />
+                                onChange={(v) => {
+                                    setEditForm(f => ({ ...f, name: v }));
+                                    validateField('name', v);
+                                }}
+                                placeholder="Nhập họ tên" colors={colors} error={editFormErrors.name} />
 
                             <Field label="Tên người dùng" value={editForm.username}
-                                onChange={(v) => setEditForm(f => ({ ...f, username: v }))}
-                                placeholder="@username" autoCapitalize="none" colors={colors} />
+                                onChange={(v) => {
+                                    setEditForm(f => ({ ...f, username: v }));
+                                    validateField('username', v);
+                                }}
+                                placeholder="@username" autoCapitalize="none" colors={colors} error={editFormErrors.username} />
 
                             <View style={ds.fieldGroup}>
                                 <Text style={ds.fieldLabel}>Tiểu sử</Text>
@@ -542,9 +715,16 @@ export default function ProfileScreen() {
                                 />
                             </View>
 
-                            <Field label="Ngày sinh" value={editForm.birthday}
-                                onChange={(v) => setEditForm(f => ({ ...f, birthday: v }))}
-                                placeholder="DD/MM/YYYY" colors={colors} />
+                            <DatePickerField
+                                label="Ngày sinh"
+                                value={editForm.birthday}
+                                onChange={(v) => {
+                                    setEditForm(f => ({ ...f, birthday: v }));
+                                    validateField('birthday', v);
+                                }}
+                                colors={colors}
+                                error={editFormErrors.birthday}
+                            />
 
                             <View style={ds.fieldGroup}>
                                 <Text style={ds.fieldLabel}>Giới tính</Text>
@@ -555,7 +735,10 @@ export default function ProfileScreen() {
                                             <TouchableOpacity
                                                 key={opt.value}
                                                 style={[ds.chip, active && ds.chipActive]}
-                                                onPress={() => setEditForm(f => ({ ...f, gender: opt.value }))}
+                                                onPress={() => {
+                                                    setEditForm(f => ({ ...f, gender: opt.value }));
+                                                    validateField('gender', opt.value);
+                                                }}
                                                 activeOpacity={0.7}
                                             >
                                                 <Text style={[ds.chipText, active && ds.chipTextActive]}>{opt.label}</Text>
@@ -563,12 +746,53 @@ export default function ProfileScreen() {
                                         );
                                     })}
                                 </View>
+                                {editFormErrors.gender && (
+                                    <Text style={{ fontSize: 12, color: colors.danger, marginTop: 6 }}>{editFormErrors.gender}</Text>
+                                )}
                             </View>
 
                             <View style={{ height: 32 }} />
                         </ScrollView>
                     </View>
                 </KeyboardAvoidingView>
+            </Modal>
+
+            <SuccessModal
+                visible={editFormModalVisible}
+                type={editFormModalData.type}
+                title={editFormModalData.title}
+                message={editFormModalData.message}
+                onClose={() => setEditFormModalVisible(false)}
+                confirmText={editFormModalData.type === 'loading' ? undefined : 'OK'}
+            />
+
+            <Modal visible={showAvatarModal} transparent animationType="fade" onRequestClose={() => setShowAvatarModal(false)}>
+                <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.9)', justifyContent: 'center', alignItems: 'center' }}>
+                    <TouchableOpacity
+                        style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}
+                        onPress={() => setShowAvatarModal(false)}
+                        activeOpacity={1}
+                    >
+                        {displayUser.avatarUrl ? (
+                            <Image
+                                source={{ uri: buildS3Url(displayUser.avatarUrl) }}
+                                style={{ width: 500, height: 500, borderRadius: 20 }}
+                                resizeMode="contain"
+                            />
+                        ) : (
+                            <View style={{ width: 200, height: 200, borderRadius: 100, backgroundColor: colors.chipBg, justifyContent: 'center', alignItems: 'center' }}>
+                                <Ionicons name="person" size={80} color={colors.textTertiary} />
+                            </View>
+                        )}
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={{ position: 'absolute', top: insets.top + 16, right: 16, padding: 8 }}
+                        onPress={() => setShowAvatarModal(false)}
+                        hitSlop={12}
+                    >
+                        <Ionicons name="close-circle" size={32} color="#fff" />
+                    </TouchableOpacity>
+                </View>
             </Modal>
         </>
     );
@@ -595,17 +819,17 @@ function MetaChip({ icon, text, colors }: { icon: string; text: string; colors: 
     );
 }
 
-function Field({ label, value, onChange, placeholder, autoCapitalize, colors }: {
+function Field({ label, value, onChange, placeholder, autoCapitalize, colors, error }: {
     label: string; value: string; onChange: (v: string) => void;
     placeholder?: string; autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
-    colors: ThemeColors;
+    colors: ThemeColors; error?: string;
 }) {
     return (
         <View style={{ marginTop: 16 }}>
             <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textSecondary, marginBottom: 6 }}>{label}</Text>
             <TextInput
                 style={{
-                    backgroundColor: colors.inputBg, borderWidth: 1, borderColor: colors.border,
+                    backgroundColor: colors.inputBg, borderWidth: 1, borderColor: error ? colors.danger : colors.border,
                     borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12,
                     fontSize: 15, color: colors.text,
                 }}
@@ -615,6 +839,9 @@ function Field({ label, value, onChange, placeholder, autoCapitalize, colors }: 
                 placeholderTextColor={colors.textTertiary}
                 autoCapitalize={autoCapitalize}
             />
+            {error && (
+                <Text style={{ fontSize: 12, color: colors.danger, marginTop: 6 }}>{error}</Text>
+            )}
         </View>
     );
 }

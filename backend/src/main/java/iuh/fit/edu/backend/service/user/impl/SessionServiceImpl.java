@@ -35,6 +35,11 @@ public class SessionServiceImpl implements SessionService {
     }
 
     @Override
+    public Session getSessionById(String sessionId) {
+        return sessionRepository.findById(sessionId).orElse(null);
+    }
+
+    @Override
     public UserResponseScanQRLogin scanQRLogin(String session_id, long id) {
         User user=userService.findUserById(id);
         Session session=sessionRepository.findById(session_id).orElse(null);

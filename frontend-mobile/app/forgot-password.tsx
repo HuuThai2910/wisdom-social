@@ -30,8 +30,8 @@ export default function ForgotPasswordScreen() {
             const result = await authService.forgotPassword({ phone });
             if (result) {
                 router.push({
-                    pathname: '/verify-otp',
-                    params: { phone, type: 'reset-password' },
+                    pathname: '/reset-password',
+                    params: { phone },
                 });
             }
         } catch {

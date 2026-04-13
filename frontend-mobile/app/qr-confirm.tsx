@@ -13,6 +13,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import apiClient from '../api/apiClient';
 import { getDeviceInfo } from '../utils/deviceInfo';
+import authService from '../services/authService';
 
 interface ScanResponse {
   seesion_id: string;
@@ -31,36 +32,83 @@ export default function QRConfirm() {
   const sessionId = params.session_id as string;
   const router = useRouter();
 
+  const navigateToSettingsWithCleanStack = () => {
+    router.dismissAll();
+    router.push('/settings' as any);
+  };
+
   const [loading, setLoading] = useState(true);
   const [confirming, setConfirming] = useState(false);
   const [sessionData, setSessionData] = useState<ScanResponse | null>(null);
   const [error, setError] = useState('');
 
+  const handleHeaderBack = () => {
+    if (sessionData && !error) {
+      router.replace('/settings' as any);
+      return;
+    }
+
+    router.back();
+  };
+
   useEffect(() => {
-    scanQRCode();
-  }, []);
+
+    // Đợi một chút để đảm bảo params đã được set
+    const timer = setTimeout(() => {
+      if (sessionId && sessionId !== 'undefined' && sessionId !== '') {
+        scanQRCode();
+      } else {
+        setError('Mã QR không hợp lệ');
+        setLoading(false);
+      }
+    }, 50); 
+
+    return () => clearTimeout(timer);
+  }, [sessionId]);
 
   const scanQRCode = async () => {
+    if (!sessionId || sessionId === 'undefined' || sessionId === '') {
+      setError('Mã QR không hợp lệ');
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       setError('');
 
       const response = await apiClient.get('/session/qr-login/scan', {
         params: { session_id: sessionId },
+        timeout: 15000,
       });
 
-      setSessionData(response.data.data);
+      const scanData = response.data.data;
+
+      if (
+        scanData &&
+        typeof scanData === 'object' &&
+        ('user' in scanData || 'seesion_id' in scanData || 'session_id' in scanData)
+      ) {
+        setSessionData(scanData);
+        return;
+      }
+      const currentUser = await authService.getCurrentUser();
+      if (currentUser) {
+        setSessionData({
+          seesion_id: sessionId,
+          status: 'SCANNED',
+          user: currentUser,
+          expireAt: new Date(Date.now() + 60_000).toISOString(),
+        });
+      } else {
+        setError('Không thể xác thực mã QR. Vui lòng thử lại.');
+      }
     } catch (err: any) {
       const errorMsg =
         err.response?.data?.message ||
+        err.message ||
         'Không thể xác thực mã QR. Vui lòng thử lại.';
       setError(errorMsg);
-      Alert.alert('Lỗi', errorMsg, [
-        {
-          text: 'OK',
-          onPress: () => router.back(),
-        },
-      ]);
     } finally {
       setLoading(false);
     }
@@ -87,9 +135,12 @@ export default function QRConfirm() {
         [
           {
             text: 'OK',
-            onPress: () => router.back(),
+            onPress: () => {
+              navigateToSettingsWithCleanStack();
+            },
           },
-        ]
+        ],
+        { cancelable: false } // Không cho dismiss bằng cách tap outside
       );
     } catch (err: any) {
       const errorMsg =
@@ -109,12 +160,19 @@ export default function QRConfirm() {
         params: { session_id: sessionId },
       });
 
-      Alert.alert('Đã từ chối', 'Bạn đã từ chối yêu cầu đăng nhập.', [
-        {
-          text: 'OK',
-          onPress: () => router.back(),
-        },
-      ]);
+      Alert.alert(
+        'Đã từ chối',
+        'Bạn đã từ chối yêu cầu đăng nhập.',
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              navigateToSettingsWithCleanStack();
+            },
+          },
+        ],
+        { cancelable: false } // Không cho dismiss bằng cách tap outside
+      );
     } catch (err: any) {
       const errorMsg =
         err.response?.data?.message || 'Có lỗi xảy ra. Vui lòng thử lại.';
@@ -130,7 +188,7 @@ export default function QRConfirm() {
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.backButton}
-            onPress={() => router.back()}
+            onPress={handleHeaderBack}
           >
             <Ionicons name="arrow-back" size={24} color="#000" />
           </TouchableOpacity>
@@ -151,7 +209,7 @@ export default function QRConfirm() {
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.backButton}
-            onPress={() => router.back()}
+            onPress={handleHeaderBack}
           >
             <Ionicons name="arrow-back" size={24} color="#000" />
           </TouchableOpacity>
@@ -160,9 +218,20 @@ export default function QRConfirm() {
         </View>
         <View style={styles.errorContainer}>
           <Ionicons name="alert-circle-outline" size={64} color="#ff3b30" />
-          <Text style={styles.errorText}>{error}</Text>
+          <Text style={styles.errorText}>{error || 'Lỗi không xác định'}</Text>
+          {__DEV__ && (
+            <Text style={styles.debugText}>
+              Session ID: {sessionId || 'undefined'}
+            </Text>
+          )}
           <TouchableOpacity style={styles.retryButton} onPress={scanQRCode}>
             <Text style={styles.retryButtonText}>Thử lại</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.retryButton, styles.backButtonStyle]}
+            onPress={() => router.back()}
+          >
+            <Text style={styles.retryButtonText}>Quay lại</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -174,7 +243,7 @@ export default function QRConfirm() {
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}
-          onPress={() => router.back()}
+          onPress={handleHeaderBack}
           disabled={confirming}
         >
           <Ionicons name="arrow-back" size={24} color="#000" />
@@ -323,6 +392,16 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  backButtonStyle: {
+    backgroundColor: '#6c757d',
+    marginTop: 12,
+  },
+  debugText: {
+    marginTop: 12,
+    fontSize: 12,
+    color: '#999',
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
   },
   content: {
     flex: 1,

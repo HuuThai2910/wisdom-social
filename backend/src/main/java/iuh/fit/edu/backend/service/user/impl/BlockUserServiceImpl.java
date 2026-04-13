@@ -23,6 +23,11 @@ public class BlockUserServiceImpl implements BlockUserService {
     }
 
     @Override
+    public List<BlockedUser> getBlockedByUser(User user) {
+        return blockUserRepository.findBlockedUsersByBlocked(user);
+    }
+
+    @Override
     public boolean blockUser(BlockedUser blockedUser) {
         if(blockedUser!=null) {
             blockUserRepository.save(blockedUser);

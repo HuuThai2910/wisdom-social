@@ -119,7 +119,7 @@ public class PostServiceImpl implements PostService {
                     log.info("Processing image {}: {}", i, tempUrl);
                     
                     // Move from temp to final location using MongoDB ID (String)
-                    String finalUrl = s3Service.moveUploadUrl("posts", savedPost.getId(), tempUrl);
+                    String finalUrl = s3Service.moveUploadUrl("posts", Long.parseLong(savedPost.getId()), tempUrl);
                     log.info("Successfully moved image {} to final location: {}", i, finalUrl);
                     
                     Media media = Media.builder()
@@ -319,7 +319,7 @@ public class PostServiceImpl implements PostService {
                 for (int i = 0; i < newImageUrls.size(); i++) {
                     String tempUrl = newImageUrls.get(i);
                     // Move from temp to final location using MongoDB ID (String)
-                    String finalUrl = s3Service.moveUploadUrl("posts", postId, tempUrl);
+                    String finalUrl = s3Service.moveUploadUrl("posts", Long.parseLong(postId), tempUrl);
                     
                     Media media = Media.builder()
                             .order(newMediaStartIndex + i)

@@ -69,16 +69,23 @@ public class UserController {
     @PostMapping("/logout")
     public ResponseEntity<String> logoutUser(HttpServletRequest request){
         String idToken = null;
-        String refreshToken=null;
+        String refreshToken = null;
+        String refreshTokenQr = null;
         if (request.getCookies() != null) {
             for (Cookie cookie : request.getCookies()) {
-                if ("idToken".equals(cookie.getName())) {
+                if ("accessToken".equals(cookie.getName())) {
                     idToken = cookie.getValue();
                 }
                 if ("refreshToken".equals(cookie.getName())) {
                     refreshToken = cookie.getValue();
                 }
+                if ("refreshTokenQr".equals(cookie.getName())) {
+                    refreshTokenQr = cookie.getValue();
+                }
             }
+        }
+        if (refreshToken == null) {
+            refreshToken = refreshTokenQr;
         }
         userService.logoutUser(idToken,refreshToken);
         return ResponseEntity.ok("Logout success");
@@ -209,7 +216,7 @@ public class UserController {
     public ResponseEntity<String> updateUploadImage(@RequestParam String type,
                                            @RequestParam String extension){
         User user=userService.getCurrentUser();
-        Map<String,String> image= s3Service.generateUpdateUploadUrl(type,String.valueOf(user.getId()),extension);
+        Map<String,String> image= s3Service.generateUpdateUploadUrl(type,user.getId(),extension);
 
         UserRequestUpdate update=new UserRequestUpdate();
         update.setAvatarUrl(image.get("imageUrl"));

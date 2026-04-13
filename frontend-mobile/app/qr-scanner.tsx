@@ -34,23 +34,37 @@ export default function QRScanner() {
     checkAndRequestPermission();
   }, [permission]);
 
+  // Reset state khi component mount lại (ví dụ khi user back về)
+  useEffect(() => {
+    setScanned(false);
+    setIsProcessing(false);
+  }, []);
+
   const handleBarCodeScanned = ({ data }: { type: string; data: string }) => {
     if (scanned || isProcessing) return;
 
     setScanned(true);
     setIsProcessing(true);
 
+    console.log('QR Code scanned, raw data:', data);
+
     try {
       // Parse QR data
       const qrData = JSON.parse(data);
+      console.log('Parsed QR data:', qrData);
 
       if (qrData.type === 'qr_login' && qrData.session_id) {
+        console.log('Valid QR login code, session_id:', qrData.session_id);
+
         // Navigate to confirmation screen with session_id
-        router.push({
-          pathname: '/qr-confirm' as any,
-          params: { session_id: qrData.session_id },
-        });
+        setTimeout(() => {
+          router.push({
+            pathname: '/qr-confirm' as any,
+            params: { session_id: qrData.session_id },
+          });
+        }, 1000); // Delay nhỏ để đảm bảo state updated
       } else {
+        console.log('Invalid QR code format');
         Alert.alert('Lỗi', 'Mã QR không hợp lệ. Vui lòng quét mã QR đăng nhập.', [
           {
             text: 'OK',
@@ -62,6 +76,7 @@ export default function QRScanner() {
         ]);
       }
     } catch (error) {
+      console.error('Error parsing QR code:', error);
       Alert.alert('Lỗi', 'Không thể đọc mã QR. Vui lòng thử lại.', [
         {
           text: 'OK',

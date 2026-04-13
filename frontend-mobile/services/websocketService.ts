@@ -1,7 +1,17 @@
 import { Client } from '@stomp/stompjs';
+import { Platform } from 'react-native';
 import { getUser } from '../utils/storage';
 
 type MessageHandler = (message: any) => void;
+
+// Use same base URL as apiClient but for WebSocket
+const API_BASE_URL = Platform.select({
+    android: '192.168.1.151:8080',
+    ios: '192.168.137.101:8080',
+    default: '192.168.1.151:8080',
+});
+
+const WS_URL = `ws://${API_BASE_URL}/ws-native`;
 
 class WebSocketService {
     private client: Client | null = null;
@@ -20,7 +30,7 @@ class WebSocketService {
             if (!user?.phone) return;
 
             const internationalPhone = this.convertToInternationalFormat(user.phone);
-            const wsUrl = 'ws://192.168.1.150:8080/ws-native';
+            const wsUrl = WS_URL;
 
             this.client = new Client({
                 webSocketFactory: () => new WebSocket(wsUrl),
@@ -66,6 +76,7 @@ class WebSocketService {
         const queues = [
             'friend-request', 'friend-accept', 'friend-cancel', 'friend-reject',
             'save-block', 'cancel-block',
+            'profile-update',
         ];
         queues.forEach(queue => {
             this.client!.subscribe(`/topic/user/${phone}/${queue}`, (message) => {

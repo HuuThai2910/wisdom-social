@@ -10,10 +10,10 @@ export interface ApiResponse<T> {
 
 // User Types
 export interface User {
-    id: string;
+    id: number;
     username: string;
     fullName: string;
-    avatar: string;
+    avatarUrl: string;
     bio?: string;
     phone?: string;
     gender?: "MALE" | "FEMALE" | "OTHER";

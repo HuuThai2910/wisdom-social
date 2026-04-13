@@ -15,9 +15,9 @@ import {
   ChevronRight,
 } from "lucide-react";
 import type { Post, PrivacyType } from "../../types";
-import { useAuth } from "../../contexts/AuthContext";
 import { buildS3Url } from "../../utils/s3";
 import * as postApi from "../../services/postService";
+import { useCurrentUser } from './../../hooks/useCurrentUser';
 
 interface PostCardProps {
   post: Post;
@@ -69,8 +69,8 @@ const getPrivacyDisplay = (
 export default function PostCard({ post }: PostCardProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const { currentUser } = useAuth();
-  const isOwnPost = currentUser?.id.toString() === post.user.id;
+  const currentUser  = useCurrentUser();
+  const isOwnPost = currentUser?.id === post.user.id;
   const privacyDisplay = getPrivacyDisplay(post.privacy, isOwnPost);
 
   const [isLiked, setIsLiked] = useState(post.isLiked || false);
