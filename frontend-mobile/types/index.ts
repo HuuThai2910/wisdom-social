@@ -1,82 +1,81 @@
-export interface User {
-    id: number;
-    phone: string;
-    name?: string | null;
-    username?: string | null;
-    avatarUrl?: string | null;
-    birthday?: string | null;
-    bio?: string | null;
-    gender?: string | null;
-    createdAt?: string | null;
-    updatedAt?: string | null;
-    confirmUseAI?: boolean;
-    fullName?: string;
-    avatar?: string;
-    isVerified?: boolean;
-    followersCount?: number;
-    followingCount?: number;
-    postsCount?: number;
-}
-
-export type PostStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
-
-export interface Post {
+export type User = {
     id: string;
-    authorId?: string;  // User ID as string
-    content?: string;
-    media?: Array<{
-        url?: string;
-        type?: string;
-    }>;
-    stats?: {
-        likes?: number;
-        comments?: number;
-        shares?: number;
-    };
-    createdAt?: string;
-    updatedAt?: string;
-    status?: PostStatus;
-    pageId?: number;
-}
+    username: string;
+    fullName: string;
+    bio: string;
+    avatar: string;
+    followers: number;
+    following: number;
+    website?: string;
+};
 
-export interface Comment {
+export type Story = {
     id: string;
-    user: User;
-    text: string;
-    createdAt: string;
-    likes: number;
-}
-
-export interface Story {
-    id: string;
-    user: User;
+    userId: string;
     image: string;
-    isViewed: boolean;
-}
+    viewed: boolean;
+    createdAt: string;
+};
 
-export interface Chat {
+export type Comment = {
     id: string;
-    participants: User[];
-    lastMessage?: Message;
-    unreadCount: number;
-    updatedAt: string;
-}
-
-export interface Message {
-    id: string;
-    senderId: string;
-    conversationId: string;
+    userId: string;
     content: string;
     createdAt: string;
-    isRead: boolean;
-}
+};
 
-export interface Notification {
+export type Post = {
     id: string;
-    user: User;
-    type: 'like' | 'comment' | 'follow' | 'mention';
-    post?: Post;
+    userId: string;
+    image: string;
+    caption: string;
+    likes: number;
+    comments: Comment[];
+    createdAt: string;
+};
+
+export type AppNotification = {
+    id: string;
+    type: "like" | "follow" | "comment" | "mention";
+    userId: string;
+    postId?: string;
     message: string;
     createdAt: string;
-    isRead: boolean;
-}
+    read: boolean;
+};
+
+export type Message = {
+    id: string;
+    conversationId: string;
+    senderId: string;
+    content: string;
+    createdAt: string;
+};
+
+export type Conversation = {
+    id: string;
+    participantIds: string[];
+    lastMessage: string;
+    updatedAt: string;
+};
+
+export type IgtvVideo = {
+    id: string;
+    title: string;
+    thumbnail: string;
+    duration: string;
+    views: number;
+    userId: string;
+    description: string;
+};
+
+export type ProfileStats = {
+    posts: number;
+    followers: number;
+    following: number;
+};
+
+export type AuthResult = {
+    success: boolean;
+    message?: string;
+};
