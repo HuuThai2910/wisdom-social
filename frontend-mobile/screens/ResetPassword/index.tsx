@@ -1,25 +1,39 @@
 import React, { useState } from "react";
-import { Pressable, SafeAreaView, StyleSheet, Text, View } from "react-native";
-import { useRouter } from "expo-router";
-import { colors, spacing } from "@/constants";
+import { SafeAreaView, StyleSheet, Text, View } from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { CustomButton, CustomInput } from "@/components";
+import { colors, spacing } from "@/constants";
 import { useAppContext } from "@/context/AppContext";
-import { validatePhone, validateStrongPassword } from "@/utils/validators";
+import {
+    validateOtp,
+    validatePhone,
+    validateStrongPassword,
+} from "@/utils/validators";
 
-export default function SignUpScreen() {
+export default function ResetPasswordScreen() {
     const router = useRouter();
-    const { signupWithPhone, loadingAuth } = useAppContext();
-    const [phone, setPhone] = useState("");
+    const { phone, otp } = useLocalSearchParams<{
+        phone?: string;
+        otp?: string;
+    }>();
+    const { resetPasswordByOtp } = useAppContext();
+
+    const [confirmationCode, setConfirmationCode] = useState(otp ?? "");
     const [password, setPassword] = useState("");
     const [confirmPassword, setConfirmPassword] = useState("");
     const [error, setError] = useState("");
+    const [submitting, setSubmitting] = useState(false);
 
     const onSubmit = async () => {
         setError("");
 
-        const normalizedPhone = phone.trim();
-        if (!validatePhone(normalizedPhone)) {
-            setError("Số điện thoại phải gồm 10 chữ số.");
+        if (!phone || !validatePhone(phone)) {
+            setError("Số điện thoại không hợp lệ.");
+            return;
+        }
+
+        if (!validateOtp(confirmationCode)) {
+            setError("Mã OTP phải gồm 6 chữ số.");
             return;
         }
 
@@ -34,40 +48,41 @@ export default function SignUpScreen() {
             return;
         }
 
-        const result = await signupWithPhone({
-            phone: normalizedPhone,
+        setSubmitting(true);
+        const result = await resetPasswordByOtp({
+            phone,
             password,
             confirmPassword,
+            confirmationCode: confirmationCode,
         });
+        setSubmitting(false);
 
         if (!result.success) {
-            setError(result.message ?? "Đăng ký thất bại.");
+            setError(result.message ?? "Đặt lại mật khẩu thất bại.");
             return;
         }
 
-        router.push({
-            pathname: "/(auth)/verify-otp",
-            params: {
-                phone: normalizedPhone,
-                type: "register",
-            },
-        });
+        router.replace("/(auth)/login");
     };
 
     return (
         <SafeAreaView style={styles.container}>
             <View style={styles.content}>
-                <Text style={styles.title}>Create Account</Text>
-                <Text style={styles.subtitle}>Đăng ký bằng số điện thoại</Text>
+                <Text style={styles.title}>Đặt Lại Mật Khẩu</Text>
+                <Text style={styles.subtitle}>
+                    Cập nhật mật khẩu mới để tiếp tục.
+                </Text>
+
                 <CustomInput
-                    label="Số điện thoại"
-                    value={phone}
-                    onChangeText={setPhone}
-                    autoCapitalize="none"
-                    keyboardType="phone-pad"
+                    label="OTP"
+                    value={confirmationCode}
+                    onChangeText={setConfirmationCode}
+                    keyboardType="number-pad"
+                    maxLength={6}
                 />
+
                 <CustomInput
-                    label="Password"
+                    label="Mật khẩu mới"
                     value={password}
                     onChangeText={setPassword}
                     secureTextEntry
@@ -75,7 +90,7 @@ export default function SignUpScreen() {
                 />
 
                 <CustomInput
-                    label="Confirm password"
+                    label="Xác nhận mật khẩu"
                     value={confirmPassword}
                     onChangeText={setConfirmPassword}
                     secureTextEntry
@@ -85,14 +100,10 @@ export default function SignUpScreen() {
                 {error ? <Text style={styles.error}>{error}</Text> : null}
 
                 <CustomButton
-                    title="Sign Up"
+                    title="Cập nhật mật khẩu"
                     onPress={onSubmit}
-                    loading={loadingAuth}
+                    loading={submitting}
                 />
-
-                <Pressable onPress={() => router.back()}>
-                    <Text style={styles.link}>Đã có tài khoản? Log in</Text>
-                </Pressable>
             </View>
         </SafeAreaView>
     );
@@ -101,7 +112,7 @@ export default function SignUpScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: colors.white,
+        backgroundColor: colors.background,
     },
     content: {
         flex: 1,
@@ -109,10 +120,10 @@ const styles = StyleSheet.create({
         paddingHorizontal: spacing.xxl,
     },
     title: {
-        textAlign: "center",
         fontSize: 24,
         fontWeight: "700",
         color: colors.text,
+        textAlign: "center",
     },
     subtitle: {
         marginTop: spacing.sm,
@@ -123,11 +134,5 @@ const styles = StyleSheet.create({
     error: {
         marginBottom: spacing.sm,
         color: colors.danger,
-    },
-    link: {
-        marginTop: spacing.lg,
-        textAlign: "center",
-        color: colors.primary,
-        fontWeight: "600",
     },
 });

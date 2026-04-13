@@ -22,10 +22,14 @@ export default function FeedScreen() {
             <AppHeader
                 title="Instagram"
                 leftAction={{
-                    icon: "tv-outline",
-                    onPress: () => router.push("/(stack)/igtv"),
+                    icon: "flag-outline",
+                    onPress: () => router.push("/(stack)/pages"),
                 }}
                 rightActions={[
+                    {
+                        icon: "scan-outline",
+                        onPress: () => router.push("/(stack)/qr-scanner"),
+                    },
                     {
                         icon: "heart-outline",
                         onPress: () => router.push("/(stack)/likes"),
