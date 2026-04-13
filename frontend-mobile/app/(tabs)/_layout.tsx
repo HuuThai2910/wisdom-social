@@ -48,7 +48,9 @@ export default function TabsLayout() {
                         icon = focused ? "search" : "search-outline";
                     if (route.name === "add") icon = "add-circle-outline";
                     if (route.name === "activity")
-                        icon = focused ? "heart" : "heart-outline";
+                        icon = focused
+                            ? "chatbubble-ellipses"
+                            : "chatbubble-ellipses-outline";
                     if (route.name === "profile")
                         icon = focused ? "person" : "person-outline";
 

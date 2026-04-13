@@ -1,7 +1,13 @@
 import { colors, spacing } from "@/constants";
 import { User } from "@/types";
 import { formatRelativeTime } from "@/utils/format";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import {
+    GestureResponderEvent,
+    Pressable,
+    StyleSheet,
+    Text,
+    View,
+} from "react-native";
 import UserAvatar from "./UserAvatar";
 
 type Props = {
@@ -9,6 +15,8 @@ type Props = {
     preview: string;
     updatedAt: string;
     onPress: () => void;
+    onLongPress?: (event: GestureResponderEvent) => void;
+    delayLongPress?: number;
 };
 
 export default function MessageItem({
@@ -16,9 +24,16 @@ export default function MessageItem({
     preview,
     updatedAt,
     onPress,
+    onLongPress,
+    delayLongPress = 300,
 }: Props) {
     return (
-        <Pressable style={styles.container} onPress={onPress}>
+        <Pressable
+            style={styles.container}
+            onPress={onPress}
+            onLongPress={onLongPress}
+            delayLongPress={delayLongPress}
+        >
             <UserAvatar uri={user.avatar} name={user.username} size={52} />
             <View style={styles.content}>
                 <Text style={styles.name}>{user.username}</Text>

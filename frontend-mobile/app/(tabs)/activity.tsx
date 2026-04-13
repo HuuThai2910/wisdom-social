@@ -1,1 +1,1 @@
-export { default } from "@/screens/Notifications";
+export { default } from "@/screens/MessagesList";

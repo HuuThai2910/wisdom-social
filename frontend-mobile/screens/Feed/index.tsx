@@ -31,16 +31,12 @@ export default function FeedScreen() {
                         onPress: () => router.push("/(stack)/qr-scanner"),
                     },
                     {
-                        icon: "heart-outline",
-                        onPress: () => router.push("/(stack)/likes"),
-                    },
-                    {
                         icon: "notifications-outline",
                         onPress: () => router.push("/(stack)/notifications"),
                     },
                     {
-                        icon: "chatbubble-ellipses-outline",
-                        onPress: () => router.push("/(stack)/messages"),
+                        icon: "heart-outline",
+                        onPress: () => router.push("/(stack)/likes"),
                     },
                 ]}
             />
