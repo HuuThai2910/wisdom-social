@@ -9,6 +9,8 @@ public interface S3Service {
     Map<String, String> generateUpdateUploadUrl(String type, String id, String extension);
     Map<String, String> generateUploadUrl(String type, String extension);
     String moveUploadUrl(String type, String id, String url);
+    String getContentType(String extension);
+    String resolveMediaType(String extension);
 
     PresignedUrlResponse generatePresignedUrl(UploadModule module, String targetId, String type, String originalFilename, String contentType);
 

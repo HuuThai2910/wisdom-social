@@ -25,7 +25,7 @@ public class S3ServiceImpl implements S3Service {
     private final S3Client s3Client;
     @Value("${aws.s3.bucket-name}")
     private String bucketName;
-    private static final Set<String> ALLOWED_EXTENSIONS=
+    private static final Set<String> ALLOWED_EXTENSIONS =
             Set.of("png","jpg","jpeg","mp4","webm","mov","avi","mkv");
 
 
@@ -125,6 +125,7 @@ public class S3ServiceImpl implements S3Service {
         return basePath + "/" + id + "/" + uuid + "." + extension;
     }
 
+    @Override
     public String getContentType(String extension) {
         if (extension == null) return "application/octet-stream";
         
@@ -134,8 +135,10 @@ public class S3ServiceImpl implements S3Service {
             case "jpg":
             case "jpeg":
                 return "image/jpeg";
+            case "gif" : return "image/gif";
             case "mp4":
                 return "video/mp4";
+            case "webp": return "image/webp";
             case "webm":
                 return "video/webm";
             case "mov":
@@ -147,6 +150,19 @@ public class S3ServiceImpl implements S3Service {
             default:
                 return "application/octet-stream";
         }
+    }
+    
+    @Override
+    public String resolveMediaType(String extension) {
+        if (extension == null) return "FILE";
+        String ext = extension.toLowerCase();
+        
+        if (ext.matches("jpg|jpeg|png|gif|webp")) {
+            return "IMAGE";
+        } else if (ext.matches("mp4|webm|mov|avi|mkv")) {
+            return "VIDEO";
+        }
+        return "FILE";
     }
     
     /**

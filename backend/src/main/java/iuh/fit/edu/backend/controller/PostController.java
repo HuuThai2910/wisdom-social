@@ -60,7 +60,7 @@ public class PostController {
 
             // Determine content type based on extension if not provided
             if (contentType == null || contentType.isBlank()) {
-                contentType = getContentType(extension);
+                contentType = s3Service.getContentType(extension);
             }
 
             String filename = originalFilename != null ? originalFilename : "post." + extension;
@@ -68,7 +68,7 @@ public class PostController {
             PresignedUrlResponse response = s3Service.generatePresignedUrl(
                     UploadModule.POST,
                     String.valueOf(currentUser.getId()),
-                    getMediaType(extension),
+                    s3Service.resolveMediaType(extension),
                     filename,
                     contentType
             );
@@ -84,41 +84,6 @@ public class PostController {
             return ResponseEntity.badRequest()
                     .body(ApiResponse.error(400, "Lỗi: " + e.getMessage(), null));
         }
-    }
-
-    /**
-     * Determine media type (IMAGE, VIDEO, FILE) based on extension
-     */
-    private String getMediaType(String extension) {
-        if (extension == null) return "FILE";
-        String ext = extension.toLowerCase();
-        
-        if (ext.matches("jpg|jpeg|png|gif|webp")) {
-            return "IMAGE";
-        } else if (ext.matches("mp4|webm|mov|avi|mkv")) {
-            return "VIDEO";
-        }
-        return "FILE";
-    }
-
-    /**
-     * Get MIME type based on extension
-     */
-    private String getContentType(String extension) {
-        if (extension == null) return "application/octet-stream";
-        
-        return switch (extension.toLowerCase()) {
-            case "jpg", "jpeg" -> "image/jpeg";
-            case "png" -> "image/png";
-            case "gif" -> "image/gif";
-            case "webp" -> "image/webp";
-            case "mp4" -> "video/mp4";
-            case "webm" -> "video/webm";
-            case "mov" -> "video/quicktime";
-            case "avi" -> "video/x-msvideo";
-            case "mkv" -> "video/x-matroska";
-            default -> "application/octet-stream";
-        };
     }
 
     /**

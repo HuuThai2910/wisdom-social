@@ -53,6 +53,7 @@ export default function CreatePost() {
   const [showSpecificModal, setShowSpecificModal] = useState(false);
   const [showExcludedModal, setShowExcludedModal] = useState(false);
   const [locationSuggestions, setLocationSuggestions] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
 
   // Search location suggestions with debounce
   useEffect(() => {
@@ -173,6 +174,13 @@ export default function CreatePost() {
         return;
       }
 
+      // Prevent multiple submissions
+      if (isLoading) {
+        return;
+      }
+
+      setIsLoading(true);
+
       // Prepare post data
       const postData = {
         content: caption,
@@ -200,6 +208,7 @@ export default function CreatePost() {
     } catch (error) {
       console.error("Error creating post:", error);
       alert("Failed to create post. Please try again.");
+      setIsLoading(false);
     }
   };
 
@@ -224,14 +233,18 @@ export default function CreatePost() {
             </h2>
             <button
               onClick={handlePost}
-              disabled={!caption.trim() && selectedImages.length === 0}
+              disabled={
+                (!caption.trim() && selectedImages.length === 0) || isLoading
+              }
               className={`text-sm font-semibold ${
                 caption.trim() || selectedImages.length > 0
-                  ? "text-[#0095f6] hover:text-[#00376b]"
+                  ? isLoading
+                    ? "text-[#0095f6] opacity-50 cursor-not-allowed"
+                    : "text-[#0095f6] hover:text-[#00376b]"
                   : "text-[#0095f6] opacity-30 cursor-not-allowed"
               }`}
             >
-              Create
+              {isLoading ? "Creating..." : "Create"}
             </button>
           </div>
 

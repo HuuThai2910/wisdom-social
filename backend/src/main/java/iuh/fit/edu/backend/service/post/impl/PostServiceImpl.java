@@ -5,6 +5,7 @@
 package iuh.fit.edu.backend.service.post.impl;
 
 import iuh.fit.edu.backend.constant.TargetType;
+import iuh.fit.edu.backend.constant.UploadModule;
 import iuh.fit.edu.backend.domain.entity.nosql.Media;
 import iuh.fit.edu.backend.domain.entity.nosql.Post;
 import iuh.fit.edu.backend.domain.entity.nosql.Stats;
@@ -260,7 +261,7 @@ public class PostServiceImpl implements PostService {
     @Override
     @Transactional
     public Post updatePost(String postId, CreatePostRequest request, List<String> newImageUrls, Long userId) {
-        log.info("Updating post {} by user {}", postId, userId);
+        log.info("🔄 Updating post {} by user {}", postId, userId);
         
         // Get post to check authorization
         Post post = postRepository.findById(postId)
@@ -304,53 +305,118 @@ public class PostServiceImpl implements PostService {
             post.setExcludedUserIds(convertUsernamesToIds(request.getExcludedUsernames()));
         }
         
-        // Handle media updates
-        List<Media> updatedMediaList = new ArrayList<>();
+        // ====================================================================
+        // FIX 1 + FIX 4: HANDLE IMAGE DELETETION & NULL CHECK
+        // ====================================================================
+        List<String> oldMediaUrls = post.getMedia() != null
+                ? post.getMedia().stream()
+                    .map(Media::getUrl)
+                    .collect(Collectors.toList())
+                : new ArrayList<>();
         
-        // If existingMediaUrls is provided, use it to filter what to keep
-        // If not provided, keep all existing media (user is not modifying images)
-        if (request.getExistingMediaUrls() != null) {
-            // User is explicitly managing images
-            if (post.getMedia() != null && !request.getExistingMediaUrls().isEmpty()) {
-                // Keep only the media URLs specified in existingMediaUrls
-                for (Media existingMedia : post.getMedia()) {
-                    if (request.getExistingMediaUrls().contains(existingMedia.getUrl())) {
-                        updatedMediaList.add(existingMedia);
-                    }
-                }
-            }
-            // If existingMediaUrls is empty list, it means user wants to remove all existing images
+        // Determine which URLs to keep (FIX 4)
+        List<String> keepUrls;
+        if (request.getExistingMediaUrls() == null) {
+            // null = user did NOT touch images → keep all
+            keepUrls = oldMediaUrls;
+            log.info("📌 existingMediaUrls is NULL → keeping all {} existing images", oldMediaUrls.size());
         } else {
-            // No existingMediaUrls provided means keep all existing media
-            if (post.getMedia() != null) {
-                updatedMediaList.addAll(post.getMedia());
-            }
+            // empty or not empty = user explicitly managing images
+            keepUrls = request.getExistingMediaUrls();
+            log.info("📌 existingMediaUrls provided with {} items → using this list", keepUrls.size());
         }
         
-        // Track the index where new media starts
-        int newMediaStartIndex = updatedMediaList.size();
+        // Find and DELETE removed images from S3 (FIX 1)
+        List<String> removedUrls = oldMediaUrls.stream()
+                .filter(url -> !keepUrls.contains(url))
+                .collect(Collectors.toList());
         
-        // Move and add new images
+        if (!removedUrls.isEmpty()) {
+            log.warn("🗑️ Deleting {} removed images from S3...", removedUrls.size());
+            for (String removedUrl : removedUrls) {
+                try {
+                    log.info("   Deleting from S3: {}", removedUrl);
+                    s3Service.deleteByKey(UploadModule.POST, removedUrl);
+                    log.info("   ✅ Successfully deleted: {}", removedUrl);
+                } catch (Exception e) {
+                    log.error("   ❌ Failed to delete {}: {}", removedUrl, e.getMessage(), e);
+                    // Don't throw - continue deleting others
+                }
+            }
+        } else {
+            log.info("ℹ️ No images to delete");
+        }
+        
+        // ====================================================================
+        // FIX 2: REBUILD MEDIA LIST CLEANLY (DO NOT MUTATE OLD LIST)
+        // ====================================================================
+        List<Media> updatedMediaList = new ArrayList<>();
+        
+        // Step 1: Add existing images in original order from frontend
+        log.info("📝 Step 1: Adding {} kept images (preserving order)...", keepUrls.size());
+        for (int i = 0; i < keepUrls.size(); i++) {
+            String url = keepUrls.get(i);
+            Media media = Media.builder()
+                    .order(i)
+                    .url(url)
+                    .type("image")
+                    .build();
+            updatedMediaList.add(media);
+            log.info("   [{}] Added existing image: {}", i, url);
+        }
+        
+        // ====================================================================
+        // FIX 3: ADD NEW IMAGES (MOVE FROM TEMP → FINAL)
+        // ====================================================================
+        int startIndex = updatedMediaList.size();
         if (newImageUrls != null && !newImageUrls.isEmpty()) {
+            log.info("📝 Step 2: Moving {} new images from TEMP to FINAL...", newImageUrls.size());
             try {
-                // Create Media objects for uploaded images with proper ordering
                 for (int i = 0; i < newImageUrls.size(); i++) {
-                    String tempUrl = newImageUrls.get(i);
-                    // Move from temp to final location using MongoDB ID (String)
-                    String finalUrl = s3Service.moveUploadUrl("posts", postId, tempUrl);
+                    String tempKey = newImageUrls.get(i);
+                    log.info("   [{}] Processing temp key: {}", i, tempKey);
+                    
+                    // Move from temp to final location
+                    String finalKey = s3Service.moveUploadUrl("posts", postId, tempKey);
                     
                     Media media = Media.builder()
-                            .order(newMediaStartIndex + i)
-                            .url(finalUrl)
+                            .order(startIndex + i)
+                            .url(finalKey)
                             .type("image")
                             .build();
                     updatedMediaList.add(media);
-                    log.info("Moved media from temp to final: {}", finalUrl);
+                    log.info("   [{}] ✅ Moved to final: {}", startIndex + i, finalKey);
                 }
             } catch (Exception e) {
-                log.error("Error moving images: {}", e.getMessage(), e);
+                log.error("❌ Error moving images: {}", e.getMessage(), e);
+                throw new RuntimeException("Failed to move images from temp to final: " + e.getMessage(), e);
             }
+        } else {
+            log.info("ℹ️ No new images to process");
         }
+        
+        // ====================================================================
+        // FIX 7: COMPREHENSIVE LOGGING
+        // ====================================================================
+        log.info("═══════════════════════════════════════════════════════════════");
+        log.info("📊 POST UPDATE SUMMARY FOR POST: {}", postId);
+        log.info("───────────────────────────────────────────────────────────────");
+        log.info("Old media count: {}", oldMediaUrls.size());
+        log.info("Keep media count: {}", keepUrls.size());
+        log.info("Removed media count: {}", removedUrls.size());
+        log.info("New media count: {}", newImageUrls != null ? newImageUrls.size() : 0);
+        log.info("Final media count: {}", updatedMediaList.size());
+        log.info("───────────────────────────────────────────────────────────────");
+        if (!removedUrls.isEmpty()) {
+            log.info("Removed URLs: {}", removedUrls);
+        }
+        if (!keepUrls.isEmpty()) {
+            log.info("Kept URLs: {}", keepUrls);
+        }
+        if (newImageUrls != null && !newImageUrls.isEmpty()) {
+            log.info("New URLs (temp): {}", newImageUrls);
+        }
+        log.info("═══════════════════════════════════════════════════════════════");
         
         post.setMedia(updatedMediaList);
         
@@ -361,7 +427,7 @@ public class PostServiceImpl implements PostService {
         post.setUpdatedAt(Instant.now());
         
         Post updated = postRepository.save(post);
-        log.info("Post {} updated successfully", postId);
+        log.info("✅ Post {} updated successfully with {} media items", postId, updated.getMedia().size());
         
         return updated;
     }
