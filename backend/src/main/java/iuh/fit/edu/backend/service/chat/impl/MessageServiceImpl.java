@@ -38,6 +38,10 @@ import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.*;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -69,6 +73,7 @@ public class MessageServiceImpl implements MessageService {
     private final MessageCacheService messageCacheService;
     private final S3Service s3Service;
     private final ObjectMapper objectMapper;
+    private final MongoTemplate mongoTemplate;
 
     /**
      * Hàm xử lý việc gửi tin nhắn
@@ -92,6 +97,7 @@ public class MessageServiceImpl implements MessageService {
         newMessage.setConversationId(sendMessageRequest.getConversationId());
         newMessage.setCreatedAt(Instant.now().truncatedTo(ChronoUnit.MILLIS));
         newMessage.setReplyInfo(buildReplyInfo(sendMessageRequest.getReplyToId()));
+        newMessage.setAttachments(mapAttachments(sendMessageRequest.getAttachments()));
 
         Message savedMessage = messageRepository.save(newMessage);
 
@@ -203,7 +209,7 @@ public class MessageServiceImpl implements MessageService {
 
         // Tạo tin nhắn hệ thống thông báo "Bỏ ghim"
         createAndPublishSystemMessage(
-                messageId, userId, conversationId,
+                null, userId, conversationId,
                 MessageType.SYSTEM_UPIN, "đã bỏ ghim một tin nhắn"
         );
 
@@ -240,53 +246,33 @@ public class MessageServiceImpl implements MessageService {
         if (Instant.now().isAfter(messageTime.plus(Duration.ofHours(24)))) {
             throw new IllegalArgumentException("Bạn chỉ có thể thu hồi tin nhắn trong vòng 24 giờ");
         }
-        if (message.getMessageType() != MessageType.TEXT) {
-            this.s3Service.deleteByKey(UploadModule.CONVERSATION, message.getContent()); // Truyền Key gốc trong DB vào
-        }
+        Conversation conversation = conversationRepository.findById(message.getConversationId())
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy cuộc trò chuyện"));
+
+        // KIỂM TRA VÀ TỰ ĐỘNG BỎ GHIM
+        handleUnpinOnRecall(conversation, messageId, userId);
+        // Xóa file trên s3
+        deleteS3Attachments(message.getAttachments());
+
+        message.setAttachments(null);
         message.setContent("");
         message.setRecalled(true);
         this.messageRepository.save(message);
 
-        MessageRecalledResponse messageRecalledResponse = new MessageRecalledResponse();
-        messageRecalledResponse.setMessageId(message.getId());
-        messageRecalledResponse.setConversationId(message.getConversationId());
-        messageRecalledResponse.setCreatedAt(message.getCreatedAt());
+        // Cập nhật lại các tin nhắn reply lại tin nhắn đang thu hồi
+        messageRepository.updateContentOfRepliedMessages(messageId);
 
+
+
+        MessageRecalledResponse messageRecalledResponse = new MessageRecalledResponse(message.getId(), message.getConversationId(), message.getCreatedAt());
         // Cập nhật Redis cache để tránh trả về tin nhắn cũ
         messageCacheService.updateMessage(messageRecalledResponse);
 
         //Publish Event
         this.eventPublisher.publishEvent(new MessageRecalledEvent(messageRecalledResponse));
-        // Xử lý sidebar (danh sách cuộc hội thoại bên ngoài)
-        Conversation conversation = conversationRepository.findById(message.getConversationId())
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy cuộc trò chuyện"));
 
-        // CHỈ THỰC HIỆN NẾU ĐÂY LÀ TIN NHẮN MỚI NHẤT
-        if (message.getCreatedAt().toEpochMilli() == conversation.getLastMessageAt().toEpochMilli()) {
-
-            // Cập nhật Database MySQL
-            // Backend lưu 1 chuỗi chung chung, không chứa chữ "Bạn"
-            conversation.setLastMessageContent("Tin nhắn đã được thu hồi");
-            // Quan trọng: Vẫn giữ nguyên LastSenderId là của người vừa thu hồi
-            conversationRepository.save(conversation);
-
-            // Tạo Data để bắn Socket cho Sidebar
-            LastMessageResponse sidebarResponse = conversationMapper.toLastMessageResponse(conversation);
-
-            // Lấy tên người gửi (có thể lấy từ Service hoặc Cache nếu cần thiết)
-            // Nếu Frontend của bạn không hiện tên khi thu hồi thì có thể bỏ qua dòng setLastSenderName
-            ConversationMemberResponse senderInfo = conversationMemberService.getMemberInfo(
-                    conversation.getId(),
-                    userId
-            );
-            sidebarResponse.setLastSenderName(senderInfo.getNickname());
-            sidebarResponse.setRead(true);
-
-            // Bắn Socket Event Cập nhật Sidebar cho TẤT CẢ thành viên
-            Set<Long> memberIds = this.conversationMemberService.getAllMemberId(conversation.getId());
-            this.eventPublisher
-                    .publishEvent(new ConversationUpdatedEvent(conversation.getId(), sidebarResponse, memberIds));
-        }
+        // Cập nhật lại side bar nếu đây là tin nhắn cuối cùng
+        updateSidebarIfLastMessage(message, conversation, userId);
         return messageRecalledResponse;
     }
 
@@ -415,6 +401,7 @@ public class MessageServiceImpl implements MessageService {
                 .referenceUsers(referenceUsers)
                 .build();
     }
+
     @Override
     public CursorResponse<List<MessageResponse>> getNewerMessages(
             Long conversationId, Long userId, Instant after, int limit) {
@@ -640,10 +627,15 @@ public class MessageServiceImpl implements MessageService {
         if (replyToId == null || replyToId.trim().isEmpty()) {
             return null;
         }
+        String previewContent ;
         Message originalMsg = this.messageRepository.findById(replyToId)
                 .orElseThrow(() -> new RuntimeException("Tin nhan goc khong ton tai"));
+        if(originalMsg.getAttachments() != null){
+            previewContent = originalMsg.getAttachments().getFirst().getUrl();
+        }else {
+            previewContent = originalMsg.getContent();
+        }
 
-        String previewContent = originalMsg.getContent();
         if (previewContent != null && previewContent.length() > 50 && originalMsg.getMessageType() == MessageType.TEXT) {
             previewContent = previewContent.substring(0, 47) + "...";
         }
@@ -654,6 +646,64 @@ public class MessageServiceImpl implements MessageService {
                 .type(originalMsg.getMessageType())
                 .content(previewContent)
                 .build();
+    }
+
+    private List<Message.MediaAttachment> mapAttachments(List<SendMessageRequest.AttachmentRequest> reqs) {
+        if (reqs == null) return null;
+        return reqs.stream().map(r -> Message.MediaAttachment.builder()
+                .url(r.getUrl()).fileName(r.getFileName()).fileSize(r.getFileSize())
+                .build()).collect(Collectors.toList());
+    }
+
+
+
+    private void handleUnpinOnRecall(Conversation conversation, String messageId, Long userId) {
+        List<PinnedMessageDetail> pinnedList = conversation.getPinnedMessages();
+        if (pinnedList != null && pinnedList.removeIf(p -> p.getMessageId().equals(messageId))) {
+            conversation.setPinnedMessages(pinnedList);
+            conversationRepository.save(conversation);
+            createAndPublishSystemMessage(null, userId, conversation.getId(), MessageType.SYSTEM_UPIN, "đã tự động bỏ ghim do tin nhắn bị thu hồi");
+            eventPublisher.publishEvent(new PinUpdatedEvent(conversation.getId(), pinnedList));
+        }
+    }
+
+    private void deleteS3Attachments(List<Message.MediaAttachment> attachments) {
+        if (attachments == null || attachments.isEmpty()) return;
+        for (Message.MediaAttachment attachment : attachments) {
+            try {
+                this.s3Service.deleteByKey(UploadModule.CONVERSATION, attachment.getUrl());
+            } catch (Exception e) {
+                log.error("Không thể xóa file S3 khi thu hồi: {}", attachment.getUrl(), e);
+            }
+        }
+    }
+
+    private void updateSidebarIfLastMessage(Message message, Conversation conversation, Long userId) {
+        if (message.getCreatedAt().toEpochMilli() == conversation.getLastMessageAt().toEpochMilli()) {
+
+            // Cập nhật Database MySQL
+            // Backend lưu 1 chuỗi chung chung, không chứa chữ "Bạn"
+            conversation.setLastMessageContent("Tin nhắn đã được thu hồi");
+            // Quan trọng: Vẫn giữ nguyên LastSenderId là của người vừa thu hồi
+            conversationRepository.save(conversation);
+
+            // Tạo Data để bắn Socket cho Sidebar
+            LastMessageResponse sidebarResponse = conversationMapper.toLastMessageResponse(conversation);
+
+            // Lấy tên người gửi (có thể lấy từ Service hoặc Cache nếu cần thiết)
+            // Nếu Frontend của bạn không hiện tên khi thu hồi thì có thể bỏ qua dòng setLastSenderName
+            ConversationMemberResponse senderInfo = conversationMemberService.getMemberInfo(
+                    conversation.getId(),
+                    userId
+            );
+            sidebarResponse.setLastSenderName(senderInfo.getNickname());
+            sidebarResponse.setRead(true);
+
+            // Bắn Socket Event Cập nhật Sidebar cho TẤT CẢ thành viên
+            Set<Long> memberIds = this.conversationMemberService.getAllMemberId(conversation.getId());
+            this.eventPublisher
+                    .publishEvent(new ConversationUpdatedEvent(conversation.getId(), sidebarResponse, memberIds));
+        }
     }
 
     /**

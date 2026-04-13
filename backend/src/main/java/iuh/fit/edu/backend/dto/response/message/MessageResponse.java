@@ -16,6 +16,7 @@ import lombok.NoArgsConstructor;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 /*
@@ -38,6 +39,7 @@ public class MessageResponse {
     private boolean isActive;
     @JsonProperty("isRecalled")
     private boolean isRecalled = false;
+    private List<MediaAttachmentResponse> attachments;
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private Set<Long> deletedFor = new HashSet<>();
@@ -51,6 +53,16 @@ public class MessageResponse {
         private Long senderId;
         private MessageType type;
         private String content;
+    }
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class MediaAttachmentResponse {
+        private String url;
+        private String type;
+        private String fileName;
+        private Long fileSize;
     }
 
 }

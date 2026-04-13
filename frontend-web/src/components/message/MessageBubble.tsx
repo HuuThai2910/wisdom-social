@@ -48,6 +48,22 @@ function getFileNameFromUrl(
     return url.split("/").pop()?.split("?")[0] ?? fallback;
 }
 
+function formatBytes(bytes?: number): string {
+    if (!bytes || bytes <= 0) return "";
+    const mb = bytes / (1024 * 1024);
+    if (mb < 1) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${mb.toFixed(1)} MB`;
+}
+
+function getFileBadgeLabel(fileName: string): string {
+    const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
+    if (ext === "pdf") return "PDF";
+    if (ext === "doc" || ext === "docx") return "DOC";
+    if (ext === "xls" || ext === "xlsx") return "XLS";
+    if (ext === "zip" || ext === "rar" || ext === "7z") return "ZIP";
+    return "FILE";
+}
+
 /* ─── Custom Audio Player (UI phát audio tin nhắn thoại) ─────────────────── */
 
 /**
@@ -342,6 +358,22 @@ export function MessageBubble({
     })();
 
     const fileNameFromUrl = getFileNameFromUrl(message.content, "Tệp đính kèm");
+    const messageAttachments = Array.isArray(message.attachments)
+        ? message.attachments
+        : [];
+    const imageUrls =
+        message.type === "IMAGE"
+            ? messageAttachments
+                  .map((attachment) => attachment.url)
+                  .filter((url): url is string => Boolean(url))
+            : [];
+    const fileAttachment =
+        message.type === "FILE" ? messageAttachments[0] : undefined;
+    const resolvedFileName =
+        fileAttachment?.fileName ||
+        getFileNameFromUrl(fileAttachment?.url, fileNameFromUrl);
+    const resolvedFileUrl = fileAttachment?.url || message.content;
+    const resolvedFileSize = formatBytes(fileAttachment?.fileSize);
 
     // Chuẩn hoá nội dung preview cho tin hệ thống ghim,
     // giúp hiện kiểu: "Bạn ghim 1 tin nhắn file meals.zip" giống mẫu UI mong muốn.
@@ -448,6 +480,12 @@ export function MessageBubble({
         !message.isRecalled &&
         isFirstInGroup;
 
+    const normalizedReplyContent = (replyPreview?.content ?? "").trim();
+    const isReplyPreviewRecalled =
+        Boolean(replyPreview) &&
+        (normalizedReplyContent.length === 0 ||
+            normalizedReplyContent === "Tin nhắn đã được thu hồi");
+
     // Render riêng cho tin hệ thống ghim/bỏ ghim:
     // - Canh giữa toàn bộ đoạn chat
     // - Có icon ghim
@@ -463,17 +501,20 @@ export function MessageBubble({
                     <span className="truncate">
                         {actorLabel} {actionLabel} {pinnedTargetPreview}
                     </span>
-                    {message.replyInfo?.messageId && (
-                        <button
-                            type="button"
-                            onClick={() =>
-                                onJumpToMessage?.(message.replyInfo!.messageId)
-                            }
-                            className="shrink-0 text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-semibold"
-                        >
-                            Xem
-                        </button>
-                    )}
+                    {message.type === "SYSTEM_PIN" &&
+                        message.replyInfo?.messageId && (
+                            <button
+                                type="button"
+                                onClick={() =>
+                                    onJumpToMessage?.(
+                                        message.replyInfo!.messageId,
+                                    )
+                                }
+                                className="shrink-0 text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-semibold"
+                            >
+                                Xem
+                            </button>
+                        )}
                 </div>
             </div>
         );
@@ -671,12 +712,8 @@ export function MessageBubble({
                         )}
 
                         <div
-                            className={`overflow-hidden rounded-2xl ${
-                                message.isRecalled
-                                    ? "bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700"
-                                    : isOwn
-                                      ? "bg-blue-500 text-white"
-                                      : "bg-gray-200 dark:bg-gray-700 text-black dark:text-white"
+                            className={`relative flex flex-col ${
+                                isOwn ? "items-end" : "items-start"
                             }`}
                         >
                             {!!replyPreview && !message.isRecalled && (
@@ -687,21 +724,19 @@ export function MessageBubble({
                                             replyPreview.messageId,
                                         )
                                     }
-                                    className={`w-full flex items-center gap-2 px-2 py-2 border-l-2 ${
-                                        isOwn
-                                            ? "border-blue-100 bg-blue-600/40"
-                                            : "border-gray-300 dark:border-gray-600 bg-white/10 dark:bg-black/20"
-                                    }`}
+                                    className="inline-flex items-center gap-2 px-2 py-2 pb-4 rounded-2xl bg-gray-100/75 dark:bg-gray-800/65 text-gray-800 dark:text-gray-100 ring-1 ring-gray-200/40 dark:ring-gray-700/40"
                                 >
                                     {/* Thumbnail hoặc icon cho reply message */}
-                                    {replyPreview.type === "IMAGE" ? (
+                                    {!isReplyPreviewRecalled &&
+                                    replyPreview.type === "IMAGE" ? (
                                         // Thumbnail ảnh - kích thước lớn hơn (48x48)
                                         <img
                                             src={replyPreview.content}
                                             alt="Reply ảnh"
                                             className="w-12 h-12 rounded object-cover shrink-0"
                                         />
-                                    ) : replyPreview.type === "VIDEO" ? (
+                                    ) : !isReplyPreviewRecalled &&
+                                      replyPreview.type === "VIDEO" ? (
                                         // Video background với play icon
                                         <div className="w-12 h-12 rounded bg-gray-500 dark:bg-gray-600 flex items-center justify-center shrink-0 relative">
                                             <div className="w-8 h-8 rounded-full bg-white/30 flex items-center justify-center">
@@ -711,7 +746,8 @@ export function MessageBubble({
                                                 />
                                             </div>
                                         </div>
-                                    ) : replyPreview.type === "AUDIO" ? (
+                                    ) : !isReplyPreviewRecalled &&
+                                      replyPreview.type === "AUDIO" ? (
                                         // Icon audio
                                         <div className="w-12 h-12 rounded bg-gray-400/40 flex items-center justify-center shrink-0">
                                             <Mic
@@ -719,15 +755,11 @@ export function MessageBubble({
                                                 className="text-gray-700 dark:text-gray-200"
                                             />
                                         </div>
-                                    ) : replyPreview.type === "FILE" ? (
-                                        // Icon file
-                                        <div className="w-12 h-12 rounded bg-gray-400/40 flex items-center justify-center shrink-0">
-                                            <Paperclip
-                                                size={20}
-                                                className="text-gray-700 dark:text-gray-200"
-                                            />
-                                        </div>
-                                    ) : replyPreview.type === "CALL" ? (
+                                    ) : !isReplyPreviewRecalled &&
+                                      replyPreview.type ===
+                                          "FILE" ? null : !isReplyPreviewRecalled &&
+                                      replyPreview.type === // FILE dùng label inline giống UX mẫu, không cần thumbnail lớn
+                                          "CALL" ? (
                                         // Icon call
                                         <div className="w-12 h-12 rounded bg-gray-400/40 flex items-center justify-center shrink-0">
                                             <Phone
@@ -737,146 +769,235 @@ export function MessageBubble({
                                         </div>
                                     ) : null}
 
-                                    {/* Tên + content */}
+                                    {/* Chỉ hiển thị content của tin nhắn được reply */}
                                     <div className="min-w-0 flex-1">
-                                        <p className="text-xs font-semibold opacity-90">
-                                            {getReplyLabel()}
-                                        </p>
-                                        <p className="text-xs truncate opacity-85">
-                                            {replyPreview.type === "IMAGE"
-                                                ? "Hình ảnh"
-                                                : replyPreview.type === "VIDEO"
-                                                  ? "Video"
-                                                  : replyPreview.type ===
-                                                      "AUDIO"
-                                                    ? "Tin nhắn thoại"
+                                        {isReplyPreviewRecalled ? (
+                                            <p className="text-xs truncate text-gray-600 dark:text-gray-300">
+                                                Tin nhắn đã được thu hồi
+                                            </p>
+                                        ) : replyPreview.type === "FILE" ? (
+                                            <span className="inline-flex items-center gap-1 text-sm italic text-gray-600 dark:text-gray-300">
+                                                File đính kèm
+                                                <Paperclip size={12} />
+                                            </span>
+                                        ) : (
+                                            <p className="text-xs truncate text-gray-600 dark:text-gray-300">
+                                                {replyPreview.type === "IMAGE"
+                                                    ? "Hình ảnh"
                                                     : replyPreview.type ===
-                                                        "FILE"
-                                                      ? "Tệp đính kèm"
+                                                        "VIDEO"
+                                                      ? "Video"
                                                       : replyPreview.type ===
-                                                          "CALL"
-                                                        ? "Cuộc gọi"
-                                                        : replyPreview.content}
-                                        </p>
+                                                          "AUDIO"
+                                                        ? "Tin nhắn thoại"
+                                                        : replyPreview.type ===
+                                                            "CALL"
+                                                          ? "Cuộc gọi"
+                                                          : replyPreview.content}
+                                            </p>
+                                        )}
                                     </div>
                                 </button>
                             )}
 
-                            {message.isRecalled ? (
-                                <>
-                                    <p className="px-4 py-2 text-sm italic text-gray-400 dark:text-gray-500">
-                                        Tin nhắn đã được thu hồi
-                                    </p>
-                                    {isLastInGroup && (
-                                        <p
-                                            className={`px-3 pb-1.5 text-xs text-right ${timeColorInside}`}
-                                        >
-                                            {timeStr}
+                            <div
+                                className={`w-fit max-w-full overflow-hidden rounded-2xl ${
+                                    replyPreview && !message.isRecalled
+                                        ? "relative z-10 -mt-3"
+                                        : ""
+                                } ${
+                                    message.isRecalled
+                                        ? "bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700"
+                                        : message.type === "IMAGE"
+                                          ? "bg-transparent text-black dark:text-white"
+                                          : message.type === "FILE"
+                                            ? "bg-transparent text-black dark:text-white"
+                                            : isOwn
+                                              ? "bg-blue-500 text-white"
+                                              : "bg-gray-200 dark:bg-gray-700 text-black dark:text-white"
+                                }`}
+                            >
+                                {message.isRecalled ? (
+                                    <>
+                                        <p className="px-4 py-2 text-sm italic text-gray-400 dark:text-gray-500">
+                                            Tin nhắn đã được thu hồi
                                         </p>
-                                    )}
-                                </>
-                            ) : message.type === "IMAGE" ? (
-                                <button
-                                    type="button"
-                                    className="block w-60 sm:w-64 md:w-72 h-72 md:h-80 bg-gray-100 dark:bg-gray-800 cursor-zoom-in"
-                                    onClick={() =>
-                                        window.open(message.content, "_blank")
-                                    }
-                                >
-                                    <img
+                                        {isLastInGroup && (
+                                            <p
+                                                className={`px-3 pb-1.5 text-xs text-right ${timeColorInside}`}
+                                            >
+                                                {timeStr}
+                                            </p>
+                                        )}
+                                    </>
+                                ) : message.type === "IMAGE" ? (
+                                    imageUrls.length > 0 ? (
+                                        <div
+                                            className={`grid gap-1 w-64 sm:w-72 md:w-76 ${
+                                                imageUrls.length === 1
+                                                    ? "grid-cols-1"
+                                                    : imageUrls.length === 2
+                                                      ? "grid-cols-2"
+                                                      : "grid-cols-3"
+                                            }`}
+                                        >
+                                            {imageUrls
+                                                .slice(0, 6)
+                                                .map((url, index, limited) => {
+                                                    const remain =
+                                                        imageUrls.length -
+                                                        limited.length;
+                                                    return (
+                                                        <button
+                                                            key={`${url}-${index}`}
+                                                            type="button"
+                                                            className={`relative overflow-hidden cursor-zoom-in ${
+                                                                imageUrls.length ===
+                                                                1
+                                                                    ? "h-72 md:h-80 rounded-2xl"
+                                                                    : "aspect-square rounded-xl"
+                                                            }`}
+                                                            onClick={() =>
+                                                                window.open(
+                                                                    url,
+                                                                    "_blank",
+                                                                )
+                                                            }
+                                                        >
+                                                            <img
+                                                                src={url}
+                                                                alt="Hình ảnh"
+                                                                className="h-full w-full object-cover"
+                                                                onLoad={
+                                                                    onMediaLoad
+                                                                }
+                                                            />
+                                                            {remain > 0 &&
+                                                                index ===
+                                                                    limited.length -
+                                                                        1 && (
+                                                                    <span className="absolute inset-0 flex items-center justify-center bg-black/45 text-white text-lg font-semibold">
+                                                                        +
+                                                                        {remain}
+                                                                    </span>
+                                                                )}
+                                                        </button>
+                                                    );
+                                                })}
+                                        </div>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            className="block w-64 sm:w-72 md:w-76 h-72 md:h-80 cursor-zoom-in"
+                                            onClick={() =>
+                                                window.open(
+                                                    message.content,
+                                                    "_blank",
+                                                )
+                                            }
+                                        >
+                                            <img
+                                                src={message.content}
+                                                alt="Hình ảnh"
+                                                className="h-full w-full object-cover"
+                                                onLoad={onMediaLoad}
+                                            />
+                                        </button>
+                                    )
+                                ) : message.type === "VIDEO" ? (
+                                    <video
                                         src={message.content}
-                                        alt="Hình ảnh"
-                                        className="h-full w-full object-cover"
-                                        onLoad={onMediaLoad}
+                                        controls
+                                        className="max-w-full block"
+                                        onLoadedData={onMediaLoad}
                                     />
-                                </button>
-                            ) : message.type === "VIDEO" ? (
-                                <video
-                                    src={message.content}
-                                    controls
-                                    className="max-w-full block"
-                                    onLoadedData={onMediaLoad}
-                                />
-                            ) : message.type === "AUDIO" ? (
-                                <AudioPlayer
-                                    src={message.content}
-                                    isOwn={isOwn}
-                                />
-                            ) : message.type === "FILE" ? (
-                                <div className="px-4 py-2">
+                                ) : message.type === "AUDIO" ? (
+                                    <AudioPlayer
+                                        src={message.content}
+                                        isOwn={isOwn}
+                                    />
+                                ) : message.type === "FILE" ? (
                                     <a
-                                        href={message.content}
+                                        href={resolvedFileUrl}
                                         target="_blank"
                                         rel="noopener noreferrer"
-                                        className="flex items-center gap-2 text-sm underline"
+                                        className="mx-2 my-2 flex items-center gap-3 rounded-xl border-gray-400 shadow-sm dark:border-gray-600 bg-gray-100 dark:bg-gray-800 px-3 py-3"
                                     >
-                                        <Paperclip
-                                            size={14}
-                                            className="shrink-0"
-                                        />
-                                        <span className="truncate max-w-45">
-                                            {fileNameFromUrl}
+                                        <span className="h-9 w-9 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-[10px] font-semibold">
+                                            {getFileBadgeLabel(
+                                                resolvedFileName,
+                                            )}
+                                        </span>
+                                        <span className="min-w-0 flex-1">
+                                            <span className="block truncate text-sm text-gray-900 dark:text-gray-100">
+                                                {resolvedFileName}
+                                            </span>
+                                            {resolvedFileSize && (
+                                                <span className="block text-xs text-gray-500 dark:text-gray-400">
+                                                    {resolvedFileSize}
+                                                </span>
+                                            )}
                                         </span>
                                     </a>
-                                </div>
-                            ) : message.type === "CALL" ? (
-                                <button
-                                    type="button"
-                                    onClick={() =>
-                                        callMeta &&
-                                        onRecallCall?.(callMeta.callType)
-                                    }
-                                    className="w-full px-3 py-2.5 text-left hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer"
-                                    title="Gọi lại"
-                                >
-                                    <div className="flex items-center gap-2.5">
-                                        <span className="w-9 h-9 rounded-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 flex items-center justify-center shrink-0">
-                                            {callMeta?.isMissed ? (
-                                                callMeta.callType ===
-                                                "video" ? (
-                                                    <VideoOff
+                                ) : message.type === "CALL" ? (
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            callMeta &&
+                                            onRecallCall?.(callMeta.callType)
+                                        }
+                                        className="w-full px-3 py-2.5 text-left hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer"
+                                        title="Gọi lại"
+                                    >
+                                        <div className="flex items-center gap-2.5">
+                                            <span className="w-9 h-9 rounded-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 flex items-center justify-center shrink-0">
+                                                {callMeta?.isMissed ? (
+                                                    callMeta.callType ===
+                                                    "video" ? (
+                                                        <VideoOff
+                                                            size={18}
+                                                            className="text-gray-900 dark:text-gray-100"
+                                                        />
+                                                    ) : (
+                                                        <PhoneOff
+                                                            size={18}
+                                                            className="text-gray-900 dark:text-gray-100"
+                                                        />
+                                                    )
+                                                ) : callMeta?.callType ===
+                                                  "video" ? (
+                                                    <Video
                                                         size={18}
                                                         className="text-gray-900 dark:text-gray-100"
                                                     />
                                                 ) : (
-                                                    <PhoneOff
+                                                    <Phone
                                                         size={18}
                                                         className="text-gray-900 dark:text-gray-100"
                                                     />
-                                                )
-                                            ) : callMeta?.callType ===
-                                              "video" ? (
-                                                <Video
-                                                    size={18}
-                                                    className="text-gray-900 dark:text-gray-100"
-                                                />
-                                            ) : (
-                                                <Phone
-                                                    size={18}
-                                                    className="text-gray-900 dark:text-gray-100"
-                                                />
-                                            )}
-                                        </span>
-
-                                        <span className="min-w-0">
-                                            <span className="block text-sm leading-5 font-semibold text-gray-900 dark:text-gray-100 wrap-break-word">
-                                                {callMeta?.title}
+                                                )}
                                             </span>
-                                            <span className="block mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                                                {callMeta?.subtitle}
-                                            </span>
-                                        </span>
-                                    </div>
 
-                                    <span className="mt-2 block rounded-xl bg-gray-200 dark:bg-gray-700 py-1.5 text-center text-base font-semibold text-gray-900 dark:text-gray-100">
-                                        Gọi lại
-                                    </span>
-                                </button>
-                            ) : (
-                                <p className="px-4 py-2 text-sm">
-                                    {message.content}
-                                </p>
-                            )}
+                                            <span className="min-w-0">
+                                                <span className="block text-sm leading-5 font-semibold text-gray-900 dark:text-gray-100 wrap-break-word">
+                                                    {callMeta?.title}
+                                                </span>
+                                                <span className="block mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                                                    {callMeta?.subtitle}
+                                                </span>
+                                            </span>
+                                        </div>
+
+                                        <span className="mt-2 block rounded-xl bg-gray-200 dark:bg-gray-700 py-1.5 text-center text-base font-semibold text-gray-900 dark:text-gray-100">
+                                            Gọi lại
+                                        </span>
+                                    </button>
+                                ) : (
+                                    <p className="px-4 py-2 text-sm">
+                                        {message.content}
+                                    </p>
+                                )}
+                            </div>
                         </div>
                     </>
                 )}

@@ -4,7 +4,9 @@
  */
 package iuh.fit.edu.backend.dto.response.message;
 
+import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.time.Instant;
 
@@ -15,6 +17,8 @@ import java.time.Instant;
  * @version: 1.0
  */
 @Data
+@AllArgsConstructor
+@NoArgsConstructor
 public class MessageRecalledResponse {
     private String messageId;
     private Long conversationId;

@@ -31,6 +31,14 @@ export interface Message {
     active?: boolean;
     isActive?: boolean;
     isRecalled?: boolean;
+    attachments?: MessageAttachment[];
+}
+
+export interface MessageAttachment {
+    url: string;
+    type?: string;
+    fileName?: string;
+    fileSize?: number;
 }
 
 export interface ReferenceUser {
@@ -86,6 +94,12 @@ export interface SendMessageRequest {
     type: MessageType;
     conversationId: number;
     replyToId?: string;
+    attachments?: Array<{
+        url: string;
+        type: string;
+        fileName: string;
+        fileSize: number;
+    }>;
 }
 
 export interface SendCallMessageRequest {
@@ -99,6 +113,16 @@ export interface PresignedUrlResponse {
     presignedUrl: string;
     objectKey: string;
     fileName: string;
+}
+
+export interface BulkPresignedRequest {
+    module: "CONVERSATION" | "USER" | "POST";
+    targetId: string;
+    files: Array<{
+        type: "IMAGE" | "VIDEO" | "FILE" | "AUDIO";
+        fileName: string;
+        contentType: string;
+    }>;
 }
 
 export interface MessageSeenPayload {
@@ -286,20 +310,75 @@ const chatService = {
         fileName: string,
         contentType: string,
     ): Promise<PresignedUrlResponse> {
-        const response = await axiosClient.get(`/files/presigned-url`, {
-            params: { module, targetId, type, fileName, contentType },
+        const list = await this.getBulkPresignedUrls({
+            module: module as BulkPresignedRequest["module"],
+            targetId,
+            files: [
+                {
+                    type: type as BulkPresignedRequest["files"][number]["type"],
+                    fileName,
+                    contentType,
+                },
+            ],
         });
-        return (response.data as { data: PresignedUrlResponse }).data;
+
+        if (list.length === 0) {
+            throw new Error("Không lấy được presigned URL");
+        }
+
+        return list[0];
+    },
+
+    async getBulkPresignedUrls(
+        request: BulkPresignedRequest,
+    ): Promise<PresignedUrlResponse[]> {
+        const response = await axiosClient.request({
+            url: "/files/presigned-url",
+            method: "post",
+            data: request,
+        });
+
+        // Backend có thể trả list raw hoặc dạng bọc { data: [...] }.
+        const payload = response.data as
+            | PresignedUrlResponse[]
+            | { data?: PresignedUrlResponse[] };
+        if (Array.isArray(payload)) return payload;
+        return Array.isArray(payload?.data) ? payload.data : [];
     },
 
     // Bước 2a: Upload file thẳng lên S3 bằng presigned PUT URL (không qua BE, không cần auth header)
-    async uploadToS3(presignedUrl: string, file: File): Promise<void> {
-        const res = await fetch(presignedUrl, {
-            method: "PUT",
-            headers: { "Content-Type": file.type },
-            body: file,
+    async uploadToS3(
+        presignedUrl: string,
+        file: File,
+        onProgress?: (loaded: number, total: number) => void,
+    ): Promise<void> {
+        await new Promise<void>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open("PUT", presignedUrl, true);
+            xhr.setRequestHeader(
+                "Content-Type",
+                file.type || "application/octet-stream",
+            );
+
+            xhr.upload.onprogress = (event) => {
+                if (!onProgress) return;
+                const total = event.lengthComputable ? event.total : file.size;
+                onProgress(event.loaded, total || file.size);
+            };
+
+            xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    onProgress?.(file.size, file.size);
+                    resolve();
+                } else {
+                    reject(new Error(`S3 upload failed: ${xhr.status}`));
+                }
+            };
+
+            xhr.onerror = () => reject(new Error("S3 upload failed"));
+            xhr.onabort = () => reject(new Error("S3 upload aborted"));
+            xhr.send(file);
         });
-        if (!res.ok) throw new Error(`S3 upload failed: ${res.status}`);
     },
 
     // Xóa tin nhắn ở phía tôi (chỉ user hiện tại không thấy, người khác vẫn thấy)

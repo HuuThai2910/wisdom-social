@@ -1,6 +1,7 @@
 package iuh.fit.edu.backend.service.s3.impl;
 
 import iuh.fit.edu.backend.constant.UploadModule;
+import iuh.fit.edu.backend.dto.request.BulkPresignedRequest;
 import iuh.fit.edu.backend.dto.response.PresignedUrlResponse;
 import iuh.fit.edu.backend.service.s3.S3Service;
 import lombok.extern.slf4j.Slf4j;
@@ -17,6 +18,7 @@ import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignReques
 import java.net.URL;
 import java.time.Duration;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @Slf4j
@@ -190,6 +192,7 @@ public class S3ServiceImpl implements S3Service {
         }
         return mediaFolder + "/uploads";
     }
+
     /**
      * Hàm sinh URL dùng chung cho TOÀN BỘ DỰ ÁN
      * @param module: CONVERSATION, USER, hoặc POST
@@ -259,6 +262,13 @@ public class S3ServiceImpl implements S3Service {
             throw new RuntimeException("Không thể khởi tạo phiên tải lên");
         }
     }
+    @Override
+    public List<PresignedUrlResponse> generateMultiplePresignedUrls(BulkPresignedRequest request) {
+        return request.getFiles().stream()
+                .map(f -> generatePresignedUrl(request.getModule(), request.getTargetId(), f.getType(), f.getFileName(), f.getContentType()))
+                .collect(Collectors.toList());
+    }
+
     @Override
     public void deleteByKey(UploadModule module, String s3ObjectKey) {
         if (s3ObjectKey == null || s3ObjectKey.trim().isEmpty()) return;

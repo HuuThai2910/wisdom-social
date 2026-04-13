@@ -16,6 +16,7 @@ import {
     ArrowDown,
     Plus,
     X,
+    MoreVertical,
     Mic,
     Square,
     Paperclip,
@@ -41,6 +42,13 @@ interface ChatWindowProps {
     onMarkAsRead?: (conversationId: number) => void;
 }
 
+function createClientFileId(): string {
+    if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+        return crypto.randomUUID();
+    }
+    return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export default function ChatWindow({
     conversationId,
     userId,
@@ -55,6 +63,10 @@ export default function ChatWindow({
         loadingMore,
         sending,
         uploading,
+        uploadProgressPercent,
+        uploadProgressLabel,
+        uploadFileProgressMap,
+        uploadFailedFileNames,
         error,
 
         displayName,
@@ -74,11 +86,11 @@ export default function ChatWindow({
         handleScroll,
         handleScrollToBottomClick,
         handleSend,
+        handleSendMixedMedia,
         handlePinMessage,
         handleUnpinMessage,
         handleRecall,
         handleDeleteMessageForMe,
-        handleFileUpload,
         appendRealtimeMessage,
         scrollToBottom,
         recallToast,
@@ -167,6 +179,9 @@ export default function ChatWindow({
     // - false: chỉ hiện 1 item ghim đầu tiên (gọn)
     // - true: bung ra toàn bộ danh sách ghim (tối đa 3)
     const [showPinnedList, setShowPinnedList] = useState(false);
+    const [openPinnedMenuId, setOpenPinnedMenuId] = useState<string | null>(
+        null,
+    );
 
     const pinnedBannerItems = useMemo(() => {
         // Chuẩn hoá text preview theo loại tin nhắn để banner dễ đọc.
@@ -211,6 +226,25 @@ export default function ChatWindow({
 
     // Item ghim đầu tiên dùng cho chế độ thu gọn của banner.
     const primaryPinnedItem = pinnedBannerItems[0];
+    const canExpandPinnedList = pinnedBannerItems.length > 1;
+
+    useEffect(() => {
+        if (!canExpandPinnedList && showPinnedList) {
+            setShowPinnedList(false);
+        }
+    }, [canExpandPinnedList, showPinnedList]);
+
+    useEffect(() => {
+        function handlePinnedMenuOutside(e: MouseEvent) {
+            const target = e.target as HTMLElement;
+            if (target.closest("[data-pin-menu='true']")) return;
+            setOpenPinnedMenuId(null);
+        }
+
+        document.addEventListener("mousedown", handlePinnedMenuOutside);
+        return () =>
+            document.removeEventListener("mousedown", handlePinnedMenuOutside);
+    }, []);
 
     const [plusMenuOpen, setPlusMenuOpen] = useState(false);
     const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
@@ -229,6 +263,13 @@ export default function ChatWindow({
     const messageElementRefs = useRef<Record<string, HTMLDivElement | null>>(
         {},
     );
+    const [selectedFiles, setSelectedFiles] = useState<
+        Array<{ id: string; file: File }>
+    >([]);
+    const [selectedImagePreviewUrls, setSelectedImagePreviewUrls] = useState<
+        Record<string, string>
+    >({});
+    const selectedImagePreviewUrlsRef = useRef<Record<string, string>>({});
 
     useEffect(() => {
         if (!plusMenuOpen) return;
@@ -275,12 +316,78 @@ export default function ChatWindow({
 
     const onFileChange = useCallback(
         (e: React.ChangeEvent<HTMLInputElement>) => {
-            const file = e.target.files?.[0];
-            if (file) void handleFileUpload(file);
+            const incoming = Array.from(e.target.files ?? []);
+            if (incoming.length === 0) return;
+
+            setSelectedFiles((prev) => [
+                ...prev,
+                ...incoming.map((file) => ({
+                    id: createClientFileId(),
+                    file,
+                })),
+            ]);
             e.target.value = ""; // reset để cho phép chọn lại cùng file
+
+            // Giữ trải nghiệm chat liên tục: chọn file xong vẫn focus vào ô nhập.
+            requestAnimationFrame(() => {
+                messageInputRef.current?.focus();
+            });
         },
-        [handleFileUpload],
+        [],
     );
+
+    const selectedFileItems = useMemo(
+        () =>
+            selectedFiles.map((item) => ({
+                key: item.id,
+                file: item.file,
+                isImage: item.file.type.startsWith("image/"),
+            })),
+        [selectedFiles],
+    );
+
+    const removeSelectedFile = useCallback((key: string) => {
+        setSelectedFiles((prev) => prev.filter((item) => item.id !== key));
+    }, []);
+
+    useEffect(() => {
+        setSelectedImagePreviewUrls((prev) => {
+            const next = { ...prev };
+
+            for (const [key, url] of Object.entries(next)) {
+                const stillUsed = selectedFileItems.some(
+                    (item) => item.key === key && item.isImage,
+                );
+                if (!stillUsed) {
+                    URL.revokeObjectURL(url);
+                    delete next[key];
+                }
+            }
+
+            for (const item of selectedFileItems) {
+                if (!item.isImage) continue;
+                if (!next[item.key]) {
+                    next[item.key] = URL.createObjectURL(item.file);
+                }
+            }
+
+            return next;
+        });
+    }, [selectedFileItems]);
+
+    useEffect(() => {
+        selectedImagePreviewUrlsRef.current = selectedImagePreviewUrls;
+    }, [selectedImagePreviewUrls]);
+
+    useEffect(() => {
+        return () => {
+            for (const url of Object.values(
+                selectedImagePreviewUrlsRef.current,
+            )) {
+                URL.revokeObjectURL(url);
+            }
+        };
+    }, []);
 
     const getMessagePreviewText = useCallback(
         (message: (typeof messages)[number]) => {
@@ -511,17 +618,6 @@ export default function ChatWindow({
                     ? readReceipts.filter((r) => r.lastMessageId === message.id)
                     : [];
 
-            // // Debug logging
-            // if (idx === messages.length - 1) {
-            //     console.log("🎯 Last message debug:", {
-            //         messageId: message.id,
-            //         isOwn,
-            //         isRecalled: message.isRecalled,
-            //         allReadReceipts: readReceipts,
-            //         receiptsForThisMessage,
-            //     });
-            // }
-
             items.push(
                 <div
                     key={stableMessageKey}
@@ -705,54 +801,101 @@ export default function ChatWindow({
                             className="shrink-0 text-gray-600 dark:text-gray-300"
                         />
 
-                        {primaryPinnedItem && (
+                        {primaryPinnedItem &&
+                            (!showPinnedList || !canExpandPinnedList) && (
+                                <div className="flex-1 min-w-0 flex items-center gap-1.5">
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            handleOpenPinnedMessage(
+                                                primaryPinnedItem.messageId,
+                                            )
+                                        }
+                                        className="flex-1 min-w-0 flex items-center gap-2 rounded-full px-2.5 py-1.5 text-xs text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800"
+                                        title="Đi tới tin nhắn đã ghim"
+                                    >
+                                        {primaryPinnedItem.thumbUrl ? (
+                                            <img
+                                                src={primaryPinnedItem.thumbUrl}
+                                                alt="Ảnh ghim"
+                                                className="h-6 w-6 rounded object-cover shrink-0"
+                                            />
+                                        ) : (
+                                            <span className=""></span>
+                                        )}
+                                        <div className="min-w-0 text-left">
+                                            <p className="truncate text-[11px] font-semibold text-gray-600 dark:text-gray-300">
+                                                {primaryPinnedItem.senderName}
+                                            </p>
+                                            <p className="truncate text-xs">
+                                                {primaryPinnedItem.preview}
+                                            </p>
+                                        </div>
+                                    </button>
+
+                                    <div
+                                        className="relative"
+                                        data-pin-menu="true"
+                                    >
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                const key = `${primaryPinnedItem.messageId}-${primaryPinnedItem.pinnedAt}`;
+                                                setOpenPinnedMenuId((prev) =>
+                                                    prev === key ? null : key,
+                                                );
+                                            }}
+                                            className="h-7 w-7 shrink-0 rounded-full flex items-center justify-center text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+                                            title="Tùy chọn ghim"
+                                        >
+                                            <MoreVertical size={14} />
+                                        </button>
+
+                                        {openPinnedMenuId ===
+                                            `${primaryPinnedItem.messageId}-${primaryPinnedItem.pinnedAt}` && (
+                                            <div className="absolute right-0 top-full mt-1 min-w-24 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg z-20 py-1">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setOpenPinnedMenuId(
+                                                            null,
+                                                        );
+                                                        void handleUnpinMessage(
+                                                            primaryPinnedItem.messageId,
+                                                        );
+                                                    }}
+                                                    className="w-full px-3 py-1.5 text-left text-xs text-red-600 dark:text-red-400 hover:bg-gray-50 dark:hover:bg-gray-700"
+                                                >
+                                                    Bỏ ghim
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
+                        {canExpandPinnedList && (
                             <button
                                 type="button"
                                 onClick={() =>
-                                    handleOpenPinnedMessage(
-                                        primaryPinnedItem.messageId,
-                                    )
+                                    setShowPinnedList((prev) => !prev)
                                 }
-                                className="flex-1 min-w-0 flex items-center gap-2 rounded-full px-2.5 py-1.5 text-xs text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800"
-                                title="Đi tới tin nhắn đã ghim"
+                                className="shrink-0 rounded-full p-1 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+                                title={
+                                    showPinnedList
+                                        ? "Thu gọn danh sách ghim"
+                                        : "Mở danh sách ghim"
+                                }
+                                aria-expanded={showPinnedList}
+                                aria-label="Hiện danh sách tin nhắn ghim"
                             >
-                                {primaryPinnedItem.thumbUrl ? (
-                                    <img
-                                        src={primaryPinnedItem.thumbUrl}
-                                        alt="Ảnh ghim"
-                                        className="h-6 w-6 rounded object-cover shrink-0"
-                                    />
-                                ) : (
-                                    <span className=""></span>
-                                )}
-                                <div className="min-w-0 text-left">
-                                    <p className="truncate text-[11px] font-semibold text-gray-600 dark:text-gray-300">
-                                        {primaryPinnedItem.senderName}
-                                    </p>
-                                    <p className="truncate text-xs">
-                                        {primaryPinnedItem.preview}
-                                    </p>
-                                </div>
+                                <ChevronDown
+                                    size={14}
+                                    className={`transition-transform ${showPinnedList ? "rotate-180" : "rotate-0"}`}
+                                />
                             </button>
                         )}
-
-                        <button
-                            type="button"
-                            onClick={() => setShowPinnedList((prev) => !prev)}
-                            className="shrink-0 rounded-full p-1 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
-                            title={
-                                showPinnedList
-                                    ? "Thu gọn danh sách ghim"
-                                    : "Mở danh sách ghim"
-                            }
-                            aria-expanded={showPinnedList}
-                            aria-label="Hiện danh sách tin nhắn ghim"
-                        >
-                            <ChevronDown
-                                size={14}
-                                className={`transition-transform ${showPinnedList ? "rotate-180" : "rotate-0"}`}
-                            />
-                        </button>
                     </div>
 
                     {/*
@@ -761,37 +904,83 @@ export default function ChatWindow({
                       - Mỗi dòng đều click để nhảy đến tin gốc
                       - Nếu là ảnh sẽ có thumbnail nhỏ ở bên trái
                     */}
-                    {showPinnedList && (
+                    {showPinnedList && canExpandPinnedList && (
                         <div className="mt-2 space-y-1.5">
                             {pinnedBannerItems.map((pin) => (
-                                <button
+                                <div
                                     key={`${pin.messageId}-${pin.pinnedAt}`}
-                                    type="button"
-                                    onClick={() =>
-                                        handleOpenPinnedMessage(pin.messageId)
-                                    }
-                                    className="w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800"
+                                    className="w-full flex items-center gap-1"
                                 >
-                                    {pin.thumbUrl ? (
-                                        <img
-                                            src={pin.thumbUrl}
-                                            alt="Ảnh ghim"
-                                            className="h-9 w-9 rounded object-cover shrink-0"
-                                        />
-                                    ) : (
-                                        <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded bg-gray-200 text-[10px] font-semibold text-gray-700 dark:bg-gray-700 dark:text-gray-200">
-                                            Ghim
-                                        </span>
-                                    )}
-                                    <div className="min-w-0">
-                                        <p className="truncate text-[11px] font-semibold text-gray-600 dark:text-gray-300">
-                                            {pin.senderName}
-                                        </p>
-                                        <p className="truncate text-xs">
-                                            {pin.preview}
-                                        </p>
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            handleOpenPinnedMessage(
+                                                pin.messageId,
+                                            )
+                                        }
+                                        className="flex-1 min-w-0 flex items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800"
+                                    >
+                                        {pin.thumbUrl ? (
+                                            <img
+                                                src={pin.thumbUrl}
+                                                alt="Ảnh ghim"
+                                                className="h-9 w-9 rounded object-cover shrink-0"
+                                            />
+                                        ) : (
+                                            <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded bg-gray-200 text-[10px] font-semibold text-gray-700 dark:bg-gray-700 dark:text-gray-200">
+                                                Ghim
+                                            </span>
+                                        )}
+                                        <div className="min-w-0">
+                                            <p className="truncate text-[11px] font-semibold text-gray-600 dark:text-gray-300">
+                                                {pin.senderName}
+                                            </p>
+                                            <p className="truncate text-xs">
+                                                {pin.preview}
+                                            </p>
+                                        </div>
+                                    </button>
+
+                                    <div
+                                        className="relative shrink-0"
+                                        data-pin-menu="true"
+                                    >
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                const key = `${pin.messageId}-${pin.pinnedAt}`;
+                                                setOpenPinnedMenuId((prev) =>
+                                                    prev === key ? null : key,
+                                                );
+                                            }}
+                                            className="h-7 w-7 rounded-full flex items-center justify-center text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+                                            title="Tùy chọn ghim"
+                                        >
+                                            <MoreVertical size={14} />
+                                        </button>
+
+                                        {openPinnedMenuId ===
+                                            `${pin.messageId}-${pin.pinnedAt}` && (
+                                            <div className="absolute right-0 top-full mt-1 min-w-24 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg z-20 py-1">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setOpenPinnedMenuId(
+                                                            null,
+                                                        );
+                                                        void handleUnpinMessage(
+                                                            pin.messageId,
+                                                        );
+                                                    }}
+                                                    className="w-full px-3 py-1.5 text-left text-xs text-red-600 dark:text-red-400 hover:bg-gray-50 dark:hover:bg-gray-700"
+                                                >
+                                                    Bỏ ghim
+                                                </button>
+                                            </div>
+                                        )}
                                     </div>
-                                </button>
+                                </div>
                             ))}
                         </div>
                     )}
@@ -906,6 +1095,7 @@ export default function ChatWindow({
                     ref={attachInputRef}
                     type="file"
                     accept="*/*"
+                    multiple
                     className="hidden"
                     onChange={onFileChange}
                 />
@@ -913,6 +1103,7 @@ export default function ChatWindow({
                     ref={gifInputRef}
                     type="file"
                     accept="image/*,video/*"
+                    multiple
                     className="hidden"
                     onChange={onFileChange}
                 />
@@ -955,6 +1146,105 @@ export default function ChatWindow({
                     </div>
                 ) : (
                     <div>
+                        {selectedFileItems.length > 0 && (
+                            <div className="mb-2 flex items-center gap-2 overflow-x-auto pb-1">
+                                {selectedFileItems.map((item) => (
+                                    <div
+                                        key={item.key}
+                                        className="relative shrink-0"
+                                    >
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                removeSelectedFile(item.key)
+                                            }
+                                            className="absolute -top-2 -right-2 z-10 h-5 w-5 rounded-full bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-500 flex items-center justify-center text-gray-600 dark:text-gray-200"
+                                            title="Xóa tệp"
+                                        >
+                                            <X size={12} />
+                                        </button>
+
+                                        {item.isImage ? (
+                                            <div className="relative h-16 w-16 rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700">
+                                                {selectedImagePreviewUrls[
+                                                    item.key
+                                                ] ? (
+                                                    <img
+                                                        src={
+                                                            selectedImagePreviewUrls[
+                                                                item.key
+                                                            ]
+                                                        }
+                                                        alt={item.file.name}
+                                                        className="h-full w-full object-cover"
+                                                    />
+                                                ) : (
+                                                    <span className="h-full w-full block bg-gray-100 dark:bg-gray-800" />
+                                                )}
+
+                                                {uploading && (
+                                                    <span className="absolute inset-x-0 bottom-0 h-1 bg-white/40 dark:bg-black/30">
+                                                        <span
+                                                            className="block h-full bg-blue-500 transition-all duration-150"
+                                                            style={{
+                                                                width: `${uploadFileProgressMap[item.key] ?? 0}%`,
+                                                            }}
+                                                        />
+                                                    </span>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <div className="h-16 min-w-40 max-w-44 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 px-2 py-1.5 flex items-center gap-2">
+                                                <span className="h-8 w-8 rounded-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 flex items-center justify-center shrink-0">
+                                                    <Paperclip size={14} />
+                                                </span>
+                                                <div className="min-w-0 flex-1">
+                                                    <span className="block truncate text-xs text-gray-700 dark:text-gray-200">
+                                                        {item.file.name}
+                                                    </span>
+                                                    {uploading && (
+                                                        <span className="block text-[10px] text-gray-500 dark:text-gray-400">
+                                                            {uploadFileProgressMap[
+                                                                item.key
+                                                            ] ?? 0}
+                                                            %
+                                                        </span>
+                                                    )}
+                                                    {!uploading &&
+                                                        uploadFailedFileNames.includes(
+                                                            item.file.name,
+                                                        ) && (
+                                                            <span className="block text-[10px] text-red-500">
+                                                                Upload lỗi
+                                                            </span>
+                                                        )}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {uploading && uploadProgressPercent !== null && (
+                            <div className="mb-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-2 py-2">
+                                <div className="flex items-center justify-between text-[11px] text-gray-600 dark:text-gray-300">
+                                    <span>
+                                        {uploadProgressLabel || "Đang tải tệp"}
+                                    </span>
+                                    <span>{uploadProgressPercent}%</span>
+                                </div>
+                                <div className="mt-1 h-1.5 w-full rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+                                    <div
+                                        className="h-full bg-blue-500 transition-all duration-150"
+                                        style={{
+                                            width: `${uploadProgressPercent}%`,
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                        )}
+
                         {replyToMessage && (
                             <div className="mb-2 flex items-start justify-between gap-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-3 py-2">
                                 <div className="min-w-0">
@@ -1085,10 +1375,26 @@ export default function ChatWindow({
                                         !uploading
                                     ) {
                                         sendTypingSignal(false); // Ngừng typing khi gửi
-                                        void handleSend(
-                                            undefined,
-                                            replyToMessage?.id,
-                                        ).then(() => setReplyToMessage(null));
+                                        if (selectedFiles.length > 0) {
+                                            void handleSendMixedMedia(
+                                                selectedFiles.map(
+                                                    (item) => item.file,
+                                                ),
+                                                undefined,
+                                                replyToMessage?.id,
+                                            ).then((ok) => {
+                                                if (!ok) return;
+                                                setSelectedFiles([]);
+                                                setReplyToMessage(null);
+                                            });
+                                        } else {
+                                            void handleSend(
+                                                undefined,
+                                                replyToMessage?.id,
+                                            ).then(() =>
+                                                setReplyToMessage(null),
+                                            );
+                                        }
                                     }
                                 }}
                                 onBlur={() => sendTypingSignal(false)} // Ngừng typing khi blur
@@ -1155,17 +1461,33 @@ export default function ChatWindow({
 
                             {/* Thumbs up khi trống, Send khi có text */}
                             {!uploading &&
-                                (messageText.trim() ? (
+                                (messageText.trim() ||
+                                selectedFiles.length > 0 ? (
                                     <button
                                         type="button"
-                                        onClick={() =>
+                                        onClick={() => {
+                                            if (selectedFiles.length > 0) {
+                                                void handleSendMixedMedia(
+                                                    selectedFiles.map(
+                                                        (item) => item.file,
+                                                    ),
+                                                    undefined,
+                                                    replyToMessage?.id,
+                                                ).then((ok) => {
+                                                    if (!ok) return;
+                                                    setSelectedFiles([]);
+                                                    setReplyToMessage(null);
+                                                });
+                                                return;
+                                            }
+
                                             void handleSend(
                                                 undefined,
                                                 replyToMessage?.id,
                                             ).then(() =>
                                                 setReplyToMessage(null),
-                                            )
-                                        }
+                                            );
+                                        }}
                                         disabled={sending}
                                         className="shrink-0 p-1.5 text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full disabled:opacity-50"
                                     >

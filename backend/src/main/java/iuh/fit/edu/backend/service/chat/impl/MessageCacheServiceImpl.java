@@ -65,7 +65,6 @@ public class MessageCacheServiceImpl implements iuh.fit.edu.backend.service.chat
         // Lấy phần tử cuối cùng trong Redis (Tin nhắn cũ nhất của Cache)
         MessageResponse lastObj = (MessageResponse) redisTemplate.opsForList().index(key, -1);
         if (lastObj != null) {
-            log.info("Alo");
             // Nếu tin nhắn bị thu hồi có thời gian CŨ HƠN tin cũ nhất trong Cache
             // => Chắc chắn nó không nằm trong Cache. Dừng luôn, không cần lấy List về!
             if (message.getCreatedAt().isBefore(lastObj.getCreatedAt())) {
@@ -79,17 +78,24 @@ public class MessageCacheServiceImpl implements iuh.fit.edu.backend.service.chat
             // 3. Tìm vị trí (index) của tin nhắn cần thu hồi
             for (int i = 0; i < objects.size(); i++) {
                 MessageResponse cachedMsg = (MessageResponse) objects.get(i);
+                boolean isModified = false;
                 // So sánh ID để tìm đúng tin nhắn
                 if (cachedMsg.getId().equals(message.getMessageId())) {
-
                     // Cập nhật dữ liệu tin nhắn: Xóa nội dung, bật cờ isRecalled
                     cachedMsg.setContent("");
                     cachedMsg.setRecalled(true);
-
+                    if (cachedMsg.getAttachments() != null) {
+                        cachedMsg.setAttachments(new ArrayList<>());
+                    }
+                    isModified = true;
+                }
+                if(cachedMsg.getReplyInfo() != null && cachedMsg.getReplyInfo().getMessageId().equals(message.getMessageId())){
+                    cachedMsg.getReplyInfo().setContent("");
+                    isModified = true;
+                }
+                if(isModified){
                     redisTemplate.opsForList().set(key, i, cachedMsg);
-
                     log.info("Đã cập nhật tin nhắn thu hồi trong Redis tại index: {}", i);
-                    break;
                 }
             }
         }

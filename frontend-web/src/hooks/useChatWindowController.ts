@@ -7,6 +7,7 @@ import {
     useState,
 } from "react";
 import chatService, {
+    type BulkPresignedRequest,
     type Conversation,
     type ConversationMember,
     type Message,
@@ -39,6 +40,10 @@ const SCROLLABLE_EPSILON_PX = 2;
 const MARK_AS_READ_DEBOUNCE_MS = 1000; // Debounce 1 giây cho API markAsRead
 const MESSAGE_WINDOW_LIMIT = 200;
 const MESSAGE_TRIM_BATCH = 20;
+const MAX_FILES_PER_SEND = 50;
+const MAX_IMAGE_SIZE_BYTES = 25 * 1024 * 1024;
+const MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024;
+const RECALLED_REPLY_TEXT = "Tin nhắn đã được thu hồi";
 
 type LoadOlderOptions = { keepAtBottom?: boolean };
 type VisibleAnchorSnapshot = { messageId: string; topOffset: number };
@@ -124,6 +129,55 @@ function toMembersByUserId(
     return normalized;
 }
 
+function isImageFile(file: File): boolean {
+    return file.type.startsWith("image/");
+}
+
+function toAttachmentCategory(file: File): "IMAGE" | "FILE" {
+    return isImageFile(file) ? "IMAGE" : "FILE";
+}
+
+function getValidationErrorForFiles(files: File[]): string | null {
+    if (files.length === 0) return null;
+    if (files.length > MAX_FILES_PER_SEND) {
+        return `Mỗi lần gửi tối đa ${MAX_FILES_PER_SEND} tệp.`;
+    }
+
+    for (const file of files) {
+        const maxAllowed = isImageFile(file)
+            ? MAX_IMAGE_SIZE_BYTES
+            : MAX_FILE_SIZE_BYTES;
+        if (file.size > maxAllowed) {
+            const maxMb = isImageFile(file) ? 25 : 100;
+            return `Tệp ${file.name} vượt quá ${maxMb}MB.`;
+        }
+    }
+
+    return null;
+}
+
+function getFileClientKey(file: File): string {
+    return `${file.name}-${file.size}-${file.lastModified}`;
+}
+
+function normalizeReplyPreviewContent(message: Message): Message {
+    if (!message.replyInfo) return message;
+    const current = (message.replyInfo.content ?? "").trim();
+    if (current) return message;
+
+    return {
+        ...message,
+        replyInfo: {
+            ...message.replyInfo,
+            content: RECALLED_REPLY_TEXT,
+        },
+    };
+}
+
+function normalizeMessagesForUi(messages: Message[]): Message[] {
+    return messages.map(normalizeReplyPreviewContent);
+}
+
 /**
  * useChatWindowController
  * - Controller hook cho ChatWindow: fetch conversation/messages (cursor), websocket realtime.
@@ -150,6 +204,16 @@ export function useChatWindowController(args: {
     const [loading, setLoading] = useState(true);
     const [sending, setSending] = useState(false);
     const [uploading, setUploading] = useState(false);
+    const [uploadProgressPercent, setUploadProgressPercent] = useState<
+        number | null
+    >(null);
+    const [uploadProgressLabel, setUploadProgressLabel] = useState<string>("");
+    const [uploadFileProgressMap, setUploadFileProgressMap] = useState<
+        Record<string, number>
+    >({});
+    const [uploadFailedFileNames, setUploadFailedFileNames] = useState<
+        string[]
+    >([]);
 
     // ====== Ghi âm tin nhắn thoại (Voice recording) ======
     // isRecording: true nếu đang ghi âm, dùng để hiện overlay ghi âm trong UI
@@ -602,7 +666,7 @@ export function useChatWindowController(args: {
                     ? messagesResponse.data
                     : null;
                 const list = Array.isArray(cursorData?.data)
-                    ? cursorData.data
+                    ? normalizeMessagesForUi(cursorData.data)
                     : [];
 
                 const membersFromApi = toMembersByUserId(membersResponse);
@@ -724,7 +788,7 @@ export function useChatWindowController(args: {
 
                 const cursorData = response?.success ? response.data : null;
                 const older = Array.isArray(cursorData?.data)
-                    ? cursorData.data
+                    ? normalizeMessagesForUi(cursorData.data)
                     : [];
 
                 setMembersById((prev) => {
@@ -855,7 +919,7 @@ export function useChatWindowController(args: {
 
             const cursorData = response?.success ? response.data : null;
             const newer = Array.isArray(cursorData?.data)
-                ? cursorData.data
+                ? normalizeMessagesForUi(cursorData.data)
                 : [];
 
             setMembersById((prev) => {
@@ -942,7 +1006,7 @@ export function useChatWindowController(args: {
 
                 const cursorData = response?.success ? response.data : null;
                 const jumped = Array.isArray(cursorData?.data)
-                    ? cursorData.data
+                    ? normalizeMessagesForUi(cursorData.data)
                     : [];
 
                 setMembersById((prev) => {
@@ -1086,8 +1150,10 @@ export function useChatWindowController(args: {
             newMessage: Message,
             markAsReadFn?: (lastMessageId: string) => void,
         ) => {
+            const normalizedIncoming = normalizeReplyPreviewContent(newMessage);
             const isMyMessage =
-                Number(newMessage.senderId) === Number(userIdRef.current);
+                Number(normalizedIncoming.senderId) ===
+                Number(userIdRef.current);
             const currentlyNearBottom = isNearBottom();
 
             if (isHistoricalModeRef.current) {
@@ -1097,8 +1163,13 @@ export function useChatWindowController(args: {
             }
 
             setMessages((prev) => {
-                if (prev.some((m) => m.id === newMessage.id)) return prev;
-                const nextMessages = applyWindowForNewer([...prev, newMessage]);
+                if (prev.some((m) => m.id === normalizedIncoming.id)) {
+                    return prev;
+                }
+                const nextMessages = applyWindowForNewer([
+                    ...prev,
+                    normalizedIncoming,
+                ]);
                 chatRuntimeStore.setMessages(conversationId, nextMessages);
                 return nextMessages;
             });
@@ -1115,8 +1186,8 @@ export function useChatWindowController(args: {
                 // Sau khi media load xong, chiều cao tăng → scroll position bị đẩy lên
                 // isNearBottom() sẽ trả về false → không scroll
                 if (
-                    newMessage.type === "IMAGE" ||
-                    newMessage.type === "VIDEO"
+                    normalizedIncoming.type === "IMAGE" ||
+                    normalizedIncoming.type === "VIDEO"
                 ) {
                     // Clear timer cũ nếu có
                     if (shouldScrollOnMediaLoadTimerRef.current) {
@@ -1132,7 +1203,7 @@ export function useChatWindowController(args: {
                 // Đánh dấu đã đọc tin nhắn mới nếu user đang ở gần cuối (đang đọc)
                 // Không đánh dấu nếu là tin nhắn của chính mình (đã được backend xử lý)
                 if (!isMyMessage && markAsReadFn) {
-                    markAsReadFn(newMessage.id);
+                    markAsReadFn(normalizedIncoming.id);
                 }
             } else {
                 // Người nhận không ở cuối: chỉ hiện nút + đếm tin chưa xem
@@ -1145,16 +1216,33 @@ export function useChatWindowController(args: {
     // Nhận socket MESSAGE_RECALLED: set isRecalled=true cho tin nhắn đó
     const handleMessageRecalled = useCallback(
         (messageId: string) => {
-            setMessages((prev) =>
-                prev.map((m) =>
-                    m.id === messageId ? { ...m, isRecalled: true } : m,
-                ),
-            );
+            const applyRecallDomino = (message: Message): Message => {
+                if (message.id === messageId) {
+                    return {
+                        ...message,
+                        isRecalled: true,
+                        content: "",
+                        attachments: [],
+                    };
+                }
+
+                if (message.replyInfo?.messageId === messageId) {
+                    return {
+                        ...message,
+                        replyInfo: {
+                            ...message.replyInfo,
+                            content: RECALLED_REPLY_TEXT,
+                        },
+                    };
+                }
+
+                return message;
+            };
+
+            setMessages((prev) => prev.map(applyRecallDomino));
             const cachedMessages = chatRuntimeStore
                 .getMessages(conversationId)
-                .map((m) =>
-                    m.id === messageId ? { ...m, isRecalled: true } : m,
-                );
+                .map(applyRecallDomino);
             chatRuntimeStore.setMessages(conversationId, cachedMessages);
         },
         [conversationId],
@@ -2004,6 +2092,10 @@ export function useChatWindowController(args: {
             else type = "FILE";
 
             setUploading(true);
+            setUploadProgressPercent(0);
+            setUploadProgressLabel("Đang tải tệp 1/1");
+            setUploadFileProgressMap({ [getFileClientKey(file)]: 0 });
+            setUploadFailedFileNames([]);
             try {
                 // Bước 1: Xin presigned URL
                 const { presignedUrl, objectKey } =
@@ -2015,7 +2107,21 @@ export function useChatWindowController(args: {
                         file.type,
                     );
                 // Bước 2: Upload thẳng lên S3
-                await chatService.uploadToS3(presignedUrl, file);
+                await chatService.uploadToS3(
+                    presignedUrl,
+                    file,
+                    (loaded, total) => {
+                        const safeTotal = total > 0 ? total : file.size || 1;
+                        const percent = Math.min(
+                            99,
+                            Math.round((loaded / safeTotal) * 100),
+                        );
+                        setUploadProgressPercent(percent);
+                        setUploadFileProgressMap({
+                            [getFileClientKey(file)]: percent,
+                        });
+                    },
+                );
                 // Bước 3: Gửi tin nhắn với objectKey làm content (BE tự ghép domain khi trả về)
                 const request: SendMessageRequest = {
                     content: objectKey,
@@ -2023,6 +2129,8 @@ export function useChatWindowController(args: {
                     conversationId,
                 };
                 await chatService.sendMessage(request, userId);
+                setUploadProgressPercent(100);
+                setUploadFileProgressMap({ [getFileClientKey(file)]: 100 });
                 scrollOnNextRenderRef.current = "smooth";
             } catch (err) {
                 const axiosMsg = (
@@ -2033,9 +2141,262 @@ export function useChatWindowController(args: {
                 );
             } finally {
                 setUploading(false);
+                setUploadProgressPercent(null);
+                setUploadProgressLabel("");
+                setUploadFileProgressMap({});
             }
         },
         [conversationId, userId],
+    );
+
+    const handleSendMixedMedia = useCallback(
+        async (files: File[], textOverride?: string, replyToId?: string) => {
+            if (files.length === 0) return false;
+
+            const validationError = getValidationErrorForFiles(files);
+            if (validationError) {
+                setRecallToast(validationError);
+                return false;
+            }
+
+            const trimmed = (textOverride ?? messageText).trim();
+
+            try {
+                setUploading(true);
+                setUploadProgressPercent(0);
+                setUploadProgressLabel(`Đang tải tệp 0/${files.length}`);
+                setUploadFileProgressMap(
+                    Object.fromEntries(
+                        files.map((file) => [getFileClientKey(file), 0]),
+                    ),
+                );
+                setUploadFailedFileNames([]);
+                setError(null);
+
+                const presignedPayload: BulkPresignedRequest = {
+                    module: "CONVERSATION",
+                    targetId: String(conversationId),
+                    files: files.map((file) => ({
+                        type: toAttachmentCategory(file),
+                        fileName: file.name,
+                        contentType: file.type || "application/octet-stream",
+                    })),
+                };
+
+                let presignedList: Array<{
+                    presignedUrl: string;
+                    objectKey: string;
+                    fileName: string;
+                }> = [];
+
+                try {
+                    presignedList =
+                        await chatService.getBulkPresignedUrls(
+                            presignedPayload,
+                        );
+                } catch {
+                    presignedList = [];
+                }
+
+                if (presignedList.length !== files.length) {
+                    presignedList = await Promise.all(
+                        files.map((file) =>
+                            chatService.getPresignedUrl(
+                                "CONVERSATION",
+                                String(conversationId),
+                                toAttachmentCategory(file),
+                                file.name,
+                                file.type || "application/octet-stream",
+                            ),
+                        ),
+                    );
+                }
+
+                const perFileLoaded = files.map(() => 0);
+                const totalBytes = files.reduce(
+                    (sum, file) => sum + Math.max(file.size, 1),
+                    0,
+                );
+
+                await Promise.all(
+                    files.map(async (file, index) => {
+                        try {
+                            await chatService.uploadToS3(
+                                presignedList[index].presignedUrl,
+                                file,
+                                (loaded, total) => {
+                                    const safeTotal =
+                                        total > 0
+                                            ? total
+                                            : Math.max(file.size, 1);
+                                    perFileLoaded[index] = Math.min(
+                                        loaded,
+                                        safeTotal,
+                                    );
+
+                                    const loadedBytes = perFileLoaded.reduce(
+                                        (sum, value) => sum + value,
+                                        0,
+                                    );
+                                    const completed = perFileLoaded.filter(
+                                        (value, fileIndex) =>
+                                            value >=
+                                            Math.max(files[fileIndex].size, 1),
+                                    ).length;
+
+                                    const percent = Math.min(
+                                        99,
+                                        Math.round(
+                                            (loadedBytes / totalBytes) * 100,
+                                        ),
+                                    );
+                                    const filePercent = Math.min(
+                                        100,
+                                        Math.round(
+                                            (perFileLoaded[index] / safeTotal) *
+                                                100,
+                                        ),
+                                    );
+                                    setUploadProgressPercent(percent);
+                                    setUploadProgressLabel(
+                                        `Đang tải tệp ${completed}/${files.length}`,
+                                    );
+                                    setUploadFileProgressMap((prev) => ({
+                                        ...prev,
+                                        [getFileClientKey(file)]: filePercent,
+                                    }));
+                                },
+                            );
+                        } catch {
+                            throw new Error(`UPLOAD_FAILED::${file.name}`);
+                        }
+                    }),
+                );
+
+                const uploaded = files.map((file, index) => ({
+                    file,
+                    objectKey: presignedList[index].objectKey,
+                }));
+
+                const imageAttachments = uploaded
+                    .filter((item) => isImageFile(item.file))
+                    .map((item) => ({
+                        url: item.objectKey,
+                        type: item.file.type || "application/octet-stream",
+                        fileName: item.file.name,
+                        fileSize: item.file.size,
+                    }));
+
+                const fileAttachments = uploaded
+                    .filter((item) => !isImageFile(item.file))
+                    .map((item) => ({
+                        url: item.objectKey,
+                        type: item.file.type || "application/octet-stream",
+                        fileName: item.file.name,
+                        fileSize: item.file.size,
+                    }));
+
+                // Text-only fallback nếu có thao tác nhưng không có media hợp lệ.
+                if (
+                    imageAttachments.length === 0 &&
+                    fileAttachments.length === 0
+                ) {
+                    if (!trimmed) return false;
+                    await chatService.sendMessage(
+                        {
+                            content: trimmed,
+                            type: "TEXT",
+                            conversationId,
+                            ...(replyToId ? { replyToId } : {}),
+                        },
+                        userId,
+                    );
+                }
+
+                // Có media + có text => luôn gửi TEXT thành message riêng.
+                if (
+                    trimmed &&
+                    (imageAttachments.length > 0 || fileAttachments.length > 0)
+                ) {
+                    await chatService.sendMessage(
+                        {
+                            content: trimmed,
+                            type: "TEXT",
+                            conversationId,
+                            ...(replyToId ? { replyToId } : {}),
+                        },
+                        userId,
+                    );
+                }
+
+                // Rule: toàn bộ ảnh gộp vào 1 message IMAGE và KHÔNG kèm text.
+                if (imageAttachments.length > 0) {
+                    await chatService.sendMessage(
+                        {
+                            content: "",
+                            type: "IMAGE",
+                            conversationId,
+                            attachments: imageAttachments,
+                            ...(replyToId ? { replyToId } : {}),
+                        },
+                        userId,
+                    );
+                }
+
+                // Rule: các file không phải ảnh tách lẻ từng message FILE, không kẹp text.
+                for (const attachment of fileAttachments) {
+                    await chatService.sendMessage(
+                        {
+                            content: "",
+                            type: "FILE",
+                            conversationId,
+                            attachments: [attachment],
+                        },
+                        userId,
+                    );
+                }
+
+                setMessageText("");
+                setUploadProgressPercent(100);
+                setUploadProgressLabel(
+                    `Đã tải ${files.length}/${files.length}`,
+                );
+                setUploadFileProgressMap((prev) => {
+                    const next = { ...prev };
+                    for (const file of files) {
+                        next[getFileClientKey(file)] = 100;
+                    }
+                    return next;
+                });
+                scrollOnNextRenderRef.current = shouldForceAutoScroll()
+                    ? "auto"
+                    : "smooth";
+                return true;
+            } catch (error) {
+                const errMsg = error instanceof Error ? error.message : "";
+                const failedName = errMsg.startsWith("UPLOAD_FAILED::")
+                    ? errMsg.replace("UPLOAD_FAILED::", "")
+                    : "";
+                if (failedName) {
+                    setUploadFailedFileNames([failedName]);
+                    setRecallToast(`Tải tệp thất bại: ${failedName}`);
+                }
+                setError("Không thể gửi tệp đính kèm");
+                return false;
+            } finally {
+                setUploading(false);
+                setUploadProgressPercent(null);
+                setUploadProgressLabel("");
+                setUploadFileProgressMap({});
+            }
+        },
+        [
+            conversationId,
+            messageText,
+            setMessageText,
+            shouldForceAutoScroll,
+            userId,
+        ],
     );
 
     /**
@@ -2196,6 +2557,10 @@ export function useChatWindowController(args: {
         isHistoricalMode,
         sending,
         uploading,
+        uploadProgressPercent,
+        uploadProgressLabel,
+        uploadFileProgressMap,
+        uploadFailedFileNames,
         error,
 
         displayName: displayInfo.displayName,
@@ -2222,6 +2587,7 @@ export function useChatWindowController(args: {
         handleDeleteMessageForMe,
         handleDeleteConversationForMe,
         handleFileUpload,
+        handleSendMixedMedia,
         appendRealtimeMessage: handleNewMessage,
         scrollToBottom,
         recallToast,

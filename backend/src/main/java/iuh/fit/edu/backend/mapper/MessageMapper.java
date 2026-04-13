@@ -47,6 +47,12 @@ public abstract class MessageMapper {
 
         return content;
     }
+    private String buildAttachmentUrl(String url) {
+        if (url != null && !url.isEmpty()) {
+            return cdnDomain + url;
+        }
+        return url;
+    }
 
     protected MessageResponse.ReplyInfo mapReplyInfo(Message.ReplyInfo replyInfo) {
         if (replyInfo == null) return null;
@@ -58,6 +64,18 @@ public abstract class MessageMapper {
                 .content(buildContentWithCdn(replyInfo.getContent(), replyInfo.getType()))
                 .build();
     }
+    protected List<MessageResponse.MediaAttachmentResponse> mapAttachments(List<Message.MediaAttachment> attachments) {
+        if (attachments == null) return null;
+        return attachments.stream()
+                .map(att -> MessageResponse.MediaAttachmentResponse.builder()
+                        .url(buildAttachmentUrl(att.getUrl()))
+                        .fileName(att.getFileName())
+                        .fileSize(att.getFileSize())
+                        .build()
+                )
+                .toList();
+    }
+
 
     // 3. Logic tùy biến chạy NGAY SAU KHI MapStruct map xong
     @AfterMapping
