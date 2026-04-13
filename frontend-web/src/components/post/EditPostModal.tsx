@@ -29,6 +29,7 @@ interface UserData {
 
 interface PostData {
   id: string;
+  authorId?: string;
   content: string;
   privacy?: string;
   media?: MediaItem[];
@@ -50,7 +51,7 @@ interface EditPostModalProps {
 const PRIVACY_OPTIONS = [
   { value: "PUBLIC", label: "Public", Icon: Globe },
   { value: "FRIENDS", label: "Friends", Icon: Users },
-  { value: "PRIVATE", label: "Only me", Icon: Lock },
+  { value: "ONLY_ME", label: "Only me", Icon: Lock },
   { value: "SPECIFIC", label: "Specific people", Icon: UserCheck },
   { value: "EXCEPT", label: "Friends except", Icon: Users },
 ];
@@ -107,6 +108,9 @@ export default function EditPostModal({
       .sort()
       .join(",") !== originalTaggedIds;
 
+  const hasAnyMedia = editExistingMedia.length > 0 || newImages.length > 0;
+  const canSave = isDirty && (editContent.trim().length > 0 || hasAnyMedia);
+
   const handleClose = () => {
     if (isDirty) {
       setShowDiscardConfirm(true);
@@ -115,17 +119,46 @@ export default function EditPostModal({
     }
   };
 
+  const resolveMediaUrl = (rawUrl: string) => {
+    if (!rawUrl) return "";
+
+    // Already absolute URL from backend/CDN
+    if (/^https?:\/\//i.test(rawUrl)) {
+      return rawUrl;
+    }
+
+    // Already a key/path in bucket
+    if (rawUrl.includes("/")) {
+      return buildS3Url(rawUrl) || rawUrl;
+    }
+
+    // Filename only -> compose with author's post folder
+    if (post.authorId) {
+      const key = `posts/${post.authorId}/images/${rawUrl}`;
+      return buildS3Url(key) || rawUrl;
+    }
+
+    return buildS3Url(rawUrl) || rawUrl;
+  };
+
   // Image viewer state — combines existing + new file previews
-  const allImages: { url: string; isNew: boolean; idx: number }[] = [
+  const allImages: {
+    url: string;
+    isNew: boolean;
+    idx: number;
+    isVideo: boolean;
+  }[] = [
     ...editExistingMedia.map((m, i) => ({
-      url: buildS3Url(m.url) || m.url,
+      url: resolveMediaUrl(m.url),
       isNew: false,
       idx: i,
+      isVideo: postApi.isVideoMedia(m.url, m.type),
     })),
     ...newImages.map((f, i) => ({
       url: URL.createObjectURL(f),
       isNew: true,
       idx: i,
+      isVideo: f.type.startsWith("video/"),
     })),
   ];
   const [viewIdx, setViewIdx] = useState(0);
@@ -141,7 +174,7 @@ export default function EditPostModal({
   };
 
   const handleSave = async () => {
-    if (!editContent.trim() || !currentUser?.id) return;
+    if (!canSave || !currentUser?.id) return;
     try {
       setIsUpdating(true);
       const postData = {
@@ -215,11 +248,19 @@ export default function EditPostModal({
           <div className="flex-1 relative flex items-center justify-center min-h-0 group">
             {allImages.length > 0 ? (
               <>
-                <img
-                  src={allImages[safeViewIdx].url}
-                  alt="Post"
-                  className="max-h-full max-w-full object-contain"
-                />
+                {allImages[safeViewIdx].isVideo ? (
+                  <video
+                    src={allImages[safeViewIdx].url}
+                    className="max-h-full max-w-full object-contain"
+                    controls
+                  />
+                ) : (
+                  <img
+                    src={allImages[safeViewIdx].url}
+                    alt="Post"
+                    className="max-h-full max-w-full object-contain"
+                  />
+                )}
                 {/* Remove current image */}
                 <button
                   onClick={() =>
@@ -284,10 +325,10 @@ export default function EditPostModal({
           {/* Add photos button */}
           <label className="flex items-center justify-center gap-2 py-3 border-t border-gray-700 cursor-pointer hover:bg-gray-800 transition-colors text-gray-300 text-sm shrink-0">
             <ImageIcon className="w-4 h-4" />
-            <span>Add photos</span>
+            <span>Add media</span>
             <input
               type="file"
-              accept="image/*"
+              accept="image/*,video/*"
               multiple
               className="hidden"
               onChange={(e) => {
@@ -314,7 +355,7 @@ export default function EditPostModal({
             <h2 className="text-sm font-semibold dark:text-white">Edit post</h2>
             <button
               onClick={handleSave}
-              disabled={isUpdating || !editContent.trim()}
+              disabled={isUpdating || !canSave}
               className="text-sm font-semibold text-blue-500 hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isUpdating ? "Saving..." : "Save"}

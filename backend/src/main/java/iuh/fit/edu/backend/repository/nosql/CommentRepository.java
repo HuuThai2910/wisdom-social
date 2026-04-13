@@ -29,13 +29,23 @@ public interface CommentRepository extends MongoRepository<Comment, String> {
     
     // Count root comments
     long countByTargetTypeAndTargetIdAndParentIdIsNull(TargetType targetType, String targetId);
+
+    // Count all comments (all levels) for target
+    long countByTargetTypeAndTargetId(TargetType targetType, String targetId);
     
     // Get replies (cấp 2+) của parent comment - sắp xếp cũ → mới
     List<Comment> findByParentIdOrderByCreatedAtAsc(String parentId, Pageable pageable);
+
+    // Get latest replies (cấp 2+) của parent comment - sắp xếp mới → cũ
+    List<Comment> findByParentIdOrderByCreatedAtDesc(String parentId, Pageable pageable);
     
     // Cursor-based pagination: lấy reply sau một thời điểm
     @Query("{'parentId': ?0, 'createdAt': {$gt: ?1}, 'status': 'ACTIVE'}")
     List<Comment> findRepliesAfterCursor(String parentId, Instant cursor, Pageable pageable);
+
+    // Cursor-based pagination: lấy reply cũ hơn một thời điểm (newest-first pagination)
+    @Query("{'parentId': ?0, 'createdAt': {$lt: ?1}, 'status': 'ACTIVE'}")
+    List<Comment> findRepliesBeforeCursor(String parentId, Instant cursor, Pageable pageable);
     
     // Count replies
     long countByParentId(String parentId);

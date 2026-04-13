@@ -12,7 +12,14 @@ interface PostData {
   authorId: string;
   content: string;
   privacy?: string;
-  media?: Array<{ url: string; type: string; order: number }>;
+  media?: Array<{
+    url: string;
+    type: string;
+    order: number;
+    duration?: number;
+    width?: number;
+    height?: number;
+  }>;
   stats?: { reactCount: number; commentCount: number; shareCount: number };
   createdAt: string;
 }
@@ -98,7 +105,7 @@ export default function Home() {
 
         // Transform posts to match PostCard format
         const transformedPosts = await Promise.all(
-          allPosts.map(async (post, idx) => {
+          allPosts.map(async (post) => {
             try {
               // Fetch author data
               const userResponse = await axiosClient.get(
@@ -109,6 +116,14 @@ export default function Home() {
               const transformedImages = transformMediaToS3Urls(
                 post.media,
                 post.authorId
+              );
+              const transformedMedia = (post.media || []).map(
+                (m, mediaIndex) => ({
+                  url: transformedImages[mediaIndex] || "",
+                  type: (m.type || "image").toLowerCase(),
+                  duration:
+                    typeof m.duration === "number" ? m.duration : undefined,
+                })
               );
 
               return {
@@ -121,6 +136,7 @@ export default function Home() {
                     userData.avatarUrl || "https://i.pravatar.cc/150?img=5",
                 },
                 images: transformedImages,
+                media: transformedMedia,
                 caption: post.content,
                 privacy: post.privacy as any,
                 likes: post.stats?.reactCount || 0,

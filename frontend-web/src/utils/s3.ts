@@ -90,7 +90,7 @@ export const uploadFileToS3 = async (presignedUrl: string, file: File): Promise<
  * @param file File to upload
  * @returns uuid.extension format expected by backend
  */
-export const uploadImageAndGetFormat = async (file: File): Promise<string> => {
+export const uploadMediaAndGetFormat = async (file: File): Promise<string> => {
     try {
         const extension = file.name.split(".").pop() || "jpg";
         console.log(`🔄 [S3] Processing image upload for: ${file.name}`);
@@ -103,13 +103,16 @@ export const uploadImageAndGetFormat = async (file: File): Promise<string> => {
 
         // Step 3: Return format for backend (uuid.extension)
         const uuidWithExt = `${uuid}.${ext}`;
-        console.log(`✅ [S3] Image upload complete, format for backend: ${uuidWithExt}`);
+        console.log(`✅ [S3] Media upload complete, format for backend: ${uuidWithExt}`);
         return uuidWithExt;
     } catch (error: any) {
-        console.error(`❌ [S3] Failed to upload image:`, error);
-        throw new Error(`Failed to upload image ${file.name}: ${error.message}`);
+        console.error(`❌ [S3] Failed to upload media:`, error);
+        throw new Error(`Failed to upload media ${file.name}: ${error.message}`);
     }
 };
+
+// Backward-compatible alias.
+export const uploadImageAndGetFormat = uploadMediaAndGetFormat;
 
 /**
  * Construct full S3 URL from S3 key

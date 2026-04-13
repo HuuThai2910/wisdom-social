@@ -185,23 +185,6 @@ public class PostController {
             Long userId = currentUser.getId();
             log.info("Deleting post {} by user {}", id, userId);
             
-            // Get post to retrieve media URLs for S3 deletion
-            Post post = postService.getPostById(id);
-            if (post != null && post.getMedia() != null && !post.getMedia().isEmpty()) {
-                // Delete associated media from S3
-                for (var media : post.getMedia()) {
-                    if (media != null && media.getUrl() != null) {
-                        try {
-                            s3Service.deleteByKey(UploadModule.POST, media.getUrl());
-                            log.info("Deleted S3 media: {}", media.getUrl());
-                        } catch (Exception e) {
-                            log.warn("Failed to delete S3 media {}: {}", media.getUrl(), e.getMessage());
-                            // Don't fail post deletion if S3 deletion fails
-                        }
-                    }
-                }
-            }
-            
             postService.deletePost(id, userId);
             return ResponseEntity.ok(ApiResponse.success(200, "Xóa post thành công", null));
         } catch (Exception e) {

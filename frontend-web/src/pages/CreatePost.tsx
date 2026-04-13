@@ -105,20 +105,15 @@ export default function CreatePost() {
     let processedCount = 0;
 
     filesToProcess.forEach((file) => {
-      if (file.type.startsWith("image/")) {
+      if (file.type.startsWith("image/") || file.type.startsWith("video/")) {
         newFiles.push(file);
+        newPreviewUrls.push(URL.createObjectURL(file));
+      }
 
-        // Create preview URL
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          newPreviewUrls.push(reader.result as string);
-          processedCount++;
-          if (processedCount === filesToProcess.length) {
-            setSelectedImages([...selectedImages, ...newFiles]);
-            setImagePreviewUrls([...imagePreviewUrls, ...newPreviewUrls]);
-          }
-        };
-        reader.readAsDataURL(file);
+      processedCount++;
+      if (processedCount === filesToProcess.length) {
+        setSelectedImages([...selectedImages, ...newFiles]);
+        setImagePreviewUrls([...imagePreviewUrls, ...newPreviewUrls]);
       }
     });
   };
@@ -350,15 +345,15 @@ export default function CreatePost() {
                   className="text-gray-400 dark:text-gray-600 mb-4 mx-auto"
                 />
                 <p className="text-lg font-medium mb-2 dark:text-white">
-                  Select photos from your computer
+                  Select photos or videos from your computer
                 </p>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                  Or drag and drop them here (up to 10 photos)
+                  Or drag and drop them here (up to 10 files)
                 </p>
                 <input
                   id="image-upload"
                   type="file"
-                  accept="image/*"
+                  accept="image/*,video/*"
                   multiple
                   className="hidden"
                   onChange={handleImageSelect}
@@ -379,11 +374,19 @@ export default function CreatePost() {
                 >
                   {imagePreviewUrls.map((imgUrl, index) => (
                     <div key={index} className="relative">
-                      <img
-                        src={imgUrl}
-                        alt={`Selected ${index + 1}`}
-                        className="w-full h-48 object-cover rounded-lg"
-                      />
+                      {selectedImages[index]?.type?.startsWith("video/") ? (
+                        <video
+                          src={imgUrl}
+                          className="w-full h-48 object-cover rounded-lg"
+                          controls
+                        />
+                      ) : (
+                        <img
+                          src={imgUrl}
+                          alt={`Selected ${index + 1}`}
+                          className="w-full h-48 object-cover rounded-lg"
+                        />
+                      )}
                       <button
                         onClick={() => handleRemoveImage(index)}
                         className="absolute top-2 right-2 p-1.5 bg-black/50 hover:bg-black/70 rounded-full text-white"
@@ -411,7 +414,7 @@ export default function CreatePost() {
                     <input
                       id="image-upload-more"
                       type="file"
-                      accept="image/*"
+                      accept="image/*,video/*"
                       multiple
                       className="hidden"
                       onChange={handleImageSelect}
@@ -427,7 +430,7 @@ export default function CreatePost() {
                 value={caption}
                 onChange={(e) => setCaption(e.target.value)}
                 placeholder="Write a caption..."
-                className="w-full px-4 py-3 border border-gray-200 dark:border-[#363636] rounded-lg outline-none focus:border-gray-400 dark:focus:border-gray-500 resize-none dark:bg-[#000] dark:text-white dark:placeholder-gray-600"
+                className="w-full px-4 py-3 border border-gray-200 dark:border-[#363636] rounded-lg outline-none focus:border-gray-400 dark:focus:border-gray-500 resize-none dark:bg-black dark:text-white dark:placeholder-gray-600"
                 rows={4}
                 maxLength={2200}
               />
@@ -492,7 +495,7 @@ export default function CreatePost() {
                         value={tagInput}
                         onChange={(e) => setTagInput(e.target.value)}
                         placeholder="Search friends..."
-                        className="w-full px-3 py-2 text-sm border border-gray-200 dark:border-[#363636] rounded-lg outline-none focus:border-gray-400 dark:focus:border-gray-500 dark:bg-[#000] dark:text-white"
+                        className="w-full px-3 py-2 text-sm border border-gray-200 dark:border-[#363636] rounded-lg outline-none focus:border-gray-400 dark:focus:border-gray-500 dark:bg-black dark:text-white"
                       />
                       {/* Friends List Dropdown - Show 10 friends by default */}
                       {filteredFriends.length > 0 && (
@@ -567,7 +570,7 @@ export default function CreatePost() {
                         value={location}
                         onChange={(e) => setLocation(e.target.value)}
                         placeholder="Where was this?"
-                        className="flex-1 px-3 py-2 text-sm border border-gray-200 dark:border-[#363636] rounded-lg outline-none focus:border-gray-400 dark:focus:border-gray-500 dark:bg-[#000] dark:text-white"
+                        className="flex-1 px-3 py-2 text-sm border border-gray-200 dark:border-[#363636] rounded-lg outline-none focus:border-gray-400 dark:focus:border-gray-500 dark:bg-black dark:text-white"
                       />
                       {location && (
                         <button
@@ -595,7 +598,7 @@ export default function CreatePost() {
                           >
                             <MapPin
                               size={16}
-                              className="text-gray-500 dark:text-gray-400 flex-shrink-0"
+                              className="text-gray-500 dark:text-gray-400 shrink-0"
                             />
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium dark:text-white truncate">

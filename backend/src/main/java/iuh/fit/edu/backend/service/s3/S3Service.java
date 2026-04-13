@@ -11,6 +11,7 @@ public interface S3Service {
     String moveUploadUrl(String type, String id, String url);
     String getContentType(String extension);
     String resolveMediaType(String extension);
+    String relocatePostMediaKey(String sourceKey, String postId, String mediaType);
 
     PresignedUrlResponse generatePresignedUrl(UploadModule module, String targetId, String type, String originalFilename, String contentType);
 

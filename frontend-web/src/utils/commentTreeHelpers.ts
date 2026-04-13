@@ -1,203 +1,81 @@
 /**
- * Comment Tree Helper Functions
- * Handles tree mutations without full reloads
+ * Comment Helpers - Normalized Store
+ * 
+ * DEPRECATED: Old tree-based helpers (findCommentInTree, findCommentPath, 
+ * appendReplyToComment, insertReplyToComment, deleteCommentFromTree, 
+ * updateCommentPaginationInfo) have been removed as part of the migration
+ * to the normalized flat-store architecture.
+ * 
+ * Only normalized store helpers remain below.
  */
 import type { Comment } from '../services/commentService';
 
 /**
- * Find a comment by ID in tree (recursive)
+ * ========== NORMALIZED STORE HELPERS ==========
+ * For Facebook-style flat store architecture (useCommentsNormalized)
  */
-export const findCommentInTree = (
-    commentId: string,
-    tree: Comment[]
-): Comment | null => {
-    for (const comment of tree) {
-        if (comment.id === commentId) return comment;
-        if (comment.replies?.length) {
-            const found = findCommentInTree(commentId, comment.replies);
-            if (found) return found;
-        }
-    }
-    return null;
-};
 
 /**
- * Find path to a comment in tree (returns array of IDs from root to target)
+ * Flatten a tree into normalized store
+ * Supports both root comments and nested replies
+ * 
+ * @param tree Comment array to flatten
+ * @param initialParentId Parent ID to use for root of this tree (null for root comments, id for nested)
+ * Returns: { commentsById, childrenByParentId, rootIds }
  */
-export const findCommentPath = (
-    commentId: string,
-    tree: Comment[],
-    path: string[] = []
-): string[] | null => {
-    for (const comment of tree) {
-        const newPath = [...path, comment.id];
-        if (comment.id === commentId) return newPath;
-        if (comment.replies?.length) {
-            const found = findCommentPath(commentId, comment.replies, newPath);
-            if (found) return found;
-        }
-    }
-    return null;
-};
+export const flattenCommentTree = (tree: Comment[], initialParentId: string | null = null) => {
+    const commentsById: Record<string, Comment> = {};
+    const childrenByParentId: Record<string, string[]> = {};
+    const rootIds: string[] = [];
 
-/**
- * Append reply to parent comment (with deduplication)
- * Returns new tree
- */
-export const appendReplyToComment = (
-    tree: Comment[],
-    parentId: string,
-    newReplies: Comment[]
-): Comment[] => {
-    // Create a set of existing reply IDs for fast lookup
-    const existingIds = new Set<string>();
+    const traverse = (comments: Comment[], parentId: string | null = initialParentId) => {
+        comments.forEach((comment) => {
+            // Store in flat map (without replies to avoid nested data)
+            commentsById[comment.id] = {
+                ...comment,
+                replies: [], // clear nested data in normalized store
+            };
 
-    const findAndUpdateParent = (comments: Comment[]): Comment[] =>
-        comments.map((comment) => {
-            if (comment.id === parentId) {
-                // Get existing reply IDs
-                const existing = comment.replies || [];
-                existing.forEach((r) => existingIds.add(r.id));
-
-                // Filter out duplicates from newReplies
-                const dedupedNewReplies = newReplies.filter(
-                    (r) => !existingIds.has(r.id)
-                );
-
-                return {
-                    ...comment,
-                    replies: [...existing, ...dedupedNewReplies],
-                };
+            // Track children relationship
+            if (parentId === null) {
+                rootIds.push(comment.id);
+                childrenByParentId[null as any] =
+                    childrenByParentId[null as any] || [];
+                (childrenByParentId[null as any] as string[]).push(comment.id);
+            } else {
+                childrenByParentId[parentId] =
+                    childrenByParentId[parentId] || [];
+                childrenByParentId[parentId].push(comment.id);
             }
 
-            // Recurse into nested replies
+            // Recurse into replies (in case backend returns nested structure)
             if (comment.replies?.length) {
-                return {
-                    ...comment,
-                    replies: findAndUpdateParent(comment.replies),
-                };
+                traverse(comment.replies, comment.id);
             }
-
-            return comment;
         });
+    };
 
-    return findAndUpdateParent(tree);
+    traverse(tree, initialParentId);
+
+    return { commentsById, childrenByParentId, rootIds };
 };
 
 /**
- * Insert single reply at end of parent's replies
- * For optimistic updates after creating new reply
+ * Get all descendants of a comment (for deletion cascade)
  */
-export const insertReplyToComment = (
-    tree: Comment[],
-    parentId: string,
-    newReply: Comment
-): Comment[] => {
-    const findAndUpdateParent = (comments: Comment[]): Comment[] =>
-        comments.map((comment) => {
-            if (comment.id === parentId) {
-                // Check if reply already exists (avoid duplicate)
-                const exists = (comment.replies || []).some((r) => r.id === newReply.id);
-                if (exists) return comment;
-
-                return {
-                    ...comment,
-                    replies: [...(comment.replies || []), newReply],
-                    replyCount: (comment.replyCount || 0) + 1,
-                };
-            }
-
-            if (comment.replies?.length) {
-                return {
-                    ...comment,
-                    replies: findAndUpdateParent(comment.replies),
-                };
-            }
-
-            return comment;
-        });
-
-    return findAndUpdateParent(tree);
-};
-
-/**
- * Delete comment from tree
- * Preserves parent and siblings
- */
-export const deleteCommentFromTree = (
-    tree: Comment[],
+export const getAllDescendants = (
     commentId: string,
-    parentId: string | null
-): Comment[] => {
-    if (parentId === null) {
-        // Delete root comment
-        return tree.filter((c) => c.id !== commentId);
+    childrenByParentId: Record<string, string[]>
+): string[] => {
+    const descendants: string[] = [];
+    const queue = [commentId];
+
+    while (queue.length > 0) {
+        const current = queue.shift()!;
+        const children = childrenByParentId[current] || [];
+        descendants.push(...children);
+        queue.push(...children);
     }
 
-    // Delete nested reply
-    const findAndUpdateParent = (comments: Comment[]): Comment[] =>
-        comments.map((comment) => {
-            if (comment.id === parentId) {
-                return {
-                    ...comment,
-                    replies: (comment.replies || []).filter((r) => r.id !== commentId),
-                    replyCount: Math.max(0, (comment.replyCount || 0) - 1),
-                };
-            }
-
-            if (comment.replies?.length) {
-                return {
-                    ...comment,
-                    replies: findAndUpdateParent(comment.replies),
-                };
-            }
-
-            return comment;
-        });
-
-    return findAndUpdateParent(tree);
-};
-
-/**
- * Update pagination info for a comment (hasMoreReplies, nextCursor)
- */
-export const updateCommentPaginationInfo = (
-    tree: Comment[],
-    commentId: string,
-    hasMoreReplies: boolean,
-    nextCursor: string | null
-): Comment[] => {
-    const updateRecursive = (comments: Comment[]): Comment[] =>
-        comments.map((comment) => {
-            if (comment.id === commentId) {
-                return {
-                    ...comment,
-                    hasMoreReplies,
-                    nextCursor,
-                };
-            }
-
-            if (comment.replies?.length) {
-                return {
-                    ...comment,
-                    replies: updateRecursive(comment.replies),
-                };
-            }
-
-            return comment;
-        });
-
-    return updateRecursive(tree);
-};
-
-/**
- * Deduplicate comments in array by ID
- */
-export const deduplicateComments = (comments: Comment[]): Comment[] => {
-    const seen = new Set<string>();
-    return comments.filter((c) => {
-        if (seen.has(c.id)) return false;
-        seen.add(c.id);
-        return true;
-    });
+    return descendants;
 };

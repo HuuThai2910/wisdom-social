@@ -5,42 +5,92 @@ import { commentService } from "../../services/commentService";
 import type { Comment } from "../../services/commentService";
 import type { UserData } from "../../types/postType";
 
-interface CommentItemProps {
-  comment: Comment;
+interface CommentItemNormalizedProps {
+  commentId: string;
+  commentsById: Record<string, Comment>;
+  expandedMap: Record<string, boolean>;
+  onToggleExpanded: (commentId: string) => void;
+  onLoadMore: (commentId: string) => void;
   onDelete: (commentId: string, parentId?: string) => void;
-  onLoadMoreReplies: (commentId: string) => void;
-  onReplyCreated?: (parentId: string, newReply: Comment) => void;
+  onCreateReply: (parentId: string, newComment: Comment) => void;
+  getDirectChildren: (commentId: string) => Comment[];
+  hasMoreReplies: Record<string, boolean>;
+  loadingMap: Record<string, boolean>;
   postId: string;
   level?: number;
 }
 
-export default function CommentItem({
-  comment,
+export default function CommentItemNormalized({
+  commentId,
+  commentsById,
+  expandedMap,
+  onToggleExpanded,
+  onLoadMore,
   onDelete,
-  onLoadMoreReplies,
-  onReplyCreated,
+  onCreateReply,
+  getDirectChildren,
+  hasMoreReplies,
+  loadingMap,
   postId,
   level = 0,
-}: CommentItemProps) {
+}: CommentItemNormalizedProps) {
+  const comment = commentsById[commentId];
+  if (!comment) return null;
+
+  const expanded = expandedMap[commentId] || false;
+  const loading = loadingMap[commentId] || false;
+
   const [commentUser, setCommentUser] = useState<UserData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [userLoading, setUserLoading] = useState(true);
   const { currentUser } = useAuth();
 
-  // Reply state
   const [showReplyInput, setShowReplyInput] = useState(false);
   const [replyContent, setReplyContent] = useState("");
   const [submittingReply, setSubmittingReply] = useState(false);
-  const [showReplies, setShowReplies] = useState(false);
 
-  // Reaction state
   const [currentReaction, setCurrentReaction] = useState<string | null>(null);
   const [showReactionPicker, setShowReactionPicker] = useState(false);
   const [reactionTimeout, setReactionTimeout] = useState<ReturnType<
     typeof setTimeout
   > | null>(null);
 
+  // Fetch user
+  useEffect(() => {
+    const fetchUser = async () => {
+      try {
+        const user = await postApi.fetchUserById(comment.userId);
+        setCommentUser(user);
+      } catch (error) {
+        console.error("Error fetching comment user:", error);
+      } finally {
+        setUserLoading(false);
+      }
+    };
+    fetchUser();
+  }, [comment.userId]);
+
+  // Fetch user's reaction
+  useEffect(() => {
+    const fetchUserReaction = async () => {
+      if (!currentUser?.id) return;
+
+      try {
+        const reaction = await postApi.fetchUserCommentReaction(
+          currentUser.id.toString(),
+          comment.id
+        );
+        if (reaction) {
+          setCurrentReaction(reaction.type);
+        }
+      } catch (error) {
+        console.debug("No reaction found for comment:", comment.id);
+      }
+    };
+
+    fetchUserReaction();
+  }, [currentUser, comment.id]);
+
   const renderCommentContent = (content: string) => {
-    // Split by mentions (@username) - match @ followed by word characters
     const parts = content.split(/(@[a-zA-Z0-9_]+)/g);
     return parts.map((part, index) => {
       if (part.match(/^@[a-zA-Z0-9_]+$/)) {
@@ -54,72 +104,6 @@ export default function CommentItem({
     });
   };
 
-  // Fetch comment user
-  useEffect(() => {
-    const fetchUser = async () => {
-      try {
-        const user = await postApi.fetchUserById(comment.userId);
-        setCommentUser(user);
-      } catch (error) {
-        console.error("Error fetching comment user:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchUser();
-  }, [comment.userId]);
-
-  // Fetch user's reaction on comment
-  useEffect(() => {
-    const fetchUserReaction = async () => {
-      if (!currentUser?.id) return;
-
-      try {
-        const reaction = await postApi.fetchUserCommentReaction(
-          currentUser.id.toString(),
-          comment.id
-        );
-
-        if (reaction) {
-          setCurrentReaction(reaction.type);
-        }
-      } catch (error) {
-        console.debug("No reaction found for comment:", comment.id);
-      }
-    };
-
-    fetchUserReaction();
-  }, [currentUser, comment.id]);
-
-  // AUTO-LOAD initial replies when showReplies becomes true
-  useEffect(() => {
-    if (
-      showReplies &&
-      (!comment.replies || comment.replies.length === 0) &&
-      comment.replyCount > 0
-    ) {
-      onLoadMoreReplies(comment.id);
-    }
-  }, [
-    showReplies,
-    comment.id,
-    comment.replies?.length,
-    comment.replyCount,
-    onLoadMoreReplies,
-  ]);
-
-  // Toggle replies visibility
-  const toggleReplies = () => {
-    const newShowReplies = !showReplies;
-    setShowReplies(newShowReplies);
-
-    // If showing replies and no replies loaded yet, load them
-    if (newShowReplies && (!comment.replies || comment.replies.length === 0)) {
-      onLoadMoreReplies(comment.id);
-    }
-  };
-
-  // Handle reply submission
   const handleSubmitReply = async () => {
     if (!replyContent.trim() || !currentUser?.id) return;
 
@@ -135,57 +119,22 @@ export default function CommentItem({
 
       setReplyContent("");
       setShowReplyInput(false);
-      setShowReplies(true);
-
-      // Use optimistic update via callback if provided, otherwise load replies
-      if (onReplyCreated) {
-        onReplyCreated(comment.id, newComment);
-      } else {
-        onLoadMoreReplies(comment.id);
-      }
+      onCreateReply(comment.id, newComment);
     } catch (error: any) {
       console.error("Error submitting reply:", error);
-      const errorMsg =
-        error?.response?.data?.message ||
-        error?.message ||
-        "Failed to submit reply";
-      console.error("Error details:", {
-        status: error?.response?.status,
-        data: error?.response?.data,
-        message: errorMsg,
-      });
-      alert(errorMsg);
+      alert(error?.response?.data?.message || "Failed to submit reply");
     } finally {
       setSubmittingReply(false);
     }
   };
 
-  // Handle delete reply
-  const handleDeleteReply = (commentId: string) => {
-    onDelete(commentId, comment.id);
+  const handleDeleteComment = () => {
+    if (!currentUser?.id) return;
+
+    // Parent handler (PostModal) is the single source of truth for delete API + state update.
+    onDelete(comment.id, comment.parentId ?? undefined);
   };
 
-  // Handle delete current comment (confirmation & API call handled by parent)
-  const handleDeleteComment = async () => {
-    if (!currentUser?.id) {
-      alert("Please login to delete comment");
-      return;
-    }
-
-    // Optimistic: delete immediately from UI
-    // undefined means this is a root comment (no parentId)
-    onDelete(comment.id);
-
-    // Then call API to delete from backend
-    try {
-      await commentService.deleteComment(comment.id, currentUser.id);
-    } catch (error: any) {
-      console.error("Error deleting comment:", error);
-      alert("Không thể xóa bình luận");
-    }
-  };
-
-  // Handle reaction
   const handleReaction = async (reactionType: string) => {
     if (!currentUser?.id) {
       alert("Please login to react");
@@ -200,12 +149,9 @@ export default function CommentItem({
       );
 
       if (!reaction) {
-        // Reaction removed
         setCurrentReaction(null);
       } else {
-        // Reaction added or changed
         setCurrentReaction(reaction.type);
-        // Count will be synced from server
       }
       setShowReactionPicker(false);
     } catch (error) {
@@ -215,11 +161,8 @@ export default function CommentItem({
 
   const handleLikeClick = () => {
     if (currentReaction) {
-      // If already has reaction, clicking again will remove it
-      // Just call handleReaction with current reaction, backend will toggle it off
       handleReaction(currentReaction);
     } else {
-      // Add like
       handleReaction("LIKE");
     }
   };
@@ -251,11 +194,39 @@ export default function CommentItem({
     return emojis[type] || "👍";
   };
 
-  if (loading || !commentUser) {
+  if (userLoading || !commentUser) {
     return (
       <div className="h-12 bg-gray-100 dark:bg-gray-800 animate-pulse rounded" />
     );
   }
+
+  // Get direct children for preview/expanded
+  const directChildren = getDirectChildren(commentId);
+  // FIX: When collapsed, show NO children (not preview). When expanded, show all.
+  const visibleChildren = expanded ? directChildren : [];
+
+  // DEBUG - More detailed logging
+  if (comment.replyCount > 0) {
+    console.log(
+      `🔍 Comment ${commentId} [L${level}]: replyCount=${comment.replyCount}, hasMoreReplies=${comment.hasMoreReplies}`,
+      {
+        expanded,
+        directChildrenCount: directChildren.length,
+        visibleChildrenCount: visibleChildren.length,
+        expandedMapValue: expandedMap[commentId],
+        loadingMapValue: loadingMap[commentId],
+        hasMoreRepliesValue: hasMoreReplies?.[commentId],
+        directChildIds: directChildren.map((c) => c.id),
+      }
+    );
+  }
+
+  // FIX: Hidden count should be all children minus visible ones
+  const hiddenChildrenCount = Math.max(
+    0,
+    comment.replyCount - (expanded ? directChildren.length : 0)
+  );
+  const showToggleButton = comment.replyCount > 0;
 
   const timeAgo = new Date(comment.createdAt).toLocaleDateString("vi-VN");
 
@@ -297,7 +268,6 @@ export default function CommentItem({
                 {currentReaction ? getReactionEmoji(currentReaction) : "Like"}
               </button>
 
-              {/* Reaction Picker */}
               {showReactionPicker && (
                 <div
                   onMouseEnter={handleReactionMouseEnter}
@@ -320,7 +290,7 @@ export default function CommentItem({
               )}
             </div>
 
-            {/* Reply Button - NO DEPTH LIMIT */}
+            {/* Reply Button */}
             <button
               onClick={() => setShowReplyInput(!showReplyInput)}
               className="text-xs text-gray-500 dark:text-gray-400 font-semibold hover:underline"
@@ -374,39 +344,64 @@ export default function CommentItem({
             </div>
           )}
 
-          {/* Show Replies Button */}
-          {comment.replyCount > 0 && (
+          {/* Toggle Replies Button */}
+          {showToggleButton && (
             <button
-              onClick={toggleReplies}
+              onClick={() => {
+                const nextExpanded = !expanded;
+                onToggleExpanded(commentId);
+
+                // Auto-load on first expand so level 2+ replies appear immediately.
+                if (
+                  nextExpanded &&
+                  !loading &&
+                  directChildren.length === 0 &&
+                  comment.replyCount > 0
+                ) {
+                  onLoadMore(commentId);
+                }
+              }}
               className="mt-2 text-xs text-gray-600 dark:text-gray-400 font-semibold hover:underline"
             >
-              {showReplies ? "Hide" : "View"} {comment.replyCount}{" "}
-              {comment.replyCount === 1 ? "reply" : "replies"}
+              {expanded
+                ? "Hide replies"
+                : `View more replies${
+                    hiddenChildrenCount > 0 ? ` (${hiddenChildrenCount})` : ""
+                  }`}
             </button>
           )}
         </div>
       </div>
 
-      {/* Nested Replies */}
-      {showReplies && comment.replies && comment.replies.length > 0 && (
+      {/* Render Direct Children (NO RECURSION) */}
+      {expanded && (
         <div className="mt-3 space-y-3">
-          {comment.replies.map((reply) => (
-            <CommentItem
-              key={reply.id}
-              comment={reply}
-              onDelete={handleDeleteReply}
-              onLoadMoreReplies={onLoadMoreReplies}
-              onReplyCreated={onReplyCreated}
+          {visibleChildren.map((child) => (
+            <CommentItemNormalized
+              key={child.id}
+              commentId={child.id}
+              commentsById={commentsById}
+              expandedMap={expandedMap}
+              onToggleExpanded={onToggleExpanded}
+              onLoadMore={onLoadMore}
+              onDelete={onDelete}
+              onCreateReply={onCreateReply}
+              getDirectChildren={getDirectChildren}
+              hasMoreReplies={hasMoreReplies}
+              loadingMap={loadingMap}
               postId={postId}
               level={level + 1}
             />
           ))}
-          {comment.hasMoreReplies && (
+
+          {/* Show load-more even when current children is empty but replyCount > 0 */}
+          {comment.replyCount > directChildren.length && (
             <button
-              onClick={() => onLoadMoreReplies(comment.id)}
-              className="ml-10 text-xs text-blue-500 hover:text-blue-600 font-semibold"
+              onClick={() => onLoadMore(commentId)}
+              disabled={loading}
+              className="ml-10 text-xs text-blue-500 hover:text-blue-600 font-semibold disabled:opacity-50"
             >
-              Load more replies
+              {loading ? "Loading..." : "Load more replies"}
             </button>
           )}
         </div>

@@ -304,4 +304,64 @@ public class S3ServiceImpl implements S3Service {
             log.error("Lỗi xóa file S3 từ module {}: {}", module, e.getMessage()); // Nuốt lỗi để không block luồng thu hồi
         }
     }
+
+    @Override
+    public String relocatePostMediaKey(String sourceKey, String postId, String mediaType) {
+        if (sourceKey == null || sourceKey.isBlank() || postId == null || postId.isBlank()) {
+            return sourceKey;
+        }
+
+        String normalized = sourceKey.trim();
+        int queryIndex = normalized.indexOf('?');
+        if (queryIndex >= 0) {
+            normalized = normalized.substring(0, queryIndex);
+        }
+        int fragmentIndex = normalized.indexOf('#');
+        if (fragmentIndex >= 0) {
+            normalized = normalized.substring(0, fragmentIndex);
+        }
+        while (normalized.startsWith("/")) {
+            normalized = normalized.substring(1);
+        }
+
+        if (!normalized.startsWith("posts/")) {
+            return normalized;
+        }
+
+        String[] parts = normalized.split("/");
+        if (parts.length < 4) {
+            return normalized;
+        }
+
+        String fileName = parts[parts.length - 1];
+        String subFolder = parts[2];
+        if (mediaType != null && !mediaType.isBlank()) {
+            String t = mediaType.toLowerCase();
+            if (t.contains("video")) subFolder = "videos";
+            else if (t.contains("file")) subFolder = "files";
+            else if (t.contains("audio")) subFolder = "audios";
+            else if (t.contains("image")) subFolder = "images";
+        }
+
+        String destinationKey = "posts/" + postId + "/" + subFolder + "/" + fileName;
+        if (destinationKey.equals(normalized)) {
+            return normalized;
+        }
+
+        CopyObjectRequest copyRequest = CopyObjectRequest.builder()
+                .sourceBucket(bucketName)
+                .sourceKey(normalized)
+                .destinationBucket(bucketName)
+                .destinationKey(destinationKey)
+                .build();
+
+        s3Client.copyObject(copyRequest);
+        s3Client.deleteObject(DeleteObjectRequest.builder()
+                .bucket(bucketName)
+                .key(normalized)
+                .build());
+
+        log.info("Relocated media key from {} to {}", normalized, destinationKey);
+        return destinationKey;
+    }
 }

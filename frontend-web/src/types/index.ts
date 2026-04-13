@@ -33,6 +33,7 @@ export interface Post {
     id: string;
     user: User;
     images: string[];
+    media?: Array<{ url: string; type: string; duration?: number; width?: number; height?: number }>;
     caption: string;
     likes: number;
     comments: Comment[];

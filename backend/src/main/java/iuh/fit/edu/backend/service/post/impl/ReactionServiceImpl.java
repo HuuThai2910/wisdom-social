@@ -7,7 +7,6 @@ package iuh.fit.edu.backend.service.post.impl;
 import iuh.fit.edu.backend.constant.ReactionType;
 import iuh.fit.edu.backend.constant.TargetType;
 import iuh.fit.edu.backend.domain.entity.nosql.Reaction;
-import iuh.fit.edu.backend.domain.entity.nosql.Post;
 import iuh.fit.edu.backend.repository.nosql.ReactionRepository;
 import iuh.fit.edu.backend.service.post.ReactionService;
 import iuh.fit.edu.backend.repository.nosql.PostRepository;

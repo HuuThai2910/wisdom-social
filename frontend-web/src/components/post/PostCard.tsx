@@ -17,6 +17,7 @@ import {
 import type { Post, PrivacyType } from "../../types";
 import * as postApi from "../../services/postService";
 import { useCurrentUser } from "./../../hooks/useCurrentUser";
+import useVideoAutoplay from "../../hooks/useVideoAutoplay";
 
 interface PostCardProps {
   post: Post;
@@ -81,8 +82,27 @@ export default function PostCard({ post }: PostCardProps) {
   const [showMenu, setShowMenu] = useState(false);
   const [showPrivacyMenu, setShowPrivacyMenu] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const commentsCount = Array.isArray((post as any).comments)
+    ? (post as any).comments.length
+    : Number((post as any).comments || 0);
 
   const totalImages = post.images?.length || 0;
+  const currentMedia = post.media?.[currentImageIndex];
+  const currentMediaUrl = post.images[currentImageIndex] || "";
+  const isCurrentMediaVideo = postApi.isVideoMedia(
+    currentMediaUrl,
+    currentMedia?.type
+  );
+  const currentMediaDuration =
+    typeof currentMedia?.duration === "number" ? currentMedia.duration : null;
+  const videoInstanceId = `${post.id}-${currentImageIndex}`;
+
+  const { containerRef, videoRef } = useVideoAutoplay({
+    videoId: videoInstanceId,
+    enabled: isCurrentMediaVideo,
+    focusRatio: 0.7,
+    maxPlaySeconds: 15,
+  });
 
   // Debug logging
   useEffect(() => {
@@ -267,7 +287,12 @@ export default function PostCard({ post }: PostCardProps) {
 
   const handleEdit = () => {
     setShowMenu(false);
-    navigate(`/edit-post/${post.id}`);
+    navigate(`/post/${post.id}`, {
+      state: {
+        from: location.pathname,
+        openEdit: true,
+      },
+    });
   };
 
   const handleDelete = async () => {
@@ -437,17 +462,42 @@ export default function PostCard({ post }: PostCardProps) {
       {/* Image Carousel */}
       {totalImages > 0 && (
         <div className="relative w-full group">
-          <Link
-            to={`/post/${post.id}`}
-            state={{ from: location.pathname }}
-            className="block w-full h-125 bg-black"
-          >
-            <img
-              src={post.images[currentImageIndex] || ""}
-              alt={post.caption}
-              className="w-full h-full object-contain cursor-pointer"
-            />
-          </Link>
+          {isCurrentMediaVideo ? (
+            <Link
+              to={`/post/${post.id}`}
+              state={{ from: location.pathname }}
+              className="block w-full h-125 bg-black"
+            >
+              <div ref={containerRef} className="relative w-full h-full">
+                <video
+                  ref={videoRef}
+                  src={currentMediaUrl}
+                  className="w-full h-full object-contain cursor-pointer"
+                  muted
+                  playsInline
+                  preload="metadata"
+                  controls
+                />
+                {currentMediaDuration !== null && currentMediaDuration > 0 && (
+                  <div className="absolute top-3 left-3 bg-black/65 text-white text-xs px-2 py-1 rounded-full z-10">
+                    {postApi.formatMediaDuration(currentMediaDuration)}
+                  </div>
+                )}
+              </div>
+            </Link>
+          ) : (
+            <Link
+              to={`/post/${post.id}`}
+              state={{ from: location.pathname }}
+              className="block w-full h-125 bg-black"
+            >
+              <img
+                src={post.images[currentImageIndex] || ""}
+                alt={post.caption}
+                className="w-full h-full object-contain cursor-pointer"
+              />
+            </Link>
+          )}
 
           {/* Navigation arrows - Only show if multiple images */}
           {totalImages > 1 && (
@@ -668,12 +718,12 @@ export default function PostCard({ post }: PostCardProps) {
         </div>
 
         {/* Comments */}
-        {post.comments.length > 0 && (
+        {commentsCount > 0 && (
           <Link
             to={`/post/${post.id}`}
             className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-400 dark:hover:text-gray-300 block mb-1"
           >
-            View all {post.comments.length} comments
+            View all {commentsCount} comments
           </Link>
         )}
 

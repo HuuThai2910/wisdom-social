@@ -13,12 +13,17 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
+import java.util.Deque;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -38,7 +43,6 @@ public class CommentServiceImpl implements CommentService {
     private final CommentRepository commentRepository;
     private final PostRepository postRepository;
     private static final int INITIAL_REPLY_LIMIT = 3;
-    private static final int PAGE_SIZE_REPLIES = 10;
 
     @Override
     @Transactional
@@ -72,8 +76,13 @@ public class CommentServiceImpl implements CommentService {
                 parent.setReplyCount(parent.getReplyCount() + 1);
                 commentRepository.save(parent);
             });
+
+            // Replies also contribute to total post comment count.
+            if (request.getTargetType() == TargetType.POST) {
+                updatePostCommentCount(request.getTargetId(), 1);
+            }
         } else if (request.getTargetType() == TargetType.POST) {
-            // If this is a top-level comment on a post, update post stats
+            // Top-level comment on post
             updatePostCommentCount(request.getTargetId(), 1);
         }
 
@@ -92,9 +101,13 @@ public class CommentServiceImpl implements CommentService {
         List<Comment> rootComments = commentRepository
                 .findByTargetTypeAndTargetIdAndParentIdIsNullOrderByCreatedAtDesc(targetType, targetId, pageable);
         
-        // Total count for frontend to calculate total pages
-        long totalCount = commentRepository
+        // Root count: only for root pagination/hasMore
+        long rootCount = commentRepository
                 .countByTargetTypeAndTargetIdAndParentIdIsNull(targetType, targetId);
+
+        // Total count: all comments across all levels (for display counters)
+        long totalCount = commentRepository
+            .countByTargetTypeAndTargetId(targetType, targetId);
         
         // Convert to response and add initial replies for each
         List<CommentResponse> responses = new ArrayList<>();
@@ -104,7 +117,7 @@ public class CommentServiceImpl implements CommentService {
         }
         
         // Check if there are more pages
-        boolean hasMore = (long) (page + 1) * size < totalCount;
+        boolean hasMore = (long) (page + 1) * size < rootCount;
         String nextCursor = hasMore ? encodePageCursor(page + 1, size) : null;
         
         return PaginatedCommentsResponse.builder()
@@ -128,29 +141,33 @@ public class CommentServiceImpl implements CommentService {
     @Override
     public PaginatedCommentsResponse getMoreReplies(String parentId, String cursor, int size) {
         log.info("Getting more replies for parent: {} with cursor: {} (size: {})", parentId, cursor, size);
-        
-        // Decode cursor to get the timestamp
-        Instant cursorInstant = decodeCursor(cursor);
-        Pageable pageable = PageRequest.of(0, size);
-        
-        // Get next replies after cursor (sorted cũ → mới)
-        List<Comment> replies = commentRepository.findRepliesAfterCursor(parentId, cursorInstant, pageable);
+
+        Pageable pageable = PageRequest.of(0, size + 1); // +1 to determine hasMore
+        List<Comment> replies;
+
+        if (cursor == null || cursor.isBlank()) {
+            // First load-more call: get latest replies first
+            replies = commentRepository.findByParentIdOrderByCreatedAtDesc(parentId, pageable);
+        } else {
+            // Next pages: get older replies than cursor timestamp
+            Instant cursorInstant = decodeCursor(cursor);
+            replies = commentRepository.findRepliesBeforeCursor(parentId, cursorInstant, pageable);
+        }
         
         // Total count
         long totalCount = commentRepository.countByParentId(parentId);
         
-        List<CommentResponse> responses = replies.stream()
-                .map(this::commentToResponse)
-                .collect(Collectors.toList());
-        
-        // Check if there's more data (we get size+1 to check, but return only size)
-        boolean hasMore = responses.size() >= size;
-        if (hasMore && responses.size() > size) {
-            responses = responses.subList(0, size);
+        boolean hasMore = replies.size() > size;
+        if (hasMore) {
+            replies = replies.subList(0, size);
         }
+
+        List<CommentResponse> responses = replies.stream()
+            .map(this::commentToResponse)
+            .collect(Collectors.toList());
         
-        String nextCursor = hasMore && !responses.isEmpty() 
-                ? encodeCursor(responses.get(responses.size() - 1).getCreatedAt())
+        String nextCursor = hasMore && !replies.isEmpty()
+            ? encodeCursor(replies.get(replies.size() - 1).getCreatedAt())
                 : null;
         
         return PaginatedCommentsResponse.builder()
@@ -166,10 +183,10 @@ public class CommentServiceImpl implements CommentService {
      */
     private CommentResponse buildCommentWithReplies(Comment comment, int replyLimit) {
         CommentResponse response = commentToResponse(comment);
-        
-        // Get initial replies (sorted cũ → mới)
+
+        // Get initial latest replies (newest-first window)
         Pageable pageable = PageRequest.of(0, replyLimit + 1); // +1 to check if there's more
-        List<Comment> replies = commentRepository.findByParentIdOrderByCreatedAtAsc(comment.getId(), pageable);
+        List<Comment> replies = commentRepository.findByParentIdOrderByCreatedAtDesc(comment.getId(), pageable);
         
         boolean hasMoreReplies = replies.size() > replyLimit;
         if (hasMoreReplies) {
@@ -179,11 +196,15 @@ public class CommentServiceImpl implements CommentService {
         List<CommentResponse> replyResponses = replies.stream()
                 .map(this::commentToResponse)
                 .collect(Collectors.toList());
+
+        // Keep UI list stable: oldest -> newest inside currently loaded window.
+        Collections.reverse(replyResponses);
         
         response.setReplies(replyResponses);
         response.setHasMoreReplies(hasMoreReplies);
         
-        if (!replyResponses.isEmpty()) {
+        if (!replies.isEmpty()) {
+            // Cursor points to oldest loaded reply in this window.
             response.setNextCursor(encodeCursor(replies.get(replies.size() - 1).getCreatedAt()));
         }
         
@@ -234,6 +255,9 @@ public class CommentServiceImpl implements CommentService {
      * Decode cursor back to timestamp
      */
     private Instant decodeCursor(String cursor) {
+        if (cursor == null || cursor.isBlank()) {
+            throw new IllegalArgumentException("Cursor must not be null/blank");
+        }
         try {
             String decoded = new String(Base64.getDecoder().decode(cursor));
             return Instant.parse(decoded);
@@ -251,11 +275,16 @@ public class CommentServiceImpl implements CommentService {
         log.info("Deleting comment: {} by user: {}", commentId, userId);
 
         Comment comment = commentRepository.findById(commentId)
-                .orElseThrow(() -> new RuntimeException("Comment not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Comment not found"));
 
         if (!comment.getUserId().equals(userId.toString())) {
-            throw new RuntimeException("Unauthorized to delete this comment");
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Unauthorized to delete this comment");
         }
+
+        List<String> descendantIds = collectDescendantIds(commentId);
+        List<String> allIdsToDelete = new ArrayList<>();
+        allIdsToDelete.add(commentId);
+        allIdsToDelete.addAll(descendantIds);
 
         // Update parent's reply count if this is a reply
         if (comment.getParentId() != null) {
@@ -263,13 +292,32 @@ public class CommentServiceImpl implements CommentService {
                 parent.setReplyCount(Math.max(0, parent.getReplyCount() - 1));
                 commentRepository.save(parent);
             });
-        } else if (comment.getTargetType() == TargetType.POST) {
-            // If this is a top-level comment on a post, update post stats
-            updatePostCommentCount(comment.getTargetId(), -1);
         }
 
-        commentRepository.deleteById(commentId);
-        log.info("Comment deleted successfully");
+        // Keep post commentCount synced for all levels (comment + descendants)
+        if (comment.getTargetType() == TargetType.POST) {
+            updatePostCommentCount(comment.getTargetId(), -allIdsToDelete.size());
+        }
+
+        commentRepository.deleteAllById(allIdsToDelete);
+        log.info("Comment deleted successfully. Removed {} docs (including descendants)", allIdsToDelete.size());
+    }
+
+    private List<String> collectDescendantIds(String rootCommentId) {
+        List<String> descendants = new ArrayList<>();
+        Deque<String> queue = new ArrayDeque<>();
+        queue.add(rootCommentId);
+
+        while (!queue.isEmpty()) {
+            String current = queue.poll();
+            List<Comment> children = commentRepository.findByParentIdOrderByCreatedAtAsc(current);
+            for (Comment child : children) {
+                descendants.add(child.getId());
+                queue.add(child.getId());
+            }
+        }
+
+        return descendants;
     }
 
     private List<String> extractMentions(String content) {

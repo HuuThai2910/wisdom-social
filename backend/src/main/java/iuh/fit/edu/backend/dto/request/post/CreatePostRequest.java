@@ -25,6 +25,7 @@ public class CreatePostRequest {
     private List<String> specificViewerUsernames; // For SPECIFIC privacy
     private List<String> excludedUsernames; // For FRIENDS_EXCEPT privacy
     private List<String> existingMediaUrls; // URLs of existing media to keep (for update)
+    private List<MediaUploadMetadataRequest> mediaMetadatas; // metadata aligned with uploaded media order
     private Boolean allowComments;
     private Boolean allowShares;
 }

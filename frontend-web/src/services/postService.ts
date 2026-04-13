@@ -5,7 +5,126 @@
 
 import axiosClient from "../api/axiosClient";
 import type { PostData, UserData, CommentData } from "../types/postType";
-import { uploadImageAndGetFormat, buildS3Url } from "../utils/s3";
+import { uploadMediaAndGetFormat, buildS3Url } from "../utils/s3";
+
+export type MediaKind = "video" | "image";
+
+export const detectMediaKind = (
+    url?: string,
+    explicitType?: string
+): MediaKind => {
+    const normalizedType = (explicitType || "").toLowerCase();
+    if (normalizedType.includes("video")) {
+        return "video";
+    }
+
+    const lower = (url || "").toLowerCase();
+    if (
+        /\.(mp4|webm|mov|avi|mkv)(\?|#|$)/.test(lower) ||
+        lower.includes("/videos/")
+    ) {
+        return "video";
+    }
+
+    return "image";
+};
+
+export const isVideoMedia = (url?: string, explicitType?: string): boolean => {
+    return detectMediaKind(url, explicitType) === "video";
+};
+
+export const formatMediaDuration = (durationSeconds?: number | null): string => {
+    const totalSeconds = Math.max(0, Math.floor(Number(durationSeconds || 0)));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+};
+
+export interface MediaUploadMetadataPayload {
+    duration?: number;
+    width?: number;
+    height?: number;
+    fileSize?: number;
+    mimeType?: string;
+    originalFileName?: string;
+}
+
+const readVideoMetadata = (file: File): Promise<{ duration?: number; width?: number; height?: number }> => {
+    return new Promise((resolve) => {
+        const video = document.createElement("video");
+        const objectUrl = URL.createObjectURL(file);
+
+        const cleanup = () => {
+            URL.revokeObjectURL(objectUrl);
+            video.removeAttribute("src");
+            video.load();
+        };
+
+        video.preload = "metadata";
+        video.onloadedmetadata = () => {
+            const duration = Number.isFinite(video.duration)
+                ? Math.max(0, Math.floor(video.duration))
+                : undefined;
+            resolve({
+                duration,
+                width: video.videoWidth || undefined,
+                height: video.videoHeight || undefined,
+            });
+            cleanup();
+        };
+        video.onerror = () => {
+            resolve({});
+            cleanup();
+        };
+
+        video.src = objectUrl;
+    });
+};
+
+const readImageMetadata = (file: File): Promise<{ width?: number; height?: number }> => {
+    return new Promise((resolve) => {
+        const image = new Image();
+        const objectUrl = URL.createObjectURL(file);
+
+        const cleanup = () => {
+            URL.revokeObjectURL(objectUrl);
+        };
+
+        image.onload = () => {
+            resolve({
+                width: image.naturalWidth || undefined,
+                height: image.naturalHeight || undefined,
+            });
+            cleanup();
+        };
+        image.onerror = () => {
+            resolve({});
+            cleanup();
+        };
+
+        image.src = objectUrl;
+    });
+};
+
+const extractMediaUploadMetadata = async (file: File): Promise<MediaUploadMetadataPayload> => {
+    const base: MediaUploadMetadataPayload = {
+        fileSize: file.size,
+        mimeType: file.type || undefined,
+        originalFileName: file.name || undefined,
+    };
+
+    if (file.type.startsWith("video/")) {
+        const videoMeta = await readVideoMetadata(file);
+        return { ...base, ...videoMeta };
+    }
+
+    if (file.type.startsWith("image/")) {
+        const imageMeta = await readImageMetadata(file);
+        return { ...base, ...imageMeta };
+    }
+
+    return base;
+};
 
 /**
  * Transform media array to full S3 URLs
@@ -17,10 +136,45 @@ export const transformMediaToS3Urls = (
 ): string[] => {
     if (!media || media.length === 0) return [];
 
-    return media.map((m: any) => {
-        const s3Path = `posts/${authorId}/images/${m.url}`;
-        return buildS3Url(s3Path) || "";
-    });
+    return media
+        .map((m: any) => {
+            const rawUrl = (m?.url || "").toString().trim();
+            if (!rawUrl) return "";
+
+            // Already absolute URL.
+            if (/^https?:\/\//i.test(rawUrl)) {
+                return rawUrl;
+            }
+
+            let key = rawUrl;
+
+            // Strip query / fragment if any key accidentally contains them.
+            const queryIndex = key.indexOf("?");
+            if (queryIndex >= 0) key = key.substring(0, queryIndex);
+            const fragmentIndex = key.indexOf("#");
+            if (fragmentIndex >= 0) key = key.substring(0, fragmentIndex);
+
+            const normalizedKey = key.startsWith("/") ? key.substring(1) : key;
+
+            // Common persisted key formats.
+            if (
+                normalizedKey.startsWith("posts/") ||
+                normalizedKey.startsWith("images/") ||
+                normalizedKey.startsWith("videos/") ||
+                normalizedKey.startsWith("files/") ||
+                normalizedKey.startsWith("audios/") ||
+                normalizedKey.startsWith("users/") ||
+                normalizedKey.startsWith("conversations/") ||
+                normalizedKey.startsWith("stories/")
+            ) {
+                return buildS3Url(normalizedKey) || "";
+            }
+
+            // Legacy filename-only format.
+            const s3Path = `posts/${authorId}/images/${normalizedKey}`;
+            return buildS3Url(s3Path) || "";
+        })
+        .filter(Boolean);
 };
 
 /**
@@ -249,6 +403,7 @@ export const updatePost = async (
     console.log("📸 New images count:", newImages.length);
 
     const uploadedImageUrls: string[] = [];
+    const mediaMetadatas: MediaUploadMetadataPayload[] = [];
 
     try {
         // Step 1: Upload new images to S3 if there are any
@@ -257,8 +412,10 @@ export const updatePost = async (
 
             for (const imageFile of newImages) {
                 try {
+                    const metadata = await extractMediaUploadMetadata(imageFile);
+                    mediaMetadatas.push(metadata);
                     // Use s3 utility to upload and get the uuid.extension format
-                    const uuidWithExt = await uploadImageAndGetFormat(imageFile);
+                    const uuidWithExt = await uploadMediaAndGetFormat(imageFile);
                     uploadedImageUrls.push(uuidWithExt);
                     console.log(`✅ Image uploaded and added to list: ${uuidWithExt}`);
                 } catch (error: any) {
@@ -268,22 +425,29 @@ export const updatePost = async (
             }
         }
 
-        // Step 2: Update post with imageUrls parameter
+        // Step 2: Update post with multipart form-data body.
         console.log("📝 Uploading post metadata with image URLs...");
         console.log("Image URLs to send:", uploadedImageUrls);
 
-        // Build query parameters (uploadedImageUrls already contains uuid.extension format)
-        const params = new URLSearchParams();
-        params.append("postData", JSON.stringify(postData));
+        const payload = {
+            ...postData,
+            mediaMetadatas,
+        };
 
+        const formData = new FormData();
+        formData.append("postData", JSON.stringify(payload));
         uploadedImageUrls.forEach((url) => {
-            params.append("imageUrls", url);
+            formData.append("imageUrls", url);
         });
 
-        console.log("📤 Sending to backend with params:", params.toString());
-
         const response = await axiosClient.put(
-            `/posts/${postId}?userId=${userId}&${params.toString()}`
+            `/posts/${postId}?userId=${userId}`,
+            formData,
+            {
+                headers: {
+                    "Content-Type": "multipart/form-data",
+                },
+            }
         );
 
         console.log("✅ Post updated response:", response.data);
@@ -427,6 +591,7 @@ export const createPost = async (
         console.log("Image files count:", imageFiles.length);
 
         const uploadedImageUrls: string[] = [];
+        const mediaMetadatas: MediaUploadMetadataPayload[] = [];
 
         // Step 1: Upload images to S3 if there are any
         if (imageFiles.length > 0) {
@@ -434,8 +599,10 @@ export const createPost = async (
 
             for (const imageFile of imageFiles) {
                 try {
+                    const metadata = await extractMediaUploadMetadata(imageFile);
+                    mediaMetadatas.push(metadata);
                     // Use s3 utility to upload and get the uuid.extension format
-                    const uuidWithExt = await uploadImageAndGetFormat(imageFile);
+                    const uuidWithExt = await uploadMediaAndGetFormat(imageFile);
                     uploadedImageUrls.push(uuidWithExt);
                     console.log(`✅ Image uploaded and added to list: ${uuidWithExt}`);
                 } catch (error: any) {
@@ -451,7 +618,11 @@ export const createPost = async (
 
         // Build query parameters (uploadedImageUrls already contains uuid.extension format)
         const params = new URLSearchParams();
-        params.append("postData", JSON.stringify(postData));
+        const payload = {
+            ...postData,
+            mediaMetadatas,
+        };
+        params.append("postData", JSON.stringify(payload));
 
         // Add each image URL as a separate query parameter
         uploadedImageUrls.forEach((url) => {
@@ -505,6 +676,11 @@ export const getSavedPostsWithDetails = async (userId: string | number): Promise
 
                 const images = transformMediaToS3Urls(post.media, post.authorId);
                 const imageUrl = images && images.length > 0 ? images[0] : null;
+                const media = (post.media || []).map((m: any, index: number) => ({
+                    url: images[index] || "",
+                    type: (m?.type || "image").toLowerCase(),
+                    duration: typeof m?.duration === "number" ? m.duration : undefined,
+                }));
 
                 return {
                     id: post.id,
@@ -514,6 +690,7 @@ export const getSavedPostsWithDetails = async (userId: string | number): Promise
                     caption: post.content,
                     privacy: post.privacy,
                     images: images,
+                    media,
                     user: {
                         id: authorData.id.toString(),
                         username: authorData.username,
@@ -560,6 +737,11 @@ export const getTaggedPostsWithDetails = async (userId: string | number): Promis
 
                 const images = transformMediaToS3Urls(post.media, post.authorId);
                 const imageUrl = images && images.length > 0 ? images[0] : null;
+                const media = (post.media || []).map((m: any, index: number) => ({
+                    url: images[index] || "",
+                    type: (m?.type || "image").toLowerCase(),
+                    duration: typeof m?.duration === "number" ? m.duration : undefined,
+                }));
 
                 return {
                     id: post.id,
@@ -569,6 +751,7 @@ export const getTaggedPostsWithDetails = async (userId: string | number): Promis
                     caption: post.content,
                     privacy: post.privacy,
                     images: images,
+                    media,
                     user: {
                         id: authorData.id.toString(),
                         username: authorData.username,
@@ -605,6 +788,11 @@ export const getUserPostsWithDetails = async (userId: string | number): Promise<
         const transformedPosts = postsData.map((post: any) => {
             const images = transformMediaToS3Urls(post.media, post.authorId);
             const firstImage = images && images.length > 0 ? images[0] : null;
+            const media = (post.media || []).map((m: any, index: number) => ({
+                url: images[index] || "",
+                type: (m?.type || "image").toLowerCase(),
+                duration: typeof m?.duration === "number" ? m.duration : undefined,
+            }));
 
             return {
                 id: post.id,
@@ -614,6 +802,7 @@ export const getUserPostsWithDetails = async (userId: string | number): Promise<
                 caption: post.content,
                 privacy: post.privacy,
                 images: images,
+                media,
             };
         });
 

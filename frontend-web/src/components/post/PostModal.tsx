@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate as _useNavigate } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import {
   X,
   Heart,
@@ -18,14 +18,15 @@ import {
 import FriendSelectorModal from "./FriendSelectorModal";
 import EditPostModal from "./EditPostModal";
 import { useAuth } from "../../contexts/AuthContext";
-import useComments from "../../hooks/useComments";
+import useCommentsNormalized from "../../hooks/useCommentsNormalized";
 import { commentService } from "../../services/commentService";
 import type { Comment } from "../../services/commentService";
-import CommentItem from "../comment/CommentItem";
+import CommentItemNormalized from "../comment/CommentItemNormalized";
 import type { PostData, UserData, PostModalProps } from "../../types/postType";
 import * as postApi from "../../services/postService";
 
 export default function PostModal({ postId, onClose }: PostModalProps) {
+  const location = useLocation();
   const { currentUser } = useAuth();
   const [post, setPost] = useState<PostData | null>(null);
   const [author, setAuthor] = useState<UserData | null>(null);
@@ -38,17 +39,30 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
 
   // Use new comment tree hook
   const {
-    comments,
+    commentsById,
+    rootIds,
+    expandedMap,
+    loadingMap,
+    hasMoreReplies,
+    currentPage,
+    rootHasMore,
     loadRootComments,
     loadMoreReplies,
-    currentPage,
-    hasMore,
-    insertNewReply,
-    removeComment,
-  } = useComments({
+    toggleExpanded,
+    createReply,
+    deleteComment,
+    getDirectChildren,
+    resetComments,
+  } = useCommentsNormalized({
     targetType: "POST",
     targetId: postId,
   });
+  const handleCloseModal = () => {
+    // Ensure comment UI state is cleared before leaving modal route.
+    resetComments();
+    onClose();
+  };
+
   const [showReactions, setShowReactions] = useState(false);
   const reactionsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
@@ -69,6 +83,36 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
   const [transformedMediaUrls, setTransformedMediaUrls] = useState<string[]>(
     []
   );
+  const modalVideoRef = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    const shouldOpenEdit = Boolean((location.state as any)?.openEdit);
+    if (!shouldOpenEdit || !post || !currentUser?.id) {
+      return;
+    }
+
+    // Only allow auto-open for post owner.
+    if (post.authorId === currentUser.id.toString()) {
+      setIsEditing(true);
+    }
+  }, [location.state, post, currentUser?.id]);
+
+  useEffect(() => {
+    if (!post || !post.media || post.media.length === 0) {
+      setTransformedMediaUrls([]);
+      setCurrentImageIndex(0);
+      return;
+    }
+
+    const urls = postApi.transformMediaToS3Urls(
+      post.media,
+      post.authorId || ""
+    );
+    setTransformedMediaUrls(urls);
+    setCurrentImageIndex((prev) =>
+      Math.min(prev, Math.max(0, urls.length - 1))
+    );
+  }, [post]);
 
   useEffect(() => {
     const fetchPost = async () => {
@@ -79,13 +123,6 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
         // Fetch post
         const postData = await postApi.fetchPostById(postId);
         setPost(postData);
-
-        // Transform media URLs using centralized utility
-        const urls = postApi.transformMediaToS3Urls(
-          postData.media,
-          postData.authorId
-        );
-        setTransformedMediaUrls(urls);
 
         // Fetch author
         const author = await postApi.fetchUserById(postData.authorId);
@@ -127,7 +164,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
     };
 
     fetchPost();
-  }, [postId, currentUser?.id]);
+  }, [postId, currentUser?.id, loadRootComments]);
 
   // Fetch user's current reaction
   useEffect(() => {
@@ -154,7 +191,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
 
   const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget) {
-      onClose();
+      handleCloseModal();
     }
   };
 
@@ -205,7 +242,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
       await postApi.deletePost(postId, (currentUser?.id || 0).toString());
 
       alert("Xóa bài viết thành công!");
-      onClose(); // Close modal after successful deletion
+      handleCloseModal(); // Close modal after successful deletion
       // TODO: Refresh post list in parent component
     } catch (error) {
       console.error("Error deleting post:", error);
@@ -231,8 +268,8 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
         currentUser.id
       );
 
-      // Optimistic update: prepend to comments (null parentId = root comment)
-      insertNewReply(null, newComment);
+      // Optimistic update: add to root comments using new hook
+      createReply(null, newComment);
       setCommentInput("");
     } catch (error: any) {
       console.error("Error submitting comment:", error);
@@ -264,17 +301,17 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
       }
       await commentService.deleteComment(commentId, currentUser.id);
 
-      // Optimistic update: remove from tree (parentId = null means root)
-      removeComment(commentId, parentId ?? null);
+      // Optimistic update: remove from normalized store (with all descendants)
+      deleteComment(commentId, parentId);
     } catch (error) {
       console.error("Error deleting comment:", error);
       alert("Không thể xóa bình luận");
     }
   };
 
-  // Called by CommentItem after creating a reply
-  const handleReplyCreated = (parentId: string, newReply: Comment) => {
-    insertNewReply(parentId, newReply);
+  // Called by CommentItemNormalized after creating a reply
+  const handleReplyCreated = (parentId: string | null, newReply: Comment) => {
+    createReply(parentId, newReply);
   };
 
   const handleCommentInputChange = async (
@@ -377,6 +414,37 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
     }
   };
 
+  // Keep hook order stable across loading/error/content states.
+  useEffect(() => {
+    const video = modalVideoRef.current;
+
+    if (!post || !post.media || post.media.length === 0) {
+      if (video) video.pause();
+      return;
+    }
+
+    const currentMedia = post.media[currentImageIndex];
+    const currentUrl = transformedMediaUrls[currentImageIndex] || "";
+    const currentIsVideo = postApi.isVideoMedia(currentUrl, currentMedia?.type);
+
+    if (!currentIsVideo || !video) {
+      if (video) video.pause();
+      return;
+    }
+
+    video.muted = true;
+    video.playsInline = true;
+
+    const playPromise = video.play();
+    if (playPromise && typeof playPromise.catch === "function") {
+      playPromise.catch(() => undefined);
+    }
+
+    return () => {
+      video.pause();
+    };
+  }, [currentImageIndex, transformedMediaUrls, post]);
+
   if (loading) {
     return (
       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center">
@@ -389,7 +457,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
     return (
       <div
         className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-        onClick={onClose}
+        onClick={handleCloseModal}
       >
         <div className="bg-white dark:bg-gray-900 rounded-lg p-6 max-w-md w-full shadow-2xl">
           <h2 className="text-xl font-bold text-red-600 mb-4">
@@ -397,7 +465,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
           </h2>
           <p className="text-gray-700 dark:text-gray-300 mb-6">{error}</p>
           <button
-            onClick={onClose}
+            onClick={handleCloseModal}
             className="w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
           >
             Close
@@ -407,9 +475,15 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
     );
   }
 
-  if (!post || !author) {
+  if (!post) {
     return null;
   }
+
+  const authorDisplay = {
+    id: author?.id ?? Number(post.authorId || 0),
+    username: author?.username || "unknown",
+    avatarUrl: author?.avatarUrl || "https://i.pravatar.cc/150?img=5",
+  };
 
   // Check if current user is the post owner
   const isOwnPost = currentUser?.id.toString() === post.authorId;
@@ -417,6 +491,13 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
   const hasMedia = post.media && post.media.length > 0;
   const totalImages = post?.media?.length || 0;
   const timeAgo = new Date(post.createdAt).toLocaleDateString("vi-VN");
+  const safePostContent = post.content || "";
+
+  const isVideoAtIndex = (index: number) => {
+    const media = post.media?.[index];
+    const url = transformedMediaUrls[index] || "";
+    return postApi.isVideoMedia(url, media?.type);
+  };
 
   const handlePrevImage = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -437,7 +518,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
     >
       {/* Close button - outside the modal */}
       <button
-        onClick={onClose}
+        onClick={handleCloseModal}
         className="absolute right-8 top-8 z-10 p-2 rounded-full bg-black/50 hover:bg-black/70 transition-colors"
       >
         <X className="w-6 h-6 text-white" />
@@ -448,11 +529,23 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
         <div className="flex-1 bg-black flex items-center justify-center relative group">
           {hasMedia ? (
             <>
-              <img
-                src={transformedMediaUrls[currentImageIndex] || ""}
-                alt="Post content"
-                className="max-h-[90vh] max-w-full object-contain"
-              />
+              {isVideoAtIndex(currentImageIndex) ? (
+                <video
+                  ref={modalVideoRef}
+                  src={transformedMediaUrls[currentImageIndex] || ""}
+                  className="max-h-[90vh] max-w-full object-contain"
+                  autoPlay
+                  muted
+                  playsInline
+                  controls
+                />
+              ) : (
+                <img
+                  src={transformedMediaUrls[currentImageIndex] || ""}
+                  alt="Post content"
+                  className="max-h-[90vh] max-w-full object-contain"
+                />
+              )}
               {/* Navigation arrows - Only show if multiple images */}
               {totalImages > 1 && (
                 <>
@@ -504,7 +597,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900">
               <p className="text-4xl font-bold text-gray-400 dark:text-gray-600 px-8 text-center">
-                {post.content}
+                {safePostContent}
               </p>
             </div>
           )}
@@ -516,18 +609,19 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
           <div className="p-4 border-b dark:border-gray-800 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <img
-                src={author.avatarUrl || "https://i.pravatar.cc/150?img=5"}
-                alt={author.username}
+                src={authorDisplay.avatarUrl}
+                alt={authorDisplay.username}
                 className="w-10 h-10 rounded-full"
               />
               <div>
                 <p className="font-semibold text-sm dark:text-white">
-                  {author.username}
+                  {authorDisplay.username}
                 </p>
                 {post.privacy &&
                   (() => {
                     const isOwnPost =
-                      currentUser?.id.toString() === author.id.toString();
+                      currentUser?.id.toString() ===
+                      authorDisplay.id.toString();
 
                     // Hiển thị cho chủ post
                     if (isOwnPost) {
@@ -712,14 +806,16 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
           <div className="flex-1 overflow-y-auto p-4">
             <div className="flex gap-3 mb-4">
               <img
-                src={author.avatarUrl || "https://i.pravatar.cc/150?img=5"}
-                alt={author.username}
+                src={authorDisplay.avatarUrl}
+                alt={authorDisplay.username}
                 className="w-8 h-8 rounded-full shrink-0"
               />
               <div className="flex-1">
                 <p className="text-sm dark:text-white">
-                  <span className="font-semibold mr-2">{author.username}</span>
-                  {post.content.split(/(#\w+)/).map((part, index) => {
+                  <span className="font-semibold mr-2">
+                    {authorDisplay.username}
+                  </span>
+                  {safePostContent.split(/(#\w+)/).map((part, index) => {
                     if (part.startsWith("#")) {
                       return (
                         <span key={index} className="text-blue-500">
@@ -755,29 +851,48 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
 
             {/* Comments section */}
             <div className="space-y-4">
-              {comments.length === 0 ? (
+              {rootIds.length === 0 ? (
                 <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-8">
                   No comments yet
                 </p>
               ) : (
                 <>
-                  {comments.map((comment) => (
-                    <CommentItem
-                      key={comment.id}
-                      comment={comment}
+                  {/* DEBUG: Log state snapshot */}
+                  {console.log(
+                    `📊 PostModal rendering ${rootIds.length} root comments:`,
+                    {
+                      rootIds,
+                      totalComments: Object.keys(commentsById).length,
+                      expandedCount: Object.keys(expandedMap).filter(
+                        (k) => expandedMap[k]
+                      ).length,
+                    }
+                  )}
+                  {rootIds.map((commentId) => (
+                    <CommentItemNormalized
+                      key={commentId}
+                      commentId={commentId}
+                      commentsById={commentsById}
+                      expandedMap={expandedMap}
+                      onToggleExpanded={toggleExpanded}
+                      onLoadMore={loadMoreReplies}
                       onDelete={handleDeleteComment}
-                      onLoadMoreReplies={loadMoreReplies}
-                      onReplyCreated={handleReplyCreated}
+                      onCreateReply={handleReplyCreated}
+                      getDirectChildren={getDirectChildren}
+                      hasMoreReplies={hasMoreReplies}
+                      loadingMap={loadingMap}
                       postId={postId}
                     />
                   ))}
-                  {hasMore && (
-                    <button
-                      onClick={() => loadRootComments(currentPage + 1)}
-                      className="w-full py-2 text-sm text-blue-500 hover:text-blue-600 font-semibold"
-                    >
-                      Xem thêm bình luận
-                    </button>
+                  {rootHasMore && (
+                    <div className="w-full flex justify-center pt-2">
+                      <button
+                        onClick={() => loadRootComments(currentPage + 1)}
+                        className="px-3 py-1 text-sm text-blue-500 hover:text-blue-600 font-semibold"
+                      >
+                        See more comments
+                      </button>
+                    </div>
                   )}
                 </>
               )}

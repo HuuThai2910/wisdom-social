@@ -1,6 +1,7 @@
 import { Link, useLocation } from "react-router-dom";
 import { Heart, MessageCircle, Plus } from "lucide-react";
 import type { Post } from "../../types";
+import { formatMediaDuration, isVideoMedia } from "../../services/postService";
 
 interface PostGridProps {
   posts: Post[];
@@ -31,7 +32,12 @@ export default function PostGrid({
       )}
 
       {posts.map((post) => {
-        const imageUrl = (post as any).imageUrl || post.images?.[0];
+        const firstMedia = post.media?.[0];
+        const mediaUrl =
+          firstMedia?.url || (post as any).imageUrl || post.images?.[0];
+        const isVideo = isVideoMedia(mediaUrl, firstMedia?.type);
+        const duration =
+          typeof firstMedia?.duration === "number" ? firstMedia.duration : null;
         const likesCount = (post as any).likes ?? post.likes ?? 0;
         const commentsCount = (post as any).comments ?? 0;
 
@@ -42,17 +48,32 @@ export default function PostGrid({
             state={{ from: location.pathname }}
             className="aspect-4/5 relative group overflow-hidden bg-linear-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900"
           >
-            {imageUrl ? (
-              <img
-                src={imageUrl}
-                alt={post.caption}
-                className="w-full h-full object-cover"
-              />
+            {mediaUrl ? (
+              isVideo ? (
+                <video
+                  src={mediaUrl}
+                  className="w-full h-full object-cover"
+                  muted
+                  playsInline
+                  preload="metadata"
+                />
+              ) : (
+                <img
+                  src={mediaUrl}
+                  alt={post.caption}
+                  className="w-full h-full object-cover"
+                />
+              )
             ) : (
               <div className="w-full h-full flex items-center justify-center">
                 <p className="text-sm text-gray-500 dark:text-gray-400 px-4 text-center line-clamp-3">
                   {post.caption || "No content"}
                 </p>
+              </div>
+            )}
+            {isVideo && duration !== null && duration > 0 && (
+              <div className="absolute top-2 left-2 bg-black/65 text-white text-[10px] px-1.5 py-0.5 rounded-full z-10">
+                {formatMediaDuration(duration)}
               </div>
             )}
             {/* Hover overlay */}
