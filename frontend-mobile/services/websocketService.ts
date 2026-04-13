@@ -7,7 +7,7 @@ type MessageHandler = (message: any) => void;
 // Use same base URL as apiClient but for WebSocket
 const API_BASE_URL = Platform.select({
     android: '192.168.1.151:8080',
-    ios: '192.168.1.151:8080',
+    ios: '192.168.137.101:8080',
     default: '192.168.1.151:8080',
 });
 

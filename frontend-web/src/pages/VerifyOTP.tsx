@@ -7,6 +7,7 @@ export default function VerifyOTP() {
     const location = useLocation();
     const navigate = useNavigate();
     const { phone, type } = location.state || {};
+    const isRegisterFlow = type === "register";
     
     const [otp, setOtp] = useState(["", "", "", "", "", ""]);
     const [loading, setLoading] = useState(false);
@@ -115,14 +116,18 @@ export default function VerifyOTP() {
     };
 
     return (
-            <div className="space-y-8 rounded-2xl border border-blue-100 bg-gradient-to-b from-blue-50 via-white to-slate-50 p-8 text-gray-900 shadow-sm">
+            <div className="space-y-8 rounded-2xl border border-blue-100 bg-linear-to-b from-blue-50 via-white to-slate-50 p-8 text-gray-900 shadow-sm">
                 <div className="text-center">
                     <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-blue-100">
                         <ShieldCheck className="h-10 w-10 text-blue-500" />
                     </div>
-                    <h2 className="text-3xl font-bold">Verify OTP</h2>
+                    <h2 className="text-3xl font-bold">
+                        {isRegisterFlow ? "Xác thực đăng ký" : "Xác thực đặt lại mật khẩu"}
+                    </h2>
                     <p className="mt-2 text-gray-600">
-                        Nhập mã OTP đã được gửi đến {phone}
+                        {isRegisterFlow
+                            ? `Nhập mã OTP gồm 6 chữ số đã gửi đến ${phone}`
+                            : `Nhập mã OTP gồm 6 chữ số để đặt lại mật khẩu cho ${phone}`}
                     </p>
                 </div>
                 <form onSubmit={handleSubmit} className="mt-8 space-y-6">
@@ -168,14 +173,14 @@ export default function VerifyOTP() {
                         disabled={loading || otp.join("").length !== 6}
                         className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-500 py-3.5 text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                        {loading ? "Đang xác nhận..." : "Verify"}
+                        {loading ? "Đang xác nhận..." : "Xác nhận mã"}
                         {!loading && <CheckCircle2 className="h-4 w-4" />}
                     </button>
                 </form>
                 <div className="text-center">
                     <Link to="/login" className="inline-flex items-center gap-2 text-blue-500 hover:underline">
                         <ArrowLeft className="h-4 w-4" />
-                        Back to Login
+                        Quay lại đăng nhập
                     </Link>
                 </div>
             </div>

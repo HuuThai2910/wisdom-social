@@ -39,11 +39,11 @@ export default function ForgotPassword() {
     };
 
     return (
-        <div className="rounded-2xl border border-blue-100 bg-gradient-to-b from-blue-50 via-white to-slate-50 p-8 text-center shadow-sm">
+        <div className="rounded-2xl border border-blue-100 bg-linear-to-b from-blue-50 via-white to-slate-50 p-8 text-center shadow-sm">
                 <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-blue-100">
                     <KeyRound className="h-10 w-10 text-blue-500" />
                 </div>
-                <h2 className="mb-3 text-2xl font-semibold text-gray-800">Forgot Password?</h2>
+                <h2 className="mb-3 text-2xl font-semibold text-gray-800">Quên mật khẩu?</h2>
                 <p className="mb-8 text-sm text-gray-500">
                     Nhập số điện thoại của bạn và chúng tôi sẽ gửi mã OTP để đặt lại mật khẩu.
                 </p>
@@ -59,7 +59,7 @@ export default function ForgotPassword() {
                         <Phone className="h-4 w-4 text-blue-500" />
                         <input
                             type="tel"
-                            placeholder="Phone Number"
+                            placeholder="Số điện thoại"
                             value={phone}
                             onChange={(e) => setPhone(e.target.value)}
                             disabled={loading}
@@ -73,7 +73,7 @@ export default function ForgotPassword() {
                         disabled={loading}
                         className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-500 py-3.5 font-semibold text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                        {loading ? "Đang gửi..." : "Send OTP Code"}
+                        {loading ? "Đang gửi..." : "Gửi mã OTP"}
                         {!loading && <Send className="h-4 w-4" />}
                     </button>
                 </form>
@@ -83,7 +83,7 @@ export default function ForgotPassword() {
                     className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-blue-500 hover:text-blue-700"
                 >
                     <ArrowLeft className="h-4 w-4" />
-                    Back to Login
+                    Quay lại đăng nhập
                 </Link>
         </div>
     );

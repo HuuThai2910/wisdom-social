@@ -96,12 +96,8 @@ export default function LoginScreen() {
                 >
                     <Logo showSubtitle />
                     
-                    <Text style={styles.welcomeText}>
-                        Welcome Back!
-                    </Text>
-                    <Text style={styles.subtitle}>
-                        Log in to continue your journey
-                    </Text>
+                    <Text style={styles.welcomeText}>Chào mừng bạn trở lại</Text>
+                    <Text style={styles.subtitle}>Đăng nhập để tiếp tục hành trình kết nối</Text>
 
                     <View style={styles.form}>
                         <View style={styles.inputWrapper}>
@@ -110,7 +106,7 @@ export default function LoginScreen() {
                             </View>
                             <TextInput
                                 style={styles.input}
-                                placeholder="Phone Number"
+                                placeholder="Số điện thoại"
                                 placeholderTextColor="#9CA3AF"
                                 value={phone}
                                 onChangeText={setPhone}
@@ -125,7 +121,7 @@ export default function LoginScreen() {
                             </View>
                             <TextInput
                                 style={styles.input}
-                                placeholder="Password"
+                                placeholder="Mật khẩu"
                                 placeholderTextColor="#9CA3AF"
                                 value={password}
                                 onChangeText={setPassword}
@@ -145,7 +141,7 @@ export default function LoginScreen() {
 
                         <Link href="/forgot-password" asChild>
                             <TouchableOpacity>
-                                <Text style={styles.forgotPassword}>Forgot Password?</Text>
+                                <Text style={styles.forgotPassword}>Quên mật khẩu?</Text>
                             </TouchableOpacity>
                         </Link>
 
@@ -164,7 +160,7 @@ export default function LoginScreen() {
                                     <ActivityIndicator color="#fff" />
                                 ) : (
                                     <View style={styles.buttonContent}>
-                                        <Text style={styles.loginButtonText}>Log in</Text>
+                                        <Text style={styles.loginButtonText}>Đăng nhập</Text>
                                         <Ionicons name="arrow-forward" size={20} color="#fff" />
                                     </View>
                                 )}
@@ -173,10 +169,10 @@ export default function LoginScreen() {
                     </View>
 
                     <View style={styles.signupContainer}>
-                        <Text style={styles.signupText}>Don't have an account? </Text>
+                        <Text style={styles.signupText}>Bạn chưa có tài khoản? </Text>
                         <Link href="/signup" asChild>
                             <TouchableOpacity>
-                                <Text style={styles.signupLink}>Sign up</Text>
+                                <Text style={styles.signupLink}>Đăng ký ngay</Text>
                             </TouchableOpacity>
                         </Link>
                     </View>

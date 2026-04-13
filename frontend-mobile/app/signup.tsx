@@ -117,12 +117,8 @@ export default function SignUpScreen() {
                     >
                         <Logo showSubtitle />
 
-                        <Text style={styles.welcomeText}>
-                            Create Account
-                        </Text>
-                        <Text style={styles.subtitle}>
-                            Sign up with your phone number to get started
-                        </Text>
+                        <Text style={styles.welcomeText}>Tạo tài khoản mới</Text>
+                        <Text style={styles.subtitle}>Đăng ký bằng số điện thoại để bắt đầu</Text>
 
                         <View style={styles.form}>
                             <View style={styles.inputWrapper}>
@@ -131,7 +127,7 @@ export default function SignUpScreen() {
                                 </View>
                                 <TextInput
                                     style={styles.input}
-                                    placeholder="Phone Number"
+                                    placeholder="Số điện thoại"
                                     placeholderTextColor="#9CA3AF"
                                     value={phone}
                                     onChangeText={setPhone}
@@ -146,7 +142,7 @@ export default function SignUpScreen() {
                                 </View>
                                 <TextInput
                                     style={styles.input}
-                                    placeholder="Password"
+                                    placeholder="Mật khẩu"
                                     placeholderTextColor="#9CA3AF"
                                     value={password}
                                     onChangeText={setPassword}
@@ -170,7 +166,7 @@ export default function SignUpScreen() {
                                 </View>
                                 <TextInput
                                     style={styles.input}
-                                    placeholder="Confirm Password"
+                                    placeholder="Nhập lại mật khẩu"
                                     placeholderTextColor="#9CA3AF"
                                     value={confirmPassword}
                                     onChangeText={setConfirmPassword}
@@ -203,7 +199,7 @@ export default function SignUpScreen() {
                                         <ActivityIndicator color="#fff" />
                                     ) : (
                                         <View style={styles.buttonContent}>
-                                            <Text style={styles.signUpButtonText}>Sign Up</Text>
+                                            <Text style={styles.signUpButtonText}>Đăng ký</Text>
                                             <Ionicons name="checkmark-circle" size={20} color="#fff" />
                                         </View>
                                     )}
@@ -212,17 +208,17 @@ export default function SignUpScreen() {
                         </View>
 
                         <Text style={styles.terms}>
-                            By signing up, you agree to our{' '}
-                            <Text style={styles.termsLink}>Terms</Text>,{' '}
-                            <Text style={styles.termsLink}>Privacy Policy</Text> and{' '}
-                            <Text style={styles.termsLink}>Cookies Policy</Text>.
+                            Khi đăng ký, bạn đồng ý với{' '}
+                            <Text style={styles.termsLink}>Điều khoản sử dụng</Text>,{' '}
+                            <Text style={styles.termsLink}>Chính sách bảo mật</Text> và{' '}
+                            <Text style={styles.termsLink}>Chính sách cookie</Text>.
                         </Text>
 
                         <View style={styles.loginContainer}>
-                            <Text style={styles.loginText}>Already have an account? </Text>
+                            <Text style={styles.loginText}>Bạn đã có tài khoản? </Text>
                             <Link href="/login" asChild>
                                 <TouchableOpacity>
-                                    <Text style={styles.loginLink}>Log in</Text>
+                                    <Text style={styles.loginLink}>Đăng nhập</Text>
                                 </TouchableOpacity>
                             </Link>
                         </View>

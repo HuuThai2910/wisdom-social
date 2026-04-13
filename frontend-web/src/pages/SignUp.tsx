@@ -37,11 +37,11 @@ export default function SignUp() {
     };
 
     return (
-            <div className="space-y-8 rounded-2xl border border-blue-100 bg-gradient-to-b from-blue-50 via-white to-slate-50 p-8 shadow-sm">
+            <div className="space-y-8 rounded-2xl border border-blue-100 bg-linear-to-b from-blue-50 via-white to-slate-50 p-8 shadow-sm">
                 <div className="text-center">
-                    <h2 className="text-3xl font-bold text-gray-800">Create Account</h2>
+                    <h2 className="text-3xl font-bold text-gray-800">Tạo tài khoản mới</h2>
                     <p className="mt-2 text-gray-500">
-                        Sign up with your phone number to get started
+                        Đăng ký bằng số điện thoại để bắt đầu
                     </p>
                 </div>
                 <form onSubmit={handleSubmit} className="mt-8 space-y-4">
@@ -55,7 +55,7 @@ export default function SignUp() {
                         <Phone className="h-4 w-4 text-blue-500" />
                         <input
                             type="tel"
-                            placeholder="Phone Number"
+                            placeholder="Số điện thoại"
                             value={phone}
                             onChange={(e) => setPhone(e.target.value)}
                             className="w-full bg-transparent px-3 py-3.5 text-gray-800 outline-none"
@@ -66,7 +66,7 @@ export default function SignUp() {
                         <Lock className="h-4 w-4 text-blue-500" />
                         <input
                             type={showPassword ? "text" : "password"}
-                            placeholder="Password"
+                            placeholder="Mật khẩu"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
                             className="w-full bg-transparent px-3 py-3.5 text-gray-800 outline-none"
@@ -80,7 +80,7 @@ export default function SignUp() {
                         <Lock className="h-4 w-4 text-blue-500" />
                         <input
                             type={showConfirmPassword ? "text" : "password"}
-                            placeholder="Confirm Password"
+                            placeholder="Nhập lại mật khẩu"
                             value={confirmPassword}
                             onChange={(e) => setConfirmPassword(e.target.value)}
                             className="w-full bg-transparent px-3 py-3.5 text-gray-800 outline-none"
@@ -95,21 +95,21 @@ export default function SignUp() {
                         disabled={loading}
                         className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-500 py-3.5 text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                        {loading ? "Đang xử lý..." : "Sign Up"}
+                        {loading ? "Đang xử lý..." : "Đăng ký"}
                         {!loading && <CheckCircle2 className="h-4 w-4" />}
                     </button>
                 </form>
 
                 <p className="text-center text-xs text-gray-500">
-                    By signing up, you agree to our Terms, Privacy Policy and Cookies Policy.
+                    Khi đăng ký, bạn đồng ý với Điều khoản sử dụng, Chính sách bảo mật và Chính sách cookie.
                 </p>
 
                 <div className="border-t border-gray-200 pt-5 text-center">
                     <span className="text-gray-600">
-                        Have an account?{" "}
+                        Bạn đã có tài khoản?{" "}
                     </span>
                     <Link to="/login" className="font-semibold text-blue-500 hover:underline">
-                        Log in
+                        Đăng nhập
                     </Link>
                 </div>
             </div>

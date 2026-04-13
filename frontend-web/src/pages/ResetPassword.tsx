@@ -51,9 +51,9 @@ export default function ResetPassword() {
     };
 
     return (
-            <div className="space-y-8 rounded-2xl border border-blue-100 bg-gradient-to-b from-blue-50 via-white to-slate-50 p-8 text-gray-900 shadow-sm">
+            <div className="space-y-8 rounded-2xl border border-blue-100 bg-linear-to-b from-blue-50 via-white to-slate-50 p-8 text-gray-900 shadow-sm">
                 <div className="text-center">
-                    <h2 className="text-3xl font-bold">Reset Password</h2>
+                    <h2 className="text-3xl font-bold">Đặt lại mật khẩu</h2>
                     <p className="mt-2 text-gray-600">
                         Nhập OTP và mật khẩu mới của bạn
                     </p>
@@ -70,7 +70,7 @@ export default function ResetPassword() {
                             type="text"
                             inputMode="numeric"
                             maxLength={6}
-                            placeholder="OTP Code"
+                            placeholder="Mã OTP"
                             value={otp}
                             onChange={(e) => setOtp(e.target.value)}
                             disabled={loading}
@@ -95,7 +95,7 @@ export default function ResetPassword() {
                         <Lock className="h-4 w-4 text-blue-500" />
                         <input
                             type={showConfirmPassword ? "text" : "password"}
-                            placeholder="Xác nhận mật khẩu"
+                            placeholder="Nhập lại mật khẩu mới"
                             value={confirmPassword}
                             onChange={(e) => setConfirmPassword(e.target.value)}
                             disabled={loading}
@@ -110,14 +110,14 @@ export default function ResetPassword() {
                         disabled={loading}
                         className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-500 py-3.5 text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                        {loading ? "Đang xử lý..." : "Reset Password"}
+                        {loading ? "Đang xử lý..." : "Cập nhật mật khẩu"}
                         {!loading && <CheckCircle2 className="h-4 w-4" />}
                     </button>
                 </form>
                 <div className="text-center">
                     <Link to="/login" className="inline-flex items-center gap-2 text-blue-500 hover:underline">
                         <ArrowLeft className="h-4 w-4" />
-                        Back to Login
+                        Quay lại đăng nhập
                     </Link>
                 </div>
             </div>

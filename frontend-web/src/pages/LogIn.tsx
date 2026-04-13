@@ -46,10 +46,10 @@ export default function Login() {
 
 
   return (
-    <div className="rounded-2xl border border-blue-100 bg-gradient-to-b from-blue-50 via-white to-slate-50 p-8 shadow-sm">
+    <div className="rounded-2xl border border-blue-100 bg-linear-to-b from-blue-50 via-white to-slate-50 p-8 shadow-sm">
       <div className="mb-6 text-center">
-        <h2 className="text-2xl font-bold text-gray-800">Welcome Back!</h2>
-        <p className="mt-1 text-sm text-gray-500">Log in to continue your journey</p>
+        <h2 className="text-2xl font-bold text-gray-800">Chào mừng bạn trở lại</h2>
+        <p className="mt-1 text-sm text-gray-500">Đăng nhập để tiếp tục hành trình kết nối</p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -63,7 +63,7 @@ export default function Login() {
           <Phone className="h-4 w-4 text-blue-500" />
           <input
             type="tel"
-            placeholder="Phone Number"
+            placeholder="Số điện thoại"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             className="w-full bg-transparent px-3 py-3.5 text-gray-800 outline-none"
@@ -76,7 +76,7 @@ export default function Login() {
           <Lock className="h-4 w-4 text-blue-500" />
           <input
             type={showPassword ? "text" : "password"}
-            placeholder="Password"
+            placeholder="Mật khẩu"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className="w-full bg-transparent px-3 py-3.5 text-gray-800 outline-none"
@@ -94,7 +94,7 @@ export default function Login() {
 
         <div className="text-right">
           <Link to="/forgot-password" className="text-sm font-semibold text-blue-500 hover:text-blue-600">
-            Forgot Password?
+            Quên mật khẩu?
           </Link>
         </div>
 
@@ -103,15 +103,15 @@ export default function Login() {
           className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-500 py-3.5 font-semibold text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
           disabled={loading}
         >
-          {loading ? "Đang đăng nhập..." : "Log in"}
+          {loading ? "Đang đăng nhập..." : "Đăng nhập"}
           {!loading && <ArrowRight className="h-4 w-4" />}
         </button>
       </form>
 
       <p className="mt-6 border-t border-gray-200 pt-5 text-center text-sm text-gray-600">
-        Don't have an account?{" "}
+        Bạn chưa có tài khoản?{" "}
         <Link to="/signup" className="font-semibold text-blue-500 hover:text-blue-700">
-          Sign up
+          Đăng ký
         </Link>
       </p>
 

@@ -4,7 +4,7 @@ import { getIdToken, getRefreshToken, saveIdToken, clearStorage } from '../utils
 
 const API_URL = Platform.select({
     android: 'http://10.0.2.2:8080/api',
-    ios: 'http://192.168.1.151:8080/api',
+    ios: 'http://192.168.137.101:8080/api',
     default: 'http://10.0.2.2:8080/api',
 });
 

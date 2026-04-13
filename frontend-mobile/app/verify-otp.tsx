@@ -22,6 +22,7 @@ export default function VerifyOTPScreen() {
     const params = useLocalSearchParams();
     const phone = params.phone as string;
     const type = params.type as 'register' | 'reset-password';
+    const isRegisterFlow = type === 'register';
 
     const [otp, setOtp] = useState(['', '', '', '', '', '']);
     const [loading, setLoading] = useState(false);
@@ -179,9 +180,13 @@ export default function VerifyOTPScreen() {
                                 </View>
                             </View>
 
-                            <Text style={styles.title}>Verify OTP</Text>
+                            <Text style={styles.title}>
+                                {isRegisterFlow ? 'Xác thực đăng ký' : 'Xác thực đặt lại mật khẩu'}
+                            </Text>
                             <Text style={styles.subtitle}>
-                                Enter the 6-digit code sent to
+                                {isRegisterFlow
+                                    ? 'Nhập mã OTP gồm 6 chữ số đã gửi đến'
+                                    : 'Nhập mã OTP gồm 6 chữ số để đặt lại mật khẩu'}
                             </Text>
                             <Text style={styles.phoneNumber}>{phone}</Text>
 
@@ -218,7 +223,7 @@ export default function VerifyOTPScreen() {
                                         <ActivityIndicator color="#fff" />
                                     ) : (
                                         <View style={styles.buttonContent}>
-                                            <Text style={styles.verifyButtonText}>Verify Code</Text>
+                                            <Text style={styles.verifyButtonText}>Xác nhận mã</Text>
                                             <Ionicons name="checkmark-circle" size={20} color="#fff" />
                                         </View>
                                     )}
@@ -233,11 +238,11 @@ export default function VerifyOTPScreen() {
                                 {resendLoading ? (
                                     <View style={styles.resendLoadingContainer}>
                                         <ActivityIndicator color="#3B82F6" size="small" />
-                                        <Text style={[styles.resendText, { marginLeft: 8 }]}>Sending...</Text>
+                                        <Text style={[styles.resendText, { marginLeft: 8 }]}>Đang gửi...</Text>
                                     </View>
                                 ) : (
                                     <Text style={styles.resendText}>
-                                        Didn't receive code? <Text style={styles.resendLink}>Resend</Text>
+                                        Bạn chưa nhận được mã? <Text style={styles.resendLink}>Gửi lại</Text>
                                     </Text>
                                 )}
                             </TouchableOpacity>

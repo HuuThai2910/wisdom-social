@@ -135,8 +135,8 @@ export default function ResetPasswordScreen() {
                             </View>
                         </View>
 
-                        <Text style={styles.title}>Reset Password</Text>
-                        <Text style={styles.subtitle}>Enter OTP and your new password</Text>
+                        <Text style={styles.title}>Đặt lại mật khẩu</Text>
+                        <Text style={styles.subtitle}>Nhập mã OTP và mật khẩu mới để tiếp tục</Text>
 
                         <View style={styles.form}>
                             <View style={styles.inputWrapper}>
@@ -145,7 +145,7 @@ export default function ResetPasswordScreen() {
                                 </View>
                                 <TextInput
                                     style={styles.input}
-                                    placeholder="OTP Code"
+                                    placeholder="Mã OTP"
                                     placeholderTextColor="#9CA3AF"
                                     value={otp}
                                     onChangeText={setOtp}
@@ -160,7 +160,7 @@ export default function ResetPasswordScreen() {
                                 </View>
                                 <TextInput
                                     style={styles.input}
-                                    placeholder="New Password"
+                                    placeholder="Mật khẩu mới"
                                     placeholderTextColor="#9CA3AF"
                                     value={password}
                                     onChangeText={setPassword}
@@ -184,7 +184,7 @@ export default function ResetPasswordScreen() {
                                 </View>
                                 <TextInput
                                     style={styles.input}
-                                    placeholder="Confirm New Password"
+                                    placeholder="Nhập lại mật khẩu mới"
                                     placeholderTextColor="#9CA3AF"
                                     value={confirmPassword}
                                     onChangeText={setConfirmPassword}
@@ -217,7 +217,7 @@ export default function ResetPasswordScreen() {
                                         <ActivityIndicator color="#fff" />
                                     ) : (
                                         <View style={styles.buttonContent}>
-                                            <Text style={styles.submitButtonText}>Reset Password</Text>
+                                            <Text style={styles.submitButtonText}>Cập nhật mật khẩu</Text>
                                             <Ionicons name="checkmark-done" size={20} color="#fff" />
                                         </View>
                                     )}
