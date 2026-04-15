@@ -80,21 +80,25 @@ export default function CallScreen({
     };
 
     useEffect(() => {
+        if (!open) return;
         attachStreamToMediaElement(localVideoRef.current, localStream);
-    }, [localStream]);
+    }, [open, localStream]);
 
     useEffect(() => {
+        if (!open) return;
         attachStreamToMediaElement(remoteVideoRef.current, remoteStream);
-    }, [remoteStream]);
+    }, [open, remoteStream]);
 
     useEffect(() => {
+        if (!open) return;
+
         if (callType !== "audio") {
             attachStreamToMediaElement(remoteAudioRef.current, null);
             return;
         }
 
         attachStreamToMediaElement(remoteAudioRef.current, remoteStream);
-    }, [callType, remoteStream]);
+    }, [open, callType, remoteStream]);
 
     if (!open) return null;
 
@@ -106,7 +110,7 @@ export default function CallScreen({
                 ref={remoteAudioRef}
                 autoPlay
                 playsInline
-                className="hidden"
+                className="absolute h-px w-px opacity-0 pointer-events-none"
             />
 
             {callType === "video" ? (
