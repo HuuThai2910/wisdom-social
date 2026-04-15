@@ -367,6 +367,18 @@ export function MessageBubble({
                   .map((attachment) => attachment.url)
                   .filter((url): url is string => Boolean(url))
             : [];
+    const videoUrls =
+        message.type === "VIDEO"
+            ? messageAttachments
+                  .map((attachment) => attachment.url)
+                  .filter((url): url is string => Boolean(url))
+            : [];
+    const audioUrls =
+        message.type === "AUDIO"
+            ? messageAttachments
+                  .map((attachment) => attachment.url)
+                  .filter((url): url is string => Boolean(url))
+            : [];
     const fileAttachment =
         message.type === "FILE" ? messageAttachments[0] : undefined;
     const resolvedFileName =
@@ -921,14 +933,14 @@ export function MessageBubble({
                                     )
                                 ) : message.type === "VIDEO" ? (
                                     <video
-                                        src={message.content}
+                                        src={videoUrls[0] || message.content}
                                         controls
                                         className="max-w-full block"
                                         onLoadedData={onMediaLoad}
                                     />
                                 ) : message.type === "AUDIO" ? (
                                     <AudioPlayer
-                                        src={message.content}
+                                        src={audioUrls[0] || message.content}
                                         isOwn={isOwn}
                                     />
                                 ) : message.type === "FILE" ? (

@@ -9,8 +9,8 @@ import { CustomButton, CustomInput } from "@/components";
 export default function LoginScreen() {
     const router = useRouter();
     const { login, loadingAuth } = useAppContext();
-    const [phone, setPhone] = useState("");
-    const [password, setPassword] = useState("");
+    const [phone, setPhone] = useState("0398724346");
+    const [password, setPassword] = useState("Xen123123!");
     const [error, setError] = useState("");
 
     const disabled = useMemo(() => !phone || !password, [phone, password]);
@@ -65,7 +65,7 @@ export default function LoginScreen() {
                     title="Log In"
                     onPress={onSubmit}
                     loading={loadingAuth}
-                    disabled={disabled}
+                   
                     style={styles.loginButton}
                 />
 

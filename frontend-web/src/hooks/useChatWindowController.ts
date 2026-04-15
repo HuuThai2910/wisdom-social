@@ -2419,17 +2419,13 @@ export function useChatWindowController(args: {
                 audio: true,
             });
 
-            // Bước 2: Chọn MIME type tốt nhất theo thứ tự ưu tiên
-            // - audio/webm;codecs=opus: chất lượng tốt, size nhỏ (Chrome/Edge)
-            // - audio/webm: fallback cho webm không có opus
-            // - audio/mp4: fallback cho Safari iOS
-            const mimeType = MediaRecorder.isTypeSupported(
-                "audio/webm;codecs=opus",
-            )
-                ? "audio/webm;codecs=opus"
-                : MediaRecorder.isTypeSupported("audio/webm")
-                  ? "audio/webm"
-                  : "audio/mp4";
+            // Bước 2: Ưu tiên audio/mp4 để tương thích tốt hơn với mobile,
+            // fallback sang webm khi browser không hỗ trợ mp4.
+            const mimeType = MediaRecorder.isTypeSupported("audio/mp4")
+                ? "audio/mp4"
+                : MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+                  ? "audio/webm;codecs=opus"
+                  : "audio/webm";
 
             // Bước 3: Tạo MediaRecorder và reset mảng chunks
             const recorder = new MediaRecorder(stream, { mimeType });
@@ -2452,7 +2448,7 @@ export function useChatWindowController(args: {
                 if (blob.size === 0) return; // Không có dữ liệu thì bỏ qua
 
                 // Chuyển Blob thành File object với tên file và extension phù hợp
-                const ext = mimeType.includes("webm") ? "webm" : "mp4";
+                const ext = mimeType.includes("webm") ? "webm" : "m4a";
                 const file = new File([blob], `voice-message.${ext}`, {
                     type: mimeType,
                 });

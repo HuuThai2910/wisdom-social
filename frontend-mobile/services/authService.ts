@@ -166,6 +166,7 @@ export async function loginWithPhone(
 ): Promise<{ success: boolean; message?: string; user?: ApiAuthUser }> {
     try {
         const device = await getDeviceInfo();
+        console.log("Data:", data)
         const response = await apiClient.post("/auth/login", {
             ...data,
             deviceType: device.deviceType,
@@ -196,6 +197,7 @@ export async function loginWithPhone(
 
         return { success: true, user: userProfile ?? undefined };
     } catch (error: unknown) {
+        console.log(error)
         const backendMessage =
             error && typeof error === "object"
                 ? (error as { response?: { data?: { message?: string } }; message?: string }).response?.data?.message ||
