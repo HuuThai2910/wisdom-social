@@ -18,13 +18,13 @@ export default function AIResultPanel({
     const isEmpty = !summary && suggestions.length === 0 && !error;
 
     return (
-        <div className="mt-1.5 rounded-md border border-gray-200/70 bg-white/70 px-2 py-1.5 dark:border-gray-700/70 dark:bg-gray-900/35">
+        <div className="mt-1.5 rounded-md bg-white px-2 py-1.5 dark:border-t dark:border-gray-700/70 dark:bg-gray-900">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
                 Kết quả AI
             </p>
 
             {error && (
-                <p className="mt-1.5 rounded-md border border-red-200 bg-red-50 px-2 py-1.5 text-[11px] text-red-600 dark:border-red-900/70 dark:bg-red-950/30 dark:text-red-400">
+                <p className="mt-1.5 rounded-md border border-red-200 bg-red-50 px-2 py-1.5 text-[11px] text-red-600 dark:border-red-900/70 dark:bg-red-950 dark:text-red-400">
                     {error}
                 </p>
             )}
@@ -37,7 +37,7 @@ export default function AIResultPanel({
             )}
 
             {(isSummarizing || summary) && (
-                <div className="mt-2 rounded-md border border-gray-200 bg-gray-50/80 px-2 py-1.5 dark:border-gray-700 dark:bg-gray-800/45">
+                <div className="mt-2 rounded-md border border-gray-200 bg-gray-50 px-2 py-1.5 dark:border-gray-700 dark:bg-gray-800">
                     <p className="text-[10px] font-semibold text-gray-700 dark:text-gray-300">
                         Tóm tắt cuộc trò chuyện
                     </p>
@@ -73,7 +73,7 @@ export default function AIResultPanel({
                                     onClick={() =>
                                         onSuggestionClick(suggestion)
                                     }
-                                    className="rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-medium text-blue-700 transition-colors hover:bg-blue-100 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-300 dark:hover:bg-blue-900/40"
+                                    className="rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-medium text-blue-700 transition-colors hover:bg-blue-100 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900"
                                 >
                                     {suggestion}
                                 </button>

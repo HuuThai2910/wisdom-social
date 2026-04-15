@@ -803,7 +803,7 @@ export default function ChatWindow({
     return (
         <div className="flex flex-col h-full w-full flex-1 min-w-0">
             {/* Header */}
-            <div className="flex items-center justify-between border-b border-gray-200/80 dark:border-gray-700 px-5 py-3.5 bg-white/95 dark:bg-black/90 backdrop-blur-sm">
+            <div className="flex items-center justify-between border-b border-gray-200/80 dark:border-gray-700 px-5 py-3.5 bg-white dark:bg-black backdrop-blur-sm">
                 <div className="flex items-center gap-3">
                     <img
                         src={displayAvatar || defaultAvatarUrl}
@@ -854,7 +854,7 @@ export default function ChatWindow({
             </div>
 
             {pinnedBannerItems.length > 0 && (
-                <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/70">
+                <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
                     {/*
                       Header khu vực ghim:
                       - Bên trái: icon + item ghim chính (chế độ gọn)
@@ -1081,7 +1081,7 @@ export default function ChatWindow({
                             className="pointer-events-none absolute top-2 left-0 right-0 z-10 flex justify-center"
                             style={{ overflowAnchor: "none" }}
                         >
-                            <div className="inline-flex items-center rounded-full bg-white/90 dark:bg-gray-900/90 border border-gray-200 dark:border-gray-700 shadow-sm px-3 py-2">
+                            <div className="inline-flex items-center rounded-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 shadow-sm px-3 py-2">
                                 <span className="h-4 w-4 rounded-full border-2 border-gray-300 dark:border-gray-600 border-t-gray-600 dark:border-t-gray-200 animate-spin" />
                             </div>
                         </div>
@@ -1155,7 +1155,7 @@ export default function ChatWindow({
                 )}
             </div>
 
-            <div className="border-t border-gray-200/80 dark:border-gray-700/80 bg-white/80 dark:bg-black/80 px-4 pb-0.5 pt-1.5">
+            <div className=" bg-white dark:bg-black px-4 pb-0.5 pt-1.5">
                 <AIActionPanel
                     isOpen={isAiPanelOpen}
                     onToggle={() => setIsAiPanelOpen((prev) => !prev)}
@@ -1182,7 +1182,7 @@ export default function ChatWindow({
             </div>
 
             {/* Input */}
-            <div className="border-t border-gray-200/70 bg-white px-4 pb-3.5 pt-2.5 dark:border-gray-700/70 dark:bg-black">
+            <div className=" bg-white px-4 pb-3.5 pt-2.5 dark:border-gray-700/70 dark:bg-black">
                 {/* Hidden file inputs */}
                 <input
                     ref={attachInputRef}
@@ -1447,7 +1447,7 @@ export default function ChatWindow({
                                 )}
                             </div>
 
-                            <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-full bg-gray-100 px-2 py-1.5 transition-colors focus-within:bg-gray-50 dark:bg-[#1b1b1b] dark:focus-within:bg-[#232323]">
+                            <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-full bg-gray-100 px-2 py-1.5 transition-colors focus-within:bg-gray-50 dark:bg-gray-900 dark:focus-within:bg-gray-800">
                                 {/* Input text */}
                                 <input
                                     ref={messageInputRef}

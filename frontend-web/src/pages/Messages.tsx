@@ -169,21 +169,21 @@ export default function Messages() {
         "flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-[#363636]";
 
     const detailSectionButtonClass =
-        "flex w-full items-center justify-between rounded-md px-1.5 py-2 text-left transition-colors hover:bg-gray-100/80 dark:hover:bg-[#151515]";
+        "flex w-full items-center justify-between rounded-md px-1.5 py-2 text-left transition-colors hover:bg-gray-100 dark:hover:bg-gray-800";
 
     const detailActionButtonClass =
-        "flex w-full items-center gap-3 rounded-md px-1.5 py-2 text-left text-gray-800 transition-colors hover:bg-gray-100/80 dark:text-gray-100 dark:hover:bg-[#151515]";
+        "flex w-full items-center gap-3 rounded-md px-1.5 py-2 text-left text-gray-800 transition-colors hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-gray-800";
 
     const infoPanelContent = (
         <>
-            <div className="flex items-center justify-between border-b border-gray-200/90 px-5 py-4 dark:border-[#1f1f1f]">
+            <div className="flex items-center justify-between border-b border-gray-200/90 px-5 py-4 dark:border-[#262626]">
                 <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">
                     Chi tiết đoạn chat
                 </p>
                 <button
                     type="button"
                     onClick={handleCloseInfoPanel}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-[#171717] dark:hover:text-gray-100"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"
                     title="Đóng bảng thông tin"
                 >
                     <X size={16} />
@@ -203,26 +203,26 @@ export default function Messages() {
                     <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                         {selectedStatus}
                     </p>
-                    <span className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700 dark:bg-[#151515] dark:text-gray-200">
+                    <span className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700 dark:bg-gray-900 dark:text-gray-200">
                         <Lock size={12} />
                         Được mã hóa đầu cuối
                     </span>
 
                     <div className="mt-5 grid w-full grid-cols-3 gap-2">
-                        <button className="flex flex-col items-center gap-1.5 rounded-md px-2 py-2 text-xs text-gray-700 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-[#171717] dark:hover:text-white">
-                            <span className="flex h-8 w-8 items-center justify-center rounded-md bg-gray-100 dark:bg-[#1f1f1f]">
+                        <button className="flex flex-col items-center gap-1.5 rounded-md px-2 py-2 text-xs text-gray-700 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-gray-800 dark:hover:text-white">
+                            <span className="flex h-8 w-8 items-center justify-center rounded-md bg-gray-100 dark:bg-gray-900">
                                 <CircleUserRound size={16} />
                             </span>
                             Trang cá nhân
                         </button>
-                        <button className="flex flex-col items-center gap-1.5 rounded-md px-2 py-2 text-xs text-gray-700 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-[#171717] dark:hover:text-white">
-                            <span className="flex h-8 w-8 items-center justify-center rounded-md bg-gray-100 dark:bg-[#1f1f1f]">
+                        <button className="flex flex-col items-center gap-1.5 rounded-md px-2 py-2 text-xs text-gray-700 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-gray-800 dark:hover:text-white">
+                            <span className="flex h-8 w-8 items-center justify-center rounded-md bg-gray-100 dark:bg-gray-900">
                                 <Bell size={16} />
                             </span>
                             Tắt thông báo
                         </button>
-                        <button className="flex flex-col items-center gap-1.5 rounded-md px-2 py-2 text-xs text-gray-700 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-[#171717] dark:hover:text-white">
-                            <span className="flex h-8 w-8 items-center justify-center rounded-md bg-gray-100 dark:bg-[#1f1f1f]">
+                        <button className="flex flex-col items-center gap-1.5 rounded-md px-2 py-2 text-xs text-gray-700 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-gray-800 dark:hover:text-white">
+                            <span className="flex h-8 w-8 items-center justify-center rounded-md bg-gray-100 dark:bg-gray-900">
                                 <Search size={16} />
                             </span>
                             Tìm kiếm
@@ -230,7 +230,7 @@ export default function Messages() {
                     </div>
                 </div>
 
-                <div className="h-px bg-gray-200 dark:bg-[#1f1f1f]" />
+                <div className="h-px bg-gray-200 dark:bg-[#262626]" />
 
                 <div className="space-y-0">
                     <section className="py-2">
@@ -264,7 +264,7 @@ export default function Messages() {
                         )}
                     </section>
 
-                    <div className="h-px bg-gray-200 dark:bg-[#1f1f1f]" />
+                    <div className="h-px bg-gray-200 dark:bg-[#262626]" />
 
                     <section className="py-2">
                         <button
@@ -309,7 +309,7 @@ export default function Messages() {
                         )}
                     </section>
 
-                    <div className="h-px bg-gray-200 dark:bg-[#1f1f1f]" />
+                    <div className="h-px bg-gray-200 dark:bg-[#262626]" />
 
                     <section className="py-2">
                         <button
@@ -346,7 +346,7 @@ export default function Messages() {
                         )}
                     </section>
 
-                    <div className="h-px bg-gray-200 dark:bg-[#1f1f1f]" />
+                    <div className="h-px bg-gray-200 dark:bg-[#262626]" />
 
                     <section className="py-2">
                         <button
@@ -383,7 +383,7 @@ export default function Messages() {
                                     <TimerReset size={18} />
                                     <span>Tin nhắn tự hủy</span>
                                 </button>
-                                <button className="flex w-full items-start justify-between gap-3 rounded-md px-1.5 py-2 text-left text-gray-800 transition-colors hover:bg-gray-100/80 dark:text-gray-100 dark:hover:bg-[#151515]">
+                                <button className="flex w-full items-start justify-between gap-3 rounded-md px-1.5 py-2 text-left text-gray-800 transition-colors hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-gray-800">
                                     <div className="flex items-center gap-3">
                                         <Eye size={18} />
                                         <div>
@@ -406,7 +406,7 @@ export default function Messages() {
                                     <Ban size={18} />
                                     <span>Chặn</span>
                                 </button>
-                                <button className="flex w-full items-start justify-between gap-3 rounded-md px-1.5 py-2 text-left transition-colors hover:bg-gray-100/80 dark:hover:bg-[#151515]">
+                                <button className="flex w-full items-start justify-between gap-3 rounded-md px-1.5 py-2 text-left transition-colors hover:bg-gray-100 dark:hover:bg-gray-800">
                                     <div className="flex items-start gap-3">
                                         <Flag
                                             size={18}
@@ -464,7 +464,7 @@ export default function Messages() {
                             placeholder="Tìm kiếm"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
-                            className="w-full rounded-xl border border-transparent bg-gray-100 py-2.5 pl-10 pr-3 text-sm text-gray-900 outline-none transition-colors focus:border-blue-200 focus:bg-white dark:bg-[#191919] dark:text-white dark:placeholder-gray-400 dark:focus:border-blue-900 dark:focus:bg-[#111111]"
+                            className="w-full rounded-xl border border-transparent bg-gray-100 py-2.5 pl-10 pr-3 text-sm text-gray-900 outline-none transition-colors focus:border-blue-200 focus:bg-white dark:bg-gray-900 dark:text-white dark:placeholder-gray-400 dark:focus:border-blue-900 dark:focus:bg-black"
                         />
                         <Search
                             size={16}
@@ -508,7 +508,7 @@ export default function Messages() {
                                         }
                                         className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-3 transition-colors ${
                                             isActive
-                                                ? "border-blue-100 bg-blue-50/90 shadow-sm dark:border-blue-900/40 dark:bg-[#171f2e]"
+                                                ? "border-blue-100 bg-blue-50/90 shadow-sm dark:border-[#262626] dark:bg-gray-900"
                                                 : "border-transparent hover:border-gray-200 hover:bg-gray-50 dark:hover:border-[#242424] dark:hover:bg-[#131313]"
                                         }`}
                                     >
@@ -736,7 +736,7 @@ export default function Messages() {
             </div>
 
             {/* Right Side - Chat Window or Empty State */}
-            <div className="hidden min-w-0 flex-1 bg-white/80 dark:bg-black md:flex">
+            <div className="hidden min-w-0 flex-1 bg-white dark:bg-black md:flex">
                 {selectedConversationId ? (
                     <div className="relative flex min-w-0 flex-1">
                         <div
@@ -763,7 +763,7 @@ export default function Messages() {
 
                         {isInfoPanelRendered && (
                             <aside
-                                className={`absolute inset-y-0 right-0 z-30 hidden shrink-0 overflow-hidden border-l border-gray-200 bg-[#fbfcfe] transition-[transform,opacity] duration-300 ease-out dark:border-[#262626] dark:bg-[#050505] xl:flex ${showInfoPanel ? "translate-x-0 opacity-100" : "translate-x-full opacity-0"}`}
+                                className={`absolute inset-y-0 right-0 z-30 hidden shrink-0 overflow-hidden border-l border-gray-200 bg-[#fbfcfe] transition-[transform,opacity] duration-300 ease-out dark:border-[#262626] dark:bg-black xl:flex ${showInfoPanel ? "translate-x-0 opacity-100" : "translate-x-full opacity-0"}`}
                                 style={{ width: `${INFO_PANEL_WIDTH}px` }}
                             >
                                 <div className="flex h-full min-h-0 flex-1 flex-col">
@@ -774,7 +774,7 @@ export default function Messages() {
 
                         {isInfoPanelRendered && (
                             <aside
-                                className={`absolute inset-y-0 right-0 z-30 flex w-full max-w-[352px] flex-col overflow-hidden border-l border-gray-200 bg-[#fbfcfe] shadow-2xl transition-[transform,opacity] duration-300 ease-out dark:border-[#262626] dark:bg-[#050505] xl:hidden ${showInfoPanel ? "translate-x-0 opacity-100" : "translate-x-full opacity-0"}`}
+                                className={`absolute inset-y-0 right-0 z-30 flex w-full max-w-[352px] flex-col overflow-hidden border-l border-gray-200 bg-[#fbfcfe] shadow-2xl transition-[transform,opacity] duration-300 ease-out dark:border-[#262626] dark:bg-black xl:hidden ${showInfoPanel ? "translate-x-0 opacity-100" : "translate-x-full opacity-0"}`}
                             >
                                 {infoPanelContent}
                             </aside>
@@ -783,7 +783,7 @@ export default function Messages() {
                 ) : (
                     <div className="flex-1 flex items-center justify-center">
                         <div className="text-center">
-                            <div className="mx-auto mb-5 flex h-24 w-24 items-center justify-center rounded-full border border-gray-300 bg-white shadow-sm dark:border-gray-600 dark:bg-[#0d0d0d]">
+                            <div className="mx-auto mb-5 flex h-24 w-24 items-center justify-center rounded-full border border-gray-300 bg-white shadow-sm dark:border-gray-600 dark:bg-black">
                                 <svg
                                     width="48"
                                     height="48"
