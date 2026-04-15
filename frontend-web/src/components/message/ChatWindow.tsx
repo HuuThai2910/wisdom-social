@@ -1127,7 +1127,7 @@ export default function ChatWindow({
                     <button
                         type="button"
                         onClick={handleScrollToBottomClick}
-                        className="absolute bottom-4 right-4 h-11 w-11 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-lg flex items-center justify-center hover:bg-gray-50 dark:hover:bg-gray-700"
+                        className="absolute bottom-4 right-4 h-11 w-11 rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-lg flex items-center justify-center hover:bg-gray-50 dark:hover:bg-gray-700"
                         aria-label={
                             isHistoricalMode
                                 ? "Trở về hiện tại"

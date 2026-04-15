@@ -976,7 +976,7 @@ export function MessageBubble({
                                                 <span className="block text-sm leading-5 font-semibold text-gray-900 dark:text-gray-100 wrap-break-word">
                                                     {callMeta?.title}
                                                 </span>
-                                                <span className="block mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                                                <span className="block mt-0.5 text-xs text-gray-900 dark:text-gray-100">
                                                     {callMeta?.subtitle}
                                                 </span>
                                             </span>
