@@ -119,7 +119,8 @@ export default function CallScreen({
     if (!open) return null;
 
     const showTimer = status === "accepted";
-    const callLabel = callType === "video" ? "Cuộc gọi video" : "Cuộc gọi thoại";
+    const callLabel =
+        callType === "video" ? "Cuộc gọi video" : "Cuộc gọi thoại";
 
     const controlButtonBase =
         "h-12 w-12 rounded-full transition-colors flex items-center justify-center";
@@ -145,7 +146,9 @@ export default function CallScreen({
                                     ref={(node) => {
                                         if (node) {
                                             node.srcObject = remote.stream;
-                                            void node.play().catch(() => undefined);
+                                            void node
+                                                .play()
+                                                .catch(() => undefined);
                                         }
                                     }}
                                     onLoadedMetadata={(event) => {
@@ -179,8 +182,12 @@ export default function CallScreen({
                     <div className="pointer-events-none absolute inset-x-0 top-0 p-5 bg-gradient-to-b from-black/70 via-black/30 to-transparent">
                         <div className="flex items-start justify-between gap-4 pointer-events-auto">
                             <div>
-                                <p className="text-base font-semibold">{remoteName}</p>
-                                <p className="text-xs text-gray-200">{callLabel}</p>
+                                <p className="text-base font-semibold">
+                                    {remoteName}
+                                </p>
+                                <p className="text-xs text-gray-200">
+                                    {callLabel}
+                                </p>
                                 <p className="text-xs text-gray-300 mt-1">
                                     {getStatusText(status)}
                                     {showTimer ? ` • ${durationText}` : ""}
@@ -244,7 +251,9 @@ export default function CallScreen({
                         alt={remoteName}
                         className="h-28 w-28 rounded-full object-cover border border-white/30 shadow-lg"
                     />
-                    <p className="mt-5 text-2xl font-semibold tracking-tight">{remoteName}</p>
+                    <p className="mt-5 text-2xl font-semibold tracking-tight">
+                        {remoteName}
+                    </p>
                     <p className="mt-2 text-sm text-gray-300">{callLabel}</p>
                     <p className="mt-1 text-sm text-gray-300">
                         {getStatusText(status)}
@@ -302,7 +311,11 @@ export default function CallScreen({
                         className={`${controlButtonBase} bg-white/20 hover:bg-white/30`}
                         title={cameraEnabled ? "Tắt camera" : "Bật camera"}
                     >
-                        {cameraEnabled ? <Video size={20} /> : <VideoOff size={20} />}
+                        {cameraEnabled ? (
+                            <Video size={20} />
+                        ) : (
+                            <VideoOff size={20} />
+                        )}
                     </button>
                 )}
 
@@ -354,7 +367,9 @@ export default function CallScreen({
                                     ref={(node) => {
                                         if (node) {
                                             node.srcObject = remote.stream;
-                                            void node.play().catch(() => undefined);
+                                            void node
+                                                .play()
+                                                .catch(() => undefined);
                                         }
                                     }}
                                     className="h-full w-full object-cover rounded-md"
@@ -390,9 +405,13 @@ export default function CallScreen({
                             className="h-10 w-10 rounded-full border border-white/30 object-cover"
                         />
                         <div className="min-w-0">
-                            <p className="text-sm font-semibold truncate">{remoteName}</p>
+                            <p className="text-sm font-semibold truncate">
+                                {remoteName}
+                            </p>
                             <p className="text-xs text-gray-200">
-                                {showTimer ? durationText : getStatusText(status)}
+                                {showTimer
+                                    ? durationText
+                                    : getStatusText(status)}
                             </p>
                         </div>
                     </div>
@@ -408,9 +427,15 @@ export default function CallScreen({
                         title={micEnabled ? "Tắt mic" : "Bật mic"}
                     >
                         {micEnabled ? (
-                            <Mic size={16} className="text-gray-800 dark:text-gray-100" />
+                            <Mic
+                                size={16}
+                                className="text-gray-800 dark:text-gray-100"
+                            />
                         ) : (
-                            <MicOff size={16} className="text-gray-800 dark:text-gray-100" />
+                            <MicOff
+                                size={16}
+                                className="text-gray-800 dark:text-gray-100"
+                            />
                         )}
                     </button>
 
@@ -422,9 +447,15 @@ export default function CallScreen({
                             title={cameraEnabled ? "Tắt camera" : "Bật camera"}
                         >
                             {cameraEnabled ? (
-                                <Video size={16} className="text-gray-800 dark:text-gray-100" />
+                                <Video
+                                    size={16}
+                                    className="text-gray-800 dark:text-gray-100"
+                                />
                             ) : (
-                                <VideoOff size={16} className="text-gray-800 dark:text-gray-100" />
+                                <VideoOff
+                                    size={16}
+                                    className="text-gray-800 dark:text-gray-100"
+                                />
                             )}
                         </button>
                     )}
@@ -437,7 +468,10 @@ export default function CallScreen({
                         className="h-9 w-9 rounded-full bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 flex items-center justify-center"
                         title="Phóng to toàn màn hình"
                     >
-                        <Maximize2 size={16} className="text-gray-800 dark:text-gray-100" />
+                        <Maximize2
+                            size={16}
+                            className="text-gray-800 dark:text-gray-100"
+                        />
                     </button>
 
                     <button
@@ -457,5 +491,8 @@ export default function CallScreen({
         return null;
     }
 
-    return createPortal(isMinimized ? minimizedCallOverlay : fullCallOverlay, document.body);
+    return createPortal(
+        isMinimized ? minimizedCallOverlay : fullCallOverlay,
+        document.body,
+    );
 }
