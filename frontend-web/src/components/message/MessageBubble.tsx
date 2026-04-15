@@ -470,15 +470,13 @@ export function MessageBubble({
           ? "text-blue-100"
           : "text-gray-500 dark:text-gray-400";
 
-    // Quy tắc hiển thị tên người gửi trong group:
-    // - Chỉ hiện cho tin nhắn của người khác
-    // - Chỉ hiện ở tin đầu của group
-    // - Hiển thị bên TRÁI bubble (không nằm phía trên như trước)
-    const showSenderLabelAtLeft =
-        !isOwn &&
-        conversationType === "GROUP" &&
-        !message.isRecalled &&
-        isFirstInGroup;
+    // Metadata cho tin nhắn bên người gửi:
+    // - Bubble luôn hiển thị phía trên
+    // - Dòng avatar + tên + thời gian nằm dưới bubble để dễ đọc hơn
+    const showIncomingMetaRow = !isOwn && !message.isRecalled && isLastInGroup;
+    const incomingMetaSpacingClass = isFirstInGroup ? "mt-1.5" : "mt-1";
+    const incomingNameWeightClass =
+        conversationType === "GROUP" ? "font-semibold" : "font-medium";
 
     const normalizedReplyContent = (replyPreview?.content ?? "").trim();
     const isReplyPreviewRecalled =
@@ -524,25 +522,6 @@ export function MessageBubble({
         <div
             className={`flex items-end gap-1 overflow-visible ${isOwn ? "justify-end" : "justify-start"} group`}
         >
-            {/* Avatar (tin nhắn của người khác) */}
-            {!isOwn && (
-                <img
-                    src={senderAvatar || defaultAvatarSmallUrl}
-                    alt={senderName}
-                    className="w-8 h-8 rounded-full mr-1 object-cover shrink-0 self-end"
-                />
-            )}
-
-            {/*
-                            Tên người gửi đặt ở bên trái bubble theo yêu cầu UI mới.
-                            Label này đứng cùng hàng với bubble, không render ở phía trên.
-                        */}
-            {showSenderLabelAtLeft && (
-                <span className="max-w-28 truncate self-end mb-1 mr-1 text-xs font-semibold text-gray-600 dark:text-gray-300">
-                    {senderName}
-                </span>
-            )}
-
             {/* Nút "..." — hiện khi hover, căn giữa theo bubble */}
             <div
                 ref={menuRef}
@@ -558,7 +537,7 @@ export function MessageBubble({
 
                 {menuOpen && (
                     <div
-                        className={`absolute bottom-full mb-1 ${isOwn ? "right-0" : "left-0"} bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-2xl shadow-xl py-1.5 z-70 w-56`}
+                        className={`absolute bottom-full mb-1 ${isOwn ? "right-0" : "left-0"} bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-lg shadow-xl py-1.5 z-70 w-56`}
                     >
                         {message.isRecalled ? (
                             <button
@@ -704,7 +683,7 @@ export function MessageBubble({
                 )}
             </div>
 
-            {/* Cột: tên trên + bubble + giờ dưới */}
+            {/* Cột: bubble + metadata dưới (với tin người gửi) */}
             <div
                 className={`relative flex flex-col max-w-[70%] overflow-visible ${isOwn ? "items-end" : "items-start"}`}
             >
@@ -748,12 +727,12 @@ export function MessageBubble({
                                         <img
                                             src={replyPreview.content}
                                             alt="Reply ảnh"
-                                            className="w-12 h-12 rounded object-cover shrink-0"
+                                            className="w-12 h-12 rounded-sm object-cover shrink-0"
                                         />
                                     ) : !isReplyPreviewRecalled &&
                                       replyPreview.type === "VIDEO" ? (
                                         // Video background với play icon
-                                        <div className="w-12 h-12 rounded bg-gray-500 dark:bg-gray-600 flex items-center justify-center shrink-0 relative">
+                                        <div className="w-12 h-12 rounded-sm bg-gray-500 dark:bg-gray-600 flex items-center justify-center shrink-0 relative">
                                             <div className="w-8 h-8 rounded-full bg-white/30 flex items-center justify-center">
                                                 <Play
                                                     size={16}
@@ -764,7 +743,7 @@ export function MessageBubble({
                                     ) : !isReplyPreviewRecalled &&
                                       replyPreview.type === "AUDIO" ? (
                                         // Icon audio
-                                        <div className="w-12 h-12 rounded bg-gray-400/40 flex items-center justify-center shrink-0">
+                                        <div className="w-12 h-12 rounded-sm bg-gray-400/40 flex items-center justify-center shrink-0">
                                             <Mic
                                                 size={20}
                                                 className="text-gray-700 dark:text-gray-200"
@@ -776,7 +755,7 @@ export function MessageBubble({
                                       replyPreview.type === // FILE dùng label inline giống UX mẫu, không cần thumbnail lớn
                                           "CALL" ? (
                                         // Icon call
-                                        <div className="w-12 h-12 rounded bg-gray-400/40 flex items-center justify-center shrink-0">
+                                        <div className="w-12 h-12 rounded-sm bg-gray-400/40 flex items-center justify-center shrink-0">
                                             <Phone
                                                 size={20}
                                                 className="text-gray-700 dark:text-gray-200"
@@ -936,7 +915,7 @@ export function MessageBubble({
                                         href={resolvedFileUrl}
                                         target="_blank"
                                         rel="noopener noreferrer"
-                                        className="mx-2 my-2 flex items-center gap-3 rounded-xl border-gray-400 shadow-sm dark:border-gray-600 bg-gray-100 dark:bg-gray-800 px-3 py-3"
+                                        className="mx-2 my-2 flex items-center gap-3 rounded-2xl border-gray-400 shadow-sm dark:border-gray-600 bg-gray-100 dark:bg-gray-800 px-3 py-3"
                                     >
                                         <span className="h-9 w-9 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-[10px] font-semibold">
                                             {getFileBadgeLabel(
@@ -1027,8 +1006,31 @@ export function MessageBubble({
                     </div>
                 )}
 
-                {/* Giờ — DƯỚI bubble, ngoài khung, chỉ tin cuối group */}
-                {!message.isRecalled && isLastInGroup && (
+                {/* Metadata dưới bubble cho tin người gửi */}
+                {showIncomingMetaRow && (
+                    <div
+                        className={`flex items-center gap-2 px-1 ${incomingMetaSpacingClass}`}
+                    >
+                        <img
+                            src={senderAvatar || defaultAvatarSmallUrl}
+                            alt={senderName}
+                            className="h-5 w-5 rounded-full object-cover ring-1 ring-gray-200/80 dark:ring-gray-700/80"
+                        />
+                        <span
+                            className={`max-w-36 truncate text-xs ${incomingNameWeightClass} text-gray-600 dark:text-gray-300`}
+                        >
+                            {senderName}
+                        </span>
+                        {timeStr && (
+                            <span className="text-xs text-gray-400 dark:text-gray-500">
+                                {timeStr}
+                            </span>
+                        )}
+                    </div>
+                )}
+
+                {/* Giờ dưới bubble cho tin nhắn của mình */}
+                {!message.isRecalled && isLastInGroup && isOwn && (
                     <p
                         className={`text-xs mt-0.5 px-1 text-gray-400  dark:text-gray-500 ${isOwn ? "self-end" : "self-start"}`}
                     >

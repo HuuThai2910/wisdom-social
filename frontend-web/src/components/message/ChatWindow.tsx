@@ -35,11 +35,18 @@ import { MessageBubble } from "./MessageBubble";
 import { useCall } from "../../hooks/useCall";
 import IncomingCallModal from "./IncomingCallModal";
 import CallScreen from "./CallScreen";
+import { useChatAI } from "../../features/chat-ai/hooks/useChatAI";
+import AIConsentModal from "../../features/chat-ai/components/AIConsentModal";
+import AIActionPanel from "../../features/chat-ai/components/AIActionPanel";
+import AIResultPanel from "../../features/chat-ai/components/AIResultPanel";
+import type { MessagePreviewDTO } from "../../features/chat-ai/types/chatAI";
 
 interface ChatWindowProps {
     conversationId: number;
     userId: number;
     onMarkAsRead?: (conversationId: number) => void;
+    onToggleInfoPanel?: () => void;
+    showInfoPanel?: boolean;
 }
 
 function createClientFileId(): string {
@@ -53,7 +60,11 @@ export default function ChatWindow({
     conversationId,
     userId,
     onMarkAsRead,
+    onToggleInfoPanel,
+    showInfoPanel = true,
 }: ChatWindowProps) {
+    const [isAiPanelOpen, setIsAiPanelOpen] = useState(false);
+
     const {
         conversation,
         membersById,
@@ -156,6 +167,20 @@ export default function ChatWindow({
         targetAvatar: otherMember?.avatar,
         onCallMessageSaved: appendRealtimeMessage,
     });
+
+    const {
+        consentLoading,
+        consentModalOpen,
+        summary,
+        suggestions,
+        aiError,
+        isSummarizing,
+        isSuggesting,
+        acceptAIConsent,
+        declineAIConsent,
+        summarizeConversation,
+        suggestReplies,
+    } = useChatAI({ conversationId });
 
     const callParticipants = useMemo(() => {
         if (!activeCall || conversation?.type !== "GROUP") return [];
@@ -313,6 +338,16 @@ export default function ChatWindow({
     const attachInputRef = useRef<HTMLInputElement>(null);
     const gifInputRef = useRef<HTMLInputElement>(null);
     const messageInputRef = useRef<HTMLInputElement>(null);
+
+    const handleApplySuggestion = useCallback(
+        (suggestion: string) => {
+            setMessageText(suggestion);
+            requestAnimationFrame(() => {
+                messageInputRef.current?.focus();
+            });
+        },
+        [setMessageText],
+    );
 
     const onFileChange = useCallback(
         (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -718,6 +753,25 @@ export default function ChatWindow({
         userId,
     ]);
 
+    const currentMessagesForAISummary = useMemo<MessagePreviewDTO[]>(() => {
+        const recentMessages = messages.slice(-100);
+
+        return recentMessages.reduce<MessagePreviewDTO[]>((result, message) => {
+            const previewContent = getMessagePreviewText(message);
+            if (!previewContent?.trim()) {
+                return result;
+            }
+
+            result.push({
+                senderRole: message.senderId === userId ? "me" : "other",
+                content: previewContent,
+                createdAt: message.createdAt,
+            });
+
+            return result;
+        }, []);
+    }, [messages, userId, getMessagePreviewText]);
+
     useEffect(() => {
         const pendingId = pendingJumpMessageIdRef.current;
         if (!pendingId) return;
@@ -749,39 +803,52 @@ export default function ChatWindow({
     return (
         <div className="flex flex-col h-full w-full flex-1 min-w-0">
             {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+            <div className="flex items-center justify-between border-b border-gray-200/80 dark:border-gray-700 px-5 py-3.5 bg-white/95 dark:bg-black/90 backdrop-blur-sm">
                 <div className="flex items-center gap-3">
                     <img
                         src={displayAvatar || defaultAvatarUrl}
                         alt={displayName}
-                        className="w-10 h-10 rounded-full object-cover"
+                        className="h-10 w-10 rounded-full object-cover ring-1 ring-gray-200 dark:ring-gray-700"
                     />
                     <div>
-                        <p className="font-semibold text-sm dark:text-white">
+                        <p className="text-sm font-semibold text-gray-900 dark:text-white">
                             {displayName}
                         </p>
-                        <p className="text-xs text-gray-500">Active now</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                            Active now
+                        </p>
                     </div>
                 </div>
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-1.5">
                     <button
-                        className="hover:text-gray-600 dark:text-white disabled:opacity-40"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white disabled:opacity-40"
                         onClick={() => void startCall("audio")}
                         disabled={!otherMember}
                         title="Gọi thoại"
                     >
-                        <Phone size={20} />
+                        <Phone size={18} />
                     </button>
                     <button
-                        className="hover:text-gray-600 dark:text-white disabled:opacity-40"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white disabled:opacity-40"
                         onClick={() => void startCall("video")}
                         disabled={!otherMember}
                         title="Gọi video"
                     >
-                        <Video size={20} />
+                        <Video size={18} />
                     </button>
-                    <button className="hover:text-gray-600 dark:text-white">
-                        <Info size={20} />
+                    <button
+                        type="button"
+                        onClick={onToggleInfoPanel}
+                        className={`inline-flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
+                            showInfoPanel
+                                ? "bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950/40 dark:text-blue-300 dark:hover:bg-blue-900/40"
+                                : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white"
+                        }`}
+                        title={
+                            showInfoPanel ? "Ẩn thông tin" : "Hiện thông tin"
+                        }
+                    >
+                        <Info size={18} />
                     </button>
                 </div>
             </div>
@@ -1060,7 +1127,7 @@ export default function ChatWindow({
                     <button
                         type="button"
                         onClick={handleScrollToBottomClick}
-                        className="absolute bottom-4 right-4 h-11 w-11 rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-lg flex items-center justify-center hover:bg-gray-50 dark:hover:bg-gray-700"
+                        className="absolute bottom-4 right-4 h-11 w-11 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-lg flex items-center justify-center hover:bg-gray-50 dark:hover:bg-gray-700"
                         aria-label={
                             isHistoricalMode
                                 ? "Trở về hiện tại"
@@ -1088,8 +1155,34 @@ export default function ChatWindow({
                 )}
             </div>
 
+            <div className="border-t border-gray-200/80 dark:border-gray-700/80 bg-white/80 dark:bg-black/80 px-4 pb-0.5 pt-1.5">
+                <AIActionPanel
+                    isOpen={isAiPanelOpen}
+                    onToggle={() => setIsAiPanelOpen((prev) => !prev)}
+                    disabled={uploading || sending}
+                    isSummarizing={isSummarizing}
+                    isSuggesting={isSuggesting}
+                    onSummarize={() => {
+                        void summarizeConversation(currentMessagesForAISummary);
+                    }}
+                    onSuggest={() => {
+                        void suggestReplies();
+                    }}
+                />
+                {isAiPanelOpen && (
+                    <AIResultPanel
+                        summary={summary}
+                        suggestions={suggestions}
+                        error={aiError}
+                        isSummarizing={isSummarizing}
+                        isSuggesting={isSuggesting}
+                        onSuggestionClick={handleApplySuggestion}
+                    />
+                )}
+            </div>
+
             {/* Input */}
-            <div className="px-3 py-2 border-t border-gray-200 dark:border-gray-700">
+            <div className="border-t border-gray-200/70 bg-white px-4 pb-3.5 pt-2.5 dark:border-gray-700/70 dark:bg-black">
                 {/* Hidden file inputs */}
                 <input
                     ref={attachInputRef}
@@ -1265,7 +1358,7 @@ export default function ChatWindow({
                             </div>
                         )}
 
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-2">
                             {/* Plus / X — mở popup menu */}
                             <div
                                 ref={plusMenuRef}
@@ -1275,12 +1368,12 @@ export default function ChatWindow({
                                     type="button"
                                     onClick={() => setPlusMenuOpen((v) => !v)}
                                     disabled={uploading}
-                                    className="p-1.5 text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full disabled:opacity-50"
+                                    className="rounded-full p-1.5 text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800 disabled:opacity-50"
                                 >
                                     {plusMenuOpen ? (
-                                        <X size={22} />
+                                        <X size={21} />
                                     ) : (
-                                        <Plus size={22} />
+                                        <Plus size={21} />
                                     )}
                                 </button>
 
@@ -1354,110 +1447,119 @@ export default function ChatWindow({
                                 )}
                             </div>
 
-                            {/* Input text */}
-                            <input
-                                ref={messageInputRef}
-                                type="text"
-                                value={messageText}
-                                onChange={(e) => {
-                                    setMessageText(e.target.value);
-                                    // Gửi typing signal
-                                    if (e.target.value.trim()) {
-                                        sendTypingSignal(true);
-                                    } else {
-                                        sendTypingSignal(false);
-                                    }
-                                }}
-                                onKeyDown={(e) => {
-                                    if (
-                                        e.key === "Enter" &&
-                                        !sending &&
-                                        !uploading
-                                    ) {
-                                        sendTypingSignal(false); // Ngừng typing khi gửi
-                                        if (selectedFiles.length > 0) {
-                                            void handleSendMixedMedia(
-                                                selectedFiles.map(
-                                                    (item) => item.file,
-                                                ),
-                                                undefined,
-                                                replyToMessage?.id,
-                                            ).then((ok) => {
-                                                if (!ok) return;
-                                                setSelectedFiles([]);
-                                                setReplyToMessage(null);
-                                            });
+                            <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-full bg-gray-100 px-2 py-1.5 transition-colors focus-within:bg-gray-50 dark:bg-[#1b1b1b] dark:focus-within:bg-[#232323]">
+                                {/* Input text */}
+                                <input
+                                    ref={messageInputRef}
+                                    type="text"
+                                    value={messageText}
+                                    onChange={(e) => {
+                                        setMessageText(e.target.value);
+                                        // Gửi typing signal
+                                        if (e.target.value.trim()) {
+                                            sendTypingSignal(true);
                                         } else {
-                                            void handleSend(
-                                                undefined,
-                                                replyToMessage?.id,
-                                            ).then(() =>
-                                                setReplyToMessage(null),
-                                            );
+                                            sendTypingSignal(false);
                                         }
+                                    }}
+                                    onKeyDown={(e) => {
+                                        if (
+                                            e.key === "Enter" &&
+                                            !sending &&
+                                            !uploading
+                                        ) {
+                                            sendTypingSignal(false); // Ngừng typing khi gửi
+                                            if (selectedFiles.length > 0) {
+                                                void handleSendMixedMedia(
+                                                    selectedFiles.map(
+                                                        (item) => item.file,
+                                                    ),
+                                                    undefined,
+                                                    replyToMessage?.id,
+                                                ).then((ok) => {
+                                                    if (!ok) return;
+                                                    setSelectedFiles([]);
+                                                    setReplyToMessage(null);
+                                                });
+                                            } else {
+                                                void handleSend(
+                                                    undefined,
+                                                    replyToMessage?.id,
+                                                ).then(() =>
+                                                    setReplyToMessage(null),
+                                                );
+                                            }
+                                        }
+                                    }}
+                                    onBlur={() => sendTypingSignal(false)} // Ngừng typing khi blur
+                                    placeholder={
+                                        uploading
+                                            ? "Đang tải file lên..."
+                                            : "Nhập tin nhắn..."
                                     }
-                                }}
-                                onBlur={() => sendTypingSignal(false)} // Ngừng typing khi blur
-                                placeholder={
-                                    uploading
-                                        ? "Đang tải file lên..."
-                                        : "Nhập tin nhắn..."
-                                }
-                                disabled={sending || uploading}
-                                className="flex-1 min-w-0 px-4 py-2 bg-gray-100 dark:bg-gray-800 rounded-full focus:outline-none text-sm dark:text-white disabled:opacity-50"
-                            />
+                                    disabled={sending || uploading}
+                                    className="min-w-0 flex-1 bg-transparent px-2.5 py-1.5 text-sm text-gray-900 placeholder:text-gray-500 focus:outline-none dark:text-white dark:placeholder-gray-400 disabled:opacity-50"
+                                />
 
-                            {/* Uploading spinner */}
-                            {uploading && (
-                                <span className="shrink-0 h-5 w-5 rounded-full border-2 border-gray-300 dark:border-gray-600 border-t-gray-700 dark:border-t-gray-200 animate-spin" />
-                            )}
+                                {/* Uploading spinner */}
+                                {uploading && (
+                                    <span className="shrink-0 h-5 w-5 rounded-full border-2 border-gray-300 dark:border-gray-600 border-t-gray-700 dark:border-t-gray-200 animate-spin" />
+                                )}
 
-                            {/* Emoji — luôn hiện (trừ khi đang upload) */}
-                            {!uploading && (
-                                <div ref={emojiPickerRef} className="relative">
-                                    <button
-                                        type="button"
-                                        onClick={() =>
-                                            setEmojiPickerOpen(!emojiPickerOpen)
-                                        }
-                                        className={`shrink-0 p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full ${
-                                            emojiPickerOpen
-                                                ? "text-blue-500"
-                                                : "text-gray-800 dark:text-gray-200"
-                                        }`}
+                                {/* Emoji — luôn hiện (trừ khi đang upload) */}
+                                {!uploading && (
+                                    <div
+                                        ref={emojiPickerRef}
+                                        className="relative"
                                     >
-                                        <Smile size={22} />
-                                    </button>
-
-                                    {/* Emoji Picker Popup */}
-                                    {emojiPickerOpen && (
-                                        <div
-                                            ref={emojiPickerRef}
-                                            className="absolute bottom-full right-0 mb-2 z-50 emoji-picker-custom"
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                setEmojiPickerOpen(
+                                                    !emojiPickerOpen,
+                                                )
+                                            }
+                                            className={`shrink-0 rounded-full p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 ${
+                                                emojiPickerOpen
+                                                    ? "text-blue-500"
+                                                    : "text-gray-800 dark:text-gray-200"
+                                            }`}
                                         >
-                                            <EmojiPicker
-                                                onEmojiClick={onEmojiClick}
-                                                theme={
-                                                    document.documentElement.classList.contains(
-                                                        "dark",
-                                                    )
-                                                        ? Theme.DARK
-                                                        : Theme.LIGHT
-                                                }
-                                                width={350}
-                                                height={435}
-                                                searchPlaceholder="Tìm kiếm biểu tượng cảm xúc"
-                                                previewConfig={{
-                                                    showPreview: false,
-                                                }}
-                                                emojiStyle={EmojiStyle.FACEBOOK}
-                                                skinTonesDisabled
-                                                lazyLoadEmojis
-                                            />
-                                        </div>
-                                    )}
-                                </div>
-                            )}
+                                            <Smile size={21} />
+                                        </button>
+
+                                        {/* Emoji Picker Popup */}
+                                        {emojiPickerOpen && (
+                                            <div
+                                                ref={emojiPickerRef}
+                                                className="absolute bottom-full right-0 mb-2 z-50 emoji-picker-custom"
+                                            >
+                                                <EmojiPicker
+                                                    onEmojiClick={onEmojiClick}
+                                                    theme={
+                                                        document.documentElement.classList.contains(
+                                                            "dark",
+                                                        )
+                                                            ? Theme.DARK
+                                                            : Theme.LIGHT
+                                                    }
+                                                    width={350}
+                                                    height={435}
+                                                    searchPlaceholder="Tìm kiếm biểu tượng cảm xúc"
+                                                    previewConfig={{
+                                                        showPreview: false,
+                                                    }}
+                                                    emojiStyle={
+                                                        EmojiStyle.FACEBOOK
+                                                    }
+                                                    skinTonesDisabled
+                                                    lazyLoadEmojis
+                                                />
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
 
                             {/* Thumbs up khi trống, Send khi có text */}
                             {!uploading &&
@@ -1489,7 +1591,7 @@ export default function ChatWindow({
                                             );
                                         }}
                                         disabled={sending}
-                                        className="shrink-0 p-1.5 text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full disabled:opacity-50"
+                                        className="shrink-0 rounded-full p-1.5 text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800 disabled:opacity-50"
                                     >
                                         <Send size={22} />
                                     </button>
@@ -1505,7 +1607,7 @@ export default function ChatWindow({
                                             )
                                         }
                                         disabled={sending}
-                                        className="shrink-0 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full disabled:opacity-50"
+                                        className="shrink-0 rounded-full p-0.5 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
                                     >
                                         <Emoji
                                             unified="1f44d"
@@ -1530,6 +1632,16 @@ export default function ChatWindow({
                 callType={incomingCall?.callType || "audio"}
                 onAccept={() => void acceptIncomingCall()}
                 onReject={rejectIncomingCall}
+            />
+
+            <AIConsentModal
+                open={consentModalOpen}
+                loading={consentLoading}
+                error={aiError}
+                onAccept={() => {
+                    void acceptAIConsent();
+                }}
+                onDecline={declineAIConsent}
             />
 
             <CallScreen

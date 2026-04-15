@@ -15,6 +15,7 @@ import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
@@ -35,7 +36,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     private static final String ISSUER =
             "https://cognito-idp.ap-southeast-1.amazonaws.com/ap-southeast-1_r9OwliPee";
 
-
+    @Value("$JWT}")
+    private static String LOCAL_SECRET ;
     @Override
     protected void doFilterInternal(
             HttpServletRequest request,
