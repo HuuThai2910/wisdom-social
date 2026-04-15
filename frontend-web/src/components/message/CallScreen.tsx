@@ -59,19 +59,42 @@ export default function CallScreen({
 }: CallScreenProps) {
     const localVideoRef = useRef<HTMLVideoElement>(null);
     const remoteVideoRef = useRef<HTMLVideoElement>(null);
+    const remoteAudioRef = useRef<HTMLAudioElement>(null);
 
     const isGroupCall = remoteStreams.length > 1;
     const showParticipants = participants.length > 0;
 
+    const attachStreamToMediaElement = (
+        element: HTMLMediaElement | null,
+        stream: MediaStream | null,
+    ) => {
+        if (!element) return;
+
+        if (element.srcObject !== stream) {
+            element.srcObject = stream;
+        }
+
+        if (stream) {
+            void element.play().catch(() => undefined);
+        }
+    };
+
     useEffect(() => {
-        if (!localVideoRef.current) return;
-        localVideoRef.current.srcObject = localStream;
+        attachStreamToMediaElement(localVideoRef.current, localStream);
     }, [localStream]);
 
     useEffect(() => {
-        if (!remoteVideoRef.current) return;
-        remoteVideoRef.current.srcObject = remoteStream;
+        attachStreamToMediaElement(remoteVideoRef.current, remoteStream);
     }, [remoteStream]);
+
+    useEffect(() => {
+        if (callType !== "audio") {
+            attachStreamToMediaElement(remoteAudioRef.current, null);
+            return;
+        }
+
+        attachStreamToMediaElement(remoteAudioRef.current, remoteStream);
+    }, [callType, remoteStream]);
 
     if (!open) return null;
 
@@ -79,6 +102,13 @@ export default function CallScreen({
 
     return (
         <div className="fixed inset-0 z-[95] bg-gray-950 text-white">
+            <audio
+                ref={remoteAudioRef}
+                autoPlay
+                playsInline
+                className="hidden"
+            />
+
             {callType === "video" ? (
                 <div className="relative h-full w-full">
                     {isGroupCall ? (
@@ -91,6 +121,13 @@ export default function CallScreen({
                                     ref={(node) => {
                                         if (node)
                                             node.srcObject = remote.stream;
+                                    }}
+                                    onLoadedMetadata={(event) => {
+                                        const element =
+                                            event.currentTarget as HTMLVideoElement;
+                                        void element
+                                            .play()
+                                            .catch(() => undefined);
                                     }}
                                     className="h-full w-full object-cover rounded-lg bg-gray-900"
                                 />
