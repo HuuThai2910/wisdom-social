@@ -26,6 +26,7 @@ import {
     FileVideoCamera,
     Presentation,
     CheckCircle2,
+    Image as ImageIcon,
 } from "lucide-react";
 import type {
     Message,
@@ -70,6 +71,25 @@ function formatBytes(bytes?: number): string {
 type FileCategory = "video" | "pdf" | "word" | "excel" | "ppt" | "other";
 
 const VIDEO_FILE_EXTENSIONS = new Set(["mp4", "mov", "avi", "mkv", "webm"]);
+const IMAGE_FILE_EXTENSIONS = new Set([
+    "jpg",
+    "jpeg",
+    "png",
+    "gif",
+    "webp",
+    "bmp",
+    "avif",
+    "heic",
+]);
+const AUDIO_FILE_EXTENSIONS = new Set([
+    "mp3",
+    "wav",
+    "ogg",
+    "aac",
+    "m4a",
+    "opus",
+    "weba",
+]);
 const WORD_FILE_EXTENSIONS = new Set(["doc", "docx"]);
 const EXCEL_FILE_EXTENSIONS = new Set(["xls", "xlsx"]);
 const PPT_FILE_EXTENSIONS = new Set(["ppt", "pptx"]);
@@ -89,6 +109,22 @@ const PPT_MIME_TYPES = new Set([
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 ]);
 
+interface ReplyMediaPayload {
+    type?: MessageType;
+    content?: string;
+    fileName?: string;
+    mimeType?: string;
+}
+
+interface ParsedReplyContent {
+    sourceUrl?: string;
+    thumbnailUrl?: string;
+    posterUrl?: string;
+    fileName?: string;
+    mimeType?: string;
+    text?: string;
+}
+
 function getFileExtension(fileName: string): string {
     return fileName.split(".").pop()?.toLowerCase() ?? "";
 }
@@ -96,6 +132,117 @@ function getFileExtension(fileName: string): string {
 function normalizeMimeType(mimeType?: string): string {
     if (!mimeType) return "";
     return mimeType.split(";")[0]?.trim().toLowerCase() ?? "";
+}
+
+function isImageFile(fileName?: string, mimeType?: string): boolean {
+    const normalizedMime = normalizeMimeType(mimeType);
+    if (normalizedMime.startsWith("image/")) return true;
+
+    if (!fileName) return false;
+    const ext = getFileExtension(fileName);
+    return IMAGE_FILE_EXTENSIONS.has(ext);
+}
+
+function isAudioFile(fileName?: string, mimeType?: string): boolean {
+    const normalizedMime = normalizeMimeType(mimeType);
+    if (normalizedMime.startsWith("audio/")) return true;
+
+    if (!fileName) return false;
+    const ext = getFileExtension(fileName);
+    return AUDIO_FILE_EXTENSIONS.has(ext);
+}
+
+function isVideoFile(fileName?: string, mimeType?: string): boolean {
+    if (isAudioFile(fileName, mimeType)) return false;
+
+    const normalizedMime = normalizeMimeType(mimeType);
+    if (normalizedMime.startsWith("video/")) return true;
+
+    if (!fileName) return false;
+    const ext = getFileExtension(fileName);
+    return VIDEO_FILE_EXTENSIONS.has(ext);
+}
+
+function getReplyMediaType(
+    message?: ReplyMediaPayload | null,
+): "image" | "video" | "other" {
+    if (!message) return "other";
+
+    if (message.type === "IMAGE") return "image";
+    if (message.type === "VIDEO") return "video";
+    if (message.type === "AUDIO") return "other";
+
+    const candidateName = message.fileName || message.content;
+    if (isAudioFile(candidateName, message.mimeType)) return "other";
+    if (isImageFile(candidateName, message.mimeType)) return "image";
+    if (isVideoFile(candidateName, message.mimeType)) return "video";
+    return "other";
+}
+
+function isLikelyMediaSource(value?: string): boolean {
+    if (!value) return false;
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return false;
+
+    return (
+        normalized.startsWith("http://") ||
+        normalized.startsWith("https://") ||
+        normalized.startsWith("blob:") ||
+        normalized.startsWith("data:") ||
+        normalized.startsWith("/") ||
+        normalized.includes("/") ||
+        normalized.includes(".jpg") ||
+        normalized.includes(".jpeg") ||
+        normalized.includes(".png") ||
+        normalized.includes(".gif") ||
+        normalized.includes(".webp") ||
+        normalized.includes(".mp4") ||
+        normalized.includes(".mov") ||
+        normalized.includes(".avi") ||
+        normalized.includes(".mkv") ||
+        normalized.includes(".webm")
+    );
+}
+
+function parseReplyContent(content?: string): ParsedReplyContent {
+    const raw = content?.trim();
+    if (!raw) return {};
+
+    if (raw.startsWith("{") && raw.endsWith("}")) {
+        try {
+            const parsed = JSON.parse(raw) as Record<string, unknown>;
+            const getString = (...keys: string[]) => {
+                for (const key of keys) {
+                    const value = parsed[key];
+                    if (typeof value === "string" && value.trim()) {
+                        return value;
+                    }
+                }
+                return undefined;
+            };
+
+            return {
+                sourceUrl: getString("url", "fileUrl", "src", "content"),
+                thumbnailUrl: getString(
+                    "thumbnailUrl",
+                    "thumbnail",
+                    "previewUrl",
+                ),
+                posterUrl: getString("posterUrl", "poster"),
+                fileName: getString("fileName", "name"),
+                mimeType: getString("mimeType", "type", "contentType"),
+                text: getString("text", "caption", "message"),
+            };
+        } catch {
+            // Fallback dùng raw content phía dưới.
+        }
+    }
+
+    return {
+        sourceUrl: raw,
+        fileName: getFileNameFromUrl(raw, ""),
+        text: raw,
+    };
 }
 
 function resolveFileCategory(
@@ -141,49 +288,49 @@ function isDocumentCategory(fileCategory: FileCategory): boolean {
 function getFileTypePalette(fileCategory: FileCategory) {
     if (fileCategory === "pdf") {
         return {
-            iconBg: "bg-red-100 dark:bg-red-900/35",
+            iconBg: "bg-red-100 dark:bg-red-950",
             iconText: "text-red-600 dark:text-red-300",
-            badgeBg: "bg-red-100/80 dark:bg-red-900/45",
+            badgeBg: "bg-red-100 dark:bg-red-950",
             badgeText: "text-red-700 dark:text-red-200",
         };
     }
     if (fileCategory === "word") {
         return {
-            iconBg: "bg-blue-100 dark:bg-blue-900/35",
+            iconBg: "bg-blue-100 dark:bg-blue-950",
             iconText: "text-blue-600 dark:text-blue-300",
-            badgeBg: "bg-blue-100/80 dark:bg-blue-900/45",
+            badgeBg: "bg-blue-100 dark:bg-blue-950",
             badgeText: "text-blue-700 dark:text-blue-200",
         };
     }
     if (fileCategory === "excel") {
         return {
-            iconBg: "bg-emerald-100 dark:bg-emerald-900/35",
+            iconBg: "bg-emerald-100 dark:bg-emerald-950",
             iconText: "text-emerald-600 dark:text-emerald-300",
-            badgeBg: "bg-emerald-100/80 dark:bg-emerald-900/45",
+            badgeBg: "bg-emerald-100 dark:bg-emerald-950",
             badgeText: "text-emerald-700 dark:text-emerald-200",
         };
     }
     if (fileCategory === "ppt") {
         return {
-            iconBg: "bg-orange-100 dark:bg-orange-900/35",
+            iconBg: "bg-orange-100 dark:bg-orange-950",
             iconText: "text-orange-600 dark:text-orange-300",
-            badgeBg: "bg-orange-100/80 dark:bg-orange-900/45",
+            badgeBg: "bg-orange-100 dark:bg-orange-950",
             badgeText: "text-orange-700 dark:text-orange-200",
         };
     }
     if (fileCategory === "video") {
         return {
-            iconBg: "bg-sky-100 dark:bg-sky-900/35",
+            iconBg: "bg-sky-100 dark:bg-sky-950",
             iconText: "text-sky-600 dark:text-sky-300",
-            badgeBg: "bg-sky-100/80 dark:bg-sky-900/45",
+            badgeBg: "bg-sky-100 dark:bg-sky-950",
             badgeText: "text-sky-700 dark:text-sky-200",
         };
     }
 
     return {
-        iconBg: "bg-gray-200/90 dark:bg-gray-700/80",
+        iconBg: "bg-gray-200 dark:bg-gray-700",
         iconText: "text-gray-600 dark:text-gray-300",
-        badgeBg: "bg-gray-200/90 dark:bg-gray-700/70",
+        badgeBg: "bg-gray-200 dark:bg-gray-700",
         badgeText: "text-gray-700 dark:text-gray-200",
     };
 }
@@ -398,6 +545,10 @@ export interface MessageBubbleProps {
         senderName: string;
         content: string;
         type?: MessageType;
+        fileName?: string;
+        mimeType?: string;
+        thumbnailUrl?: string;
+        posterUrl?: string;
     } | null;
     conversationType?: "DIRECT" | "GROUP";
     defaultAvatarSmallUrl: string;
@@ -412,6 +563,7 @@ export interface MessageBubbleProps {
     onMediaLoad?: () => void;
     isFirstInGroup?: boolean;
     isLastInGroup?: boolean;
+    isHighlighted?: boolean;
     currentUserId: number;
 }
 
@@ -434,6 +586,7 @@ export function MessageBubble({
     onMediaLoad,
     isFirstInGroup = true,
     isLastInGroup = true,
+    isHighlighted = false,
     currentUserId,
 }: MessageBubbleProps) {
     const [menuOpen, setMenuOpen] = useState(false);
@@ -590,7 +743,7 @@ export function MessageBubble({
         .join("  ");
     const resolvedSizeLabel = resolvedFileSize || "Không rõ dung lượng";
     const fileActionButtonClass =
-        "h-9 w-9 shrink-0 rounded-md border border-gray-200/90 dark:border-gray-600/80 bg-white/90 dark:bg-gray-800/85 text-gray-600 dark:text-gray-200 flex items-center justify-center transition-colors hover:bg-gray-100 dark:hover:bg-gray-700";
+        "h-9 w-9 shrink-0 rounded-md border border-gray-200 dark:border-[#3a3a3a] bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-200 flex items-center justify-center transition-colors hover:bg-gray-100 dark:hover:bg-gray-700";
 
     const handleOpenFile = useCallback(() => {
         if (!resolvedFileUrl) return;
@@ -728,6 +881,112 @@ export function MessageBubble({
         Boolean(replyPreview) &&
         (normalizedReplyContent.length === 0 ||
             normalizedReplyContent === "Tin nhắn đã được thu hồi");
+    const parsedReplyContent = useMemo(
+        () => parseReplyContent(replyPreview?.content),
+        [replyPreview?.content],
+    );
+
+    const rawReplyMediaSourceUrl = (
+        parsedReplyContent.sourceUrl ||
+        replyPreview?.content ||
+        ""
+    ).trim();
+    const replyMediaSourceUrl = isLikelyMediaSource(rawReplyMediaSourceUrl)
+        ? rawReplyMediaSourceUrl
+        : "";
+    const replyMediaFileName =
+        replyPreview?.fileName ||
+        parsedReplyContent.fileName ||
+        getFileNameFromUrl(replyMediaSourceUrl, "");
+    const replyMediaMimeType =
+        replyPreview?.mimeType || parsedReplyContent.mimeType;
+    const isReplyAudioPreview =
+        !isReplyPreviewRecalled &&
+        (replyPreview?.type === "AUDIO" ||
+            isAudioFile(
+                replyMediaFileName || replyMediaSourceUrl,
+                replyMediaMimeType,
+            ));
+    const replyMediaType = getReplyMediaType({
+        type: replyPreview?.type,
+        content: replyMediaSourceUrl,
+        fileName: replyMediaFileName,
+        mimeType: replyMediaMimeType,
+    });
+    const replyMediaThumbnailUrl =
+        replyMediaType === "image"
+            ? (
+                  replyPreview?.thumbnailUrl ||
+                  parsedReplyContent.thumbnailUrl ||
+                  replyMediaSourceUrl
+              ).trim()
+            : replyMediaType === "video"
+              ? (
+                    replyPreview?.thumbnailUrl ||
+                    replyPreview?.posterUrl ||
+                    parsedReplyContent.thumbnailUrl ||
+                    parsedReplyContent.posterUrl ||
+                    (isImageFile(replyMediaSourceUrl, replyMediaMimeType)
+                        ? replyMediaSourceUrl
+                        : "")
+                ).trim()
+              : "";
+    const replyVideoPosterUrl = (
+        replyPreview?.posterUrl ||
+        parsedReplyContent.posterUrl ||
+        ""
+    ).trim();
+
+    const [replyMediaThumbnailFailed, setReplyMediaThumbnailFailed] =
+        useState(false);
+
+    useEffect(() => {
+        setReplyMediaThumbnailFailed(false);
+    }, [replyPreview?.messageId, replyMediaThumbnailUrl]);
+
+    const replyPreviewText = useMemo(() => {
+        if (!replyPreview || isReplyPreviewRecalled) {
+            return "Tin nhắn đã được thu hồi";
+        }
+
+        if (replyMediaType === "image" || replyMediaType === "video") {
+            const candidateText = (
+                parsedReplyContent.text || normalizedReplyContent
+            ).trim();
+            if (!candidateText || isLikelyMediaSource(candidateText)) {
+                return "";
+            }
+            return candidateText;
+        }
+
+        if (isReplyAudioPreview) return "Tin nhắn thoại";
+
+        if (replyPreview.type === "FILE") {
+            return (
+                replyPreview.fileName ||
+                parsedReplyContent.fileName ||
+                getFileNameFromUrl(replyPreview.content, "Tệp đính kèm")
+            );
+        }
+
+        if (replyPreview.type === "CALL") return "Cuộc gọi";
+        return replyPreview.content;
+    }, [
+        isReplyAudioPreview,
+        isReplyPreviewRecalled,
+        normalizedReplyContent,
+        parsedReplyContent.fileName,
+        parsedReplyContent.text,
+        replyMediaType,
+        replyPreview,
+    ]);
+
+    const hasReplyMediaThumbnail =
+        !isReplyPreviewRecalled &&
+        (replyMediaType === "image" || replyMediaType === "video");
+    const highlightedBubbleClass = isHighlighted
+        ? "border-2 border-blue-500 dark:border-blue-400 ring-2 ring-blue-400/40 dark:ring-blue-400/35 ring-offset-2 ring-offset-transparent shadow-sm scale-[1.01]"
+        : "";
 
     // Render riêng cho tin hệ thống ghim/bỏ ghim:
     // - Canh giữa toàn bộ đoạn chat
@@ -963,76 +1222,108 @@ export function MessageBubble({
                                             replyPreview.messageId,
                                         )
                                     }
-                                    className="inline-flex items-center gap-2 px-2 py-2 pb-4 rounded-2xl bg-gray-100/75 dark:bg-gray-800/65 text-gray-800 dark:text-gray-100 ring-1 ring-gray-200/40 dark:ring-gray-700/40"
+                                    className={`inline-flex max-w-[19.5rem] items-center gap-2.5 rounded-2xl px-2.5 py-2.5 text-gray-800 dark:text-gray-100 transition-colors ${
+                                        hasReplyMediaThumbnail
+                                            ? "bg-transparent ring-0 hover:bg-transparent"
+                                            : "ring-1 ring-gray-200/40 dark:ring-gray-700/40 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-200"
+                                    }`}
                                 >
-                                    {/* Thumbnail hoặc icon cho reply message */}
-                                    {!isReplyPreviewRecalled &&
-                                    replyPreview.type === "IMAGE" ? (
-                                        // Thumbnail ảnh - kích thước lớn hơn (48x48)
-                                        <img
-                                            src={replyPreview.content}
-                                            alt="Reply ảnh"
-                                            className="w-12 h-12 rounded-sm object-cover shrink-0"
-                                        />
+                                    {hasReplyMediaThumbnail ? (
+                                        <span className="relative h-14 w-14 shrink-0 overflow-hidden rounded-md bg-gray-200 dark:bg-gray-700">
+                                            {replyMediaType === "image" ? (
+                                                replyMediaThumbnailUrl &&
+                                                !replyMediaThumbnailFailed ? (
+                                                    <img
+                                                        src={
+                                                            replyMediaThumbnailUrl
+                                                        }
+                                                        alt="Reply media"
+                                                        className="h-full w-full object-cover"
+                                                        onError={() =>
+                                                            setReplyMediaThumbnailFailed(
+                                                                true,
+                                                            )
+                                                        }
+                                                    />
+                                                ) : (
+                                                    <span className="absolute inset-0 flex items-center justify-center bg-gray-300 text-gray-500 dark:bg-gray-700 dark:text-gray-300">
+                                                        <ImageIcon size={18} />
+                                                    </span>
+                                                )
+                                            ) : (
+                                                <>
+                                                    {replyMediaThumbnailUrl &&
+                                                    !replyMediaThumbnailFailed ? (
+                                                        <img
+                                                            src={
+                                                                replyMediaThumbnailUrl
+                                                            }
+                                                            alt="Reply video"
+                                                            className="h-full w-full object-cover"
+                                                            onError={() =>
+                                                                setReplyMediaThumbnailFailed(
+                                                                    true,
+                                                                )
+                                                            }
+                                                        />
+                                                    ) : replyMediaSourceUrl &&
+                                                      !replyMediaThumbnailFailed ? (
+                                                        <video
+                                                            src={
+                                                                replyMediaSourceUrl
+                                                            }
+                                                            poster={
+                                                                replyVideoPosterUrl ||
+                                                                undefined
+                                                            }
+                                                            muted
+                                                            playsInline
+                                                            preload="metadata"
+                                                            className="h-full w-full object-cover pointer-events-none"
+                                                            onError={() =>
+                                                                setReplyMediaThumbnailFailed(
+                                                                    true,
+                                                                )
+                                                            }
+                                                        />
+                                                    ) : (
+                                                        <span className="absolute inset-0 bg-black/70" />
+                                                    )}
+                                                    <span className="absolute inset-0 flex items-center justify-center">
+                                                        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-black/60">
+                                                            <Play
+                                                                size={14}
+                                                                className="fill-white text-white ml-0.5"
+                                                            />
+                                                        </span>
+                                                    </span>
+                                                </>
+                                            )}
+                                        </span>
                                     ) : !isReplyPreviewRecalled &&
-                                      replyPreview.type === "VIDEO" ? (
-                                        // Video background với play icon
-                                        <div className="w-12 h-12 rounded-sm bg-gray-500 dark:bg-gray-600 flex items-center justify-center shrink-0 relative">
-                                            <div className="w-8 h-8 rounded-full bg-white/30 flex items-center justify-center">
-                                                <Play
-                                                    size={16}
-                                                    className="text-white fill-white ml-0.5"
-                                                />
-                                            </div>
-                                        </div>
+                                      isReplyAudioPreview ? (
+                                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-gray-700 dark:bg-gray-700 dark:text-gray-200">
+                                            <Mic size={18} />
+                                        </span>
                                     ) : !isReplyPreviewRecalled &&
-                                      replyPreview.type === "AUDIO" ? (
-                                        // Icon audio
-                                        <div className="w-12 h-12 rounded-sm  flex items-center justify-center shrink-0">
-                                            <Mic
-                                                size={20}
-                                                className="text-gray-700 dark:text-gray-200"
-                                            />
-                                        </div>
+                                      replyPreview.type === "CALL" ? (
+                                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-gray-300/50 text-gray-700 dark:bg-gray-700 dark:text-gray-200">
+                                            <Phone size={18} />
+                                        </span>
                                     ) : !isReplyPreviewRecalled &&
-                                      replyPreview.type ===
-                                          "FILE" ? null : !isReplyPreviewRecalled &&
-                                      replyPreview.type === // FILE dùng label inline giống UX mẫu, không cần thumbnail lớn
-                                          "CALL" ? (
-                                        // Icon call
-                                        <div className="w-12 h-12 rounded-sm bg-gray-400/40 flex items-center justify-center shrink-0">
-                                            <Phone
-                                                size={20}
-                                                className="text-gray-700 dark:text-gray-200"
-                                            />
-                                        </div>
+                                      replyPreview.type === "FILE" ? (
+                                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-gray-300/50 text-gray-700 dark:bg-gray-700 dark:text-gray-200">
+                                            <Paperclip size={16} />
+                                        </span>
                                     ) : null}
 
-                                    {/* Chỉ hiển thị content của tin nhắn được reply */}
-                                    <div className="min-w-0 flex-1">
-                                        {isReplyPreviewRecalled ? (
-                                            <p className="text-xs truncate text-gray-600 dark:text-gray-300">
-                                                Tin nhắn đã được thu hồi
-                                            </p>
-                                        ) : replyPreview.type === "FILE" ? (
-                                            <span className="inline-flex items-center gap-1 text-sm italic text-gray-600 dark:text-gray-300">
-                                                File đính kèm
-                                                <Paperclip size={12} />
-                                            </span>
-                                        ) : (
-                                            <p className="text-xs truncate text-gray-600 dark:text-gray-300">
-                                                {replyPreview.type === "IMAGE"
-                                                    ? "Hình ảnh"
-                                                    : replyPreview.type ===
-                                                        "VIDEO"
-                                                      ? "Video"
-                                                      : replyPreview.type ===
-                                                          "AUDIO"
-                                                        ? "Tin nhắn thoại"
-                                                        : replyPreview.type ===
-                                                            "CALL"
-                                                          ? "Cuộc gọi"
-                                                          : replyPreview.content}
+                                    <div className="min-w-0 flex-1 text-left">
+                                        <p className="truncate text-xs font-semibold text-gray-700 dark:text-gray-100">
+                                            {/* {replyPreview.senderName} */}
+                                        </p>
+                                        {replyPreviewText && (
+                                            <p className="mt-0.5 truncate text-xs text-gray-600 dark:text-gray-300 mb-1">
+                                                {replyPreviewText}
                                             </p>
                                         )}
                                     </div>
@@ -1056,7 +1347,7 @@ export function MessageBubble({
                                               : isOwn
                                                 ? "bg-blue-500 text-white"
                                                 : "bg-gray-200 dark:bg-gray-700 text-black dark:text-white"
-                                }`}
+                                } transition-all duration-300 ${highlightedBubbleClass}`}
                             >
                                 {message.isRecalled ? (
                                     <>
@@ -1146,7 +1437,7 @@ export function MessageBubble({
                                         </button>
                                     )
                                 ) : isVideoFileBubble ? (
-                                    <div className="w-[18.75rem] max-w-[78vw] sm:w-[20rem] rounded-2xl border border-gray-200/80 dark:border-gray-700/80 bg-white/95 dark:bg-gray-900/85 shadow-sm overflow-hidden">
+                                    <div className="w-[18.75rem] max-w-[78vw] sm:w-[20rem] rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-gray-900 shadow-sm overflow-hidden">
                                         <div className="bg-black">
                                             <video
                                                 src={resolvedFileUrl}
@@ -1157,7 +1448,7 @@ export function MessageBubble({
                                                 onLoadedData={onMediaLoad}
                                             />
                                         </div>
-                                        <div className="flex items-center gap-2.5 px-3 py-2.5">
+                                        <div className="flex items-center gap-2.5 border-t border-gray-200 dark:border-black bg-gray-50 dark:bg-gray-900 px-3 py-2.5">
                                             <span
                                                 className={`h-10 w-10 shrink-0 rounded-xl ${resolvedFilePalette.iconBg} flex items-center justify-center`}
                                             >
@@ -1227,10 +1518,10 @@ export function MessageBubble({
                                                 : undefined
                                         }
                                         onKeyDown={handleFileCardKeyDown}
-                                        className={`w-[18.75rem] max-w-[78vw] sm:w-[20rem] rounded-2xl border border-gray-200/80 dark:border-gray-700/80 px-3 py-2.5 shadow-sm transition-colors ${
+                                        className={`w-[18.75rem] max-w-[78vw] sm:w-[20rem] rounded-2xl border border-gray-200 dark:border-[#303030] px-3 py-2.5 shadow-sm transition-colors ${
                                             resolvedFileUrl
-                                                ? "cursor-pointer bg-gray-50/90 hover:bg-gray-100 dark:bg-gray-900/80 dark:hover:bg-gray-800"
-                                                : "bg-gray-50/90 dark:bg-gray-900/80"
+                                                ? "cursor-pointer bg-gray-50 hover:bg-gray-100 dark:bg-gray-900 dark:hover:bg-gray-800"
+                                                : "bg-gray-50 dark:bg-gray-900"
                                         }`}
                                     >
                                         <div className="flex items-center gap-2.5">
@@ -1418,7 +1709,7 @@ export function MessageBubble({
                                         </span>
                                     </button>
                                 ) : (
-                                    <p className="px-4 py-2 text-sm">
+                                    <p className="px-4 py-1.5 text-sm">
                                         {message.content}
                                     </p>
                                 )}

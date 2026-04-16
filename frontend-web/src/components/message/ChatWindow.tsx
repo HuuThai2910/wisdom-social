@@ -11,12 +11,12 @@ import {
     Phone,
     Video,
     Info,
-    Pin,
     ChevronDown,
     ArrowDown,
     Plus,
     X,
     MoreVertical,
+    MessageCircle,
     Mic,
     Square,
     Paperclip,
@@ -201,8 +201,8 @@ export default function ChatWindow({
     }, [activeCall, conversation?.type, membersById, userId]);
 
     // UI state cho khu vực banner ghim:
-    // - false: chỉ hiện 1 item ghim đầu tiên (gọn)
-    // - true: bung ra toàn bộ danh sách ghim (tối đa 3)
+    // - false: hiển thị dạng gọn (1 item chính)
+    // - true: bung danh sách các item ghim còn lại
     const [showPinnedList, setShowPinnedList] = useState(false);
     const [openPinnedMenuId, setOpenPinnedMenuId] = useState<string | null>(
         null,
@@ -219,8 +219,7 @@ export default function ChatWindow({
             return message.content || "Tin nhắn";
         };
 
-        // Chỉ render tối đa 3 tin ghim theo đúng yêu cầu sản phẩm.
-        return pinnedMessages.slice(0, 3).map((pin) => {
+        return pinnedMessages.map((pin) => {
             const matchedMessage = messages.find(
                 (message) => message.id === pin.messageId,
             );
@@ -249,9 +248,11 @@ export default function ChatWindow({
         });
     }, [membersById, messages, pinnedMessages]);
 
-    // Item ghim đầu tiên dùng cho chế độ thu gọn của banner.
+    // Item ghim đầu tiên luôn hiển thị ở banner dạng gọn.
     const primaryPinnedItem = pinnedBannerItems[0];
-    const canExpandPinnedList = pinnedBannerItems.length > 1;
+    const hiddenPinnedItems = pinnedBannerItems.slice(1);
+    const hiddenPinnedCount = hiddenPinnedItems.length;
+    const canExpandPinnedList = hiddenPinnedCount > 0;
 
     useEffect(() => {
         if (!canExpandPinnedList && showPinnedList) {
@@ -471,7 +472,7 @@ export default function ChatWindow({
                     setHighlightedMessageId((prev) =>
                         prev === messageId ? null : prev,
                     );
-                }, 1400);
+                }, 2400);
             };
 
             requestAnimationFrame(() => tryHighlight(0));
@@ -537,6 +538,7 @@ export default function ChatWindow({
     // (tin cũ -> tin mới) để nhãn ngày hiển thị đúng vị trí.
     const messageItems = useMemo(() => {
         const items: ReactNode[] = [];
+        const messageById = new Map(messages.map((msg) => [msg.id, msg]));
 
         // Chuẩn hoá về "đầu ngày" (00:00) để so sánh hôm nay/hôm qua chính xác.
         const startOfDay = (d: Date) =>
@@ -632,6 +634,38 @@ export default function ChatWindow({
                 typeof repliedSenderId === "number"
                     ? membersById[repliedSenderId]
                     : undefined;
+            const repliedMessage = message.replyInfo?.messageId
+                ? messageById.get(message.replyInfo.messageId)
+                : undefined;
+            const repliedAttachment = Array.isArray(repliedMessage?.attachments)
+                ? repliedMessage.attachments[0]
+                : undefined;
+
+            const replyInfoContent = (message.replyInfo?.content || "").trim();
+            const repliedMessageContent = (
+                repliedMessage?.content || ""
+            ).trim();
+            const resolvedReplyContent =
+                replyInfoContent ||
+                repliedAttachment?.url ||
+                repliedMessageContent ||
+                "Tin nhắn";
+
+            const repliedAttachmentMeta = repliedAttachment as
+                | (typeof repliedAttachment & Record<string, unknown>)
+                | undefined;
+            const resolvedReplyThumbnailUrl =
+                (typeof repliedAttachmentMeta?.thumbnailUrl === "string" &&
+                    repliedAttachmentMeta.thumbnailUrl) ||
+                (typeof repliedAttachmentMeta?.thumbnail === "string" &&
+                    repliedAttachmentMeta.thumbnail) ||
+                undefined;
+            const resolvedReplyPosterUrl =
+                (typeof repliedAttachmentMeta?.posterUrl === "string" &&
+                    repliedAttachmentMeta.posterUrl) ||
+                (typeof repliedAttachmentMeta?.poster === "string" &&
+                    repliedAttachmentMeta.poster) ||
+                undefined;
 
             // Luôn hiện tên người gửi tin gốc được reply
             const repliedSenderName = repliedSender?.nickname || "Người dùng";
@@ -641,8 +675,12 @@ export default function ChatWindow({
                       messageId: message.replyInfo.messageId,
                       senderId: repliedSenderId,
                       senderName: repliedSenderName,
-                      content: message.replyInfo.content || "Tin nhắn",
-                      type: message.replyInfo.type,
+                      content: resolvedReplyContent,
+                      type: message.replyInfo.type || repliedMessage?.type,
+                      fileName: repliedAttachment?.fileName,
+                      mimeType: repliedAttachment?.type,
+                      thumbnailUrl: resolvedReplyThumbnailUrl,
+                      posterUrl: resolvedReplyPosterUrl,
                   }
                 : null;
 
@@ -698,13 +736,10 @@ export default function ChatWindow({
                                 );
                             }
                         }}
+                        isHighlighted={highlightedMessageId === message.id}
                         isFirstInGroup={isFirstInGroup}
                         isLastInGroup={isLastInGroup}
                     />
-
-                    {highlightedMessageId === message.id && (
-                        <div className="h-1.5 mt-1 rounded-full bg-yellow-300/80 dark:bg-yellow-500/40" />
-                    )}
 
                     {/* Read Receipt Avatars - hiển thị avatar "đã xem" bên dưới tin nhắn */}
                     {receiptsForThisMessage.length > 0 && (
@@ -854,93 +889,34 @@ export default function ChatWindow({
             </div>
 
             {pinnedBannerItems.length > 0 && (
-                <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
-                    {/*
-                      Header khu vực ghim:
-                      - Bên trái: icon + item ghim chính (chế độ gọn)
-                      - Bên phải: mũi tên xuống để bung/thu danh sách 3 tin ghim
-                      - Theme: dùng tông xám trung tính để giống thiết kế mẫu,
-                        không dùng nền vàng/amber như trước.
-                    */}
-                    <div className="flex items-center gap-2">
-                        <Pin
-                            size={14}
-                            className="shrink-0 text-gray-600 dark:text-gray-300"
-                        />
+                <div className="bg-gray-50 px-2.5 py-2 border-b border-gray-200 dark:bg-black dark:border-[#262626]">
+                    <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-2.5 py-2 shadow-sm dark:border-[#303030] dark:bg-gray-900">
+                        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600 dark:bg-gray-800 dark:text-blue-300">
+                            <MessageCircle size={16} />
+                        </span>
 
-                        {primaryPinnedItem &&
-                            (!showPinnedList || !canExpandPinnedList) && (
-                                <div className="flex-1 min-w-0 flex items-center gap-1.5">
-                                    <button
-                                        type="button"
-                                        onClick={() =>
-                                            handleOpenPinnedMessage(
-                                                primaryPinnedItem.messageId,
-                                            )
-                                        }
-                                        className="flex-1 min-w-0 flex items-center gap-2 rounded-full px-2.5 py-1.5 text-xs text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800"
-                                        title="Đi tới tin nhắn đã ghim"
-                                    >
-                                        {primaryPinnedItem.thumbUrl ? (
-                                            <img
-                                                src={primaryPinnedItem.thumbUrl}
-                                                alt="Ảnh ghim"
-                                                className="h-6 w-6 rounded object-cover shrink-0"
-                                            />
-                                        ) : (
-                                            <span className=""></span>
-                                        )}
-                                        <div className="min-w-0 text-left">
-                                            <p className="truncate text-[11px] font-semibold text-gray-600 dark:text-gray-300">
-                                                {primaryPinnedItem.senderName}
-                                            </p>
-                                            <p className="truncate text-xs">
-                                                {primaryPinnedItem.preview}
-                                            </p>
-                                        </div>
-                                    </button>
-
-                                    <div
-                                        className="relative"
-                                        data-pin-menu="true"
-                                    >
-                                        <button
-                                            type="button"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                const key = `${primaryPinnedItem.messageId}-${primaryPinnedItem.pinnedAt}`;
-                                                setOpenPinnedMenuId((prev) =>
-                                                    prev === key ? null : key,
-                                                );
-                                            }}
-                                            className="h-7 w-7 shrink-0 rounded-full flex items-center justify-center text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
-                                            title="Tùy chọn ghim"
-                                        >
-                                            <MoreVertical size={14} />
-                                        </button>
-
-                                        {openPinnedMenuId ===
-                                            `${primaryPinnedItem.messageId}-${primaryPinnedItem.pinnedAt}` && (
-                                            <div className="absolute right-0 top-full mt-1 min-w-24 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg z-20 py-1">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setOpenPinnedMenuId(
-                                                            null,
-                                                        );
-                                                        void handleUnpinMessage(
-                                                            primaryPinnedItem.messageId,
-                                                        );
-                                                    }}
-                                                    className="w-full px-3 py-1.5 text-left text-xs text-red-600 dark:text-red-400 hover:bg-gray-50 dark:hover:bg-gray-700"
-                                                >
-                                                    Bỏ ghim
-                                                </button>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
+                        {primaryPinnedItem && (
+                            <button
+                                type="button"
+                                onClick={() =>
+                                    handleOpenPinnedMessage(
+                                        primaryPinnedItem.messageId,
+                                    )
+                                }
+                                className="min-w-0 flex-1 rounded-md px-1 py-0.5 text-left text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800"
+                                title="Đi tới tin nhắn đã ghim"
+                            >
+                                <p className="truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                    Tin nhắn
+                                </p>
+                                <p className="truncate text-sm text-gray-600 dark:text-gray-300">
+                                    <span className="font-medium text-gray-700 dark:text-gray-200">
+                                        {primaryPinnedItem.senderName}:
+                                    </span>{" "}
+                                    {primaryPinnedItem.preview}
+                                </p>
+                            </button>
+                        )}
 
                         {canExpandPinnedList && (
                             <button
@@ -948,7 +924,7 @@ export default function ChatWindow({
                                 onClick={() =>
                                     setShowPinnedList((prev) => !prev)
                                 }
-                                className="shrink-0 rounded-full p-1 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+                                className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md border border-gray-300 bg-white px-3 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-100 dark:border-[#3a3a3a] dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
                                 title={
                                     showPinnedList
                                         ? "Thu gọn danh sách ghim"
@@ -957,23 +933,58 @@ export default function ChatWindow({
                                 aria-expanded={showPinnedList}
                                 aria-label="Hiện danh sách tin nhắn ghim"
                             >
+                                <span>+{hiddenPinnedCount} ghim</span>
                                 <ChevronDown
                                     size={14}
                                     className={`transition-transform ${showPinnedList ? "rotate-180" : "rotate-0"}`}
                                 />
                             </button>
                         )}
+
+                        {primaryPinnedItem && (
+                            <div
+                                className="relative shrink-0"
+                                data-pin-menu="true"
+                            >
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        const key = `${primaryPinnedItem.messageId}-${primaryPinnedItem.pinnedAt}`;
+                                        setOpenPinnedMenuId((prev) =>
+                                            prev === key ? null : key,
+                                        );
+                                    }}
+                                    className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-600 transition-colors hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+                                    title="Tùy chọn ghim"
+                                >
+                                    <MoreVertical size={16} />
+                                </button>
+
+                                {openPinnedMenuId ===
+                                    `${primaryPinnedItem.messageId}-${primaryPinnedItem.pinnedAt}` && (
+                                    <div className="absolute right-0 top-full mt-1 min-w-24 rounded-lg border border-gray-200 dark:border-[#303030] bg-white dark:bg-gray-900 shadow-lg z-20 py-1">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setOpenPinnedMenuId(null);
+                                                void handleUnpinMessage(
+                                                    primaryPinnedItem.messageId,
+                                                );
+                                            }}
+                                            className="w-full px-3 py-1.5 text-left text-xs text-red-600 dark:text-red-400 hover:bg-gray-50 dark:hover:bg-gray-800"
+                                        >
+                                            Bỏ ghim
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
 
-                    {/*
-                      Danh sách bung ra khi bấm mũi tên:
-                      - Hiện tối đa 3 tin ghim
-                      - Mỗi dòng đều click để nhảy đến tin gốc
-                      - Nếu là ảnh sẽ có thumbnail nhỏ ở bên trái
-                    */}
                     {showPinnedList && canExpandPinnedList && (
                         <div className="mt-2 space-y-1.5">
-                            {pinnedBannerItems.map((pin) => (
+                            {hiddenPinnedItems.map((pin) => (
                                 <div
                                     key={`${pin.messageId}-${pin.pinnedAt}`}
                                     className="w-full flex items-center gap-1"
@@ -985,7 +996,7 @@ export default function ChatWindow({
                                                 pin.messageId,
                                             )
                                         }
-                                        className="flex-1 min-w-0 flex items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800"
+                                        className="flex-1 min-w-0 flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2.5 py-2 text-left text-xs text-gray-800 hover:bg-gray-50 dark:border-[#303030] dark:bg-gray-900 dark:text-gray-100 dark:hover:bg-gray-800"
                                     >
                                         {pin.thumbUrl ? (
                                             <img
@@ -994,8 +1005,8 @@ export default function ChatWindow({
                                                 className="h-9 w-9 rounded object-cover shrink-0"
                                             />
                                         ) : (
-                                            <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded bg-gray-200 text-[10px] font-semibold text-gray-700 dark:bg-gray-700 dark:text-gray-200">
-                                                Ghim
+                                            <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-blue-600 dark:text-blue-400">
+                                                <MessageCircle size={16} />
                                             </span>
                                         )}
                                         <div className="min-w-0">
@@ -1029,7 +1040,7 @@ export default function ChatWindow({
 
                                         {openPinnedMenuId ===
                                             `${pin.messageId}-${pin.pinnedAt}` && (
-                                            <div className="absolute right-0 top-full mt-1 min-w-24 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg z-20 py-1">
+                                            <div className="absolute right-0 top-full mt-1 min-w-24 rounded-lg border border-gray-200 dark:border-[#303030] bg-white dark:bg-gray-900 shadow-lg z-20 py-1">
                                                 <button
                                                     type="button"
                                                     onClick={() => {
@@ -1040,7 +1051,7 @@ export default function ChatWindow({
                                                             pin.messageId,
                                                         );
                                                     }}
-                                                    className="w-full px-3 py-1.5 text-left text-xs text-red-600 dark:text-red-400 hover:bg-gray-50 dark:hover:bg-gray-700"
+                                                    className="w-full px-3 py-1.5 text-left text-xs text-red-600 dark:text-red-400 hover:bg-gray-50 dark:hover:bg-gray-800"
                                                 >
                                                     Bỏ ghim
                                                 </button>
@@ -1127,7 +1138,7 @@ export default function ChatWindow({
                     <button
                         type="button"
                         onClick={handleScrollToBottomClick}
-                        className="absolute bottom-4 right-4 h-11 w-11 rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-lg flex items-center justify-center hover:bg-gray-50 dark:hover:bg-gray-700"
+                        className="absolute bottom-4 right-4 h-11 w-11 rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-lg flex items-center justify-center hover:bg-gray-50 dark:hover:bg-gray-700 z-20"
                         aria-label={
                             isHistoricalMode
                                 ? "Trở về hiện tại"
