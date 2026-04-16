@@ -18,8 +18,20 @@ import {
     Video,
     VideoOff,
     Mic,
+    FolderOpen,
+    Download,
+    File,
+    FileText,
+    FileSpreadsheet,
+    FileVideoCamera,
+    Presentation,
+    CheckCircle2,
 } from "lucide-react";
-import type { Message, MessageType } from "../../services/chatService";
+import type {
+    Message,
+    MessageAttachment,
+    MessageType,
+} from "../../services/chatService";
 
 /**
  * Kiểm tra xem một chuỗi có chỉ chứa emoji (không có text khác) hay không
@@ -27,9 +39,9 @@ import type { Message, MessageType } from "../../services/chatService";
  */
 function isEmojiOnly(text: string): boolean {
     if (!text) return false;
-    // Regex khớp các ký tự emoji và whitespace
+    // Dùng nhóm thay vì character class để tránh false-positive từ eslint.
     const emojiRegex =
-        /^[\p{Emoji_Presentation}\p{Extended_Pictographic}\u200d\ufe0f\s]+$/u;
+        /^(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}|\u200d|\ufe0f|\s)+$/u;
     // Kiểm tra có ít nhất 1 emoji và không có ký tự text thường
     const hasEmoji = /[\p{Emoji_Presentation}\p{Extended_Pictographic}]/u.test(
         text,
@@ -51,17 +63,186 @@ function getFileNameFromUrl(
 function formatBytes(bytes?: number): string {
     if (!bytes || bytes <= 0) return "";
     const mb = bytes / (1024 * 1024);
-    if (mb < 1) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${mb.toFixed(1)} MB`;
+    if (mb < 1) return `${(bytes / 1024).toFixed(2)} KB`;
+    return `${mb.toFixed(2)} MB`;
 }
 
-function getFileBadgeLabel(fileName: string): string {
-    const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
-    if (ext === "pdf") return "PDF";
-    if (ext === "doc" || ext === "docx") return "DOC";
-    if (ext === "xls" || ext === "xlsx") return "XLS";
-    if (ext === "zip" || ext === "rar" || ext === "7z") return "ZIP";
-    return "FILE";
+type FileCategory = "video" | "pdf" | "word" | "excel" | "ppt" | "other";
+
+const VIDEO_FILE_EXTENSIONS = new Set(["mp4", "mov", "avi", "mkv", "webm"]);
+const WORD_FILE_EXTENSIONS = new Set(["doc", "docx"]);
+const EXCEL_FILE_EXTENSIONS = new Set(["xls", "xlsx"]);
+const PPT_FILE_EXTENSIONS = new Set(["ppt", "pptx"]);
+
+const WORD_MIME_TYPES = new Set([
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+]);
+
+const EXCEL_MIME_TYPES = new Set([
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+]);
+
+const PPT_MIME_TYPES = new Set([
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+]);
+
+function getFileExtension(fileName: string): string {
+    return fileName.split(".").pop()?.toLowerCase() ?? "";
+}
+
+function normalizeMimeType(mimeType?: string): string {
+    if (!mimeType) return "";
+    return mimeType.split(";")[0]?.trim().toLowerCase() ?? "";
+}
+
+function resolveFileCategory(
+    fileName: string,
+    mimeType?: string,
+    messageType?: MessageType,
+): FileCategory {
+    if (messageType === "VIDEO") return "video";
+
+    // Ưu tiên extension trước, sau đó mới fallback sang mimeType.
+    const ext = getFileExtension(fileName);
+    if (VIDEO_FILE_EXTENSIONS.has(ext)) return "video";
+    if (ext === "pdf") return "pdf";
+    if (WORD_FILE_EXTENSIONS.has(ext)) return "word";
+    if (EXCEL_FILE_EXTENSIONS.has(ext)) return "excel";
+    if (PPT_FILE_EXTENSIONS.has(ext)) return "ppt";
+
+    const normalizedMime = normalizeMimeType(mimeType);
+    if (!normalizedMime) return "other";
+
+    if (normalizedMime.startsWith("video/")) return "video";
+    if (normalizedMime === "application/pdf") return "pdf";
+    if (WORD_MIME_TYPES.has(normalizedMime)) return "word";
+    if (EXCEL_MIME_TYPES.has(normalizedMime)) return "excel";
+    if (PPT_MIME_TYPES.has(normalizedMime)) return "ppt";
+
+    return "other";
+}
+
+function getFileTypeBadge(fileCategory: FileCategory): string | null {
+    if (fileCategory === "pdf") return "PDF";
+    if (fileCategory === "word") return "WORD";
+    if (fileCategory === "excel") return "EXCEL";
+    if (fileCategory === "ppt") return "PPT";
+    if (fileCategory === "video") return "VIDEO";
+    return null;
+}
+
+function isDocumentCategory(fileCategory: FileCategory): boolean {
+    return fileCategory === "pdf" || fileCategory === "word";
+}
+
+function getFileTypePalette(fileCategory: FileCategory) {
+    if (fileCategory === "pdf") {
+        return {
+            iconBg: "bg-red-100 dark:bg-red-900/35",
+            iconText: "text-red-600 dark:text-red-300",
+            badgeBg: "bg-red-100/80 dark:bg-red-900/45",
+            badgeText: "text-red-700 dark:text-red-200",
+        };
+    }
+    if (fileCategory === "word") {
+        return {
+            iconBg: "bg-blue-100 dark:bg-blue-900/35",
+            iconText: "text-blue-600 dark:text-blue-300",
+            badgeBg: "bg-blue-100/80 dark:bg-blue-900/45",
+            badgeText: "text-blue-700 dark:text-blue-200",
+        };
+    }
+    if (fileCategory === "excel") {
+        return {
+            iconBg: "bg-emerald-100 dark:bg-emerald-900/35",
+            iconText: "text-emerald-600 dark:text-emerald-300",
+            badgeBg: "bg-emerald-100/80 dark:bg-emerald-900/45",
+            badgeText: "text-emerald-700 dark:text-emerald-200",
+        };
+    }
+    if (fileCategory === "ppt") {
+        return {
+            iconBg: "bg-orange-100 dark:bg-orange-900/35",
+            iconText: "text-orange-600 dark:text-orange-300",
+            badgeBg: "bg-orange-100/80 dark:bg-orange-900/45",
+            badgeText: "text-orange-700 dark:text-orange-200",
+        };
+    }
+    if (fileCategory === "video") {
+        return {
+            iconBg: "bg-sky-100 dark:bg-sky-900/35",
+            iconText: "text-sky-600 dark:text-sky-300",
+            badgeBg: "bg-sky-100/80 dark:bg-sky-900/45",
+            badgeText: "text-sky-700 dark:text-sky-200",
+        };
+    }
+
+    return {
+        iconBg: "bg-gray-200/90 dark:bg-gray-700/80",
+        iconText: "text-gray-600 dark:text-gray-300",
+        badgeBg: "bg-gray-200/90 dark:bg-gray-700/70",
+        badgeText: "text-gray-700 dark:text-gray-200",
+    };
+}
+
+function resolveLocalAvailabilityLabel(
+    attachment?: MessageAttachment,
+): string | null {
+    if (!attachment) return null;
+    const metadata = attachment as MessageAttachment & Record<string, unknown>;
+
+    const localBooleanKeys = [
+        "isLocal",
+        "existsOnDevice",
+        "availableOnDevice",
+        "isAvailableOnDevice",
+        "downloaded",
+    ];
+    if (localBooleanKeys.some((key) => metadata[key] === true)) {
+        return "Đã có trên máy";
+    }
+
+    const localStringKeys = ["localStatus", "status", "deviceStatus"];
+    const localStatusRaw = localStringKeys
+        .map((key) => metadata[key])
+        .find((value): value is string => typeof value === "string");
+
+    if (!localStatusRaw) return null;
+
+    const normalized = localStatusRaw.trim().toLowerCase();
+    if (!normalized) return null;
+
+    if (
+        normalized.includes("đã có trên máy") ||
+        normalized.includes("local") ||
+        normalized.includes("available") ||
+        normalized.includes("downloaded") ||
+        normalized.includes("device")
+    ) {
+        return "Đã có trên máy";
+    }
+
+    return null;
+}
+
+function resolveVideoPosterUrl(
+    attachment?: MessageAttachment,
+): string | undefined {
+    if (!attachment) return undefined;
+    const metadata = attachment as MessageAttachment & Record<string, unknown>;
+    const posterKeys = ["thumbnailUrl", "thumbnail", "posterUrl", "poster"];
+
+    for (const key of posterKeys) {
+        const value = metadata[key];
+        if (typeof value === "string" && value.trim()) {
+            return value;
+        }
+    }
+
+    return undefined;
 }
 
 /* ─── Custom Audio Player (UI phát audio tin nhắn thoại) ─────────────────── */
@@ -88,14 +269,17 @@ function AudioPlayer({ src, isOwn }: { src: string; isOwn: boolean }) {
     // Tạo waveform bars giả - seeded theo URL để mỗi tin nhắn có cùng 1 waveform
     // (không decode thật audio vì tốn CPU, fake này đủ dùng cho UI)
     const bars = useMemo(() => {
-        // Hash URL thành số seed
-        let s = src
+        // Hash URL thành số seed cố định, tránh mutate biến trong render.
+        const seed = src
             .split("")
             .reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 17);
-        // Tạo 30 cột với chiều cao random 15-85%
-        return Array.from({ length: 30 }, () => {
-            s = (Math.imul(s, 1664525) + 1013904223) | 0; // LCG random
-            return 15 + (Math.abs(s) % 70); // 15–85 %
+        // Tạo 30 cột giả lập dựa trên seed + index để mỗi tin luôn ổn định.
+        return Array.from({ length: 30 }, (_, index) => {
+            const seeded = Math.imul(
+                seed ^ ((index + 1) * 2654435761),
+                1103515245,
+            );
+            return 15 + (Math.abs(seeded) % 70); // 15–85 %
         });
     }, [src]);
 
@@ -368,12 +552,73 @@ export function MessageBubble({
                   .filter((url): url is string => Boolean(url))
             : [];
     const fileAttachment =
-        message.type === "FILE" ? messageAttachments[0] : undefined;
+        message.type === "FILE" || message.type === "VIDEO"
+            ? messageAttachments[0]
+            : undefined;
     const resolvedFileName =
         fileAttachment?.fileName ||
         getFileNameFromUrl(fileAttachment?.url, fileNameFromUrl);
     const resolvedFileUrl = fileAttachment?.url || message.content;
     const resolvedFileSize = formatBytes(fileAttachment?.fileSize);
+    const resolvedFileMimeType = fileAttachment?.type;
+    const resolvedFileCategory = resolveFileCategory(
+        resolvedFileName,
+        resolvedFileMimeType,
+        message.type,
+    );
+    const resolvedFilePalette = getFileTypePalette(resolvedFileCategory);
+    const resolvedFileBadge = getFileTypeBadge(resolvedFileCategory);
+    const resolvedLocalAvailabilityLabel =
+        resolveLocalAvailabilityLabel(fileAttachment);
+    const resolvedVideoPoster = resolveVideoPosterUrl(fileAttachment);
+    const isVideoFileBubble =
+        (message.type === "FILE" || message.type === "VIDEO") &&
+        resolvedFileCategory === "video";
+    const isDocumentFileBubble = isDocumentCategory(resolvedFileCategory);
+    const isFileMessageBubble = message.type === "FILE" || isVideoFileBubble;
+    const fileIconLabel =
+        resolvedFileCategory === "word"
+            ? "W"
+            : resolvedFileCategory === "pdf"
+              ? "PDF"
+              : null;
+    const resolvedSecondaryMeta = [
+        resolvedFileSize,
+        resolvedLocalAvailabilityLabel,
+    ]
+        .filter(Boolean)
+        .join("  ");
+    const resolvedSizeLabel = resolvedFileSize || "Không rõ dung lượng";
+    const fileActionButtonClass =
+        "h-9 w-9 shrink-0 rounded-md border border-gray-200/90 dark:border-gray-600/80 bg-white/90 dark:bg-gray-800/85 text-gray-600 dark:text-gray-200 flex items-center justify-center transition-colors hover:bg-gray-100 dark:hover:bg-gray-700";
+
+    const handleOpenFile = useCallback(() => {
+        if (!resolvedFileUrl) return;
+        window.open(resolvedFileUrl, "_blank", "noopener,noreferrer");
+    }, [resolvedFileUrl]);
+
+    const handleDownloadFile = useCallback(() => {
+        if (!resolvedFileUrl) return;
+
+        const anchor = document.createElement("a");
+        anchor.href = resolvedFileUrl;
+        anchor.download = resolvedFileName || "download";
+        anchor.rel = "noopener noreferrer";
+        anchor.target = "_blank";
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+    }, [resolvedFileName, resolvedFileUrl]);
+
+    const handleFileCardKeyDown = useCallback(
+        (event: React.KeyboardEvent<HTMLDivElement>) => {
+            if (!resolvedFileUrl) return;
+            if (event.key !== "Enter" && event.key !== " ") return;
+            event.preventDefault();
+            handleOpenFile();
+        },
+        [handleOpenFile, resolvedFileUrl],
+    );
 
     // Chuẩn hoá nội dung preview cho tin hệ thống ghim,
     // giúp hiện kiểu: "Bạn ghim 1 tin nhắn file meals.zip" giống mẫu UI mong muốn.
@@ -743,7 +988,7 @@ export function MessageBubble({
                                     ) : !isReplyPreviewRecalled &&
                                       replyPreview.type === "AUDIO" ? (
                                         // Icon audio
-                                        <div className="w-12 h-12 rounded-sm bg-gray-400/40 flex items-center justify-center shrink-0">
+                                        <div className="w-12 h-12 rounded-sm  flex items-center justify-center shrink-0">
                                             <Mic
                                                 size={20}
                                                 className="text-gray-700 dark:text-gray-200"
@@ -804,11 +1049,13 @@ export function MessageBubble({
                                         ? "bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700"
                                         : message.type === "IMAGE"
                                           ? "bg-transparent text-black dark:text-white"
-                                          : message.type === "FILE"
+                                          : message.type === "VIDEO"
                                             ? "bg-transparent text-black dark:text-white"
-                                            : isOwn
-                                              ? "bg-blue-500 text-white"
-                                              : "bg-gray-200 dark:bg-gray-700 text-black dark:text-white"
+                                            : message.type === "FILE"
+                                              ? "bg-transparent text-black dark:text-white"
+                                              : isOwn
+                                                ? "bg-blue-500 text-white"
+                                                : "bg-gray-200 dark:bg-gray-700 text-black dark:text-white"
                                 }`}
                             >
                                 {message.isRecalled ? (
@@ -898,41 +1145,225 @@ export function MessageBubble({
                                             />
                                         </button>
                                     )
-                                ) : message.type === "VIDEO" ? (
-                                    <video
-                                        src={message.content}
-                                        controls
-                                        className="max-w-full block"
-                                        onLoadedData={onMediaLoad}
-                                    />
+                                ) : isVideoFileBubble ? (
+                                    <div className="w-[18.75rem] max-w-[78vw] sm:w-[20rem] rounded-2xl border border-gray-200/80 dark:border-gray-700/80 bg-white/95 dark:bg-gray-900/85 shadow-sm overflow-hidden">
+                                        <div className="bg-black">
+                                            <video
+                                                src={resolvedFileUrl}
+                                                poster={resolvedVideoPoster}
+                                                controls
+                                                preload="metadata"
+                                                className="block w-full max-h-60 bg-black object-contain"
+                                                onLoadedData={onMediaLoad}
+                                            />
+                                        </div>
+                                        <div className="flex items-center gap-2.5 px-3 py-2.5">
+                                            <span
+                                                className={`h-10 w-10 shrink-0 rounded-xl ${resolvedFilePalette.iconBg} flex items-center justify-center`}
+                                            >
+                                                <FileVideoCamera
+                                                    size={18}
+                                                    className={
+                                                        resolvedFilePalette.iconText
+                                                    }
+                                                />
+                                            </span>
+
+                                            <span className="min-w-0 flex-1">
+                                                <span className="block truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                                    {resolvedFileName}
+                                                </span>
+                                                <span className="block mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                                                    {resolvedSecondaryMeta ||
+                                                        "Tệp video"}
+                                                </span>
+                                                {timeStr && (
+                                                    <span className="block mt-1 text-[11px] text-gray-400 dark:text-gray-500">
+                                                        {timeStr}
+                                                    </span>
+                                                )}
+                                            </span>
+
+                                            <span className="flex items-center gap-1.5 shrink-0 self-center">
+                                                <button
+                                                    type="button"
+                                                    title="Mở file"
+                                                    onClick={handleOpenFile}
+                                                    className={
+                                                        fileActionButtonClass
+                                                    }
+                                                >
+                                                    <FolderOpen size={15} />
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    title="Tải xuống"
+                                                    onClick={handleDownloadFile}
+                                                    className={
+                                                        fileActionButtonClass
+                                                    }
+                                                >
+                                                    <Download size={15} />
+                                                </button>
+                                            </span>
+                                        </div>
+                                    </div>
                                 ) : message.type === "AUDIO" ? (
                                     <AudioPlayer
                                         src={message.content}
                                         isOwn={isOwn}
                                     />
                                 ) : message.type === "FILE" ? (
-                                    <a
-                                        href={resolvedFileUrl}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="mx-2 my-2 flex items-center gap-3 rounded-2xl border-gray-400 shadow-sm dark:border-gray-600 bg-gray-100 dark:bg-gray-800 px-3 py-3"
+                                    <div
+                                        role={
+                                            resolvedFileUrl
+                                                ? "button"
+                                                : undefined
+                                        }
+                                        tabIndex={resolvedFileUrl ? 0 : -1}
+                                        onClick={
+                                            resolvedFileUrl
+                                                ? handleOpenFile
+                                                : undefined
+                                        }
+                                        onKeyDown={handleFileCardKeyDown}
+                                        className={`w-[18.75rem] max-w-[78vw] sm:w-[20rem] rounded-2xl border border-gray-200/80 dark:border-gray-700/80 px-3 py-2.5 shadow-sm transition-colors ${
+                                            resolvedFileUrl
+                                                ? "cursor-pointer bg-gray-50/90 hover:bg-gray-100 dark:bg-gray-900/80 dark:hover:bg-gray-800"
+                                                : "bg-gray-50/90 dark:bg-gray-900/80"
+                                        }`}
                                     >
-                                        <span className="h-9 w-9 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-[10px] font-semibold">
-                                            {getFileBadgeLabel(
-                                                resolvedFileName,
-                                            )}
-                                        </span>
-                                        <span className="min-w-0 flex-1">
-                                            <span className="block truncate text-sm text-gray-900 dark:text-gray-100">
-                                                {resolvedFileName}
+                                        <div className="flex items-center gap-2.5">
+                                            <span
+                                                className={`h-11 w-11 shrink-0 rounded-lg ${resolvedFilePalette.iconBg} flex items-center justify-center`}
+                                            >
+                                                {fileIconLabel ? (
+                                                    <span
+                                                        className={`${resolvedFilePalette.iconText} font-bold leading-none ${
+                                                            fileIconLabel ===
+                                                            "PDF"
+                                                                ? "text-[10px] tracking-wide"
+                                                                : "text-lg"
+                                                        }`}
+                                                    >
+                                                        {fileIconLabel}
+                                                    </span>
+                                                ) : resolvedFileCategory ===
+                                                  "excel" ? (
+                                                    <FileSpreadsheet
+                                                        size={18}
+                                                        className={
+                                                            resolvedFilePalette.iconText
+                                                        }
+                                                    />
+                                                ) : resolvedFileCategory ===
+                                                  "ppt" ? (
+                                                    <Presentation
+                                                        size={18}
+                                                        className={
+                                                            resolvedFilePalette.iconText
+                                                        }
+                                                    />
+                                                ) : resolvedFileCategory ===
+                                                  "video" ? (
+                                                    <FileVideoCamera
+                                                        size={18}
+                                                        className={
+                                                            resolvedFilePalette.iconText
+                                                        }
+                                                    />
+                                                ) : resolvedFileCategory ===
+                                                      "pdf" ||
+                                                  resolvedFileCategory ===
+                                                      "word" ? (
+                                                    <FileText
+                                                        size={18}
+                                                        className={
+                                                            resolvedFilePalette.iconText
+                                                        }
+                                                    />
+                                                ) : (
+                                                    <File
+                                                        size={18}
+                                                        className={
+                                                            resolvedFilePalette.iconText
+                                                        }
+                                                    />
+                                                )}
                                             </span>
-                                            {resolvedFileSize && (
-                                                <span className="block text-xs text-gray-500 dark:text-gray-400">
-                                                    {resolvedFileSize}
+
+                                            <span className="min-w-0 flex-1">
+                                                <span className="flex items-center gap-1.5 min-w-0">
+                                                    <span className="truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                                        {resolvedFileName}
+                                                    </span>
+                                                    {resolvedFileBadge &&
+                                                        !isDocumentFileBubble && (
+                                                            <span
+                                                                className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none ${resolvedFilePalette.badgeBg} ${resolvedFilePalette.badgeText}`}
+                                                            >
+                                                                {
+                                                                    resolvedFileBadge
+                                                                }
+                                                            </span>
+                                                        )}
                                                 </span>
-                                            )}
-                                        </span>
-                                    </a>
+                                                <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
+                                                    <span>
+                                                        {resolvedSizeLabel}
+                                                    </span>
+                                                    {resolvedLocalAvailabilityLabel && (
+                                                        <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                                                            <CheckCircle2
+                                                                size={12}
+                                                                className="shrink-0"
+                                                            />
+                                                            <span>
+                                                                {
+                                                                    resolvedLocalAvailabilityLabel
+                                                                }
+                                                            </span>
+                                                        </span>
+                                                    )}
+                                                </span>
+                                            </span>
+
+                                            <span className="flex items-center gap-1.5 shrink-0 self-center">
+                                                <button
+                                                    type="button"
+                                                    title="Mở file"
+                                                    onClick={(event) => {
+                                                        event.stopPropagation();
+                                                        handleOpenFile();
+                                                    }}
+                                                    className={
+                                                        fileActionButtonClass
+                                                    }
+                                                >
+                                                    <FolderOpen size={15} />
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    title="Tải xuống"
+                                                    onClick={(event) => {
+                                                        event.stopPropagation();
+                                                        handleDownloadFile();
+                                                    }}
+                                                    className={
+                                                        fileActionButtonClass
+                                                    }
+                                                >
+                                                    <Download size={15} />
+                                                </button>
+                                            </span>
+                                        </div>
+
+                                        {timeStr && (
+                                            <p className="mt-2 pl-[3.125rem] text-[11px] text-gray-400 dark:text-gray-500">
+                                                {timeStr}
+                                            </p>
+                                        )}
+                                    </div>
                                 ) : message.type === "CALL" ? (
                                     <button
                                         type="button"
@@ -999,7 +1430,10 @@ export function MessageBubble({
                 {/* Pin indicator - hiển thị khi tin nhắn đã được ghim */}
                 {isPinned && (
                     <div className="flex items-center gap-1 mt-1 px-1">
-                        <Pin size={12} className="text-blue-500 shrink-0 text-red-500" />
+                        <Pin
+                            size={12}
+                            className="text-blue-500 shrink-0 text-red-500"
+                        />
                         <span className="text-xs text-blue-500 font-medium text-red-500">
                             Đã ghim
                         </span>
@@ -1021,7 +1455,7 @@ export function MessageBubble({
                         >
                             {senderName}
                         </span>
-                        {timeStr && (
+                        {timeStr && !isFileMessageBubble && (
                             <span className="text-xs text-gray-400 dark:text-gray-500">
                                 {timeStr}
                             </span>
@@ -1030,13 +1464,16 @@ export function MessageBubble({
                 )}
 
                 {/* Giờ dưới bubble cho tin nhắn của mình */}
-                {!message.isRecalled && isLastInGroup && isOwn && (
-                    <p
-                        className={`text-xs mt-0.5 px-1 text-gray-400  dark:text-gray-500 ${isOwn ? "self-end" : "self-start"}`}
-                    >
-                        {timeStr}
-                    </p>
-                )}
+                {!message.isRecalled &&
+                    isLastInGroup &&
+                    isOwn &&
+                    !isFileMessageBubble && (
+                        <p
+                            className={`text-xs mt-0.5 px-1 text-gray-400  dark:text-gray-500 ${isOwn ? "self-end" : "self-start"}`}
+                        >
+                            {timeStr}
+                        </p>
+                    )}
 
                 {/* Tooltip giờ bên cạnh — hiện khi hover, chỉ tin KHÔNG phải cuối group */}
                 {!isLastInGroup && (
