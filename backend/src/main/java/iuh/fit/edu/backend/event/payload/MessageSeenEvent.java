@@ -1,6 +1,8 @@
 package iuh.fit.edu.backend.event.payload;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import iuh.fit.edu.backend.dto.response.message.MessageSeenResponse;
 import iuh.fit.edu.backend.event.type.DomainEventType;
 import lombok.Getter;
@@ -15,7 +17,10 @@ public class MessageSeenEvent {
     private final Set<Long> receiverIds;
     private final DomainEventType domainEventType;
 
-    public MessageSeenEvent(MessageSeenResponse messageSeenResponse, Set<Long> receiverIds) {
+    @JsonCreator
+    public MessageSeenEvent(
+            @JsonProperty("messageSeenResponse") MessageSeenResponse messageSeenResponse,
+            @JsonProperty("receiverIds") Set<Long> receiverIds) {
         this.messageSeenResponse = messageSeenResponse;
         this.receiverIds = receiverIds;
         this.domainEventType = DomainEventType.MESSAGE_SEEN;

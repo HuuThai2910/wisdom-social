@@ -4,6 +4,8 @@
  */
 package iuh.fit.edu.backend.event.payload;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import iuh.fit.edu.backend.dto.response.message.MessageRecalledResponse;
 import iuh.fit.edu.backend.event.type.DomainEventType;
 import lombok.Getter;
@@ -19,7 +21,9 @@ public class MessageRecalledEvent{
     private final MessageRecalledResponse messageRecalledResponse;
     private final DomainEventType domainEventType;
 
-    public MessageRecalledEvent(MessageRecalledResponse messageRecalledResponse) {
+
+    @JsonCreator
+    public MessageRecalledEvent(@JsonProperty("messageRecalledResponse") MessageRecalledResponse messageRecalledResponse) {
         this.messageRecalledResponse = messageRecalledResponse;
         this.domainEventType = DomainEventType.MESSAGE_RECALLED;
     }

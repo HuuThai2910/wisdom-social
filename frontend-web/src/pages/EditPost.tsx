@@ -84,7 +84,7 @@ export default function EditPost() {
         if (post.taggedUserIds && post.taggedUserIds.length > 0) {
           const taggedUsersPromises = post.taggedUserIds.map((userId: string) =>
             axios
-              .get(`http://localhost:8080/api/auth/user/id/${userId}`)
+              .get(`http://localhost:8080/api/auth/user/${userId}`)
               .catch(() => null)
           );
           const taggedUsersResponses = await Promise.all(taggedUsersPromises);

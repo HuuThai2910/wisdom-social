@@ -1,55 +1,52 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const TOKEN_KEY = 'accessToken';
-const REFRESH_TOKEN_KEY = 'refreshToken';
-const ID_TOKEN_KEY = 'idToken';
-const USER_KEY = 'user';
-const SETTINGS_KEY = 'appSettings';
+const TOKEN_KEY = "accessToken";
+const REFRESH_TOKEN_KEY = "refreshToken";
+const ID_TOKEN_KEY = "idToken";
+const USER_KEY = "user";
+const SETTINGS_KEY = "appSettings";
 
-const memoryStorage: { [key: string]: string } = {};
+const memoryStorage: Record<string, string> = {};
 
 const storage = {
     async setItem(key: string, value: string): Promise<void> {
         try {
             await AsyncStorage.setItem(key, value);
-        } catch (error: any) {
-            if (error.message?.includes('Native module is null')) {
+        } catch (error: unknown) {
+            if (error instanceof Error && error.message.includes("Native module is null")) {
                 memoryStorage[key] = value;
-            } else {
-                throw error;
+                return;
             }
+            throw error;
         }
     },
-    
+
     async getItem(key: string): Promise<string | null> {
         try {
             return await AsyncStorage.getItem(key);
-        } catch (error: any) {
-            if (error.message?.includes('Native module is null')) {
-                return memoryStorage[key] || null;
-            } else {
-                throw error;
+        } catch (error: unknown) {
+            if (error instanceof Error && error.message.includes("Native module is null")) {
+                return memoryStorage[key] ?? null;
             }
+            throw error;
         }
     },
-    
+
     async removeItem(key: string): Promise<void> {
         try {
             await AsyncStorage.removeItem(key);
-        } catch (error: any) {
-            if (error.message?.includes('Native module is null')) {
+        } catch (error: unknown) {
+            if (error instanceof Error && error.message.includes("Native module is null")) {
                 delete memoryStorage[key];
-            } else {
-                throw error;
+                return;
             }
+            throw error;
         }
-    }
+    },
 };
 
 export const saveToken = async (token: string): Promise<void> => {
-    try {
-        await storage.setItem(TOKEN_KEY, token);
-    } catch {}
+    await storage.setItem(TOKEN_KEY, token);
 };
 
 export const getToken = async (): Promise<string | null> => {
@@ -61,9 +58,7 @@ export const getToken = async (): Promise<string | null> => {
 };
 
 export const saveRefreshToken = async (token: string): Promise<void> => {
-    try {
-        await storage.setItem(REFRESH_TOKEN_KEY, token);
-    } catch {}
+    await storage.setItem(REFRESH_TOKEN_KEY, token);
 };
 
 export const getRefreshToken = async (): Promise<string | null> => {
@@ -75,9 +70,7 @@ export const getRefreshToken = async (): Promise<string | null> => {
 };
 
 export const saveIdToken = async (token: string): Promise<void> => {
-    try {
-        await storage.setItem(ID_TOKEN_KEY, token);
-    } catch {}
+    await storage.setItem(ID_TOKEN_KEY, token);
 };
 
 export const getIdToken = async (): Promise<string | null> => {
@@ -88,42 +81,36 @@ export const getIdToken = async (): Promise<string | null> => {
     }
 };
 
-export const saveUser = async (user: any): Promise<void> => {
-    try {
-        await storage.setItem(USER_KEY, JSON.stringify(user));
-    } catch {}
+export const saveUser = async (user: unknown): Promise<void> => {
+    await storage.setItem(USER_KEY, JSON.stringify(user));
 };
 
-export const getUser = async (): Promise<any | null> => {
+export const getUser = async <T = unknown>(): Promise<T | null> => {
     try {
         const userJson = await storage.getItem(USER_KEY);
-        return userJson ? JSON.parse(userJson) : null;
+        return userJson ? (JSON.parse(userJson) as T) : null;
     } catch {
         return null;
     }
 };
 
 export const clearStorage = async (): Promise<void> => {
-    try {
-        await Promise.all([
-            storage.removeItem(TOKEN_KEY),
-            storage.removeItem(REFRESH_TOKEN_KEY),
-            storage.removeItem(ID_TOKEN_KEY),
-            storage.removeItem(USER_KEY)
-        ]);
-    } catch {}
+    await Promise.all([
+        storage.removeItem(TOKEN_KEY),
+        storage.removeItem(REFRESH_TOKEN_KEY),
+        storage.removeItem(ID_TOKEN_KEY),
+        storage.removeItem(USER_KEY),
+    ]);
 };
 
-export const saveSettings = async (settings: any): Promise<void> => {
-    try {
-        await storage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-    } catch {}
+export const saveSettings = async (settings: unknown): Promise<void> => {
+    await storage.setItem(SETTINGS_KEY, JSON.stringify(settings));
 };
 
-export const getSettings = async (): Promise<any | null> => {
+export const getSettings = async <T = unknown>(): Promise<T | null> => {
     try {
         const settingsJson = await storage.getItem(SETTINGS_KEY);
-        return settingsJson ? JSON.parse(settingsJson) : null;
+        return settingsJson ? (JSON.parse(settingsJson) as T) : null;
     } catch {
         return null;
     }

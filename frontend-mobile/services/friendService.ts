@@ -1,107 +1,119 @@
-import apiClient from '../api/apiClient';
-import { User } from '../types';
+import apiClient from "@/api/apiClient";
+import { mockFeatureFriends, mockFeatureRequests } from "@/constants";
 
-export interface FriendRequest {
-    senderId: number;
-    receivedId: number;
-}
+export type FriendUser = {
+    id: number;
+    name?: string;
+    username?: string;
+    avatarUrl?: string;
+    phone?: string;
+};
 
 class FriendService {
-    async getFriends(userId: number): Promise<User[]> {
+    private localFriends: FriendUser[] = [...mockFeatureFriends];
+
+    private localRequests: FriendUser[] = [...mockFeatureRequests];
+
+    async getFriends(userId: number): Promise<FriendUser[]> {
         try {
             const response = await apiClient.get(`/friends/${userId}`);
-            return response.data.data;
+            const data = response.data?.data ?? [];
+            if (Array.isArray(data) && data.length > 0) {
+                return data;
+            }
+            return this.localFriends;
         } catch {
-            return [];
+            return this.localFriends;
         }
     }
 
-    async getFriendRequests(userId: number): Promise<User[]> {
+    async getFriendRequests(userId: number): Promise<FriendUser[]> {
         try {
             const response = await apiClient.get(`/friends/requests/${userId}`);
-            return response.data.data;
+            const data = response.data?.data ?? [];
+            if (Array.isArray(data) && data.length > 0) {
+                return data;
+            }
+            return this.localRequests;
         } catch {
-            return [];
+            return this.localRequests;
         }
     }
 
     async sendFriendRequest(senderId: number, receivedId: number): Promise<boolean> {
         try {
-            await apiClient.post('/friends/request', { senderId, receivedId });
+            await apiClient.post("/friends/request", { senderId, receivedId });
             return true;
         } catch {
+            if (!this.localRequests.some((user) => user.id === receivedId)) {
+                this.localRequests = [
+                    ...this.localRequests,
+                    {
+                        id: receivedId,
+                        name: `User ${receivedId}`,
+                        username: `user${receivedId}`,
+                    },
+                ];
+            }
             return false;
         }
     }
 
     async acceptFriendRequest(senderId: number, receivedId: number): Promise<boolean> {
         try {
-            await apiClient.post('/friends/accept', { senderId, receivedId });
+            await apiClient.post("/friends/accept", { senderId, receivedId });
             return true;
         } catch {
-            return false;
-        }
-    }
-
-    async cancelFriendRequest(senderId: number, receivedId: number): Promise<boolean> {
-        try {
-            await apiClient.post('/friends/cancel', { senderId, receivedId });
-            return true;
-        } catch {
+            const accepted = this.localRequests.find((user) => user.id === senderId);
+            if (accepted && !this.localFriends.some((user) => user.id === senderId)) {
+                this.localFriends = [accepted, ...this.localFriends];
+            }
+            this.localRequests = this.localRequests.filter((user) => user.id !== senderId);
             return false;
         }
     }
 
     async rejectFriendRequest(senderId: number, receivedId: number): Promise<boolean> {
         try {
-            await apiClient.post('/friends/reject', { senderId, receivedId });
+            await apiClient.post("/friends/reject", { senderId, receivedId });
             return true;
         } catch {
+            this.localRequests = this.localRequests.filter((user) => user.id !== senderId);
             return false;
         }
     }
 
-    async getFriendStatus(myId: number, targetId: number): Promise<'NONE' | 'SENT' | 'RECEIVED' | 'FRIEND' | 'BLOCKED'> {
+    async cancelFriendRequest(senderId: number, receivedId: number): Promise<boolean> {
+        try {
+            await apiClient.post("/friends/cancel", { senderId, receivedId });
+            return true;
+        } catch {
+            this.localFriends = this.localFriends.filter((user) => user.id !== receivedId);
+            this.localRequests = this.localRequests.filter((user) => user.id !== receivedId);
+            return false;
+        }
+    }
+
+    async getFriendStatus(myId: number, targetId: number): Promise<"NONE" | "SENT" | "RECEIVED" | "FRIEND" | "BLOCKED"> {
         try {
             const [blockedList, myFriends, receivedRequests, theirRequests] = await Promise.all([
-                apiClient.get(`/auth/users/blocked/${myId}`).then(r => r.data.data).catch(() => []),
-                apiClient.get(`/friends/${myId}`).then(r => r.data.data).catch(() => []),
-                apiClient.get(`/friends/requests/${myId}`).then(r => r.data.data).catch(() => []),
-                apiClient.get(`/friends/requests/${targetId}`).then(r => r.data.data).catch(() => []),
+                apiClient.get(`/auth/users/blocked/${myId}`).then((r) => r.data?.data ?? []).catch(() => []),
+                apiClient.get(`/friends/${myId}`).then((r) => r.data?.data ?? []).catch(() => []),
+                apiClient.get(`/friends/requests/${myId}`).then((r) => r.data?.data ?? []).catch(() => []),
+                apiClient.get(`/friends/requests/${targetId}`).then((r) => r.data?.data ?? []).catch(() => []),
             ]);
 
-            const hasId = (list: any[], id: number) =>
-                list.some((u: any) => u.id === id || Number(u.id) === id);
+            const hasId = (list: Array<{ id?: number }>, id: number) => list.some((u) => Number(u.id) === id);
 
-            if (hasId(blockedList, targetId)) return 'BLOCKED';
-            if (hasId(myFriends, targetId)) return 'FRIEND';
-            if (hasId(receivedRequests, targetId)) return 'RECEIVED';
-            if (hasId(theirRequests, myId)) return 'SENT';
-            return 'NONE';
+            if (hasId(blockedList, targetId)) return "BLOCKED";
+            if (hasId(myFriends, targetId)) return "FRIEND";
+            if (hasId(receivedRequests, targetId)) return "RECEIVED";
+            if (hasId(theirRequests, myId)) return "SENT";
+            return "NONE";
         } catch {
-            return 'NONE';
-        }
-    }
-
-    async removeFriend(userId: number, friendId: number): Promise<boolean> {
-        return this.cancelFriendRequest(userId, friendId);
-    }
-
-    async blockUser(blockerId: number, blockedId: number): Promise<boolean> {
-        try {
-            await apiClient.post('/auth/users/block', { senderId: blockerId, receivedId: blockedId });
-            return true;
-        } catch {
-            return false;
-        }
-    }
-
-    async unblockUser(blockerId: number, blockedId: number): Promise<boolean> {
-        try {
-            await apiClient.post('/auth/users/cancel-block', { senderId: blockerId, receivedId: blockedId });
-            return true;
-        } catch {
-            return false;
+            if (this.localFriends.some((u) => u.id === targetId)) return "FRIEND";
+            if (this.localRequests.some((u) => u.id === targetId)) return "RECEIVED";
+            return "NONE";
         }
     }
 }

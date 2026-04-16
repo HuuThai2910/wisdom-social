@@ -5,47 +5,49 @@ import { logout } from "../utils/auth";
 export default function SettingsPage() {
   const navigate = useNavigate();
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     window.location.href = "/login";
   };
 
   const settingsOptions = [
     {
       icon: Settings,
-      title: "Edit Profile",
-      description: "Name, bio, avatar",
-      action: "Edit",
+      title: "Chỉnh sửa hồ sơ",
+      description: "Tên, tiểu sử, ảnh đại diện",
+      action: "Chỉnh sửa",
+      onClick: () => navigate("/edit-profile"),
     },
     {
       icon: Shield,
-      title: "Privacy and Security",
-      description: "Account privacy, blocked accounts",
-      action: "Manage",
+      title: "Quyền riêng tư & Bảo mật",
+      description: "Quyền riêng tư tài khoản, tài khoản đã chặn",
+      action: "Quản lý",
+      onClick: () => navigate("/blocked-users"),
     },
     {
       icon: Bell,
-      title: "Notifications",
-      description: "Push, email, SMS",
-      action: "Configure",
+      title: "Thông báo",
+      description: "Thông báo đẩy, email, SMS",
+      action: "Cài đặt",
     },
     {
       icon: Lock,
-      title: "Password",
-      description: "Change your password",
-      action: "Update",
+      title: "Mật khẩu",
+      description: "Thay đổi mật khẩu của bạn",
+      action: "Cập nhật",
     },
     {
       icon: HelpCircle,
-      title: "Help",
-      description: "Support and FAQ",
-      action: "View",
+      title: "Trợ giúp",
+      description: "Hỗ trợ và câu hỏi thường gặp",
+      action: "Xem",
     },
     {
       icon: Info,
-      title: "About",
-      description: "App version and terms",
-      action: "View",
+      title: "Giới thiệu",
+      description: "Phiên bản ứng dụng và điều khoản",
+      action: "Xem",
     },
   ];
 
@@ -53,19 +55,20 @@ export default function SettingsPage() {
     <div className="max-w-[600px] mx-auto">
       <div className="bg-white dark:bg-[#000]">
         <div className="py-8">
-          <h1 className="text-2xl font-bold mb-2 dark:text-white">Settings</h1>
+          <h1 className="text-2xl font-bold mb-2 dark:text-white">Cài đặt</h1>
           <p className="text-gray-600 dark:text-gray-400 text-sm">
-            Manage your account settings and preferences
+            Quản lý cài đặt tài khoản và tùy chọn của bạn
           </p>
         </div>
 
-        {/* Account Settings Content */}
+        {/* Nội dung cài đặt tài khoản */}
         <div className="space-y-1">
           {settingsOptions.map((option, index) => {
             const Icon = option.icon;
             return (
               <div
                 key={index}
+                onClick={option.onClick}
                 className="flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-[#1a1a1a] rounded-lg transition-colors cursor-pointer border border-transparent hover:border-gray-200 dark:hover:border-[#262626]"
               >
                 <div className="flex items-center gap-4">
@@ -92,13 +95,13 @@ export default function SettingsPage() {
           })}
         </div>
 
-        {/* Logout Button */}
+        {/* Nút đăng xuất */}
         <div className="mt-6 pt-6 border-t border-gray-200 dark:border-[#262626]">
           <button
             onClick={handleLogout}
             className="w-full py-3 px-4 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg font-semibold hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
           >
-            Log Out
+            Đăng xuất
           </button>
         </div>
       </div>

@@ -28,7 +28,7 @@ export default function Post() {
 
         // Fetch user data for the post author
         const userResponse = await axiosClient.get(
-          `/auth/user/id/${postData.authorId}`
+          `/auth/user/${postData.authorId}`
         );
         const userData = userResponse.data.data;
 

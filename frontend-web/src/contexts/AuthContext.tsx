@@ -37,6 +37,26 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const mapUserFromApi = (userData: any, fallback?: User | null): User => ({
+  id: Number(userData?.id ?? fallback?.id ?? 0),
+  username: userData?.username ?? fallback?.username ?? "",
+  fullName:
+    userData?.name ??
+    userData?.fullName ??
+    fallback?.fullName ??
+    userData?.username ??
+    "",
+  avatarUrl:
+    buildS3Url(userData?.avatarUrl) ??
+    fallback?.avatarUrl ??
+    "https://i.pravatar.cc/150?img=5",
+  bio: userData?.bio ?? fallback?.bio ?? "",
+  phone: userData?.phone ?? fallback?.phone,
+  gender: userData?.gender ?? fallback?.gender,
+  name: userData?.name ?? fallback?.name,
+  birthday: userData?.birthday ?? fallback?.birthday,
+});
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [userCache, setUserCache] = useState<Record<string, UserProfile>>({});
@@ -46,8 +66,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshUser = () => {
     const userStr = localStorage.getItem("current_user");
     const user = userStr ? JSON.parse(userStr) : null;
-    console.log("AuthContext refreshUser:", user);
+    console.log("🔵 AuthContext refreshUser called");
+    console.log("🔵 currentUser from localStorage:", user);
     setCurrentUser(user);
+  };
+
+  const reloadCurrentUser = async () => {
+    try {
+      const meResponse = await axiosClient.get("/auth/me");
+      const meData = meResponse.data?.data ?? meResponse.data;
+      if (!meData?.id) return;
+
+      const refreshedUser = mapUserFromApi(meData, currentUser);
+      setCurrentUser(refreshedUser);
+      localStorage.setItem("current_user", JSON.stringify(refreshedUser));
+      clearCache();
+    } catch (error) {
+      console.error("❌ Error reloading current user:", error);
+    }
   };
 
   const fetchUserStats = async (
@@ -191,7 +227,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } catch (error) {
           console.warn("⚠️ /auth/me failed, using cached user data:", error);
           userData = currentUser;
-          userId = currentUser.id;
+          userId = String(currentUser.id);
         }
       } else {
         // For other users, use /auth/users endpoint as fallback
@@ -221,17 +257,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const stats = await fetchUserStats(userId);
 
       const userProfile: UserProfile = {
-        id: userId,
+        id: Number(userId),
         username: userData.username,
         fullName: userData.name || userData.username,
-        avatar:
-          buildS3Url(userData.avatarUrl) || "https://i.pravatar.cc/150?img=5",
+        avatarUrl:
+        buildS3Url(userData.avatarUrl) || "https://i.pravatar.cc/150?img=5",
         bio: userData.bio,
         ...stats,
       };
 
       console.log("🖼️ Avatar S3 key from backend:", userData.avatarUrl);
-      console.log("🖼️ Final avatar full URL:", userProfile.avatar);
+      console.log("🖼️ Final avatar full URL:", userProfile.avatarUrl);
 
       // Update cache
       setUserCache((prev) => ({
@@ -276,22 +312,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         // Normalize id to string and update currentUser state
-        const updatedUser = {
-          id: String(updatedUserData.id),
-          username: updatedUserData.username,
-          fullName: updatedUserData.name ?? updatedUserData.username,
-          avatar:
-            buildS3Url(updatedUserData.avatarUrl) ??
-            "https://i.pravatar.cc/150?img=5",
-          bio: updatedUserData.bio ?? "",
-          phone: updatedUserData.phone,
-          gender: updatedUserData.gender,
-          name: updatedUserData.name,
-          birthday: updatedUserData.birthday,
-        };
+        const updatedUser: User = mapUserFromApi(updatedUserData, currentUser);
 
         // Update state and localStorage
-        setCurrentUser(updatedUser as User);
+        setCurrentUser(updatedUser);
         localStorage.setItem("current_user", JSON.stringify(updatedUser));
 
         // Clear cache to force refresh
@@ -307,12 +331,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
+    console.log("🟢 AuthProvider mounted, initializing auth...");
+
     // Initialize auth - set axios header from stored token
     import("../utils/auth").then(({ initializeAuth }) => {
+      console.log("🟢 Auth initialized");
       initializeAuth();
     });
 
     // Load user khi app khởi động
+    console.log("🟡 Loading user from localStorage");
     refreshUser();
 
     // Register callback với auth utils

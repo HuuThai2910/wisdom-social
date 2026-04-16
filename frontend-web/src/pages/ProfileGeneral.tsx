@@ -4,7 +4,7 @@ import ProfileHeader from "../components/profile/ProfileHeader";
 import ProfileTabs from "../components/profile/ProfileTabs";
 import axios from "axios";
 import type { User } from "../types";
-import { getCurrentUser } from "../utils/auth";
+import { useCurrentUser } from "../hooks/useCurrentUser";
 
 const API_BASE_URL = "http://localhost:8080/api";
 
@@ -25,8 +25,10 @@ export default function ProfileGeneral() {
             id: userData.id.toString(),
             username: userData.username,
             fullName: userData.name || userData.username,
-            avatar: userData.avatarUrl || "https://i.pravatar.cc/150?img=5",
+            avatarUrl: userData.avatarUrl || "https://i.pravatar.cc/150?img=5",
             bio: userData.bio,
+            birthday: userData.birthday || "",
+            gender: userData.gender || "HIDDEN",
             friendsCount: userData.friendCount || 0,
             followersCount: userData.followerCount || 0,
             followingCount: userData.followingCount || 0,
@@ -53,7 +55,7 @@ export default function ProfileGeneral() {
     return <div className="p-4 text-center">User not found</div>;
   }
 
-  const currentUser = getCurrentUser();
+  const currentUser = useCurrentUser();
   const isOwnProfile = currentUser?.username === username;
 
   return (

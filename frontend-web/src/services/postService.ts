@@ -301,7 +301,7 @@ export const searchUsers = async (
     query: string
 ): Promise<UserData[]> => {
     console.log(`🔍 Searching users with query: ${query}`);
-    const response = await axiosClient.get(`/auth/users/search`, {
+    const response = await axiosClient.get(`/auth/user/search`, {
         params: { userId, query },
     });
     console.log("✅ Search results:", response.data);

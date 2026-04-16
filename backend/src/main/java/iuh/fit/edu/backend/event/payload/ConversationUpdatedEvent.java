@@ -11,7 +11,9 @@ package iuh.fit.edu.backend.event.payload;
  * @version: 1.0
  */
 
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import iuh.fit.edu.backend.event.type.DomainEventType;
 import iuh.fit.edu.backend.dto.response.message.LastMessageResponse;
 import lombok.Getter;
@@ -28,7 +30,12 @@ public class ConversationUpdatedEvent{
     @JsonIgnore
     private final Set<Long> memberIds;
 
-    public ConversationUpdatedEvent(Long conversationId, LastMessageResponse lastMessage, Set<Long> memberIds) {
+
+    @JsonCreator
+    public ConversationUpdatedEvent(
+            @JsonProperty("conversationId") Long conversationId,
+            @JsonProperty("lastMessage") LastMessageResponse lastMessage,
+            @JsonProperty("memberIds") Set<Long> memberIds) {
         this.conversationId = conversationId;
         this.lastMessage = lastMessage;
         this.domainEventType = DomainEventType.ROOM_UPDATED;

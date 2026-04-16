@@ -3,7 +3,7 @@ import { mockStories } from "../api/mockData";
 import StoriesBar from "../components/story/StoriesBar";
 import PostCard from "../components/post/PostCard";
 import axiosClient from "../api/axiosClient";
-import { useAuth } from "../contexts/AuthContext";
+import { useCurrentUser } from "../hooks/useCurrentUser";
 import type { Post } from "../types";
 
 interface PostData {
@@ -17,7 +17,7 @@ interface PostData {
 }
 
 export default function Home() {
-  const { currentUser } = useAuth();
+  const currentUser = useCurrentUser();
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -114,7 +114,7 @@ export default function Home() {
             try {
               // Fetch author data
               const userResponse = await axiosClient.get(
-                `/auth/user/id/${post.authorId}`
+                `/auth/user/${post.authorId}`
               );
               const userData = userResponse.data.data;
 

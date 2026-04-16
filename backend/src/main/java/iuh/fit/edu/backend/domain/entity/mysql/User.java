@@ -48,6 +48,8 @@ public class User {
 
     private boolean confirmUseAI = false;
 
+    private Instant lastActiveAt;
+
     @OneToMany(mappedBy = "user")
     @JsonIgnore
     private List<Device> devices;

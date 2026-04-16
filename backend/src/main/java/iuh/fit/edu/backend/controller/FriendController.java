@@ -64,6 +64,12 @@ public class FriendController {
         return ResponseEntity.ok(friendService.getFriendRequestOfUser(userId));
     }
 
+    @GetMapping("/sent-requests/{userId}")
+    @ApiMessage("Get all sent friend requests for User")
+    public ResponseEntity<List<User>> getSentRequestsForUser(@PathVariable long userId){
+        return ResponseEntity.ok(friendService.getSentRequestsOfUser(userId));
+    }
+
     @GetMapping("/{userId}")
     @ApiMessage("Get all friends for User")
     public ResponseEntity<List<User>> getFriendsForUser(@PathVariable long userId){

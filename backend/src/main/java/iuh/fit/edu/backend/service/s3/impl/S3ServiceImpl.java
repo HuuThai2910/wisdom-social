@@ -1,6 +1,7 @@
 package iuh.fit.edu.backend.service.s3.impl;
 
 import iuh.fit.edu.backend.constant.UploadModule;
+import iuh.fit.edu.backend.dto.request.BulkPresignedRequest;
 import iuh.fit.edu.backend.dto.response.PresignedUrlResponse;
 import iuh.fit.edu.backend.service.s3.S3Service;
 import lombok.extern.slf4j.Slf4j;
@@ -17,6 +18,7 @@ import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignReques
 import java.net.URL;
 import java.time.Duration;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @Slf4j
@@ -37,12 +39,11 @@ public class S3ServiceImpl implements S3Service {
     }
 
     @Override
-    public Map<String, String> generateUpdateUploadUrl(String type, String id, String extension) {
-        String contentType = getContentType(extension);
+    public Map<String, String> generateUpdateUploadUrl(String type,long id,String extension) {
+        String contentType=getContentType(extension);
 
-        String uuid = UUID.randomUUID().toString();
-        String basePath = getBasePath(type, extension);
-        String key = basePath + "/" + id + "/" + uuid + "." + extension;
+        String uuid= UUID.randomUUID().toString();
+        String key="images/avatars/" + type + "/" + id + "/" + uuid + "." + extension;
 
         PutObjectRequest putObjectRequest= PutObjectRequest.builder()
                 .bucket(bucketName)
@@ -71,8 +72,7 @@ public class S3ServiceImpl implements S3Service {
         String contentType=getContentType(extension);
 
         String uuid=UUID.randomUUID().toString();
-        String basePath = getBasePath(type, extension);
-        String key=basePath + "/temp/" + uuid + "." + extension;
+        String key="images/avatars/" + type + "/" + "temp" + "/" + uuid + "." + extension;
 
         PutObjectRequest putObjectRequest=PutObjectRequest.builder()
                 .key(key)
@@ -99,30 +99,26 @@ public class S3ServiceImpl implements S3Service {
     }
 
     @Override
-    public String moveUploadUrl(String type, String id, String url) {
-        log.info("Moving upload from temp to final location. Type: {}, ID: {}, URL: {}", type, id, url);
-        
+    public String moveUploadUrl(String type,long id, String url) {
+
         String uuid = url.substring(0, url.lastIndexOf("."));
         String extension = url.substring(url.lastIndexOf(".") + 1);
-        String basePath = getBasePath(type, extension);
 
         CopyObjectRequest copyRequest = CopyObjectRequest.builder()
                 .sourceBucket(bucketName)
-                .sourceKey(basePath + "/temp/" + uuid + "." + extension)
+                .sourceKey("images/avatars/"+type+"/temp/" + uuid + "."+extension)
                 .destinationBucket(bucketName)
-                .destinationKey(basePath + "/" + id + "/" + uuid + "." + extension)
+                .destinationKey("images/avatars/"+type+"/" + id + "/" + uuid + "."+extension)
                 .build();
 
         s3Client.copyObject(copyRequest);
-        log.info("Copied from temp to: {}", basePath + "/" + id + "/" + uuid + "." + extension);
 
         s3Client.deleteObject(DeleteObjectRequest.builder()
                 .bucket(bucketName)
-                .key(basePath + "/temp/" + uuid + "." + extension)
+                .key("images/avatars/"+type+"/temp/" + uuid + "."+extension)
                 .build());
-        log.info("Deleted temp file");
 
-        return basePath + "/" + id + "/" + uuid + "." + extension;
+        return "images/avatars/"+type+"/" + id + "/" + uuid + "."+extension;
     }
 
     public String getContentType(String extension) {
@@ -190,6 +186,7 @@ public class S3ServiceImpl implements S3Service {
         }
         return mediaFolder + "/uploads";
     }
+
     /**
      * Hàm sinh URL dùng chung cho TOÀN BỘ DỰ ÁN
      * @param module: CONVERSATION, USER, hoặc POST
@@ -259,6 +256,13 @@ public class S3ServiceImpl implements S3Service {
             throw new RuntimeException("Không thể khởi tạo phiên tải lên");
         }
     }
+    @Override
+    public List<PresignedUrlResponse> generateMultiplePresignedUrls(BulkPresignedRequest request) {
+        return request.getFiles().stream()
+                .map(f -> generatePresignedUrl(request.getModule(), request.getTargetId(), f.getType(), f.getFileName(), f.getContentType()))
+                .collect(Collectors.toList());
+    }
+
     @Override
     public void deleteByKey(UploadModule module, String s3ObjectKey) {
         if (s3ObjectKey == null || s3ObjectKey.trim().isEmpty()) return;

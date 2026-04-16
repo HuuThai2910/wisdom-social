@@ -47,6 +47,7 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
             Set<Long> conversationIds,
             Set<Long> userIds
     );
+    List<ConversationMember> findByConversation_Id(Long conversationId);
 
     // Tăng số tin nhắn chưa đọc cho tất cả các thành viên trong cuộc hội thoại (trừ người nhắn)
     @Modifying

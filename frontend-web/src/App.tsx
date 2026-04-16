@@ -6,8 +6,11 @@ import {
   useNavigate,
   useLocation,
 } from "react-router-dom";
+import { Toaster } from "react-hot-toast";
 import { ThemeProvider } from "./contexts/ThemeContext";
-import { AuthProvider } from "./contexts/AuthContext";
+import { AvatarProvider } from "./context/AvatarContext";
+import { FriendNotificationProvider } from "./contexts/FriendNotificationContext";
+import FriendDataProvider from "./contexts/FriendDataContext";
 import MainLayout from "./components/layout/MainLayout";
 import PublicLayout from "./components/layout/PublicLayout";
 import RequireAuth from "./components/auth/RequireAuth";
@@ -35,15 +38,28 @@ import ProfileAccount from "./pages/ProfileAccount";
 import ProfileMyPosts from "./pages/ProfileMyPosts";
 import ProfileSavedPost from "./pages/ProfileSavedPost";
 import ProfileTaggedPost from "./pages/ProfileTaggedPost";
+import ProfileBlocked from "./pages/ProfileBlocked";
 import ProfileGeneral from "./pages/ProfileGeneral";
 import CreatePost from "./pages/CreatePost";
 import EditPost from "./pages/EditPost";
 import Settings from "./pages/Settings";
 import ProfileLayout from "./components/profile/ProfileLayout";
 
+// Pages Feature
+import Pages from "./pages/Pages";
+import CreatePageForm from "./pages/CreatePageForm";
+import PageDetail from "./pages/PageDetail";
+import PageSettings from "./pages/PageSettings";
+import EditPageForm from "./pages/EditPageForm";
+import PagePosts from "./pages/PagePosts";
+
 // Other Pages
 import General from "./pages/General";
 import Misc from "./pages/Misc";
+import EditProfile from "./pages/EditProfile";
+import UserManagement from "./pages/UserManagement";
+import BlockedUsers from "./pages/BlockedUsers";
+import FriendRequests from "./pages/FriendRequests";
 
 function App() {
   // Modal wrapper component to handle post modal
@@ -67,9 +83,21 @@ function App() {
   }
 
   return (
-    <AuthProvider>
       <ThemeProvider>
-        <BrowserRouter>
+        <AvatarProvider>
+          <FriendDataProvider>
+            <FriendNotificationProvider>
+              <Toaster
+            position="top-right"
+            toastOptions={{
+              duration: 4000,
+              style: {
+                background: '#333',
+                color: '#fff',
+              },
+            }}
+          />
+          <BrowserRouter>
           <Routes>
             {/* Public Routes */}
             <Route element={<PublicLayout />}>
@@ -80,6 +108,7 @@ function App() {
               <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/checkinbox" element={<CheckInbox />} />
               <Route path="/verify-otp" element={<VerifyOTP />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
             </Route>
 
             {/* Private Routes */}
@@ -110,6 +139,7 @@ function App() {
                 <Route path="posts" element={<ProfileMyPosts />} />
                 <Route path="saved" element={<ProfileSavedPost />} />
                 <Route path="tagged" element={<ProfileTaggedPost />} />
+                <Route path="blocked" element={<ProfileBlocked />} />
               </Route>
 
               <Route
@@ -117,6 +147,18 @@ function App() {
                 element={<ProfileGeneral />}
               />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/edit-profile" element={<EditProfile />} />
+              <Route path="/user-management" element={<UserManagement />} />
+              <Route path="/blocked-users" element={<BlockedUsers />} />
+              <Route path="/friend-requests" element={<FriendRequests />} />
+
+              {/* Pages Routes */}
+              <Route path="/pages" element={<Pages />} />
+              <Route path="/pages/create" element={<CreatePageForm />} />
+              <Route path="/pages/:pageId" element={<PageDetail />} />
+              <Route path="/pages/:pageId/edit" element={<EditPageForm />} />
+              <Route path="/pages/:pageId/posts" element={<PagePosts />} />
+              <Route path="/pages/:pageId/settings" element={<PageSettings />} />
             </Route>
 
             {/* Other Routes */}
@@ -127,8 +169,10 @@ function App() {
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
+            </FriendNotificationProvider>
+          </FriendDataProvider>
+        </AvatarProvider>
       </ThemeProvider>
-    </AuthProvider>
   );
 }
 

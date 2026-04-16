@@ -5,7 +5,7 @@
 
 import axiosClient from "../api/axiosClient";
 
-const S3_BUCKET_NAME = import.meta.env.VITE_S3_BUCKET_NAME || "wisdom-social-db";
+const S3_BUCKET_NAME = import.meta.env.VITE_S3_BUCKET_NAME || "cnmt-hk1-amz";
 const S3_REGION = import.meta.env.VITE_S3_REGION || "ap-southeast-1";
 
 /**

@@ -6,6 +6,7 @@ package iuh.fit.edu.backend.dto.response.conversation;
 
 import iuh.fit.edu.backend.constant.ConversationType;
 import iuh.fit.edu.backend.constant.MessageType;
+import iuh.fit.edu.backend.domain.entity.mysql.PinnedMessageDetail;
 import iuh.fit.edu.backend.dto.response.message.LastMessageResponse;
 import lombok.Data;
 
@@ -28,4 +29,5 @@ public class ConversationResponse {
     private int unreadCount;
     private LastMessageResponse lastMessage;
     private List<ConversationMemberResponse> members;
+    private List<PinnedMessageDetail> pinnedMessages;
 }

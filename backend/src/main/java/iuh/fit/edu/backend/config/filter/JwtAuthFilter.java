@@ -1,5 +1,6 @@
 package iuh.fit.edu.backend.config.filter;
 
+import com.auth0.jwk.JwkException;
 import com.auth0.jwt.JWT;
 import com.auth0.jwt.JWTVerifier;
 import com.auth0.jwt.algorithms.Algorithm;
@@ -14,12 +15,14 @@ import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 import java.security.interfaces.RSAPublicKey;
+import java.util.Date;
 import java.util.List;
 
 @Component
@@ -33,8 +36,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     private static final String ISSUER =
             "https://cognito-idp.ap-southeast-1.amazonaws.com/ap-southeast-1_r9OwliPee";
 
-    private static final String LOCAL_SECRET = "your-secret-key-123456";
-
+    @Value("$JWT}")
+    private static String LOCAL_SECRET ;
     @Override
     protected void doFilterInternal(
             HttpServletRequest request,
@@ -43,7 +46,6 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
         String token = null;
 
-        // Try to get token from cookies first
         if (request.getCookies() != null) {
             for (Cookie cookie : request.getCookies()) {
                 if ("accessToken".equals(cookie.getName())) {
@@ -53,29 +55,18 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             }
         }
 
-        // If no token in cookies, check Authorization header
-        if (token == null) {
-            String authHeader = request.getHeader("Authorization");
-            if (authHeader != null && authHeader.startsWith("Bearer ")) {
-                token = authHeader.substring(7); // Remove "Bearer " prefix
-            }
-        }
-
         if (token != null) {
             try {
-                DecodedJWT decodedJWT = JWT.decode(token);
-                String keyId = decodedJWT.getKeyId();
+                DecodedJWT jwt;
+                // Kiểm tra issuer để biết loại token
+                DecodedJWT decoded = JWT.decode(token);
+                String issuer = decoded.getIssuer();
 
-                JwkProvider provider = new UrlJwkProvider(JWKS_URL);
-                Jwk jwk = provider.get(keyId);
-                RSAPublicKey publicKey = (RSAPublicKey) jwk.getPublicKey();
-
-                JWTVerifier verifier = JWT
-                        .require(Algorithm.RSA256(publicKey, null))
-                        .withIssuer(ISSUER)
-                        .build();
-
-                DecodedJWT jwt = verifier.verify(token);
+                if ("wis-chat".equals(issuer)) {
+                    jwt = verifyLocalToken(token);
+                } else {
+                    jwt = verifyCognitoToken(token);
+                }
 
                 boolean revoked = blackListUserRepository.existsByAnyToken(token);
 
@@ -89,7 +80,6 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                         new UsernamePasswordAuthenticationToken(
                                 phone, null, List.of()
                         );
-
                 SecurityContextHolder.getContext().setAuthentication(auth);
 
             } catch (Exception e) {
@@ -101,20 +91,50 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
-    private UsernamePasswordAuthenticationToken verifyLocalToken(String token) {
-
+    public static DecodedJWT verifyLocalToken(String token) {
         JWTVerifier verifier = JWT
                 .require(Algorithm.HMAC256(LOCAL_SECRET))
-                .withIssuer("your-app")
+                .withIssuer("wis-chat")
                 .build();
 
-        DecodedJWT jwt = verifier.verify(token);
+        return verifier.verify(token);
+    }
 
-        return new UsernamePasswordAuthenticationToken(
-                jwt.getSubject(),
-                null,
-                List.of()
-        );
+    public static String generateToken(String phone) {
+        return JWT.create()
+                .withSubject(phone) // fallback
+                .withClaim("phone_number", phone) // ✅ thêm cái này
+                .withIssuer("wis-chat")
+                .withIssuedAt(new Date())
+                .withExpiresAt(new Date(System.currentTimeMillis() + 3600000)) // 1 hour
+                .sign(Algorithm.HMAC256(LOCAL_SECRET));
+    }
+
+    public static String generateRefreshToken(String phone) {
+        return JWT.create()
+                .withSubject(phone)
+                .withClaim("phone_number", phone)
+                .withClaim("type", "refresh")
+                .withIssuer("wis-chat")
+                .withIssuedAt(new Date())
+                .withExpiresAt(new Date(System.currentTimeMillis() + 604800000)) // 7 days
+                .sign(Algorithm.HMAC256(LOCAL_SECRET));
+    }
+
+    private DecodedJWT verifyCognitoToken(String token) throws JwkException {
+        DecodedJWT decodedJWT = JWT.decode(token);
+        String keyId = decodedJWT.getKeyId();
+
+        JwkProvider provider = new UrlJwkProvider(JWKS_URL);
+        Jwk jwk = provider.get(keyId);
+        RSAPublicKey publicKey = (RSAPublicKey) jwk.getPublicKey();
+
+        JWTVerifier verifier = JWT
+                .require(Algorithm.RSA256(publicKey, null))
+                .withIssuer(ISSUER)
+                .build();
+
+        return verifier.verify(token);
     }
 }
 

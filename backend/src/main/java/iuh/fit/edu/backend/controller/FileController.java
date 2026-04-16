@@ -5,15 +5,15 @@
 package iuh.fit.edu.backend.controller;
 
 import iuh.fit.edu.backend.constant.UploadModule;
+import iuh.fit.edu.backend.dto.request.BulkPresignedRequest;
 import iuh.fit.edu.backend.dto.response.PresignedUrlResponse;
 
 import iuh.fit.edu.backend.service.s3.S3Service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 /*
  * @description
@@ -28,15 +28,9 @@ public class FileController {
 
     private final S3Service s3Service;
 
-    @GetMapping("/presigned-url")
-    public ResponseEntity<PresignedUrlResponse> getPresignedUrl(
-            @RequestParam("module") UploadModule module, // Truyền CONVERSATION, USER, hoặc POST
-            @RequestParam("targetId") String targetId,
-            @RequestParam("type") String type, // "IMAGE", "VIDEO", "FILE"
-            @RequestParam("fileName") String fileName,
-            @RequestParam("contentType") String contentType
-    ) {
-        PresignedUrlResponse presignedData = s3Service.generatePresignedUrl(module, targetId, type, fileName, contentType);
-        return ResponseEntity.ok(presignedData);
+    @PostMapping("/presigned-url")
+    public ResponseEntity<List<PresignedUrlResponse>> getBulkPresignedUrls(
+            @RequestBody BulkPresignedRequest request) {
+        return ResponseEntity.ok(s3Service.generateMultiplePresignedUrls(request));
     }
 }

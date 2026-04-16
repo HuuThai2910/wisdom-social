@@ -634,12 +634,22 @@ export function useCall(options: UseCallOptions) {
             };
 
             pc.ontrack = (event) => {
+                const inboundStream = event.streams[0] ?? null;
+
                 setRemoteStreams((prev) => {
                     const existing = prev.find(
                         (item) => item.userId === remoteUserId,
                     );
 
                     if (existing) {
+                        if (inboundStream && existing.stream.id !== inboundStream.id) {
+                            return prev.map((item) =>
+                                item.userId === remoteUserId
+                                    ? { ...item, stream: inboundStream }
+                                    : item,
+                            );
+                        }
+
                         const hasTrack = existing.stream
                             .getTracks()
                             .some((t) => t.id === event.track.id);
@@ -647,8 +657,10 @@ export function useCall(options: UseCallOptions) {
                         return [...prev];
                     }
 
-                    const stream = new MediaStream();
-                    stream.addTrack(event.track);
+                    const stream = inboundStream ?? new MediaStream();
+                    if (!inboundStream) {
+                        stream.addTrack(event.track);
+                    }
                     return [...prev, { userId: remoteUserId, stream }];
                 });
             };

@@ -43,12 +43,34 @@ export type DomainEventType =
     | "MESSAGE_CREATED" // Tin nhắn mới được tạo
     | "MESSAGE_RECALLED" // Tin nhắn bị thu hồi
     | "MESSAGE_SEEN" // Đánh dấu đã xem tin nhắn
+    | "TYPING" // User đang soạn tin nhắn
     | "ROOM_CREATED" // Phòng chat mới
     | "ROOM_UPDATED" // Phòng chat được cập nhật
     | "ROOM_DELETED" // Phòng chat bị xóa
     | "MEMBER_ADDED" // Thành viên mới tham gia
     | "MEMBER_REMOVED" // Thành viên rời khỏi
-    | "MEMBER_ROLE_CHANGED"; // Thay đổi vai trò thành viên
+    | "MEMBER_ROLE_CHANGED" // Thay đổi vai trò thành viên
+    | "PIN_MESSAGE"
+    | "UPIN_MESSAGE"
+    | "MEMBER_UPDATED";
+
+export interface PinUpdatedEvent {
+    domainEventType: "PIN_MESSAGE" | "UPIN_MESSAGE";
+    conversationId: number;
+    currentPins: Array<{
+        messageId: string;
+        pinnerId: number;
+        pinnedAt: string;
+    }>;
+}
+
+export interface MemberUpdatedEvent {
+    domainEventType: "MEMBER_UPDATED";
+    conversationId: number;
+    userId: number;
+    newNickname: string;
+    newAvatar?: string;
+}
 
 /**
  * Interface cho MessageCreatedEvent từ backend
@@ -110,6 +132,32 @@ export interface MessageSeenEvent {
         userId: number;
         lastMessageId: string;
         seenAt: string;
+    };
+}
+
+/**
+ * Interface cho TypingEvent từ backend
+ *
+ * CẤU TRÚC TỪ BACKEND:
+ * - ChatEventListener broadcast typing status qua WebSocket
+ * - Topic: /topic/conversation/{conversationId} (BROADCAST cho TẤT CẢ members)
+ * - Payload: { domainEventType: "TYPING", typingResponse: { conversationId, userId, isTyping } }
+ *
+ * CÁCH HOẠT ĐỘNG:
+ * 1. User A bắt đầu gõ tin nhắn
+ * 2. FE gửi signal qua WebSocket: /app/chat/{conversationId}/typing với { isTyping: true }
+ * 3. Backend publish TypingEvent
+ * 4. ChatEventListener broadcast tới tất cả members đang subscribe /topic/conversation/{id}
+ * 5. FE của members khác nhận event và hiển thị "dummy message bubble"
+ * 6. Khi User A ngừng gõ/gửi tin: FE gửi { isTyping: false }
+ * 7. FE của members khác xóa "dummy message bubble"
+ */
+export interface TypingEvent {
+    domainEventType: "TYPING";
+    typingResponse: {
+        conversationId: number;
+        userId: number;
+        isTyping: boolean;
     };
 }
 
@@ -203,19 +251,24 @@ class WebSocketService {
         onConnect?: () => void,
         onError?: (error: any) => void,
     ): Promise<void> {
+        console.log("🔵 WebSocket connect() called");
+
         // BƯỚC 1: Kiểm tra nếu đang có quá trình kết nối
         // Trả về promise hiện tại để tránh tạo nhiều kết nối
         if (this.connectPromise) {
+            console.log("🟠 Already connecting, returning existing promise");
             return this.connectPromise;
         }
 
         // BƯỚC 2: Kiểm tra nếu đã kết nối rồi
         // client.connected = true nghĩa là STOMP handshake đã hoàn tất
         if (this.client?.connected) {
-            // console.log("WebSocket already connected");
+            console.log("🟢 WebSocket already connected");
             onConnect?.();
             return Promise.resolve();
         }
+
+        console.log("🟡 Starting new WebSocket connection...");
 
         // BƯỚC 3: Tạo Promise mới cho quá trình kết nối
         this.connectPromise = new Promise<void>((resolve, reject) => {
@@ -226,14 +279,17 @@ class WebSocketService {
                  * Sử dụng SockJS làm fallback cho các browser không hỗ trợ WebSocket
                  * Endpoint: http://localhost:8080/ws (backend Spring Boot)
                  */
-                webSocketFactory: () => new SockJS("http://localhost:8080/ws"),
+                webSocketFactory: () => {
+                    console.log("🟡 Creating SockJS connection to http://localhost:8080/ws");
+                    return new SockJS("http://localhost:8080/ws");
+                },
 
                 /**
                  * debug: Hàm log để debug STOMP protocol
                  * Hiển thị các STOMP frame: CONNECT, CONNECTED, SUBSCRIBE, MESSAGE, etc.
                  */
-                debug: (_str) => {
-                    // console.log("STOMP: " + str);
+                debug: (str) => {
+                    console.log("🔷 STOMP: " + str);
                 },
 
                 /**
@@ -262,7 +318,7 @@ class WebSocketService {
                  * Lúc này có thể bắt đầu subscribe các topic
                  */
                 onConnect: () => {
-                    // console.log("Connected to WebSocket");
+                    console.log("🟢🟢🟢 STOMP Connected to server 🟢🟢🟢");
                     this.connectPromise = null; // Reset promise
                     onConnect?.(); // Gọi callback của caller
                     resolve(); // Resolve promise để caller biết đã kết nối xong
@@ -274,9 +330,9 @@ class WebSocketService {
                  */
                 onStompError: (frame) => {
                     console.error(
-                        "Broker reported error: " + frame.headers["message"],
+                        "🔴 Broker reported error: " + frame.headers["message"],
                     );
-                    console.error("Additional details: " + frame.body);
+                    console.error("🔴 Additional details: " + frame.body);
                     this.connectPromise = null; // Reset promise
                     onError?.(frame);
                     reject(frame); // Reject promise để caller xử lý lỗi
@@ -287,7 +343,7 @@ class WebSocketService {
                  * VD: network error, connection refused, timeout, etc.
                  */
                 onWebSocketError: (error) => {
-                    console.error("WebSocket error:", error);
+                    console.error("🔴 WebSocket error:", error);
                     this.connectPromise = null; // Reset promise
                     onError?.(error);
                     reject(error); // Reject promise
@@ -302,6 +358,7 @@ class WebSocketService {
              * 3. Đợi CONNECTED frame từ server
              * 4. Gọi onConnect callback
              */
+            console.log("🟡 Calling client.activate()");
             this.client.activate();
         });
 
@@ -366,6 +423,7 @@ class WebSocketService {
         callback: (message: Message) => void,
         onRecall?: (messageId: string) => void,
         onMessageSeen?: (event: MessageSeenEvent) => void,
+        onTyping?: (event: TypingEvent) => void,
     ) {
         // BƯỚC 1: Kiểm tra client đã kết nối chưa
         // client.connected = true chỉ khi STOMP handshake hoàn tất
@@ -403,7 +461,8 @@ class WebSocketService {
                     const event = JSON.parse(message.body) as
                         | MessageCreatedEvent
                         | MessageRecalledEvent
-                        | MessageSeenEvent;
+                        | MessageSeenEvent
+                        | TypingEvent;
 
                     console.log("Received conversation event:", event);
 
@@ -415,6 +474,9 @@ class WebSocketService {
                     } else if (event.domainEventType === "MESSAGE_SEEN") {
                         // MESSAGE_SEEN event - gọi callback onMessageSeen
                         onMessageSeen?.(event as MessageSeenEvent);
+                    } else if (event.domainEventType === "TYPING") {
+                        // TYPING event - gọi callback onTyping
+                        onTyping?.(event as TypingEvent);
                     } else if (event.domainEventType === "MESSAGE_CREATED") {
                         const payload = (event as MessageCreatedEvent)
                             .messageResponse;
@@ -454,6 +516,86 @@ class WebSocketService {
             // Xóa khỏi Map
             this.subscriptions.delete(destination);
             // console.log(`Unsubscribed from ${destination}`);
+        }
+    }
+
+    subscribeToConversationPins(
+        conversationId: number,
+        onPinUpdated: (event: PinUpdatedEvent) => void,
+    ) {
+        if (!this.client?.connected) {
+            console.error("WebSocket not connected, cannot subscribe to pins");
+            return;
+        }
+
+        const destination = `/topic/conversations/${conversationId}/pins`;
+        const existingSubscription = this.subscriptions.get(destination);
+        if (existingSubscription) return;
+
+        const subscription = this.client.subscribe(
+            destination,
+            (message: IMessage) => {
+                try {
+                    const event = JSON.parse(message.body) as PinUpdatedEvent;
+                    onPinUpdated(event);
+                } catch (error) {
+                    console.error("Error parsing pin update:", error);
+                }
+            },
+        );
+
+        this.subscriptions.set(destination, subscription);
+    }
+
+    unsubscribeFromConversationPins(conversationId: number) {
+        const destination = `/topic/conversations/${conversationId}/pins`;
+        const subscription = this.subscriptions.get(destination);
+
+        if (subscription) {
+            subscription.unsubscribe();
+            this.subscriptions.delete(destination);
+        }
+    }
+
+    subscribeToConversationMembers(
+        conversationId: number,
+        onMemberUpdated: (event: MemberUpdatedEvent) => void,
+    ) {
+        if (!this.client?.connected) {
+            console.error(
+                "WebSocket not connected, cannot subscribe to member updates",
+            );
+            return;
+        }
+
+        const destination = `/topic/conversations/${conversationId}/members`;
+        const existingSubscription = this.subscriptions.get(destination);
+        if (existingSubscription) return;
+
+        const subscription = this.client.subscribe(
+            destination,
+            (message: IMessage) => {
+                try {
+                    const event = JSON.parse(
+                        message.body,
+                    ) as MemberUpdatedEvent;
+                    onMemberUpdated(event);
+                } catch (error) {
+                    console.error("Error parsing member update:", error);
+                }
+            },
+        );
+
+        this.subscriptions.set(destination, subscription);
+    }
+
+    unsubscribeFromConversationMembers(conversationId: number) {
+        const destination = `/topic/conversations/${conversationId}/members`;
+        const subscription = this.subscriptions.get(destination);
+
+        if (subscription) {
+            subscription.unsubscribe();
+            this.subscriptions.delete(destination);
         }
     }
 
@@ -656,6 +798,45 @@ class WebSocketService {
     }
 
     /**
+     * Gửi typing signal tới backend
+     *
+     * @param conversationId - ID của conversation đang gõ tin nhắn
+     * @param userId - ID của user đang gõ
+     * @param isTyping - true nếu đang gõ, false nếu ngừng gõ
+     *
+     * CÁCH SỬ DỤNG:
+     * - Gửi isTyping=true khi user gõ phím đầu tiên
+     * - Gửi isTyping=false khi:
+     *   + User nhấn Enter (gửi tin nhắn)
+     *   + Input rỗng
+     *   + Input mất focus
+     *   + User ngừng gõ quá 10 giây
+     *
+     * Backend endpoint: /app/chat/{conversationId}/typing
+     */
+    sendTypingSignal(
+        conversationId: number,
+        userId: number,
+        isTyping: boolean,
+    ) {
+        if (!this.client?.connected) {
+            console.error("WebSocket not connected, cannot send typing signal");
+            return;
+        }
+
+        console.log("Sending typing signal:", {
+            conversationId,
+            userId,
+            isTyping,
+        });
+
+        this.client.publish({
+            destination: `/app/chat/${conversationId}/typing`,
+            body: JSON.stringify({ userId, isTyping }),
+        });
+    }
+
+    /**
      * ============================================================================
      * DEPRECATED: subscribeToMessageSeen và unsubscribeFromMessageSeen
      * ============================================================================
@@ -680,6 +861,135 @@ class WebSocketService {
      */
     isConnected(): boolean {
         return this.client?.connected || false;
+    }
+
+    /**
+     * Subscribe một topic generic để nhận events real-time
+     * Dùng cho các event như friend notifications, system notifications, etc.
+     *
+     * @param destination - Topic destination (e.g., /topic/user/{phone}/friend-request)
+     * @param callback - Hàm được gọi khi nhận message
+     */
+    subscribeToTopic(destination: string, callback: (message: any) => void) {
+        if (!this.client?.connected) {
+            console.error("WebSocket not connected, cannot subscribe to topic:", destination);
+            return;
+        }
+
+        // Check if already subscribed
+        const existingSubscription = this.subscriptions.get(destination);
+        if (existingSubscription) {
+            console.log(`Already subscribed to ${destination}`);
+            return;
+        }
+
+        const subscription = this.client.subscribe(
+            destination,
+            (message: IMessage) => {
+                try {
+                    // Try to parse as JSON, fallback to raw string
+                    let parsedMessage;
+                    try {
+                        parsedMessage = JSON.parse(message.body);
+                    } catch {
+                        parsedMessage = message.body;
+                    }
+                    callback(parsedMessage);
+                } catch (error) {
+                    console.error(`Error handling message from ${destination}:`, error);
+                }
+            }
+        );
+
+        this.subscriptions.set(destination, subscription);
+        console.log(`Subscribed to ${destination}`);
+    }
+
+    /**
+     * Unsubscribe from a generic topic
+     *
+     * @param destination - Topic destination to unsubscribe from
+     */
+    unsubscribeFromTopic(destination: string) {
+        const subscription = this.subscriptions.get(destination);
+        if (subscription) {
+            subscription.unsubscribe();
+            this.subscriptions.delete(destination);
+            console.log(`Unsubscribed from ${destination}`);
+        }
+    }
+
+    /**
+     * Subscribe to user profile updates
+     * Notified when the user's profile is updated (name, avatar, bio, etc.)
+     *
+     * @param phone - User's phone number (international format)
+     * @param callback - Function called when profile is updated with the new user data
+     */
+    subscribeToProfileUpdates(
+        phone: string,
+        callback: (updatedUser: any) => void,
+    ) {
+        console.log("🔵 subscribeToProfileUpdates called with phone:", phone);
+        console.log("🔵 WebSocket client connected?", this.client?.connected);
+
+        if (!this.client?.connected) {
+            console.error(
+                "🔴 WebSocket not connected, cannot subscribe to profile updates",
+            );
+            return;
+        }
+
+        const destination = `/topic/user/${phone}/profile-update`;
+        console.log("🟡 Destination:", destination);
+
+        const existingSubscription = this.subscriptions.get(destination);
+        if (existingSubscription) {
+            console.log(`🟠 Already subscribed to ${destination}`);
+            return;
+        }
+
+        console.log("🟡 Creating subscription to", destination);
+        const subscription = this.client.subscribe(
+            destination,
+            (message: IMessage) => {
+                console.log("🟢🟢🟢 RECEIVED MESSAGE FROM WEBSOCKET 🟢🟢🟢");
+                console.log("📨 Message object:", message);
+                console.log("📨 Message headers:", message.headers);
+                console.log("📨 Raw body string:", message.body);
+                console.log("📨 Body length:", message.body.length);
+                console.log("📨 Body first 100 chars:", message.body.substring(0, 100));
+
+                try {
+                    const updatedUser = JSON.parse(message.body);
+                    console.log("✅ Successfully parsed:", updatedUser);
+                    console.log("✅ Calling callback with:", updatedUser);
+                    callback(updatedUser);
+                } catch (error) {
+                    console.error(`🔴 Error parsing profile update:`, error);
+                    console.error("🔴 Failed to parse body:", message.body);
+                }
+            },
+        );
+
+        this.subscriptions.set(destination, subscription);
+        console.log(`🟢 Subscribed to profile updates for ${phone}`);
+    }
+
+    /**
+     * Unsubscribe from user profile updates
+     *
+     * @param phone - User's phone number (international format)
+     */
+    unsubscribeFromProfileUpdates(phone: string) {
+        const destination = `/topic/user/${phone}/profile-update`;
+        const subscription = this.subscriptions.get(destination);
+
+        if (subscription) {
+            subscription.unsubscribe();
+            this.subscriptions.delete(destination);
+            console.log(`Unsubscribed from profile updates for ${phone}`);
+        }
     }
 }
 

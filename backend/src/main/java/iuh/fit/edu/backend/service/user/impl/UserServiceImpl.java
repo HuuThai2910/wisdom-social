@@ -8,21 +8,26 @@ import iuh.fit.edu.backend.domain.entity.mysql.*;
 import iuh.fit.edu.backend.dto.request.friend.FriendRequest;
 import iuh.fit.edu.backend.dto.request.user.*;
 import iuh.fit.edu.backend.dto.response.user.*;
+import iuh.fit.edu.backend.config.filter.JwtAuthFilter;
 import iuh.fit.edu.backend.mapper.UserMapper;
 import iuh.fit.edu.backend.repository.mysql.BlackListUserRepository;
 import iuh.fit.edu.backend.repository.mysql.DeviceRepository;
 import iuh.fit.edu.backend.repository.mysql.UserRepository;
 import iuh.fit.edu.backend.service.user.BlockUserService;
 import iuh.fit.edu.backend.service.user.UserService;
+import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+
 import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.*;
 
+import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -36,6 +41,8 @@ import java.util.stream.Collectors;
 public class UserServiceImpl implements UserService {
     @Value("${aws.cognito.clientId}")
     private String userClientId;
+    @Value("${aws.cognito.userPoolId}")
+    private String userPoolId;
 
     UserMapper userMapper;
     UserRepository userRepository;
@@ -67,10 +74,12 @@ public class UserServiceImpl implements UserService {
     * confirmPassword:
     * */
     @Override
+    @Transactional
     public UserResponseRegister registerUser(UserRequestRegister register) {
         if(register.getPassword().equals(register.getConfirmPassword())){
             String phone="+84"+register.getPhone().substring(1,10);
             User user=userMapper.UserRegistertoUser(register);
+            User temp=userRepository.findByPhone(user.getPhone());
 
             if(user!=null){
                 String username=randomUsernameGenerator();
@@ -79,7 +88,6 @@ public class UserServiceImpl implements UserService {
                 }
                 user.setUsername(username);
                 user.setName("Không rõ");
-
                 SignUpRequest request=SignUpRequest.builder()
                         .clientId(userClientId)
                         .username(phone)
@@ -91,10 +99,23 @@ public class UserServiceImpl implements UserService {
                                         .build()
                         )
                         .build();
+                if (checkUserStatus(phone)){
+                    AdminDeleteUserRequest deleteRequest = AdminDeleteUserRequest.builder()
+                            .userPoolId(userPoolId)
+                            .username(phone)
+                            .build();
+                    cognitoClient.adminDeleteUser(deleteRequest);
+                    if(temp!=null && temp.getPhone().equals(user.getPhone())){
+                        deviceRepository.deleteDeviceByUser_Id(temp.getId());
+                        userRepository.deleteById(temp.getId());
+                    }
+                }
+
                 cognitoClient.signUp(request);
                 userRepository.save(user);
                 saveDevice(user, register.getDeviceType(), register.getDeviceName(), register.getIpAddress());
                 return userMapper.UsertoUserRegisterResponse(user);
+
             }
         }
         return null;
@@ -103,14 +124,17 @@ public class UserServiceImpl implements UserService {
     @Override
     public UserResponseConfirmRegister confirmRegisterUser(UserRequestConfirmRegister confirm) {
         String phone="+84"+confirm.getPhone().substring(1,10);
+
+        System.out.println("Confirming registration for phone: " + phone + " with OTP: " + confirm.getOtp());
         ConfirmSignUpRequest request= ConfirmSignUpRequest.builder()
                 .clientId(userClientId)
                 .username(phone)
-                .confirmationCode(confirm.getOTP())
+                .confirmationCode(confirm.getOtp())
                 .build();
 
         ConfirmSignUpResponse response= cognitoClient.confirmSignUp(request);
         if(response!=null){
+
             return UserResponseConfirmRegister.builder()
                     .status(true)
                     .build();
@@ -228,6 +252,26 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    public String getNewQrAccessToken(String refreshToken) {
+        if (refreshToken == null || refreshToken.isBlank()) {
+            throw new RuntimeException("QR refresh token is missing");
+        }
+
+        if (blackListUserRepository.existsByAnyToken(refreshToken)) {
+            throw new RuntimeException("Refresh token revoked");
+        }
+
+        var decoded = JwtAuthFilter.verifyLocalToken(refreshToken);
+        String phone = decoded.getClaim("phone_number").asString();
+
+        if (phone == null || phone.isBlank()) {
+            throw new RuntimeException("Invalid QR refresh token");
+        }
+
+        return JwtAuthFilter.generateToken(phone);
+    }
+
+    @Override
     public UserResponseOTPPassword forgotPasswordUser(UserRequestForgotPassword requestForgotPassword) {
         String phone = "+84" + requestForgotPassword.getPhone().substring(1, 10);
         
@@ -297,6 +341,36 @@ public class UserServiceImpl implements UserService {
                if (requestUpdate.getUsername() != null) user.setUsername(requestUpdate.getUsername());
                user.setUpdatedAt(OffsetDateTime.now());
                userRepository.save(user);
+
+               Map<String, Object> profileUpdatePayload = new HashMap<>();
+               profileUpdatePayload.put("id", user.getId());
+               profileUpdatePayload.put("username", user.getUsername());
+               profileUpdatePayload.put("name", user.getName());
+               profileUpdatePayload.put("bio", user.getBio());
+               profileUpdatePayload.put("avatarUrl", user.getAvatarUrl());
+               profileUpdatePayload.put("birthday", user.getBirthday());
+               profileUpdatePayload.put("gender", user.getGender());
+               profileUpdatePayload.put("phone", user.getPhone());
+               
+               // Send WebSocket notification to all users about profile update
+               if (user.getPhone() != null) {
+                   String userPhone = convertToInternationalFormat(user.getPhone());
+                   System.out.println("🟢🟢🟢 PUBLISHING PROFILE UPDATE 🟢🟢🟢");
+                   System.out.println("📱 User ID: " + id);
+                   System.out.println("📱 Phone: " + user.getPhone());
+                   System.out.println("📱 International Phone: " + userPhone);
+                   System.out.println("📱 Topic: /topic/user/" + userPhone + "/profile-update");
+                   System.out.println("📱 Payload: " + profileUpdatePayload);
+
+                   // Send to friends/followers about user's profile update
+                   simpMessagingTemplate.convertAndSend(
+                       "/topic/user/" + userPhone + "/profile-update",
+                        profileUpdatePayload
+                   );
+
+                   System.out.println("✅ Published to WebSocket topic");
+               }
+               
                return true;
            }
         }
@@ -317,12 +391,21 @@ public class UserServiceImpl implements UserService {
     public List<User> getAllForUser(long id) {
         List<User> allUser = getAllUser();
         User user = findUserById(id);
-        List<BlockedUser> blockedUsers = blockUserService.getBlockUser(user);
 
+        // Get users that this user has blocked
+        List<BlockedUser> blockedUsers = blockUserService.getBlockUser(user);
         Set<Long> blockedIds = blockedUsers.stream()
                 .map(b -> b.getBlocked().getId())
                 .collect(Collectors.toSet());
 
+        // Get users that have blocked this user
+        List<BlockedUser> blockedByUsers = blockUserService.getBlockedByUser(user);
+        Set<Long> blockedByIds = blockedByUsers.stream()
+                .map(b -> b.getBlocker().getId())
+                .collect(Collectors.toSet());
+
+        // Combine both sets and remove them from results
+        blockedIds.addAll(blockedByIds);
         allUser.removeIf(u -> blockedIds.contains(u.getId()));
 
         return allUser;
@@ -345,6 +428,7 @@ public class UserServiceImpl implements UserService {
         }
         return users;
     }
+
 
     @Override
     public boolean saveBlockUser(FriendRequest friendRequest) {
@@ -400,10 +484,19 @@ public class UserServiceImpl implements UserService {
 
 
     private String convertToInternationalFormat(String phone) {
-        if (phone != null && phone.startsWith("0")) {
+        if (phone == null || phone.isBlank()) {
+            return phone;
+        }
+        if (phone.startsWith("+84")) {
+            return phone;
+        }
+        if (phone.startsWith("0")) {
             return "+84" + phone.substring(1);
         }
-        return phone;
+        if (phone.startsWith("84")) {
+            return "+" + phone;
+        }
+        return "+84" + phone;
     }
 
     private String randomUsernameGenerator(){
@@ -422,4 +515,33 @@ public class UserServiceImpl implements UserService {
         return part1 + sep + part2 + number;
     }
 
+    // Hàm cập nhật lần hoạt động cuối cùng user
+    @Transactional
+    @Override
+    public Instant updateLastActiveAt(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy User"));
+
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        user.setLastActiveAt(now);
+        userRepository.save(user);
+
+        return now;
+    }
+
+    public boolean checkUserStatus(String phone) {
+        try {
+            AdminGetUserRequest request = AdminGetUserRequest.builder()
+                    .userPoolId(userPoolId)
+                    .username(phone)
+                    .build();
+
+            AdminGetUserResponse response = cognitoClient.adminGetUser(request);
+
+            return "UNCONFIRMED".equals(response.userStatusAsString());
+
+        } catch (UserNotFoundException e) {
+            return false;
+        }
+    }
 }

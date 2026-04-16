@@ -12,5 +12,6 @@ public interface FriendService {
 //    @Scheduled
     void syncFriendRequestsToDb();
     List<User> getFriendRequestOfUser(long userId);
+    List<User> getSentRequestsOfUser(long userId);
     List<User> getFriendsOfUser(long userId);
 }
