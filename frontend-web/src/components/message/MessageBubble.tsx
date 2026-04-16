@@ -704,6 +704,18 @@ export function MessageBubble({
                   .map((attachment) => attachment.url)
                   .filter((url): url is string => Boolean(url))
             : [];
+    const videoUrls =
+        message.type === "VIDEO"
+            ? messageAttachments
+                  .map((attachment) => attachment.url)
+                  .filter((url): url is string => Boolean(url))
+            : [];
+    const audioUrls =
+        message.type === "AUDIO"
+            ? messageAttachments
+                  .map((attachment) => attachment.url)
+                  .filter((url): url is string => Boolean(url))
+            : [];
     const fileAttachment =
         message.type === "FILE" || message.type === "VIDEO"
             ? messageAttachments[0]
@@ -1501,7 +1513,7 @@ export function MessageBubble({
                                     </div>
                                 ) : message.type === "AUDIO" ? (
                                     <AudioPlayer
-                                        src={message.content}
+                                        src={audioUrls[0] || message.content}
                                         isOwn={isOwn}
                                     />
                                 ) : message.type === "FILE" ? (

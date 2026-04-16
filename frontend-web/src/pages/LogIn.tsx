@@ -6,8 +6,8 @@ import { validatePhone } from "../utils/validation";
 
 export default function Login() {
   const navigate = useNavigate();
-  const [phone, setPhone] = useState("");
-  const [password, setPassword] = useState("");
+  const [phone, setPhone] = useState("0398724346");
+  const [password, setPassword] = useState("Xen123123!");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
