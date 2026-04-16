@@ -15,6 +15,7 @@ import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
@@ -37,7 +38,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     private static final String ISSUER =
             "https://cognito-idp.ap-southeast-1.amazonaws.com/ap-southeast-1_r9OwliPee";
 
-
+    @Value("$JWT}")
+    private static String LOCAL_SECRET ;
     @Override
     protected void doFilterInternal(
             HttpServletRequest request,
@@ -91,7 +93,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
-    private DecodedJWT verifyLocalToken(String token) {
+    public static DecodedJWT verifyLocalToken(String token) {
         JWTVerifier verifier = JWT
                 .require(Algorithm.HMAC256(LOCAL_SECRET))
                 .withIssuer("wis-chat")
@@ -106,7 +108,18 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 .withClaim("phone_number", phone) // ✅ thêm cái này
                 .withIssuer("wis-chat")
                 .withIssuedAt(new Date())
-                .withExpiresAt(new Date(System.currentTimeMillis() + 86400000)) // 1 ngày
+                .withExpiresAt(new Date(System.currentTimeMillis() + 3600000)) // 1 hour
+                .sign(Algorithm.HMAC256(LOCAL_SECRET));
+    }
+
+    public static String generateRefreshToken(String phone) {
+        return JWT.create()
+                .withSubject(phone)
+                .withClaim("phone_number", phone)
+                .withClaim("type", "refresh")
+                .withIssuer("wis-chat")
+                .withIssuedAt(new Date())
+                .withExpiresAt(new Date(System.currentTimeMillis() + 604800000)) // 7 days
                 .sign(Algorithm.HMAC256(LOCAL_SECRET));
     }
 

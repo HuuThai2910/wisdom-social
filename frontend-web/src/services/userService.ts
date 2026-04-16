@@ -1,22 +1,20 @@
 import axiosClient from "../api/axiosClient";
 import type { User, ApiResponse } from '../types';
+import { setCookie } from '../utils/cookies';
 
 export interface UserRequestRegister {
     phone: string;
-    username: string;
     password: string;
+    confirmPassword: string;
     ipAddress?: string;
 }
 
 export interface UserResponseRegister {
-    success: boolean;
-    message: string;
-    data: {
-        id: string;
-        phone: string;
-        username: string;
-        createdAt: string;
-    };
+    phone: string;
+    username: string;
+    gender?: string;
+    birthday?: string;
+    createdAt: string;
 }
 
 export interface UserRequestConfirmRegister {
@@ -25,9 +23,9 @@ export interface UserRequestConfirmRegister {
 }
 
 export interface UserResponseConfirmRegister {
-    token: string;
-    userId: string;
-    username: string;
+    token?: string;
+    userId?: string;
+    username?: string;
 }
 
 export interface UserRequestLogin {
@@ -38,16 +36,17 @@ export interface UserRequestLogin {
 
 export interface UserResponseLogin {
     token: string;
-    id: string;
+    refreskToken: string;
+    idToken?: string;
+    id?: string | number;
     phone: string;
-     username: string;
-    name: string;
-    avatarUrl: string;
+    username?: string | null;
+    name?: string | null;
+    avatarUrl?: string | null;
     bio?: string;
     birthday?: string;
-     gender?: string;
+    gender?: string;
     createdAt: string;
-    
 }
 
 export interface UserRequestUpdate {
@@ -64,15 +63,17 @@ export interface UserRequestForgotPassword {
 }
 
 export interface UserResponseOTPPassword {
-    otpId: string;
-    expiresIn: number;
-
+    OTP?: string;
+    otpId?: string;
+    expiresIn?: number;
 }
 
 export interface UserRequestResetPassword {
     phone: string;
-    otp: string;
-    newPassword: string;
+    password: string;
+    confirmPassword: string;
+    confirmationCode: string;
+    instant?: string;
 }
 
 export interface UserProfileResponse {
@@ -104,7 +105,20 @@ export const userService = {
 
     async login(data: UserRequestLogin): Promise<UserResponseLogin> {
         const response = await axiosClient.post(`auth/login`, data);
-        return response.data.data;
+        const loginData = response.data.data;
+
+        if (loginData.token) {
+            setCookie('accessToken', loginData.token, 0.042); // 1 hour
+        }
+
+        if (loginData.refreskToken) {
+            setCookie('refreshToken', loginData.refreskToken, 7); // 7 days
+        }
+
+        localStorage.setItem('type', 'normal');
+
+
+        return loginData;
     },
 
     async logout(): Promise<void> {
@@ -116,23 +130,36 @@ export const userService = {
         return response.data.data;
     },
 
+    async refreshQrToken(): Promise<string> {
+        const response = await axiosClient.get(`session/qr-login/access-token`);
+        return response.data.data ?? response.data;
+    },
+
     async getCurrentUser(): Promise<ApiResponse<User>> {
         const response = await axiosClient.get(`auth/me`);
         return response.data.data;
     },
 
     async forgotPassword(data: UserRequestForgotPassword): Promise<UserResponseOTPPassword> {
-        const response = await axiosClient.post(`auth/forgot-password`, data);
+        const response = await axiosClient.post(`auth/forgot-password`, {
+            ...data,
+            instant: new Date().toISOString(),
+        });
         return response.data.data;
     },
 
     async resetPassword(data: UserRequestResetPassword): Promise<string> {
         const response = await axiosClient.post(`auth/reset-password`, data);
-        return response.data.data;
+        return response.data.message || response.data.data;
     },
 
     async getAllUsers(): Promise<User[]> {
         const response = await axiosClient.get(`auth/users`);
+        return response.data.data;
+    },
+
+        async getAllUsersSearch(id:number): Promise<User[]> {
+        const response = await axiosClient.get(`auth/users/${id}`);
         return response.data.data;
     },
 
@@ -169,6 +196,11 @@ export const userService = {
             params: { type, extension }
         });
         return response.data;
+    },
+
+    async getUsersBlockedByMe(userId: string | number): Promise<User[]> {
+        const response = await axiosClient.get(`auth/users/blocked/${userId}`);
+        return response.data.data;
     },
 };
 

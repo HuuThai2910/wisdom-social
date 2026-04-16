@@ -29,7 +29,12 @@ public class CorsConfig {
                 "http://localhost:8081",     // Mobile Expo dev server
                 "http://localhost:19000",    // Expo Go
                 "http://localhost:19006",    // Expo web
-                "http://192.168.1.151:8081", // Mobile Expo from IP
+                "http://192.168.1.151:8081",
+                "http://192.168.5.66:5173",// Mobile Expo from IP
+                "http://192.168.1.153:8081",
+                "http://192.168.5.60:8081", // Mobile Expo from IP
+                "http://192.168.1.153:19000", // Mobile Expo from IP
+                "http://192.168.5.60:19000",
                 "http://192.168.1.151:19000" // Expo Go from IP
         ));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH")); // Allowed methods

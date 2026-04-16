@@ -9,12 +9,11 @@ package iuh.fit.edu.backend.service.chat;/*
                                          * @version: 1.0
                                          */
 
-import iuh.fit.edu.backend.dto.request.SendMessageRequest;
+import iuh.fit.edu.backend.dto.request.message.SendMessageRequest;
 import iuh.fit.edu.backend.dto.request.SendCallMessageRequest;
 import iuh.fit.edu.backend.dto.response.CursorResponse;
 import iuh.fit.edu.backend.dto.response.message.MessageRecalledResponse;
 import iuh.fit.edu.backend.dto.response.message.MessageResponse;
-import org.springframework.data.domain.Pageable;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
@@ -30,9 +29,18 @@ public interface MessageService {
     @Transactional
     void deleteMessageForMe(String messageId, Long userId);
 
+    void pinMessage(String messageId, Long userId);
+
+    void unpinMessage(String messageId, Long userId);
+
     CursorResponse<List<MessageResponse>> getMessagesByConversation(
             Long conversationId,
             Long userId,
             Instant before,
             int limit);
+
+    CursorResponse<List<MessageResponse>> getNewerMessages(
+            Long conversationId, Long userId, Instant after, int limit);
+
+    CursorResponse<List<MessageResponse>> jumpToMessage(Long conversationId, String targetMessageId, Long userId);
 }

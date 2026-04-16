@@ -27,4 +27,6 @@ public interface MessageCacheService {
     List<MessageResponse> getListMessage(Long conversationId, Instant cursor, int limit);
 
     void cacheListMessage(Long conversationId, List<MessageResponse> messageResponses, Instant cursor);
+
+    List<MessageResponse> getJumpMessagesFromCache(Long conversationId, String targetMessageId);
 }

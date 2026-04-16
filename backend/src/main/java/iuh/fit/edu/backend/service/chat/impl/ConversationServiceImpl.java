@@ -6,6 +6,7 @@ package iuh.fit.edu.backend.service.chat.impl;
 
 import iuh.fit.edu.backend.domain.entity.mysql.Conversation;
 import iuh.fit.edu.backend.domain.entity.mysql.ConversationMember;
+import iuh.fit.edu.backend.dto.response.conversation.ConversationMemberResponse;
 import iuh.fit.edu.backend.dto.response.conversation.ConversationResponse;
 import iuh.fit.edu.backend.dto.response.message.LastMessageResponse;
 import iuh.fit.edu.backend.dto.response.message.MessageSeenResponse;
@@ -50,38 +51,20 @@ public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat
         // Map sang dto (lúc này senderName đang null vì cần lấy dynamic name trong trường hợp người dùng đổi tên)
         List<ConversationResponse> conversationResponses = this.conversationMapper.toListConversationResponse(conversations, userId);
 
-        // Lấy conversationId + senderId đề tìm ra đúng tên người gửi
-        Set<Long> conversationIds = conversationResponses.stream()
-                .map(ConversationResponse::getId)
-                .collect(Collectors.toSet());
+        conversationResponses.forEach(res -> {
+            if (res.getLastMessage() != null) {
+                Long conversationId = res.getId();
+                Long senderId = res.getLastMessage().getLastSenderId();
 
-        Set<Long> senderIds = conversationResponses.stream()
-                .map(ConversationResponse::getLastMessage)
-                .filter(Objects::nonNull)
-                .map(LastMessageResponse::getLastSenderId)
-                .collect(Collectors.toSet());
-
-        if(!senderIds.isEmpty()){
-            // Lấy ConversationMember tương ứng
-            List<ConversationMember> conversationMembers =
-                    conversationMemberRepository
-                            .findByConversation_IdInAndUser_IdIn(conversationIds, senderIds);
-            Map<String, String> senderNameMap =
-                    conversationMembers.stream()
-                            .collect(Collectors.toMap(
-                                    cm -> cm.getConversation().getId() + "-" + cm.getUser().getId(),
-                                    cm -> cm.getNickname() != null
-                                            ? cm.getNickname()
-                                            : cm.getUser().getUsername()
-                            ));
-            conversationResponses.forEach(res -> {
-                if(res.getLastMessage() != null){
-                    Long sid = res.getLastMessage().getLastSenderId();
-                    String key = res.getId() + "-" + sid;
-                    res.getLastMessage().setLastSenderName(senderNameMap.get(key));
+                // Kéo thông tin từ Redis Hash Map
+                ConversationMemberResponse senderInfo = conversationMemberService.getMemberInfo(conversationId, senderId);
+                if (senderInfo != null) {
+                    res.getLastMessage().setLastSenderName(senderInfo.getNickname());
+                } else {
+                    res.getLastMessage().setLastSenderName("Người dùng ẩn");
                 }
-            });
-        }
+            }
+        });
         log.info("List conversation {}", conversationResponses);
         return conversationResponses;
     }
@@ -97,6 +80,7 @@ public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat
         
         Conversation conversation = conversationMember.getConversation();
         ConversationResponse response = conversationMapper.toConversationResponse(conversation, userId);
+
         log.info("Conversation: {}", response);
         return response;
     }
@@ -108,10 +92,10 @@ public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat
 
         member.setClearedAt(Instant.now().truncatedTo(ChronoUnit.MILLIS));
         member.setHidden(true);
-        conversationMemberRepository.save(member);
+        ConversationMember savedMember = conversationMemberRepository.save(member);
 
         // DỌN SẠCH CACHE ĐỂ CẬP NHẬT MỐC CLEARED_AT
-        conversationMemberService.evictMemberInfoCache(conversationId, userId);
+        conversationMemberService.updateMemberStateInCache(conversationId, userId, savedMember);
 
     }
 
@@ -120,6 +104,8 @@ public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat
     public void markAsRead(Long conversationId, Long userId, String lastMessageId) {
         ConversationMember member = conversationMemberRepository.findByConversation_IdAndUser_Id(conversationId, userId)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy thành viên trong cuộc trò chuyện"));
+
+        // Kiểm tra xem có thực sự cần cập nhật không để tránh call DB vô ích
         if (member.getUnreadCount() == 0 &&
                 (lastMessageId == null || lastMessageId.equals(member.getLastReadMessageId()))) {
             return;
@@ -128,10 +114,11 @@ public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat
         if (lastMessageId != null) {
             member.setLastReadMessageId(lastMessageId);
         }
-        conversationMemberRepository.save(member);
-        // Xóa Cache MemberInfo để tránh lỗi hiển thị
+        ConversationMember savedMember = conversationMemberRepository.save(member);
 
-        conversationMemberService.evictMemberInfoCache(conversationId, userId);
+        // ĐỒNG BỘ REDIS: Số unreadCount = 0 vừa cập nhật phải được nhét lại vào Redis Hash ngay!
+        conversationMemberService.updateMemberStateInCache(conversationId, userId, savedMember);
+
         // Chuẩn bị dữ liệu bắn Socket
         MessageSeenResponse response = MessageSeenResponse.builder()
                 .conversationId(conversationId)

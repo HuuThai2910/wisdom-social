@@ -4,8 +4,9 @@
  */
 package iuh.fit.edu.backend.controller;
 
-import iuh.fit.edu.backend.dto.request.SendMessageRequest;
+import iuh.fit.edu.backend.dto.request.message.SendMessageRequest;
 import iuh.fit.edu.backend.dto.request.SendCallMessageRequest;
+import iuh.fit.edu.backend.dto.response.CursorResponse;
 import iuh.fit.edu.backend.dto.response.message.MessageRecalledResponse;
 import iuh.fit.edu.backend.dto.response.message.MessageResponse;
 import iuh.fit.edu.backend.service.chat.MessageService;
@@ -62,5 +63,24 @@ public class MessageController {
         this.messageService.deleteMessageForMe(messageId, userId);
         return ResponseEntity.status(HttpStatus.OK).build();
     }
+
+    @PostMapping("/{messageId}/pin")
+    public ResponseEntity<Void> pinMessage(
+            @PathVariable String messageId,
+            @RequestParam Long userId
+    ) {
+        this.messageService.pinMessage(messageId, userId);
+        return ResponseEntity.status(HttpStatus.OK).build();
+    }
+
+    @DeleteMapping("/{messageId}/pin")
+    public ResponseEntity<Void> unpinMessage(
+            @PathVariable String messageId,
+            @RequestParam Long userId
+    ) {
+        this.messageService.unpinMessage(messageId, userId);
+        return ResponseEntity.status(HttpStatus.OK).build();
+    }
+
 
 }

@@ -1,8 +1,10 @@
 package iuh.fit.edu.backend.service.s3;
 
 import iuh.fit.edu.backend.constant.UploadModule;
+import iuh.fit.edu.backend.dto.request.BulkPresignedRequest;
 import iuh.fit.edu.backend.dto.response.PresignedUrlResponse;
 
+import java.util.List;
 import java.util.Map;
 
 public interface S3Service {
@@ -12,6 +14,8 @@ public interface S3Service {
     String getContentType(String extension);
     String resolveMediaType(String extension);
     String relocatePostMediaKey(String sourceKey, String postId, String mediaType);
+
+    List<PresignedUrlResponse> generateMultiplePresignedUrls(BulkPresignedRequest request);
 
     PresignedUrlResponse generatePresignedUrl(UploadModule module, String targetId, String type, String originalFilename, String contentType);
 

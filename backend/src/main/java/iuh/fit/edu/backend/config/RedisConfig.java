@@ -40,25 +40,43 @@ public class RedisConfig {
      * (MessageCacheService, opsForList, opsForValue, ...)
      */
     @Bean
-    public RedisTemplate<String, MessageResponse> messageRedisTemplate(
+    public RedisTemplate<String, Object> redisTemplate(
             RedisConnectionFactory factory
     ) {
-        RedisTemplate<String, MessageResponse> template = new RedisTemplate<>();
+        RedisTemplate<String, Object> template = new RedisTemplate<>();
         template.setConnectionFactory(factory);
 
-        ObjectMapper mapper = JsonMapper.builder()
-                .addModule(new JavaTimeModule())
-                .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
-                .build();
+        ObjectMapper mapper = new ObjectMapper();
 
-        Jackson2JsonRedisSerializer<MessageResponse> valueSerializer =
-                new Jackson2JsonRedisSerializer<>(mapper, MessageResponse.class);
+        mapper.registerModule(new JavaTimeModule());
+        mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
+        mapper.activateDefaultTyping(
+                mapper.getPolymorphicTypeValidator(),
+                ObjectMapper.DefaultTyping.NON_FINAL
+        );
+
+        //  Sử dụng Generic Serializer
+        GenericJackson2JsonRedisSerializer valueSerializer = new GenericJackson2JsonRedisSerializer(mapper);
+
+        // Set Serializer cho Key (String)
         template.setKeySerializer(new StringRedisSerializer());
+        template.setHashKeySerializer(new StringRedisSerializer());
+
+        // Set Serializer cho Value (JSON có đính kèm @class)
         template.setValueSerializer(valueSerializer);
+        template.setHashValueSerializer(valueSerializer);
 
         template.afterPropertiesSet();
         return template;
+    }
+
+    @Bean
+    public ObjectMapper customObjectMapper() {
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.registerModule(new JavaTimeModule());
+        mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        return mapper;
     }
 
     /**

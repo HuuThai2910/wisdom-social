@@ -9,7 +9,9 @@ package iuh.fit.edu.backend.service.chat;/*
  * @version: 1.0
  */
 
+import iuh.fit.edu.backend.domain.entity.mysql.ConversationMember;
 import iuh.fit.edu.backend.dto.response.conversation.ConversationMemberResponse;
+import jakarta.transaction.Transactional;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 
@@ -17,20 +19,14 @@ import java.util.Map;
 import java.util.Set;
 
 public interface ConversationMemberService {
-    //    Trước khi chạy method này, spring sẽ kiểm tra redis trước
-    //    Nếu cache này đã có dữ liệu thì method này sẽ không được gọi
-    //    Dựa vào key có dạng là: sender-name::{conversationId}:{userId}
-    @Cacheable(
-            value = "memberInfo",
-            key = "#conversationId + ':' + #userId",
-            unless = "#result == null"
-    )
+    Map<Long, ConversationMemberResponse> getMembersMap(Long conversationId);
+
     ConversationMemberResponse getMemberInfo(Long conversationId, Long userId);
 
-    @CacheEvict(value = "memberInfo", key = "#conversationId + ':' + #userId")
-    void evictMemberInfoCache(Long conversationId, Long userId);
+    void updateMemberStateInCache(Long conversationId, Long userId, ConversationMember memberEntity);
 
-    Map<Long, ConversationMemberResponse> getMembersMap(Long conversationId, Set<Long> userIds);
+    @Transactional
+    void updateNickname(Long conversationId, Long targetUserId, String newNickname);
 
     Set<Long> getAllMemberId(Long conversationId);
 }

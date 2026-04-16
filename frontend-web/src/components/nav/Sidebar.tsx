@@ -15,17 +15,23 @@ import {
   Bookmark,
   RefreshCw,
   UserPlus,
+  Flag,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { buildS3Url } from "../../utils/s3";
 import { useFriendDataSafe } from "../../contexts/FriendDataContext";
+import { useSidebarLayout } from "../../hooks/useSidebarLayout";
 
 export default function Sidebar() {
   const location = useLocation();
   const { isDark, toggleTheme } = useTheme();
   const currentUser = useCurrentUser();
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const { sidebarCollapsed, toggleSidebarCollapsed } = useSidebarLayout();
+  const showLabels = !sidebarCollapsed;
 
   // Get friend requests count for badge (safe - returns 0 if not in provider)
   const { friendRequests } = useFriendDataSafe();
@@ -44,22 +50,50 @@ export default function Sidebar() {
       path: "/friend-requests",
       badge: friendRequestsCount,
     },
+    { icon: Flag, label: "Pages", path: "/pages" },
     { icon: PlusSquare, label: "Create", path: "/create" },
   ];
 
   const isActive = (path: string) => {
-    if (path === "/")
-      return location.pathname === "/" || location.pathname === "/feed";
-    return location.pathname.startsWith(path);
+    return location.pathname === path;
   };
 
   return (
-    <aside className="fixed left-0 top-0 h-screen w-245px lg:w-335px border-r border-gray-200 dark:border-[#262626] bg-white dark:bg-[#000] hidden md:flex flex-col py-8 px-3 z-50">
+    <aside
+      className={`fixed left-0 top-0 z-50 hidden h-screen flex-col border-r border-gray-200 bg-white px-2.5 py-8 transition-[width,padding] duration-300 dark:border-[#262626] dark:bg-[#000] md:flex ${
+        sidebarCollapsed ? "w-[88px]" : "w-[208px] lg:w-[272px]"
+      }`}
+    >
       {/* Logo */}
-      <div className="px-3 mb-8 mt-2">
-        <h1 className="text-2xl font-semibold font-serif dark:text-white">
-          Instagram
-        </h1>
+      <div className="mb-8 mt-2 flex items-center justify-between px-2">
+        {showLabels ? (
+          <h1 className="text-2xl font-semibold font-serif dark:text-white">
+            Instagram
+          </h1>
+        ) : (
+          <h1 className="w-full text-center text-xl font-semibold font-serif dark:text-white">
+            IG
+          </h1>
+        )}
+
+        <button
+          type="button"
+          onClick={toggleSidebarCollapsed}
+          className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-[#262626] dark:hover:text-white ${
+            sidebarCollapsed ? "absolute right-2" : ""
+          }`}
+          title={
+            sidebarCollapsed
+              ? "Mở rộng thanh điều hướng"
+              : "Thu gọn thanh điều hướng"
+          }
+        >
+          {sidebarCollapsed ? (
+            <ChevronRight size={18} />
+          ) : (
+            <ChevronLeft size={18} />
+          )}
+        </button>
       </div>
 
       {/* Navigation */}
@@ -74,9 +108,9 @@ export default function Sidebar() {
               <li key={item.path}>
                 <Link
                   to={item.path}
-                  className={`flex items-center gap-4 px-3 py-3 rounded-lg transition-all hover:bg-gray-100 dark:hover:bg-[#262626] ${
-                    active ? "font-bold" : "font-normal"
-                  } dark:text-white`}
+                  className={`flex items-center rounded-lg py-3 transition-all hover:bg-gray-100 dark:hover:bg-[#262626] ${
+                    showLabels ? "gap-4 px-3" : "justify-center px-2"
+                  } ${active ? "font-bold" : "font-normal"} dark:text-white`}
                 >
                   <div className="relative">
                     <Icon
@@ -85,12 +119,14 @@ export default function Sidebar() {
                       strokeWidth={active ? 2.5 : 1.5}
                     />
                     {badge > 0 && (
-                      <span className="absolute -top-1.5 -right-1.5 min-w-18px h-18px bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1">
+                      <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1">
                         {badge > 99 ? "99+" : badge}
                       </span>
                     )}
                   </div>
-                  <span className="text-[16px]">{item.label}</span>
+                  {showLabels && (
+                    <span className="text-[16px]">{item.label}</span>
+                  )}
                 </Link>
               </li>
             );
@@ -101,7 +137,9 @@ export default function Sidebar() {
             <li>
               <Link
                 to={`/profile/${currentUser.username}`}
-                className={`flex items-center gap-4 px-3 py-3 rounded-lg transition-all hover:bg-gray-100 dark:hover:bg-[#262626] ${
+                className={`flex items-center rounded-lg py-3 transition-all hover:bg-gray-100 dark:hover:bg-[#262626] ${
+                  showLabels ? "gap-4 px-3" : "justify-center px-2"
+                } ${
                   location.pathname.includes(`/profile/${currentUser.username}`)
                     ? "font-bold"
                     : "font-normal"
@@ -112,9 +150,9 @@ export default function Sidebar() {
                     buildS3Url(currentUser.avatarUrl) || currentUser.avatarUrl
                   }
                   alt={currentUser.username}
-                  className="w-26px h-26px rounded-full object-cover"
+                  className="w-6.5 h-6.5 rounded-full object-cover"
                 />
-                <span className="text-[16px]">Profile</span>
+                {showLabels && <span className="text-[16px]">Profile</span>}
               </Link>
             </li>
           )}
@@ -125,10 +163,12 @@ export default function Sidebar() {
       <div className="mt-auto relative">
         <button
           onClick={() => setShowMoreMenu(!showMoreMenu)}
-          className="flex items-center gap-4 px-3 py-3 rounded-lg hover:bg-gray-100 dark:hover:bg-[#262626] transition-all w-full dark:text-white"
+          className={`flex w-full items-center rounded-lg py-3 transition-all hover:bg-gray-100 dark:hover:bg-[#262626] dark:text-white ${
+            showLabels ? "gap-4 px-3" : "justify-center px-2"
+          }`}
         >
           <Menu size={26} strokeWidth={1.5} />
-          <span className="text-[16px]">More</span>
+          {showLabels && <span className="text-[16px]">More</span>}
         </button>
 
         {/* More Menu Popup */}

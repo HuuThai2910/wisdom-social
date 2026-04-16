@@ -25,6 +25,7 @@ import java.util.List;
 public interface ConversationMapper {
 
     @Mapping(target = "members", source = "members")
+    @Mapping(target = "pinnedMessages", source = "pinnedMessages")
     @Mapping(target = "lastMessage", ignore = true)
     ConversationResponse toConversationResponse(Conversation conversation, @Context Long userId);
 

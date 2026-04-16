@@ -9,6 +9,9 @@ import {
 import { Toaster } from "react-hot-toast";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { AuthProvider } from "./contexts/AuthContext";
+import { AvatarProvider } from "./context/AvatarContext";
+import { FriendNotificationProvider } from "./contexts/FriendNotificationContext";
+import FriendDataProvider from "./contexts/FriendDataContext";
 import MainLayout from "./components/layout/MainLayout";
 import PublicLayout from "./components/layout/PublicLayout";
 import RequireAuth from "./components/auth/RequireAuth";
@@ -35,10 +38,19 @@ import Messages from "./pages/Messages";
 import ProfileMyPosts from "./pages/ProfileMyPosts";
 import ProfileSavedPost from "./pages/ProfileSavedPost";
 import ProfileTaggedPost from "./pages/ProfileTaggedPost";
+import ProfileBlocked from "./pages/ProfileBlocked";
 import ProfileGeneral from "./pages/ProfileGeneral";
 import CreatePost from "./pages/CreatePost";
 import Settings from "./pages/Settings";
 import ProfileLayout from "./components/profile/ProfileLayout";
+
+// Pages Feature
+import Pages from "./pages/Pages";
+import CreatePageForm from "./pages/CreatePageForm";
+import PageDetail from "./pages/PageDetail";
+import PageSettings from "./pages/PageSettings";
+import EditPageForm from "./pages/EditPageForm";
+import PagePosts from "./pages/PagePosts";
 
 // Other Pages
 import General from "./pages/General";
@@ -72,78 +84,117 @@ function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <Toaster
-          position="top-right"
-          toastOptions={{
-            duration: 4000,
-            style: {
-              background: "#333",
-              color: "#fff",
-            },
-          }}
-        />
-        <BrowserRouter>
-          <Routes>
-            {/* Public Routes */}
-            <Route element={<PublicLayout />}>
-              <Route path="/login" element={<Login />} />
-              <Route path="/login/email" element={<LoginWithEmail />} />
-              <Route path="/login/qr" element={<QRLogin />} />
-              <Route path="/signup" element={<SignUp />} />
-              <Route path="/forgot-password" element={<ForgotPassword />} />
-              <Route path="/checkinbox" element={<CheckInbox />} />
-              <Route path="/verify-otp" element={<VerifyOTP />} />
-              <Route path="/reset-password" element={<ResetPassword />} />
-            </Route>
-
-            {/* Private Routes */}
-            <Route
-              element={
-                <RequireAuth>
-                  <MainLayout />
-                </RequireAuth>
-              }
-            >
-              <Route path="/" element={<Home />} />
-              <Route path="/feed" element={<Feed />} />
-              <Route path="/search" element={<Search />} />
-              <Route path="/explore" element={<Explore />} />
-              <Route path="/reels" element={<Reels />} />
-              <Route path="/notifications" element={<Notifications />} />
-
-              {/* Post Modal Route */}
-              <Route path="/post/:id" element={<PostModalWrapper />} />
-              <Route path="/messages" element={<Messages />} />
-              <Route path="/messages/:conversationId" element={<Messages />} />
-              <Route path="/create" element={<CreatePost />} />
-
-              {/* Profile Routes with nested tabs */}
-              <Route path="/profile/:username" element={<ProfileLayout />}>
-                <Route index element={<ProfileMyPosts />} />
-                <Route path="posts" element={<ProfileMyPosts />} />
-                <Route path="saved" element={<ProfileSavedPost />} />
-                <Route path="tagged" element={<ProfileTaggedPost />} />
-              </Route>
-
-              <Route
-                path="/profile/:username/general"
-                element={<ProfileGeneral />}
+        <AvatarProvider>
+          <FriendDataProvider>
+            <FriendNotificationProvider>
+              <Toaster
+                position="top-right"
+                toastOptions={{
+                  duration: 4000,
+                  style: {
+                    background: "#333",
+                    color: "#fff",
+                  },
+                }}
               />
-              <Route path="/settings" element={<Settings />} />
-              <Route path="/edit-profile" element={<EditProfile />} />
-              <Route path="/user-management" element={<UserManagement />} />
-              <Route path="/blocked-users" element={<BlockedUsers />} />
-              <Route path="/friend-requests" element={<FriendRequests />} />
-            </Route>
+              <BrowserRouter>
+                <Routes>
+                  {/* Public Routes */}
+                  <Route element={<PublicLayout />}>
+                    <Route path="/login" element={<Login />} />
+                    <Route path="/login/email" element={<LoginWithEmail />} />
+                    <Route path="/login/qr" element={<QRLogin />} />
+                    <Route path="/signup" element={<SignUp />} />
+                    <Route
+                      path="/forgot-password"
+                      element={<ForgotPassword />}
+                    />
+                    <Route path="/checkinbox" element={<CheckInbox />} />
+                    <Route path="/verify-otp" element={<VerifyOTP />} />
+                    <Route path="/reset-password" element={<ResetPassword />} />
+                  </Route>
 
-            {/* Other Routes */}
-            <Route path="/general" element={<General />} />
-            <Route path="/misc" element={<Misc />} />
+                  {/* Private Routes */}
+                  <Route
+                    element={
+                      <RequireAuth>
+                        <MainLayout />
+                      </RequireAuth>
+                    }
+                  >
+                    <Route path="/" element={<Home />} />
+                    <Route path="/feed" element={<Feed />} />
+                    <Route path="/search" element={<Search />} />
+                    <Route path="/explore" element={<Explore />} />
+                    <Route path="/reels" element={<Reels />} />
+                    <Route path="/notifications" element={<Notifications />} />
 
-            {/* 404 */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
+                    {/* Post Modal Route */}
+                    <Route path="/post/:id" element={<PostModalWrapper />} />
+                    <Route path="/messages" element={<Messages />} />
+                    <Route
+                      path="/messages/:conversationId"
+                      element={<Messages />}
+                    />
+                    <Route path="/create" element={<CreatePost />} />
+
+                    {/* Profile Routes with nested tabs */}
+                    <Route
+                      path="/profile/:username"
+                      element={<ProfileLayout />}
+                    >
+                      <Route index element={<ProfileMyPosts />} />
+                      <Route path="posts" element={<ProfileMyPosts />} />
+                      <Route path="saved" element={<ProfileSavedPost />} />
+                      <Route path="tagged" element={<ProfileTaggedPost />} />
+                      <Route path="blocked" element={<ProfileBlocked />} />
+                    </Route>
+
+                    <Route
+                      path="/profile/:username/general"
+                      element={<ProfileGeneral />}
+                    />
+                    <Route path="/settings" element={<Settings />} />
+                    <Route path="/edit-profile" element={<EditProfile />} />
+                    <Route
+                      path="/user-management"
+                      element={<UserManagement />}
+                    />
+                    <Route path="/blocked-users" element={<BlockedUsers />} />
+                    <Route
+                      path="/friend-requests"
+                      element={<FriendRequests />}
+                    />
+
+                    {/* Pages Routes */}
+                    <Route path="/pages" element={<Pages />} />
+                    <Route path="/pages/create" element={<CreatePageForm />} />
+                    <Route path="/pages/:pageId" element={<PageDetail />} />
+                    <Route
+                      path="/pages/:pageId/edit"
+                      element={<EditPageForm />}
+                    />
+                    <Route
+                      path="/pages/:pageId/posts"
+                      element={<PagePosts />}
+                    />
+                    <Route
+                      path="/pages/:pageId/settings"
+                      element={<PageSettings />}
+                    />
+                  </Route>
+
+                  {/* Other Routes */}
+                  <Route path="/general" element={<General />} />
+                  <Route path="/misc" element={<Misc />} />
+
+                  {/* 404 */}
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </BrowserRouter>
+            </FriendNotificationProvider>
+          </FriendDataProvider>
+        </AvatarProvider>
       </AuthProvider>
     </ThemeProvider>
   );

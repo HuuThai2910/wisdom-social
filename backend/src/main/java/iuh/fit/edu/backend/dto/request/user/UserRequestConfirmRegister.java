@@ -5,5 +5,5 @@ import lombok.Data;
 @Data
 public class UserRequestConfirmRegister {
     private String phone;
-    private String OTP;
+    private String otp;
 }

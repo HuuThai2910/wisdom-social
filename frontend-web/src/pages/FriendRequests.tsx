@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { UserPlus, Send, RefreshCw } from "lucide-react";
 import FriendRequestsList from "../components/friend/FriendRequestsList";
 import SentRequestsList from "../components/friend/SentRequestsList";
@@ -8,7 +8,17 @@ type TabType = "received" | "sent";
 
 export default function FriendRequests() {
     const [activeTab, setActiveTab] = useState<TabType>("received");
-    const { friendRequests, refreshFriendRequests, friendRequestsLoading } = useFriendData();
+    const {
+        friendRequests,
+        refreshFriendRequests,
+        friendRequestsLoading,
+        refreshTrigger
+    } = useFriendData();
+
+    // Watch refreshTrigger to force re-render when data updates
+    useEffect(() => {
+        console.log("🔄 FriendRequests: refreshTrigger changed, data refreshed");
+    }, [refreshTrigger]);
 
     const tabs: { id: TabType; label: string; icon: React.ReactNode; count?: number }[] = [
         { id: "received", label: "Lời mời đã nhận", icon: <UserPlus size={18} />, count: friendRequests.length },

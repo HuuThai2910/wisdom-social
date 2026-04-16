@@ -1,14 +1,69 @@
-import { setCookie, getCookie, deleteCookie } from './cookies';
+import { getCookie, setCookie, clearAuthStorage } from './cookies';
 import type  { UserRequestLogin, UserRequestRegister, UserRequestForgotPassword, UserRequestResetPassword } from '../services/userService';
 import userService from '../services/userService';
 
 const AUTH_KEY = 'authed';
 const USER_KEY = 'current_user';
 const ACCESS_TOKEN_KEY = 'accessToken';
-const REFRESH_TOKEN_KEY = 'refreshToken';
 
 // Callback để thông báo khi auth state thay đổi
 let authChangeCallback: (() => void) | null = null;
+
+const mapResetPasswordError = (rawMessage?: string) => {
+    const message = rawMessage || '';
+    const lower = message.toLowerCase();
+
+    if (lower.includes('invalid code provided')) {
+        return 'Mã OTP không đúng. Vui lòng kiểm tra lại OTP mới nhất.';
+    }
+
+    if (lower.includes('expired') || lower.includes('codeexpired')) {
+        return 'Mã OTP đã hết hạn. Vui lòng yêu cầu gửi lại OTP.';
+    }
+
+    return 'Cập nhật mật khẩu thất bại. Vui lòng thử lại.';
+};
+
+const mapRegisterOtpError = (rawMessage?: string) => {
+    const message = rawMessage || '';
+    const lower = message.toLowerCase();
+
+    if (lower.includes('invalid verification code') || lower.includes('codemismatch')) {
+        return 'Mã OTP không hợp lệ. Vui lòng kiểm tra và thử lại.';
+    }
+
+    if (lower.includes('expired') || lower.includes('codeexpired')) {
+        return 'Mã OTP đã hết hạn. Vui lòng yêu cầu gửi lại OTP.';
+    }
+
+    return 'Xác nhận OTP thất bại. Vui lòng thử lại.';
+};
+
+const mapLoginError = (rawMessage?: string) => {
+    const message = rawMessage || '';
+    const lower = message.toLowerCase();
+
+    if (lower.includes('notauthorizedexception') || lower.includes('incorrect username or password')) {
+        return 'Tên đăng nhập hoặc mật khẩu không đúng.';
+    }
+
+    return 'Đăng nhập thất bại. Vui lòng thử lại.';
+};
+
+const mapRegisterError = (rawMessage?: string) => {
+    const message = rawMessage || '';
+    const lower = message.toLowerCase();
+
+    if (
+        lower.includes('user already exists') ||
+        lower.includes('usernameexistsexception') ||
+        lower.includes('already exists')
+    ) {
+        return 'Số điện thoại đã được đăng ký. Vui lòng dùng số khác hoặc đăng nhập.';
+    }
+
+    return 'Đăng ký thất bại. Vui lòng thử lại.';
+};
 
 export const setAuthChangeCallback = (callback: () => void) => {
     authChangeCallback = callback;
@@ -22,12 +77,12 @@ export const initializeAuth = () => {
     }
 };
 
-export const register = async (phone: string, username: string, password: string): Promise<boolean> => {
+export const register = async (phone: string, password: string, confirmPassword: string): Promise<boolean> => {
     try {
         const data: UserRequestRegister = {
             phone,
-            username,
-            password
+            password,
+            confirmPassword,
         };
         const response = await userService.register(data);
 
@@ -36,47 +91,29 @@ export const register = async (phone: string, username: string, password: string
     } catch (error: any) {
         console.error('Register error:', error);
         if (error.response?.data?.message) {
-            throw new Error(error.response.data.message);
+            throw new Error(mapRegisterError(error.response.data.message));
         }
         if (error.message) {
-            throw error;
+            throw new Error(mapRegisterError(error.message));
         }
-        throw new Error('Đăng ký thất bại. Vui lòng thử lại.');
+        throw new Error(mapRegisterError());
     }
 };
 
 export const confirmRegister = async (phone: string, otp: string): Promise<boolean> => {
     try {
-        const data = await userService.confirmRegister({ phone, otp });
-
-        if (!data?.token) {
-            throw new Error('Xác nhận OTP thất bại');
-        }
-
-        const { token, userId, username } = data;
-
-        // Store token
-        setCookie(ACCESS_TOKEN_KEY, token, 7);
-        localStorage.setItem(AUTH_KEY, 'true');
-        localStorage.setItem(USER_KEY, JSON.stringify({
-            id: userId,
-            username,
-            phone,
-            fullName: username
-        }));
-
-        if (authChangeCallback) {
-            authChangeCallback();
-        }
+        await userService.confirmRegister({ phone, otp });
         return true;
     } catch (error: any) {
         console.error('Confirm register error:', error);
         if (error.response?.data?.message) {
-            throw new Error(error.response.data.message);
+            throw new Error(mapRegisterOtpError(error.response.data.message));
         }
-        throw new Error('Xác nhận OTP thất bại. Vui lòng thử lại.');
+        throw new Error(mapRegisterOtpError(error.message));
     }
 };
+
+
 
 export const login = async (phone: string, password: string): Promise<boolean> => {
     try {
@@ -93,27 +130,30 @@ export const login = async (phone: string, password: string): Promise<boolean> =
             throw new Error('Số điện thoại hoặc mật khẩu không chính xác.');
         }
 
-        const token = userData?.token;
+        // Note: userService.login() already stores tokens to cookies only (not localStorage)
+        // userService handles accessToken and refreshToken storage
+        localStorage.setItem('type', 'normal');
+        localStorage.setItem(AUTH_KEY, 'true');
 
-        if (token) {
-
-            // Store JWT token in cookie (accessToken - to match backend filter)
-            setCookie(ACCESS_TOKEN_KEY, token, 7); // Expires in 7 days
-
-            console.log('Token saved to cookie:', ACCESS_TOKEN_KEY);
-            return true;
-        } else {
-            throw new Error('Số điện thoại hoặc mật khẩu không chính xác.');
+        const currentUser = await userService.getCurrentUser();
+        if (currentUser) {
+            localStorage.setItem(USER_KEY, JSON.stringify(currentUser));
         }
+
+        console.log('Login successful, tokens stored');
+        if (authChangeCallback) {
+            authChangeCallback();
+        }
+        return true;
     } catch (error: any) {
         console.error('Login error:', error);
         if (error.response?.data?.message) {
-            throw new Error(error.response.data.message);
+            throw new Error(mapLoginError(error.response.data.message));
         }
         if (error.message) {
-            throw error;
+            throw new Error(mapLoginError(error.message));
         }
-        throw new Error('Đăng nhập thất bại. Vui lòng thử lại.');
+        throw new Error(mapLoginError());
     }
 };
 
@@ -122,39 +162,23 @@ export const getToken = (): string | null => {
 };
 
 export const logout = async (): Promise<void> => {
+    // Clear client data immediately so redirect/navigation cannot interrupt cleanup.
+    clearAuthStorage();
+
     try {
         // Call logout API
         await userService.logout();
-
-        // Remove cookies
-        deleteCookie(ACCESS_TOKEN_KEY);
-        deleteCookie(REFRESH_TOKEN_KEY);
-
-        // Remove localStorage items
-        localStorage.removeItem(AUTH_KEY);
-        localStorage.removeItem(USER_KEY);
-
-        console.log('Logged out, cookies and localStorage cleared');
-
-        // Trigger callback để cập nhật AuthContext
-        if (authChangeCallback) {
-            authChangeCallback();
-        }
     } catch (error) {
         console.error('Logout error:', error);
-        // Still clear local data even if API call fails
-        deleteCookie(ACCESS_TOKEN_KEY);
-        deleteCookie(REFRESH_TOKEN_KEY);
-        localStorage.removeItem(AUTH_KEY);
-        localStorage.removeItem(USER_KEY);
+    }
 
-        if (authChangeCallback) {
-            authChangeCallback();
-        }
+    // Trigger callback để cập nhật AuthContext
+    if (authChangeCallback) {
+        authChangeCallback();
     }
 };
 
-export const forgotPassword = async (phone: string): Promise<{ otpId: string; expiresIn: number }> => {
+export const forgotPassword = async (phone: string): Promise<boolean> => {
     try {
         const data: UserRequestForgotPassword = { phone };
         const response = await userService.forgotPassword(data);
@@ -163,7 +187,7 @@ export const forgotPassword = async (phone: string): Promise<{ otpId: string; ex
             throw new Error('Gửi OTP thất bại');
         }
 
-        return response;
+        return true;
     } catch (error: any) {
         console.error('Forgot password error:', error);
         if (error.response?.data?.message) {
@@ -173,9 +197,20 @@ export const forgotPassword = async (phone: string): Promise<{ otpId: string; ex
     }
 };
 
-export const resetPassword = async (phone: string, otp: string, newPassword: string): Promise<boolean> => {
+export const resetPassword = async (
+    phone: string,
+    otp: string,
+    password: string,
+    confirmPassword: string
+): Promise<boolean> => {
     try {
-        const data: UserRequestResetPassword = { phone, otp, newPassword };
+        const data: UserRequestResetPassword = {
+            phone,
+            password,
+            confirmPassword,
+            confirmationCode: otp,
+            instant: new Date().toISOString(),
+        };
         const response = await userService.resetPassword(data);
 
         if (!response) {
@@ -187,15 +222,18 @@ export const resetPassword = async (phone: string, otp: string, newPassword: str
     } catch (error: any) {
         console.error('Reset password error:', error);
         if (error.response?.data?.message) {
-            throw new Error(error.response.data.message);
+            throw new Error(mapResetPasswordError(error.response.data.message));
         }
-        throw new Error('Cập nhật mật khẩu thất bại. Vui lòng thử lại.');
+        throw new Error(mapResetPasswordError(error.message));
     }
 };
 
 export const refreshTokenAsync = async (): Promise<string> => {
     try {
-        const token = await userService.refreshToken();
+        const authType = localStorage.getItem('type');
+        const token = authType === 'qr'
+            ? await userService.refreshQrToken()
+            : await userService.refreshToken();
         if (token) {
             setCookie(ACCESS_TOKEN_KEY, token, 7);
             return token;

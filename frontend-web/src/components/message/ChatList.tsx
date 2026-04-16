@@ -16,7 +16,7 @@ export default function ChatList({ chats }: ChatListProps) {
                 >
                     <div className="relative">
                         <img
-                            src={chat.user.avatar}
+                            src={chat.user.avatarUrl}
                             alt={chat.user.username}
                             className="w-14 h-14 rounded-full"
                         />

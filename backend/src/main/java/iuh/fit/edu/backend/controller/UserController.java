@@ -3,11 +3,7 @@ package iuh.fit.edu.backend.controller;
 import iuh.fit.edu.backend.domain.entity.mysql.User;
 import iuh.fit.edu.backend.dto.request.friend.FriendRequest;
 import iuh.fit.edu.backend.dto.request.user.*;
-import iuh.fit.edu.backend.dto.response.user.UserResponseConfirmRegister;
-import iuh.fit.edu.backend.dto.response.user.UserResponseLogin;
-import iuh.fit.edu.backend.dto.response.user.UserResponseOTPPassword;
-import iuh.fit.edu.backend.dto.response.user.UserResponseRegister;
-import iuh.fit.edu.backend.dto.response.user.UserProfileResponse;
+import iuh.fit.edu.backend.dto.response.user.*;
 import iuh.fit.edu.backend.dto.response.ApiResponse;
 import iuh.fit.edu.backend.service.user.BlockUserService;
 import iuh.fit.edu.backend.service.user.UserService;
@@ -73,7 +69,8 @@ public class UserController {
     @PostMapping("/logout")
     public ResponseEntity<String> logoutUser(HttpServletRequest request){
         String idToken = null;
-        String refreshToken=null;
+        String refreshToken = null;
+        String refreshTokenQr = null;
         if (request.getCookies() != null) {
             for (Cookie cookie : request.getCookies()) {
                 if ("accessToken".equals(cookie.getName())) {
@@ -82,7 +79,13 @@ public class UserController {
                 if ("refreshToken".equals(cookie.getName())) {
                     refreshToken = cookie.getValue();
                 }
+                if ("refreshTokenQr".equals(cookie.getName())) {
+                    refreshTokenQr = cookie.getValue();
+                }
             }
+        }
+        if (refreshToken == null) {
+            refreshToken = refreshTokenQr;
         }
         userService.logoutUser(idToken,refreshToken);
         return ResponseEntity.ok("Logout success");
@@ -213,7 +216,7 @@ public class UserController {
     public ResponseEntity<String> updateUploadImage(@RequestParam String type,
                                            @RequestParam String extension){
         User user=userService.getCurrentUser();
-        Map<String,String> image= s3Service.generateUpdateUploadUrl(type,String.valueOf(user.getId()),extension);
+        Map<String,String> image= s3Service.generateUpdateUploadUrl(type,user.getId(),extension);
 
         UserRequestUpdate update=new UserRequestUpdate();
         update.setAvatarUrl(image.get("imageUrl"));
@@ -236,4 +239,24 @@ public class UserController {
         }
         return request.getRemoteAddr();
     }
+
+//    @PostMapping("/status/bulk")
+//    public ResponseEntity<ApiResponse<List<UserStatusResponse>>> getBulkUserStatus(
+//            @RequestBody List<Long> userIds) {
+//
+//        // 1. Lấy thông tin từ DB (Nên có hàm findUsersByIds trong UserService)
+//        List<User> users = userService.findUsersByIds(userIds);
+//
+//        // 2. Map dữ liệu kết hợp với Cache
+//        List<UserStatusResponse> statuses = users.stream().map(user -> {
+//            boolean isOnline = userCacheService.isUserOnline(user.getId());
+//            return UserStatusResponse.builder()
+//                    .userId(user.getId())
+//                    .isOnline(isOnline)
+//                    .lastSeen(isOnline ? null : user.getLastActiveAt())
+//                    .build();
+//        }).toList();
+//
+//        return ResponseEntity.ok(new ApiResponse<>(200, "Thành công", statuses));
+//    }
 }

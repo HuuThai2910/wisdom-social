@@ -1,11 +1,14 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { Eye, EyeOff, Lock, Phone, ArrowRight } from "lucide-react";
 import { login } from "../utils/auth";
+import { validatePhone } from "../utils/validation";
 
 export default function Login() {
   const navigate = useNavigate();
-  const [phone, setPhone] = useState("");
-  const [password, setPassword] = useState("");
+  const [phone, setPhone] = useState("0398724346");
+  const [password, setPassword] = useState("Xen123123!");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -14,9 +17,15 @@ export default function Login() {
     setLoading(true);
     setError("");
 
-    // Validation
     if (!phone || !password) {
       setError("Vui lòng nhập số điện thoại và mật khẩu.");
+      setLoading(false);
+      return;
+    }
+
+    const phoneValidation = validatePhone(phone);
+    if (!phoneValidation.isValid) {
+      setError(phoneValidation.error || "Số điện thoại không hợp lệ");
       setLoading(false);
       return;
     }
@@ -25,7 +34,6 @@ export default function Login() {
       const success = await login(phone, password);
       console.log("Login result:", success);
       if (success) {
-        // Navigate to home/feed page
         navigate("/", { replace: true });
       }
     } catch (err: any) {
@@ -38,102 +46,79 @@ export default function Login() {
 
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-10">
-      {/* Social Login Buttons */}
-      <button
-        
-        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-300 rounded-lg hover:bg-gray-50 mb-3"
-      >
-        <span className="text-sm font-semibold text-gray-700">
-          Log in with Google
-        </span>
-      </button>
-
-      <Link
-        to="/login/email"
-        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-300 rounded-lg hover:bg-gray-50 mb-6"
-      >
-        <span className="text-sm font-semibold text-gray-700">
-          Log in with Email
-        </span>
-      </Link>
-
-      <Link
-        to="/login/qr"
-        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-300 rounded-lg hover:bg-gray-50 mb-6"
-      >
-        <svg
-          className="w-5 h-5"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"
-          />
-        </svg>
-        <span className="text-sm font-semibold text-gray-700">
-          Log in with QR Code
-        </span>
-      </Link>
-
-      {/* Divider */}
-      <div className="flex items-center gap-4 mb-6">
-        <div className="flex-1 h-px bg-gray-300"></div>
-        <span className="text-sm text-gray-500">OR</span>
-        <div className="flex-1 h-px bg-gray-300"></div>
+    <div className="rounded-2xl border border-blue-100 bg-linear-to-b from-blue-50 via-white to-slate-50 p-8 shadow-sm">
+      <div className="mb-6 text-center">
+        <h2 className="text-2xl font-bold text-gray-800">Chào mừng bạn trở lại</h2>
+        <p className="mt-1 text-sm text-gray-500">Đăng nhập để tiếp tục hành trình kết nối</p>
       </div>
 
-      {/* Login Form */}
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
-          <div className="text-red-500 text-sm text-center">{error}</div>
+          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-center text-sm text-red-600">
+            {error}
+          </div>
         )}
 
-        <input
-          type="tel"
-          placeholder="Số điện thoại"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-gray-400 text-black"
-          required
-          disabled={loading}
-        />
+        <div className="flex items-center rounded-xl border border-gray-200 bg-white px-3">
+          <Phone className="h-4 w-4 text-blue-500" />
+          <input
+            type="tel"
+            placeholder="Số điện thoại"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            className="w-full bg-transparent px-3 py-3.5 text-gray-800 outline-none"
+            required
+            disabled={loading}
+          />
+        </div>
 
-        <input
-          type="password"
-          placeholder="Mật khẩu"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-gray-400 text-black"
-          required
-          disabled={loading}
-        />
+        <div className="flex items-center rounded-xl border border-gray-200 bg-white px-3">
+          <Lock className="h-4 w-4 text-blue-500" />
+          <input
+            type={showPassword ? "text" : "password"}
+            placeholder="Mật khẩu"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full bg-transparent px-3 py-3.5 text-gray-800 outline-none"
+            required
+            disabled={loading}
+          />
+          <button
+            type="button"
+            className="text-gray-500"
+            onClick={() => setShowPassword((prev) => !prev)}
+          >
+            {showPassword ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+          </button>
+        </div>
+
+        <div className="text-right">
+          <Link to="/forgot-password" className="text-sm font-semibold text-blue-500 hover:text-blue-600">
+            Quên mật khẩu?
+          </Link>
+        </div>
 
         <button
           type="submit"
-          className="w-full py-2.5 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-500 py-3.5 font-semibold text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
           disabled={loading}
         >
-          {loading ? "Đang đăng nhập..." : "Log in"}
+          {loading ? "Đang đăng nhập..." : "Đăng nhập"}
+          {!loading && <ArrowRight className="h-4 w-4" />}
         </button>
-
-        <p className="text-xs text-gray-500 text-center">
-          Nhập số điện thoại và mật khẩu của bạn để đăng nhập
-        </p>
       </form>
 
-      {/* Sign Up Link */}
-      <p className="text-center text-sm text-gray-600 mt-6">
-        Don't have an account?{" "}
-        <Link
-          to="/signup"
-          className="text-blue-500 hover:text-blue-700 font-semibold"
-        >
-          Sign up
+      <p className="mt-6 border-t border-gray-200 pt-5 text-center text-sm text-gray-600">
+        Bạn chưa có tài khoản?{" "}
+        <Link to="/signup" className="font-semibold text-blue-500 hover:text-blue-700">
+          Đăng ký
+        </Link>
+      </p>
+
+      <p className="mt-3 text-center text-sm text-gray-600">
+        Hoặc đăng nhập bằng{" "}
+        <Link to="/login/qr" className="font-semibold text-blue-500 hover:text-blue-700">
+          QR Code
         </Link>
       </p>
     </div>
