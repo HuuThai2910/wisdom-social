@@ -281,23 +281,24 @@ export const MessageBubble = React.memo(
         const replySenderId = item.replyInfo?.senderId;
         const replyMessageId = item.replyInfo?.messageId ?? "";
 
-        const bubbleGroupShape = !isRichCardMessage || isCallMessage
-            ? mine
-                ? isFirstInGroup
-                    ? isLastInGroup
-                        ? styles.bubbleMineSingle
-                        : styles.bubbleMineFirst
-                    : isLastInGroup
-                      ? styles.bubbleMineLast
-                      : styles.bubbleMineMiddle
-                : isFirstInGroup
-                  ? isLastInGroup
-                      ? styles.bubbleOtherSingle
-                      : styles.bubbleOtherFirst
-                  : isLastInGroup
-                    ? styles.bubbleOtherLast
-                    : styles.bubbleOtherMiddle
-            : null;
+        const bubbleGroupShape =
+            !isRichCardMessage || isCallMessage
+                ? mine
+                    ? isFirstInGroup
+                        ? isLastInGroup
+                            ? styles.bubbleMineSingle
+                            : styles.bubbleMineFirst
+                        : isLastInGroup
+                          ? styles.bubbleMineLast
+                          : styles.bubbleMineMiddle
+                    : isFirstInGroup
+                      ? isLastInGroup
+                          ? styles.bubbleOtherSingle
+                          : styles.bubbleOtherFirst
+                      : isLastInGroup
+                        ? styles.bubbleOtherLast
+                        : styles.bubbleOtherMiddle
+                : null;
 
         const isPinSystemMessage = isPinSystemMessageType(item.type);
 
@@ -662,8 +663,8 @@ export const MessageBubble = React.memo(
                                                 styles.highlightedBubble,
                                             item.isRecalled
                                                 ? styles.bubbleRecalled
-                                                                                                : isRichCardMessage &&
-                                                                                                        !isCallMessage
+                                                : isRichCardMessage &&
+                                                    !isCallMessage
                                                   ? styles.bubblePlain
                                                   : mine
                                                     ? styles.bubbleMine
