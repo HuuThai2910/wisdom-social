@@ -431,8 +431,22 @@ export const useCommentsNormalized = ({
                 );
             });
 
-            // Remove from rootIds
-            setRootIds((prev) => prev.filter((id) => !toDelete.has(id)));
+            // Remove from rootIds and check if rootHasMore needs update
+            setRootIds((prev) => {
+                const nextRootIds = prev.filter((id) => !toDelete.has(id));
+
+                // FIX: Update rootHasMore if not enough root comments left
+                // If we're on the first page and have fewer than 15 comments,
+                // there's no more to load
+                if (currentPage === 0 && nextRootIds.length < 15) {
+                    setRootHasMore(false);
+                    console.log(
+                        `🔄 Updated rootHasMore to false after delete (rootIds: ${nextRootIds.length}, currentPage: ${currentPage})`
+                    );
+                }
+
+                return nextRootIds;
+            });
 
             // Clean up UI state
             setExpandedMap((prev) => {
@@ -458,7 +472,7 @@ export const useCommentsNormalized = ({
 
             return nextChildren;
         });
-    }, []);
+    }, [currentPage]);
 
     /**
      * Reset ALL state (for modal close)

@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   X,
-  ImageIcon,
+  ImagePlus,
   MapPin,
   Users,
   Globe,
@@ -9,6 +9,8 @@ import {
   ChevronLeft,
   ChevronRight,
   UserCheck,
+  Play,
+  Plus,
 } from "lucide-react";
 import * as postApi from "../../services/postService";
 import { useAuth } from "../../contexts/AuthContext";
@@ -30,9 +32,11 @@ interface UserData {
 interface PostData {
   id: string;
   authorId?: string;
-  content: string;
+  content?: string;
+  caption?: string;
   privacy?: string;
   media?: MediaItem[];
+  images?: string[];
   mediaList?: MediaItem[];
   location?:
     | string
@@ -49,11 +53,26 @@ interface EditPostModalProps {
 }
 
 const PRIVACY_OPTIONS = [
-  { value: "PUBLIC", label: "Public", Icon: Globe },
-  { value: "FRIENDS", label: "Friends", Icon: Users },
-  { value: "ONLY_ME", label: "Only me", Icon: Lock },
-  { value: "SPECIFIC", label: "Specific people", Icon: UserCheck },
-  { value: "EXCEPT", label: "Friends except", Icon: Users },
+  { value: "PUBLIC", label: "Public", Icon: Globe, desc: "Anyone can see" },
+  {
+    value: "FRIENDS",
+    label: "Friends",
+    Icon: Users,
+    desc: "Your friends only",
+  },
+  { value: "ONLY_ME", label: "Only me", Icon: Lock, desc: "Just you" },
+  {
+    value: "SPECIFIC",
+    label: "Specific",
+    Icon: UserCheck,
+    desc: "Choose people",
+  },
+  {
+    value: "EXCEPT",
+    label: "Except...",
+    Icon: Users,
+    desc: "Friends except...",
+  },
 ];
 
 export default function EditPostModal({
@@ -66,7 +85,9 @@ export default function EditPostModal({
   const { currentUser } = useAuth();
 
   // Edit state — pre-filled from post
-  const [editContent, setEditContent] = useState(post.content || "");
+  const [editContent, setEditContent] = useState(
+    post.caption || post.content || ""
+  );
   const [editPrivacy, setEditPrivacy] = useState(post.privacy || "PUBLIC");
   const [editLocation, setEditLocation] = useState(
     typeof post.location === "string"
@@ -74,11 +95,16 @@ export default function EditPostModal({
       : post.location?.name || ""
   );
   const [editExistingMedia, setEditExistingMedia] = useState<MediaItem[]>(
-    (post.media || post.mediaList || []) as MediaItem[]
+    (post.media || post.images || post.mediaList || []).map((item: any) => ({
+      url: typeof item === "string" ? item : item.url,
+      type: item.type,
+      order: item.order,
+    }))
   );
   const [newImages, setNewImages] = useState<File[]>([]);
-  const [editTaggedUsers, setEditTaggedUsers] =
-    useState<UserData[]>(initialTaggedUsers);
+  const [editTaggedUsers, setEditTaggedUsers] = useState<UserData[]>(
+    initialTaggedUsers || []
+  );
   const [tagSearchQuery, setTagSearchQuery] = useState("");
   const [tagSearchResults, setTagSearchResults] = useState<UserData[]>([]);
   const [showTagSearch, setShowTagSearch] = useState(false);
@@ -97,8 +123,81 @@ export default function EditPostModal({
     .sort()
     .join(",");
 
+  // Refs for DOM behaviors
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const privacyMenuRef = useRef<HTMLDivElement>(null);
+
+  // Textarea auto-height effect
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height =
+        Math.max(80, textareaRef.current.scrollHeight) + "px";
+    }
+  }, [editContent]);
+
+  // Privacy menu click-outside handler
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        privacyMenuRef.current &&
+        !privacyMenuRef.current.contains(event.target as Node)
+      ) {
+        setShowPrivacyMenu(false);
+      }
+    };
+
+    if (showPrivacyMenu) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () =>
+        document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [showPrivacyMenu]);
+
+  // Sync form fields when post prop changes
+  useEffect(() => {
+    console.log("🔄 [DEBUG] EditPostModal sync effect triggered");
+    console.log("📍 [DEBUG] post.location from prop:", post.location);
+    console.log("🎬 [DEBUG] post.id:", post.id);
+
+    const syncedContent = post.caption || post.content || "";
+    const syncedPrivacy = post.privacy || "PUBLIC";
+    const syncedLocation =
+      typeof post.location === "string"
+        ? post.location
+        : post.location?.name || "";
+
+    console.log("✅ [DEBUG] syncedLocation value:", syncedLocation);
+    console.log("📊 [DEBUG] post object keys:", Object.keys(post));
+
+    setEditContent(syncedContent);
+    setEditPrivacy(syncedPrivacy);
+    setEditLocation(syncedLocation);
+    setEditExistingMedia(
+      (post.media || post.images || post.mediaList || []).map((item: any) => ({
+        url: typeof item === "string" ? item : item.url,
+        type: item.type,
+        order: item.order,
+      }))
+    );
+  }, [
+    post.id,
+    post.caption,
+    post.content,
+    post.privacy,
+    post.location,
+    post.media,
+    post.images,
+    post.mediaList,
+  ]);
+
+  // Debug: Log when editLocation state changes
+  useEffect(() => {
+    console.log("🎯 [DEBUG] editLocation state changed to:", editLocation);
+  }, [editLocation]);
+
   const isDirty =
-    editContent !== (post.content || "") ||
+    editContent !== (post.caption || post.content || "") ||
     editPrivacy !== (post.privacy || "PUBLIC") ||
     editLocation !== originalLocation ||
     newImages.length > 0 ||
@@ -244,23 +343,25 @@ export default function EditPostModal({
       >
         {/* ── LEFT: image panel ── */}
         <div className="w-[55%] bg-black flex flex-col">
-          {/* Image viewer */}
-          <div className="flex-1 relative flex items-center justify-center min-h-0 group">
+          {/* Image viewer with fixed height */}
+          <div className="flex-1 relative flex items-center justify-center min-h-0 group bg-black">
             {allImages.length > 0 ? (
               <>
-                {allImages[safeViewIdx].isVideo ? (
-                  <video
-                    src={allImages[safeViewIdx].url}
-                    className="max-h-full max-w-full object-contain"
-                    controls
-                  />
-                ) : (
-                  <img
-                    src={allImages[safeViewIdx].url}
-                    alt="Post"
-                    className="max-h-full max-w-full object-contain"
-                  />
-                )}
+                <div className="w-full h-150 flex items-center justify-center bg-black overflow-hidden">
+                  {allImages[safeViewIdx].isVideo ? (
+                    <video
+                      src={allImages[safeViewIdx].url}
+                      className="w-full h-full object-contain"
+                      controls
+                    />
+                  ) : (
+                    <img
+                      src={allImages[safeViewIdx].url}
+                      alt="Post"
+                      className="w-full h-full object-contain"
+                    />
+                  )}
+                </div>
                 {/* Remove current image */}
                 <button
                   onClick={() =>
@@ -315,31 +416,81 @@ export default function EditPostModal({
                 )}
               </>
             ) : (
-              <div className="flex flex-col items-center gap-3 text-gray-500">
-                <ImageIcon className="w-16 h-16" />
-                <p className="text-sm">No photos</p>
+              <div className="w-full h-full flex items-center justify-center">
+                <div className="flex flex-col items-center gap-3 text-gray-400">
+                  <ImagePlus className="w-16 h-16" />
+                  <p className="text-sm">No photos</p>
+                </div>
               </div>
             )}
           </div>
 
-          {/* Add photos button */}
-          <label className="flex items-center justify-center gap-2 py-3 border-t border-gray-700 cursor-pointer hover:bg-gray-800 transition-colors text-gray-300 text-sm shrink-0">
-            <ImageIcon className="w-4 h-4" />
-            <span>Add media</span>
-            <input
-              type="file"
-              accept="image/*,video/*"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                const files = Array.from(e.target.files || []);
-                if (files.length) {
-                  setNewImages((prev) => [...prev, ...files]);
-                  setViewIdx(allImages.length);
-                }
-              }}
-            />
-          </label>
+          {/* Thumbnail strip with fixed 1:1 aspect */}
+          {allImages.length > 0 && (
+            <div className="px-2 py-3 border-t border-gray-700 flex gap-2 overflow-x-auto bg-gray-950">
+              {allImages.map((img, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setViewIdx(idx)}
+                  className={`shrink-0 w-16 h-16 rounded-lg overflow-hidden border-2 transition-all ${
+                    idx === safeViewIdx
+                      ? "border-blue-500 ring-2 ring-blue-400"
+                      : "border-gray-600 hover:border-gray-400"
+                  }`}
+                >
+                  {img.isVideo ? (
+                    <div className="w-full h-full bg-gray-800 flex items-center justify-center text-gray-500">
+                      <Play size={16} />
+                    </div>
+                  ) : (
+                    <img
+                      src={img.url}
+                      alt={`Thumbnail ${idx}`}
+                      className="w-full h-full object-contain"
+                    />
+                  )}
+                </button>
+              ))}
+              {/* Add media tile */}
+              <label className="shrink-0 w-16 h-16 rounded-lg border-2 border-dashed border-gray-600 flex items-center justify-center cursor-pointer hover:border-gray-400 hover:bg-gray-900 transition-colors text-gray-400 hover:text-gray-300">
+                <Plus size={20} />
+                <input
+                  type="file"
+                  accept="image/*,video/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files || []);
+                    if (files.length) {
+                      setNewImages((prev) => [...prev, ...files]);
+                      setViewIdx(allImages.length);
+                    }
+                  }}
+                />
+              </label>
+            </div>
+          )}
+
+          {/* Add photos button (when no media) */}
+          {allImages.length === 0 && (
+            <label className="flex items-center justify-center gap-2 py-3 border-t border-gray-700 cursor-pointer hover:bg-gray-800 transition-colors text-gray-300 text-sm shrink-0">
+              <ImagePlus className="w-4 h-4" />
+              <span>Add media</span>
+              <input
+                type="file"
+                accept="image/*,video/*"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  const files = Array.from(e.target.files || []);
+                  if (files.length) {
+                    setNewImages((prev) => [...prev, ...files]);
+                    setViewIdx(allImages.length);
+                  }
+                }}
+              />
+            </label>
+          )}
         </div>
 
         {/* ── RIGHT: edit form ── */}

@@ -97,6 +97,32 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
     }
   }, [location.state, post, currentUser?.id]);
 
+  // Auto-expand comment when navigating from PostCard with expandCommentId
+  const expandCommentChain = (commentId: string) => {
+    let current = commentsById[commentId];
+
+    while (current?.parentId) {
+      toggleExpanded(current.parentId);
+      current = commentsById[current.parentId];
+    }
+
+    toggleExpanded(commentId);
+  };
+
+  useEffect(() => {
+    const expandCommentId = location.state?.expandCommentId;
+    if (expandCommentId && commentsById[expandCommentId]) {
+      expandCommentChain(expandCommentId);
+
+      setTimeout(() => {
+        const el = document.getElementById(`comment-${expandCommentId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }, 100);
+    }
+  }, [location.state, commentsById, toggleExpanded]);
+
   useEffect(() => {
     if (!post || !post.media || post.media.length === 0) {
       setTransformedMediaUrls([]);
@@ -490,7 +516,6 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
 
   const hasMedia = post.media && post.media.length > 0;
   const totalImages = post?.media?.length || 0;
-  const timeAgo = new Date(post.createdAt).toLocaleDateString("vi-VN");
   const safePostContent = post.content || "";
 
   const isVideoAtIndex = (index: number) => {
@@ -802,53 +827,8 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
             )}
           </div>
 
-          {/* Caption/Content */}
+          {/* Comments Section - Start directly with comments */}
           <div className="flex-1 overflow-y-auto p-4">
-            <div className="flex gap-3 mb-4">
-              <img
-                src={authorDisplay.avatarUrl}
-                alt={authorDisplay.username}
-                className="w-8 h-8 rounded-full shrink-0"
-              />
-              <div className="flex-1">
-                <p className="text-sm dark:text-white">
-                  <span className="font-semibold mr-2">
-                    {authorDisplay.username}
-                  </span>
-                  {safePostContent.split(/(#\w+)/).map((part, index) => {
-                    if (part.startsWith("#")) {
-                      return (
-                        <span key={index} className="text-blue-500">
-                          {part}
-                        </span>
-                      );
-                    }
-                    return part;
-                  })}
-                </p>
-                {/* Tagged users */}
-                {taggedUsers.length > 0 && (
-                  <div className="flex items-center gap-1 mt-2 text-sm text-gray-600 dark:text-gray-400">
-                    <Users className="w-3.5 h-3.5" />
-                    <span>with </span>
-                    {taggedUsers.map((user, index) => (
-                      <span key={user.id}>
-                        <span className="font-semibold hover:underline cursor-pointer">
-                          {user.username}
-                        </span>
-                        {index < taggedUsers.length - 1 && ", "}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Time info */}
-            <p className="text-xs text-gray-400 dark:text-gray-500 ml-11 mb-4">
-              {timeAgo}
-            </p>
-
             {/* Comments section */}
             <div className="space-y-4">
               {rootIds.length === 0 ? (

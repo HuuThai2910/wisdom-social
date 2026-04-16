@@ -231,7 +231,7 @@ export default function CommentItemNormalized({
   const timeAgo = new Date(comment.createdAt).toLocaleDateString("vi-VN");
 
   return (
-    <div className={level > 0 ? "ml-10" : ""}>
+    <div id={`comment-${commentId}`} className={level > 0 ? "ml-10" : ""}>
       <div className="flex gap-3 px-4">
         <img
           src={commentUser.avatarUrl || "https://i.pravatar.cc/150?img=5"}

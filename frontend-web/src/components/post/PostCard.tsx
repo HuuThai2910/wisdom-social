@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Heart,
   MessageCircle,
@@ -16,8 +16,14 @@ import {
 } from "lucide-react";
 import type { Post, PrivacyType } from "../../types";
 import * as postApi from "../../services/postService";
+import { buildS3Url } from "../../utils/s3";
 import { useCurrentUser } from "./../../hooks/useCurrentUser";
 import useVideoAutoplay from "../../hooks/useVideoAutoplay";
+import useCommentsNormalized from "../../hooks/useCommentsNormalized";
+import { commentService } from "../../services/commentService";
+import CommentItemNormalized from "../comment/CommentItemNormalized";
+import EditPostModal from "./EditPostModal";
+import type { PostData } from "../../types/postType";
 
 interface PostCardProps {
   post: Post;
@@ -82,20 +88,84 @@ export default function PostCard({ post }: PostCardProps) {
   const [showMenu, setShowMenu] = useState(false);
   const [showPrivacyMenu, setShowPrivacyMenu] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
-  const commentsCount = Array.isArray((post as any).comments)
-    ? (post as any).comments.length
-    : Number((post as any).comments || 0);
 
-  const totalImages = post.images?.length || 0;
-  const currentMedia = post.media?.[currentImageIndex];
-  const currentMediaUrl = post.images[currentImageIndex] || "";
+  // Comments state
+  const [commentInput, setCommentInput] = useState("");
+  const [submittingComment, setSubmittingComment] = useState(false);
+  const [showFullCommentsPreview, setShowFullCommentsPreview] = useState(false);
+  const [recentCommentIds, setRecentCommentIds] = useState<string[]>([]);
+  const fullCommentsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Edit state
+  const [isEditing, setIsEditing] = useState(false);
+  const [taggedUsers, setTaggedUsers] = useState<any[]>([]);
+  const [displayPost, setDisplayPost] = useState(post);
+
+  // Sync displayPost when original post changes
+  useEffect(() => {
+    setDisplayPost(post);
+  }, [post]);
+
+  // Reset image index when images change
+  useEffect(() => {
+    setCurrentImageIndex(0);
+  }, [displayPost.images?.length]);
+  useEffect(() => {
+    if (
+      isEditing &&
+      (post as any).taggedUserIds &&
+      (post as any).taggedUserIds.length > 0
+    ) {
+      const fetchTaggedUsers = async () => {
+        try {
+          const taggedUsersResponses = await Promise.all(
+            (post as any).taggedUserIds.map((userId: string) =>
+              postApi.fetchUserById(userId).catch(() => null)
+            )
+          );
+          const filteredUsers = taggedUsersResponses.filter(
+            (user) => user !== null
+          );
+          setTaggedUsers(filteredUsers);
+        } catch (error) {
+          console.error("Error fetching tagged users:", error);
+        }
+      };
+      fetchTaggedUsers();
+    }
+  }, [isEditing, post]);
+
+  const {
+    commentsById,
+    rootIds,
+    expandedMap,
+    loadingMap,
+    totalCount,
+    createReply,
+    getDirectChildren,
+    loadRootComments,
+  } = useCommentsNormalized({
+    targetType: "POST",
+    targetId: post.id,
+  });
+
+  // Use totalCount from hook, fallback to post count
+  const commentsCount =
+    totalCount ||
+    (Array.isArray((post as any).comments)
+      ? (post as any).comments.length
+      : Number((post as any).comments || 0));
+
+  const totalImages = displayPost.images?.length || 0;
+  const currentMedia = displayPost.media?.[currentImageIndex];
+  const currentMediaUrl = displayPost.images[currentImageIndex] || "";
   const isCurrentMediaVideo = postApi.isVideoMedia(
     currentMediaUrl,
     currentMedia?.type
   );
   const currentMediaDuration =
     typeof currentMedia?.duration === "number" ? currentMedia.duration : null;
-  const videoInstanceId = `${post.id}-${currentImageIndex}`;
+  const videoInstanceId = `${displayPost.id}-${currentImageIndex}`;
 
   const { containerRef, videoRef } = useVideoAutoplay({
     videoId: videoInstanceId,
@@ -103,17 +173,6 @@ export default function PostCard({ post }: PostCardProps) {
     focusRatio: 0.7,
     maxPlaySeconds: 15,
   });
-
-  // Debug logging
-  useEffect(() => {
-    console.log(`🖼️ PostCard ${post.id}: images array`, post.images);
-    console.log(`🖼️ PostCard ${post.id}: totalImages=${totalImages}`);
-    if (post.images && post.images.length > 0) {
-      post.images.forEach((img, idx) => {
-        console.log(`🖼️ PostCard ${post.id}: Image ${idx}:`, img);
-      });
-    }
-  }, [post.id, post.images, totalImages]);
 
   // Fetch user's current reaction, total reaction count, and saved status
   useEffect(() => {
@@ -151,6 +210,20 @@ export default function PostCard({ post }: PostCardProps) {
 
     fetchReactionData();
   }, [currentUser, post.id]);
+
+  // Load first page of comments
+  useEffect(() => {
+    loadRootComments(0);
+  }, [post.id, loadRootComments]);
+
+  // Reset showFullCommentsPreview state when post changes
+  useEffect(() => {
+    setShowFullCommentsPreview(false);
+    if (fullCommentsTimeoutRef.current) {
+      clearTimeout(fullCommentsTimeoutRef.current);
+      fullCommentsTimeoutRef.current = null;
+    }
+  }, [post.id]);
 
   // Refetch when window gains focus (user returns from detail page)
   useEffect(() => {
@@ -287,12 +360,7 @@ export default function PostCard({ post }: PostCardProps) {
 
   const handleEdit = () => {
     setShowMenu(false);
-    navigate(`/post/${post.id}`, {
-      state: {
-        from: location.pathname,
-        openEdit: true,
-      },
-    });
+    setIsEditing(true);
   };
 
   const handleDelete = async () => {
@@ -349,6 +417,54 @@ export default function PostCard({ post }: PostCardProps) {
     setCurrentImageIndex((prev) => (prev === totalImages - 1 ? 0 : prev + 1));
   };
 
+  const handleSubmitComment = async () => {
+    if (!commentInput.trim() || !currentUser?.id) return;
+
+    setSubmittingComment(true);
+    try {
+      const newComment = await commentService.createComment(
+        "POST",
+        post.id,
+        commentInput,
+        currentUser.id
+      );
+
+      // Add comment to local state
+      createReply(null, newComment);
+      setCommentInput("");
+
+      // Track recently created comment and show preview temporarily
+      setRecentCommentIds((prev) => [newComment.id, ...prev]);
+
+      // Show full comments preview temporarily when posting new comment
+      // Clear previous timeout first
+      if (fullCommentsTimeoutRef.current) {
+        clearTimeout(fullCommentsTimeoutRef.current);
+      }
+
+      setShowFullCommentsPreview(true);
+      // Set timeout to collapse after 5 seconds
+      fullCommentsTimeoutRef.current = setTimeout(() => {
+        setShowFullCommentsPreview(false);
+        setRecentCommentIds([]);
+      }, 5000);
+    } catch (error: any) {
+      console.error("Error submitting comment:", error);
+      alert(error?.response?.data?.message || "Failed to submit comment");
+    } finally {
+      setSubmittingComment(false);
+    }
+  };
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (fullCommentsTimeoutRef.current) {
+        clearTimeout(fullCommentsTimeoutRef.current);
+      }
+    };
+  }, []);
+
   return (
     <article className="bg-white dark:bg-black border-b border-gray-200 dark:border-[#262626] mb-5">
       {/* Header */}
@@ -366,16 +482,39 @@ export default function PostCard({ post }: PostCardProps) {
             <p className="text-sm font-semibold dark:text-white">
               {post.user.username}
             </p>
-            <div className="flex items-center gap-1">
-              <privacyDisplay.icon
-                size={12}
-                className={`${privacyDisplay.color}`}
-              />
-              <span
-                className={`text-[10px] ${privacyDisplay.color} font-medium`}
-              >
-                {privacyDisplay.text}
-              </span>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1">
+                <privacyDisplay.icon
+                  size={12}
+                  className={`${privacyDisplay.color}`}
+                />
+                <span
+                  className={`text-[10px] ${privacyDisplay.color} font-medium`}
+                >
+                  {privacyDisplay.text}
+                </span>
+              </div>
+              {(displayPost as any).location && (
+                <div className="flex items-center gap-0.5 text-gray-500 dark:text-gray-400">
+                  <span className="text-[10px]">•</span>
+                  <svg
+                    width="10"
+                    height="10"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                  >
+                    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                    <circle cx="12" cy="10" r="3"></circle>
+                  </svg>
+                  <span className="text-[10px]">
+                    {typeof (displayPost as any).location === "string"
+                      ? (displayPost as any).location
+                      : (displayPost as any).location?.name}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         </Link>
@@ -459,12 +598,28 @@ export default function PostCard({ post }: PostCardProps) {
         )}
       </div>
 
+      {/* Caption - Before Image Carousel */}
+      {displayPost.caption || (displayPost as any).content ? (
+        <div className="px-4 py-2 w-full overflow-x-hidden">
+          <div
+            className="text-sm leading-relaxed w-full"
+            style={{ wordWrap: "break-word", overflowWrap: "break-word" }}
+          >
+            <span className="text-gray-900 dark:text-white">
+              {displayPost.caption || (displayPost as any).content}
+            </span>
+          </div>
+        </div>
+      ) : (
+        ""
+      )}
+
       {/* Image Carousel */}
       {totalImages > 0 && (
         <div className="relative w-full group">
           {isCurrentMediaVideo ? (
             <Link
-              to={`/post/${post.id}`}
+              to={`/post/${displayPost.id}`}
               state={{ from: location.pathname }}
               className="block w-full h-125 bg-black"
             >
@@ -487,13 +642,13 @@ export default function PostCard({ post }: PostCardProps) {
             </Link>
           ) : (
             <Link
-              to={`/post/${post.id}`}
+              to={`/post/${displayPost.id}`}
               state={{ from: location.pathname }}
               className="block w-full h-125 bg-black"
             >
               <img
-                src={post.images[currentImageIndex] || ""}
-                alt={post.caption}
+                src={displayPost.images[currentImageIndex] || ""}
+                alt={displayPost.caption}
                 className="w-full h-full object-contain cursor-pointer"
               />
             </Link>
@@ -522,7 +677,7 @@ export default function PostCard({ post }: PostCardProps) {
 
               {/* Dots indicator */}
               <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
-                {post.images.map((_, index) => (
+                {displayPost.images.map((_, index) => (
                   <button
                     key={index}
                     onClick={(e) => {
@@ -706,32 +861,218 @@ export default function PostCard({ post }: PostCardProps) {
           {likesCount.toLocaleString()} likes
         </button>
 
-        {/* Caption */}
-        <div className="text-sm mb-1 leading-4.5">
-          <Link
-            to={`/profile/${post.user.username}`}
-            className="font-semibold hover:opacity-50 mr-1 dark:text-white"
-          >
-            {post.user.username}
-          </Link>
-          <span className="text-gray-900 dark:text-white">{post.caption}</span>
+        {/* Comments Section */}
+        <div className="mt-3 space-y-2">
+          {/* See more comments button */}
+          {rootIds.length > 1 && (
+            <button
+              onClick={() =>
+                navigate(`/post/${post.id}`, {
+                  state: { from: location.pathname },
+                })
+              }
+              className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-400 dark:hover:text-gray-300 font-semibold ml-4"
+            >
+              View all {commentsCount} comments
+            </button>
+          )}
+
+          {(() => {
+            const visibleCommentIds = showFullCommentsPreview
+              ? Array.from(
+                  new Set([
+                    ...recentCommentIds,
+                    ...rootIds
+                      .filter((id) => !recentCommentIds.includes(id))
+                      .slice(0, 1),
+                  ])
+                )
+              : rootIds.slice(0, 1);
+            return visibleCommentIds.map((commentId) => {
+              return (
+                <CommentItemNormalized
+                  key={commentId}
+                  commentId={commentId}
+                  commentsById={commentsById}
+                  expandedMap={expandedMap}
+                  onToggleExpanded={(cId: string) => {
+                    navigate(`/post/${post.id}`, {
+                      state: {
+                        from: location.pathname,
+                        expandCommentId: cId,
+                      },
+                    });
+                  }}
+                  onLoadMore={(cId: string) => {
+                    navigate(`/post/${post.id}`, {
+                      state: {
+                        from: location.pathname,
+                        expandCommentId: cId,
+                      },
+                    });
+                  }}
+                  onDelete={() => {
+                    navigate(`/post/${post.id}`, {
+                      state: { from: location.pathname },
+                    });
+                  }}
+                  onCreateReply={() => {
+                    // Show full comments preview when user replies, auto-collapse after 5 seconds
+                    if (fullCommentsTimeoutRef.current) {
+                      clearTimeout(fullCommentsTimeoutRef.current);
+                    }
+                    setShowFullCommentsPreview(true);
+                    fullCommentsTimeoutRef.current = setTimeout(() => {
+                      setShowFullCommentsPreview(false);
+                      setRecentCommentIds([]);
+                    }, 5000);
+                  }}
+                  getDirectChildren={(cId) => {
+                    const c = getDirectChildren(cId);
+                    return c.slice(0, 1);
+                  }}
+                  hasMoreReplies={{}}
+                  loadingMap={loadingMap}
+                  postId={post.id}
+                  level={0}
+                />
+              );
+            });
+          })()}
         </div>
 
-        {/* Comments */}
-        {commentsCount > 0 && (
-          <Link
-            to={`/post/${post.id}`}
-            className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-400 dark:hover:text-gray-300 block mb-1"
-          >
-            View all {commentsCount} comments
-          </Link>
-        )}
+        {/* Comment Input */}
+        <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-800 flex gap-2 items-center">
+          <img
+            src={currentUser?.avatarUrl || "https://i.pravatar.cc/150?img=5"}
+            alt="Your avatar"
+            className="w-8 h-8 rounded-full shrink-0"
+          />
+          <div className="flex flex-1 gap-2">
+            <input
+              type="text"
+              value={commentInput}
+              onChange={(e) => setCommentInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSubmitComment();
+                }
+              }}
+              placeholder="Write a comment..."
+              className="flex-1 px-3 py-2 text-sm bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-full outline-none focus:border-blue-500 dark:text-white"
+              disabled={submittingComment}
+            />
+            <button
+              onClick={handleSubmitComment}
+              disabled={!commentInput.trim() || submittingComment}
+              className="px-3 py-2 text-sm text-blue-500 font-semibold hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {submittingComment ? "..." : "Post"}
+            </button>
+          </div>
+        </div>
 
         {/* Time */}
-        <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-3">
+        <p className="text-[10px] text-gray-500 uppercase tracking-wide mt-3">
           {post.createdAt}
         </p>
       </div>
+
+      {/* Edit Post Modal */}
+      {isEditing && (
+        <>
+          {console.log(
+            "🖼️ [DEBUG] Rendering EditPostModal with displayPost:",
+            displayPost
+          )}
+          {console.log(
+            "📍 [DEBUG] displayPost.location being passed:",
+            (displayPost as any).location
+          )}
+          <EditPostModal
+            postId={post.id}
+            post={displayPost as unknown as PostData}
+            taggedUsers={taggedUsers}
+            onClose={() => setIsEditing(false)}
+            onSaved={(updatedPost: any) => {
+              // Update local display post with new data from API
+              // Note: database uses 'content', not 'caption'
+
+              console.log(
+                "🔍 [DEBUG] onSaved received updatedPost:",
+                updatedPost
+              );
+              console.log("📸 [DEBUG] images field:", updatedPost.images);
+              console.log("📺 [DEBUG] media field:", updatedPost.media);
+              console.log("📋 [DEBUG] mediaList field:", updatedPost.mediaList);
+              console.log("📍 [DEBUG] location field:", updatedPost.location);
+
+              // Map API response to full S3 URLs
+              // API returns full URLs in 'images' or partial URLs in 'media' array
+              let newImages: string[] = [];
+
+              if (updatedPost.images && Array.isArray(updatedPost.images)) {
+                // Already full URLs
+                newImages = updatedPost.images;
+              } else if (
+                updatedPost.media &&
+                Array.isArray(updatedPost.media)
+              ) {
+                // Media array with objects containing 'url' field
+                // URL might be partial (e.g., "posts/.../image.jpg") or full (http...)
+                newImages = updatedPost.media.map((m: any) => {
+                  const url = m.url || "";
+                  // If URL starts with http, it's already full; otherwise build it
+                  return url.startsWith("http") ? url : buildS3Url(url);
+                });
+              } else if (
+                updatedPost.mediaList &&
+                Array.isArray(updatedPost.mediaList)
+              ) {
+                // Handle mediaList format
+                newImages = updatedPost.mediaList.map((m: any) => {
+                  const url = typeof m === "string" ? m : m.url || "";
+                  return url.startsWith("http") ? url : buildS3Url(url);
+                });
+              }
+
+              // Fallback to existing images if API returns empty
+              if (newImages.length === 0) {
+                newImages = (displayPost as any).images || [];
+              }
+
+              console.log("✅ [DEBUG] newImages after mapping:", newImages);
+              console.log(
+                "📊 [DEBUG] displayPost.images before update:",
+                (displayPost as any).images
+              );
+
+              setDisplayPost({
+                ...displayPost,
+                caption: updatedPost.content || updatedPost.caption,
+                content: updatedPost.content,
+                privacy: updatedPost.privacy,
+                location: updatedPost.location,
+                images: newImages,
+                media:
+                  updatedPost.media ||
+                  updatedPost.mediaList ||
+                  (displayPost as any).media,
+              } as any);
+
+              console.log(
+                "🔄 [DEBUG] displayPost state will update with newImages:",
+                newImages
+              );
+
+              // Reset image index when images might have changed
+              setCurrentImageIndex(0);
+              setIsEditing(false);
+            }}
+          />
+        </>
+      )}
     </article>
   );
 }
