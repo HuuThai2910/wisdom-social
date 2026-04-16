@@ -529,7 +529,7 @@ export function MessageBubble({
             >
                 <button
                     onClick={() => setMenuOpen((v) => !v)}
-                    className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
+                    className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 mb-4"
                     title="Tùy chọn"
                 >
                     <MoreVertical size={16} />
@@ -700,7 +700,7 @@ export function MessageBubble({
                     <>
                         {/* Label 'Đã trả lời' ở ngoài bubble */}
                         {!!replyPreview && !message.isRecalled && (
-                            <p className="text-xs font-medium text-gray-600 dark:text-gray-400 px-1 mb-1">
+                            <p className="text-[10px] font-normal text-gray-400 dark:text-gray-500 px-1 mb-1">
                                 {getReplyLabel()}
                             </p>
                         )}
@@ -999,8 +999,8 @@ export function MessageBubble({
                 {/* Pin indicator - hiển thị khi tin nhắn đã được ghim */}
                 {isPinned && (
                     <div className="flex items-center gap-1 mt-1 px-1">
-                        <Pin size={12} className="text-blue-500 shrink-0" />
-                        <span className="text-xs text-blue-500 font-medium">
+                        <Pin size={12} className="text-blue-500 shrink-0 text-red-500" />
+                        <span className="text-xs text-blue-500 font-medium text-red-500">
                             Đã ghim
                         </span>
                     </div>
