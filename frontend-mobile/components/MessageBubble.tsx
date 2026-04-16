@@ -274,13 +274,14 @@ export const MessageBubble = React.memo(
                 item.type === "VIDEO" ||
                 item.type === "AUDIO" ||
                 item.type === "CALL");
+        const isCallMessage = !item.isRecalled && item.type === "CALL";
         const hasReplyPreview = Boolean(item.replyInfo) && !item.isRecalled;
         const shouldOverlayReplyWithBubble =
-            hasReplyPreview && !isRichCardMessage;
+            hasReplyPreview && (!isRichCardMessage || isCallMessage);
         const replySenderId = item.replyInfo?.senderId;
         const replyMessageId = item.replyInfo?.messageId ?? "";
 
-        const bubbleGroupShape = !isRichCardMessage
+        const bubbleGroupShape = !isRichCardMessage || isCallMessage
             ? mine
                 ? isFirstInGroup
                     ? isLastInGroup
@@ -661,7 +662,8 @@ export const MessageBubble = React.memo(
                                                 styles.highlightedBubble,
                                             item.isRecalled
                                                 ? styles.bubbleRecalled
-                                                : isRichCardMessage
+                                                                                                : isRichCardMessage &&
+                                                                                                        !isCallMessage
                                                   ? styles.bubblePlain
                                                   : mine
                                                     ? styles.bubbleMine
@@ -674,7 +676,8 @@ export const MessageBubble = React.memo(
                                                     ? styles.bubbleWithReplyMine
                                                     : styles.bubbleWithReplyOther),
                                             !mine &&
-                                                !isRichCardMessage &&
+                                                (!isRichCardMessage ||
+                                                    isCallMessage) &&
                                                 styles.cardShadow,
                                         ]}
                                     >
@@ -1305,6 +1308,9 @@ export const MessageBubble = React.memo(
                                                                     mine &&
                                                                         styles.callTitleMine,
                                                                 ]}
+                                                                numberOfLines={
+                                                                    1
+                                                                }
                                                             >
                                                                 {callMeta.title}
                                                             </Text>
@@ -1314,6 +1320,9 @@ export const MessageBubble = React.memo(
                                                                     mine &&
                                                                         styles.callSubtitleMine,
                                                                 ]}
+                                                                numberOfLines={
+                                                                    1
+                                                                }
                                                             >
                                                                 {
                                                                     callMeta.subtitle
@@ -1994,16 +2003,12 @@ const styles = StyleSheet.create({
     callCard: {
         marginTop: 6,
         borderRadius: 14,
-        backgroundColor: "#F8FAFC",
-        paddingHorizontal: 10,
-        paddingVertical: 10,
-        borderWidth: 1,
-        borderColor: "#E2E8F0",
+        backgroundColor: "transparent",
+        paddingHorizontal: 0,
+        paddingVertical: 0,
+        borderWidth: 0,
     },
-    callCardMine: {
-        backgroundColor: "#1D4ED8",
-        borderColor: "rgba(255,255,255,0.28)",
-    },
+    callCardMine: {},
     callMainRow: {
         flexDirection: "row",
         alignItems: "center",
@@ -2021,7 +2026,7 @@ const styles = StyleSheet.create({
     },
     callMeta: {
         marginLeft: 8,
-        flex: 1,
+        flexShrink: 1,
         minWidth: 0,
     },
     callTitle: {
