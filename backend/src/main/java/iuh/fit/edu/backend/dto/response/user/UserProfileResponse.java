@@ -36,8 +36,8 @@ public class UserProfileResponse {
     private OffsetDateTime updatedAt;
     
     // Dynamic Statistics
-    private Long friendCount;     
-    private Long followerCount;    
+    private Long friendsCount;     
+    private Long followersCount;    
     private Long followingCount; 
-    private Long postCount;        
+    private Long postsCount;        
 }

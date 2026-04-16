@@ -88,10 +88,10 @@ public class UserSettingServiceImpl implements UserSettingService {
                 .gender(user.getGender())
                 .createdAt(user.getCreatedAt())
                 .updatedAt(user.getUpdatedAt())
-                .friendCount(friendCount)
-                .followerCount(followerCount)
+                .friendsCount(friendCount)
+                .followersCount(followerCount)
                 .followingCount(followingCount)
-                .postCount(postCount)
+                .postsCount(postCount)
                 .build();
     }
 
@@ -107,10 +107,10 @@ public class UserSettingServiceImpl implements UserSettingService {
                 .gender(Gender.OTHER)
                 .createdAt(user.getCreatedAt())
                 .updatedAt(user.getUpdatedAt())
-                .friendCount(0L)
-                .followerCount(0L)
+                .friendsCount(0L)
+                .followersCount(0L)
                 .followingCount(0L)
-                .postCount(0L)
+                .postsCount(0L)
                 .build();
     }
 }

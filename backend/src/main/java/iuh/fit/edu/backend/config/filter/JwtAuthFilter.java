@@ -30,8 +30,6 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     @Autowired
     BlackListUserRepository blackListUserRepository;
 
-    private static final String LOCAL_SECRET = "2x7rdY4w/pnluueDA0urWBZD8Bi4s6gzxzADE5sjoak=";
-
     private static final String JWKS_URL =
             "https://cognito-idp.ap-southeast-1.amazonaws.com/ap-southeast-1_r9OwliPee";
 
@@ -39,7 +37,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             "https://cognito-idp.ap-southeast-1.amazonaws.com/ap-southeast-1_r9OwliPee";
 
     @Value("$JWT}")
-    private static String LOCAL_SECRET ;
+    private static String LOCAL_SECRET;
     @Override
     protected void doFilterInternal(
             HttpServletRequest request,

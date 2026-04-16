@@ -216,7 +216,7 @@ public class UserController {
     public ResponseEntity<String> updateUploadImage(@RequestParam String type,
                                            @RequestParam String extension){
         User user=userService.getCurrentUser();
-        Map<String,String> image= s3Service.generateUpdateUploadUrl(type,user.getId(),extension);
+        Map<String,String> image= s3Service.generateUpdateUploadUrl(type,String.valueOf(user.getId()),extension);
 
         UserRequestUpdate update=new UserRequestUpdate();
         update.setAvatarUrl(image.get("imageUrl"));

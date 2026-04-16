@@ -1,0 +1,477 @@
+/**
+ * 📌 PostModal Container Component
+ *
+ * Responsibility:
+ * - Fetch post data and author info
+ * - Track global modal state (edit mode, menus, image index)
+ * - Orchestrate child components
+ * - Handle modal close
+ *
+ * Why:
+ * - Container pattern: Keeps logic separate from view
+ * - PostModal focuses on data fetching and composition
+ * - Delegates UI rendering to specialized child components
+ * - Easy to trace data flow top-down
+ *
+ * Props:
+ * - postId: string
+ * - onClose: () => void
+ *
+ * State:
+ * - post: PostData (fetched)
+ * - author: UserData (fetched)
+ * - loading: boolean
+ * - error: string | null
+ * - isEditing: boolean
+ * - currentImageIndex: number
+ * - transformedMediaUrls: string[]
+ * - Menu states (showMenu, showPrivacyMenu, etc.)
+ * - Action states (currentReaction, reactCount, isSaved)
+ *
+ * Child Components:
+ * - PostHeader: Avatar, username, privacy, menu
+ * - PostMediaViewer: Images/videos/slider
+ * - PostComments: All comment logic
+ * - PostActions: Reactions, save
+ *
+ * Features:
+ * - Close on backdrop click
+ * - Edit mode with EditPostModal
+ * - Privacy modals (specific friends, excluded)
+ * - Fetch post on mount
+ * - Refetch reactions/saved on focus
+ *
+ * Notes:
+ * - Does NOT contain comment logic (delegated to PostComments)
+ * - Does NOT render comment tree (delegated to PostComments)
+ * - Simply composes and coordinates child components
+ */
+
+import { useEffect, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
+import { X } from "lucide-react";
+import FriendSelectorModal from "../FriendSelectorModal";
+import EditPostModal from "../EditPostModal";
+import PostHeader from "./PostHeader";
+import PostMediaViewer from "./PostMediaViewer";
+import PostActions from "./PostActions";
+import PostComments from "./PostComments/PostComments";
+import { useAuth } from "../../../contexts/AuthContext";
+import * as postApi from "../../../services/postService";
+import type {
+  PostData,
+  UserData,
+  PostModalProps,
+} from "../../../types/postType";
+
+export default function PostModal({ postId, onClose }: PostModalProps) {
+  const location = useLocation();
+  const { currentUser } = useAuth();
+
+  // ============ POST DATA STATES ============
+  const [post, setPost] = useState<PostData | null>(null);
+  const [author, setAuthor] = useState<UserData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [taggedUsers, setTaggedUsers] = useState<UserData[]>([]);
+
+  // ============ MEDIA STATES ============
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [transformedMediaUrls, setTransformedMediaUrls] = useState<string[]>(
+    []
+  );
+  const modalVideoRef = useRef<HTMLVideoElement | null>(null);
+
+  // ============ MENU STATES ============
+  const [showMenu, setShowMenu] = useState(false);
+  const [showPrivacyMenu, setShowPrivacyMenu] = useState(false);
+  const [showSpecificModal, setShowSpecificModal] = useState(false);
+  const [showExcludedModal, setShowExcludedModal] = useState(false);
+
+  // ============ ACTION STATES ============
+  const [currentReaction, setCurrentReaction] = useState<string | null>(null);
+  const [reactCount, setReactCount] = useState(0);
+  const [isSaved, setIsSaved] = useState(false);
+  const [showReactions, setShowReactions] = useState(false);
+  const reactionsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+
+  // ============ EDIT STATE ============
+  const [isEditing, setIsEditing] = useState(false);
+
+  // ============ HELPER FUNCTIONS ============
+  const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.target === e.currentTarget) {
+      handleCloseModal();
+    }
+  };
+
+  const handleCloseModal = () => {
+    onClose();
+  };
+
+  // ============ EFFECT: Auto-open edit mode for post owner ============
+  useEffect(() => {
+    const shouldOpenEdit = Boolean((location.state as any)?.openEdit);
+    if (!shouldOpenEdit || !post || !currentUser?.id) {
+      return;
+    }
+
+    if (post.authorId === currentUser.id.toString()) {
+      setIsEditing(true);
+    }
+  }, [location.state, post, currentUser?.id]);
+
+  // ============ EFFECT: Fetch post data ============
+  useEffect(() => {
+    const fetchPost = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const postData = await postApi.fetchPostById(postId);
+        setPost(postData);
+
+        const authorData = await postApi.fetchUserById(postData.authorId);
+        setAuthor(authorData);
+
+        if (postData.taggedUserIds && postData.taggedUserIds.length > 0) {
+          const taggedUsersData = await postApi.fetchUsersByIds(
+            postData.taggedUserIds
+          );
+          setTaggedUsers(taggedUsersData);
+        }
+
+        const reactCountData = await postApi.fetchPostReactionsCount(postId);
+        setReactCount(reactCountData);
+
+        if (currentUser?.id) {
+          const savedStatus = await postApi.checkPostSaved(
+            currentUser.id.toString(),
+            postId
+          );
+          setIsSaved(savedStatus);
+        }
+
+        console.log("✅ Post detail loaded successfully");
+      } catch (err: any) {
+        const errorMsg =
+          err.response?.data?.message || err.message || "Failed to load post";
+        console.error("❌ Error fetching post:", errorMsg, err);
+        setError(errorMsg);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchPost();
+  }, [postId, currentUser?.id]);
+
+  // ============ EFFECT: Fetch user's reaction ============
+  useEffect(() => {
+    const fetchUserReaction = async () => {
+      if (!currentUser?.id) return;
+
+      try {
+        const reaction = await postApi.fetchUserReaction(
+          currentUser.id.toString(),
+          postId
+        );
+        setCurrentReaction(reaction?.type || null);
+      } catch (error) {
+        console.log("PostModal: Error fetching reaction:", error);
+        setCurrentReaction(null);
+      }
+    };
+    fetchUserReaction();
+  }, [postId, currentUser]);
+
+  // ============ EFFECT: Transform media URLs ============
+  useEffect(() => {
+    if (!post || !post.media || post.media.length === 0) {
+      setTransformedMediaUrls([]);
+      setCurrentImageIndex(0);
+      return;
+    }
+
+    const urls = postApi.transformMediaToS3Urls(
+      post.media,
+      post.authorId || ""
+    );
+    setTransformedMediaUrls(urls);
+    setCurrentImageIndex((prev) =>
+      Math.min(prev, Math.max(0, urls.length - 1))
+    );
+  }, [post]);
+
+  // ============ EFFECT: Refetch on window focus ============
+  useEffect(() => {
+    const handleFocus = () => {
+      if (!currentUser?.id) return;
+
+      const refetchData = async () => {
+        try {
+          const reaction = await postApi.fetchUserReaction(
+            currentUser.id.toString(),
+            postId
+          );
+          setCurrentReaction(reaction?.type || null);
+
+          const count = await postApi.fetchPostReactionsCount(postId);
+          setReactCount(count);
+
+          const saved = await postApi.checkPostSaved(
+            currentUser.id.toString(),
+            postId
+          );
+          setIsSaved(saved);
+        } catch (error) {
+          console.debug("Error refetching data:", error);
+        }
+      };
+
+      refetchData();
+    };
+
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
+  }, [currentUser, postId]);
+
+  // ============ HANDLERS: Menu & Privacy ============
+  const handleEdit = () => {
+    if (!post) return;
+    setShowMenu(false);
+    setIsEditing(true);
+  };
+
+  const handleChangePrivacy = async (newPrivacy: string) => {
+    if (!post) return;
+
+    try {
+      if (!currentUser?.id) {
+        alert("Please login to update privacy");
+        return;
+      }
+
+      const updatedPost = await postApi.updatePostPrivacy(
+        currentUser.id.toString(),
+        postId,
+        newPrivacy
+      );
+
+      setPost(updatedPost);
+      setShowPrivacyMenu(false);
+      setShowMenu(false);
+      alert("Privacy updated successfully!");
+    } catch (error) {
+      console.error("Error updating privacy:", error);
+      alert("Failed to update privacy.");
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!confirm("Bạn có chắc muốn xóa bài viết này?")) {
+      setShowMenu(false);
+      return;
+    }
+
+    try {
+      await postApi.deletePost(postId, (currentUser?.id || 0).toString());
+      alert("Xóa bài viết thành công!");
+      handleCloseModal();
+    } catch (error) {
+      console.error("Error deleting post:", error);
+      alert("Không thể xóa bài viết. Bạn chỉ có thể xóa bài viết của mình.");
+      setShowMenu(false);
+    }
+  };
+
+  const handleCopyLink = () => {
+    navigator.clipboard.writeText(window.location.href);
+    setShowMenu(false);
+  };
+
+  // ============ HANDLERS: Actions (Reaction, Save) ============
+  const handleReaction = async (reactionType: string) => {
+    if (!currentUser?.id) {
+      alert("Please login to react");
+      return;
+    }
+
+    try {
+      const reaction = await postApi.togglePostReaction(
+        currentUser.id.toString(),
+        postId,
+        reactionType
+      );
+
+      if (!reaction) {
+        setCurrentReaction(null);
+        setReactCount((prev) => Math.max(0, prev - 1));
+      } else {
+        const wasNewReaction = currentReaction === null;
+        setCurrentReaction(reaction.type);
+        if (wasNewReaction) {
+          setReactCount((prev) => prev + 1);
+        }
+      }
+    } catch (error) {
+      console.error("Error toggling reaction:", error);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!currentUser?.id) {
+      alert("Please login to save posts");
+      return;
+    }
+
+    try {
+      await postApi.togglePostSaved(currentUser.id.toString(), postId);
+      setIsSaved(!isSaved);
+    } catch (error) {
+      console.error("Error toggling save status:", error);
+    }
+  };
+
+  // ============ LOADING STATE ============
+  if (loading) {
+    return (
+      <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-white"></div>
+      </div>
+    );
+  }
+
+  // ============ ERROR STATE ============
+  if (error) {
+    return (
+      <div
+        className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+        onClick={handleCloseModal}
+      >
+        <div className="bg-white dark:bg-gray-900 rounded-lg p-6 max-w-md w-full shadow-2xl">
+          <h2 className="text-xl font-bold text-red-600 mb-4">
+            Error Loading Post
+          </h2>
+          <p className="text-gray-700 dark:text-gray-300 mb-6">{error}</p>
+          <button
+            onClick={handleCloseModal}
+            className="w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!post) {
+    return null;
+  }
+
+  const isOwnPost = currentUser?.id.toString() === post.authorId;
+
+  // ============ RENDER ============
+  return (
+    <div
+      className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      onClick={handleBackdropClick}
+    >
+      {/* Close Button */}
+      <button
+        onClick={handleCloseModal}
+        className="absolute right-8 top-8 z-10 p-2 rounded-full bg-black/50 hover:bg-black/70 transition-colors"
+      >
+        <X className="w-6 h-6 text-white" />
+      </button>
+
+      <div className="relative bg-white dark:bg-gray-900 rounded-lg max-w-6xl w-full max-h-[90vh] flex overflow-hidden shadow-2xl">
+        {/* Left: Media */}
+        <PostMediaViewer
+          post={post}
+          currentImageIndex={currentImageIndex}
+          transformedMediaUrls={transformedMediaUrls}
+          modalVideoRef={modalVideoRef}
+          onImageChange={setCurrentImageIndex}
+        />
+
+        {/* Right: Details */}
+        <div className="w-100 flex flex-col bg-white dark:bg-gray-900">
+          {/* Header */}
+          <PostHeader
+            post={post}
+            author={author}
+            currentUser={currentUser}
+            isOwnPost={isOwnPost}
+            showMenu={showMenu}
+            setShowMenu={setShowMenu}
+            showPrivacyMenu={showPrivacyMenu}
+            setShowPrivacyMenu={setShowPrivacyMenu}
+            showSpecificModal={showSpecificModal}
+            setShowSpecificModal={setShowSpecificModal}
+            showExcludedModal={showExcludedModal}
+            setShowExcludedModal={setShowExcludedModal}
+            onEdit={handleEdit}
+            onChangePrivacy={handleChangePrivacy}
+            onDelete={handleDelete}
+            onCopyLink={handleCopyLink}
+          />
+
+          {/* Comments */}
+          <PostComments postId={postId} currentUser={currentUser} />
+
+          {/* Actions & Reactions */}
+          <PostActions
+            currentReaction={currentReaction}
+            reactCount={reactCount}
+            isSaved={isSaved}
+            showReactions={showReactions}
+            setShowReactions={setShowReactions}
+            onReaction={handleReaction}
+            onSave={handleSave}
+            reactionsTimeoutRef={reactionsTimeoutRef}
+          />
+        </div>
+      </div>
+
+      {/* Privacy Modals */}
+      <FriendSelectorModal
+        isOpen={showSpecificModal}
+        onClose={() => setShowSpecificModal(false)}
+        onConfirm={(selected) => {
+          handleChangePrivacy("SPECIFIC");
+        }}
+        title="Who can see this?"
+        description="Only selected friends will be able to see this post"
+        initialSelected={[]}
+      />
+
+      <FriendSelectorModal
+        isOpen={showExcludedModal}
+        onClose={() => setShowExcludedModal(false)}
+        onConfirm={(selected) => {
+          handleChangePrivacy("EXCEPT");
+        }}
+        title="Hide from"
+        description="Selected friends won't be able to see this post"
+        initialSelected={[]}
+      />
+
+      {/* Edit Modal */}
+      {isEditing && post && (
+        <EditPostModal
+          postId={postId}
+          post={post}
+          taggedUsers={taggedUsers}
+          onClose={() => setIsEditing(false)}
+          onSaved={(updatedPost) => {
+            setPost(updatedPost as PostData);
+            setIsEditing(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}

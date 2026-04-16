@@ -911,6 +911,15 @@ export default function PostCard({ post }: PostCardProps) {
                       },
                     });
                   }}
+                  onReplyClick={(cId: string, e: React.MouseEvent) => {
+                    e.stopPropagation();
+                    navigate(`/post/${post.id}`, {
+                      state: {
+                        from: location.pathname,
+                        expandCommentId: cId,
+                      },
+                    });
+                  }}
                   onDelete={() => {
                     navigate(`/post/${post.id}`, {
                       state: { from: location.pathname },
@@ -997,16 +1006,7 @@ export default function PostCard({ post }: PostCardProps) {
             onClose={() => setIsEditing(false)}
             onSaved={(updatedPost: any) => {
               // Update local display post with new data from API
-              // Note: database uses 'content', not 'caption'
-
-              console.log(
-                "🔍 [DEBUG] onSaved received updatedPost:",
-                updatedPost
-              );
-              console.log("📸 [DEBUG] images field:", updatedPost.images);
-              console.log("📺 [DEBUG] media field:", updatedPost.media);
-              console.log("📋 [DEBUG] mediaList field:", updatedPost.mediaList);
-              console.log("📍 [DEBUG] location field:", updatedPost.location);
+              // Note: database uses 'content', not 'caption
 
               // Map API response to full S3 URLs
               // API returns full URLs in 'images' or partial URLs in 'media' array

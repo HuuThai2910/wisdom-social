@@ -225,3 +225,35 @@ export const useUserFriends = (userId: string | number | undefined) => {
 
     return { friends, loading, error };
 };
+
+/**
+ * Hook for fetching shared posts
+ */
+export const useProfileSharedPosts = (user: User | null) => {
+    const [posts, setPosts] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        const fetchPosts = async () => {
+            if (!user) return;
+
+            try {
+                setLoading(true);
+                setError(null);
+                // TODO: Implement backend endpoint for shared posts
+                // For now, return empty array
+                setPosts([]);
+            } catch (err: any) {
+                console.error("Error fetching shared posts:", err);
+                setError(err.message || "Failed to load shared posts");
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchPosts();
+    }, [user]);
+
+    return { posts, loading, error };
+};

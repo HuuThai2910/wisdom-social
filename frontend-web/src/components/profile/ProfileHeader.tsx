@@ -9,6 +9,7 @@ import FriendsModal from "./FriendsModal";
 import { buildS3Url } from "../../utils/s3";
 import BlockUnblockButton from "../friend/BlockUnblockButton";
 import FriendActions from "../friend/FriendActions";
+import * as postService from "../../services/postService";
 
 import type { Note } from "../../types/note";
 
@@ -249,7 +250,9 @@ export default function ProfileHeader({
                 <div className="grid grid-cols-2 gap-8 mb-6 pb-6 border-b border-gray-200 dark:border-[#262626]">
                   <div>
                     <p className="text-2xl font-bold dark:text-white">
-                      {user.postsCount || 0}
+                      {typeof user.postsCount === "number"
+                        ? user.postsCount.toLocaleString()
+                        : user.postsCount || 0}
                     </p>
                     <p className="text-sm text-gray-600 dark:text-gray-400">
                       Bài viết
@@ -260,7 +263,9 @@ export default function ProfileHeader({
                     className="text-left hover:opacity-70 transition-opacity"
                   >
                     <p className="text-2xl font-bold dark:text-white">
-                      {user.friendsCount?.toLocaleString() || 0}
+                      {typeof user.friendsCount === "number"
+                        ? user.friendsCount.toLocaleString()
+                        : user.friendsCount || 0}
                     </p>
                     <p className="text-sm text-gray-600 dark:text-gray-400">
                       Bạn bè
@@ -274,7 +279,7 @@ export default function ProfileHeader({
                     <>
                       <Link
                         to="/edit-profile"
-                        className="flex-1 min-w-[140px] px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-semibold transition-colors text-center"
+                        className="flex-1 min-w-35 px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-semibold transition-colors text-center"
                       >
                         ✎ Chỉnh sửa hồ sơ
                       </Link>

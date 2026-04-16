@@ -48,12 +48,18 @@ export default function ProfileLayout() {
           } else if (currentUser) {
             // Check if this user has blocked the current user
             try {
-              const blockedByThis = await friendService.getBlockedUsers(userData.id);
-              const isBlockedByThisUser = blockedByThis.some((u: User) => u.id === currentUser.id);
+              const blockedByThis = await friendService.getBlockedUsers(
+                userData.id
+              );
+              const isBlockedByThisUser = blockedByThis.some(
+                (u: User) => u.id === currentUser.id
+              );
 
               if (isBlockedByThisUser) {
                 setIsBlocked(true);
-                setError(`Bạn không thể xem hồ sơ này vì người dùng đã chặn bạn.`);
+                setError(
+                  `Bạn không thể xem hồ sơ này vì người dùng đã chặn bạn.`
+                );
               } else {
                 setUser(userData as any);
                 setIsOwnProfile(false);
@@ -90,7 +96,9 @@ export default function ProfileLayout() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white dark:bg-[#000]">
         <div className="text-center">
-          <h2 className="text-2xl font-bold mb-2 dark:text-white">Không thể xem hồ sơ</h2>
+          <h2 className="text-2xl font-bold mb-2 dark:text-white">
+            Không thể xem hồ sơ
+          </h2>
           <p className="text-gray-500 dark:text-gray-400">
             {error || "Người dùng này đã chặn bạn."}
           </p>
@@ -103,7 +111,9 @@ export default function ProfileLayout() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white dark:bg-[#000]">
         <div className="text-center">
-          <h2 className="text-2xl font-bold mb-2 dark:text-white">Không tìm thấy</h2>
+          <h2 className="text-2xl font-bold mb-2 dark:text-white">
+            Không tìm thấy
+          </h2>
           <p className="text-gray-500 dark:text-gray-400">
             {error || "Người dùng không tồn tại."}
           </p>

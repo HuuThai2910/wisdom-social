@@ -13,6 +13,7 @@ interface CommentItemNormalizedProps {
   onLoadMore: (commentId: string) => void;
   onDelete: (commentId: string, parentId?: string) => void;
   onCreateReply: (parentId: string, newComment: Comment) => void;
+  onReplyClick?: (commentId: string, e: React.MouseEvent) => void;
   getDirectChildren: (commentId: string) => Comment[];
   hasMoreReplies: Record<string, boolean>;
   loadingMap: Record<string, boolean>;
@@ -28,6 +29,7 @@ export default function CommentItemNormalized({
   onLoadMore,
   onDelete,
   onCreateReply,
+  onReplyClick,
   getDirectChildren,
   hasMoreReplies,
   loadingMap,
@@ -292,7 +294,14 @@ export default function CommentItemNormalized({
 
             {/* Reply Button */}
             <button
-              onClick={() => setShowReplyInput(!showReplyInput)}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onReplyClick) {
+                  onReplyClick(commentId, e);
+                } else {
+                  setShowReplyInput(!showReplyInput);
+                }
+              }}
               className="text-xs text-gray-500 dark:text-gray-400 font-semibold hover:underline"
             >
               Reply

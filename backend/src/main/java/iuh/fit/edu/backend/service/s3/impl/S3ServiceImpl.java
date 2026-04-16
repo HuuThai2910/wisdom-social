@@ -39,7 +39,7 @@ public class S3ServiceImpl implements S3Service {
     }
 
     @Override
-    public Map<String, String> generateUpdateUploadUrl(String type,long id,String extension) {
+    public Map<String, String> generateUpdateUploadUrl(String type, String id, String extension) {
         String contentType=getContentType(extension);
 
         String uuid= UUID.randomUUID().toString();
@@ -99,7 +99,7 @@ public class S3ServiceImpl implements S3Service {
     }
 
     @Override
-    public String moveUploadUrl(String type,long id, String url) {
+    public String moveUploadUrl(String type, String id, String url) {
 
         String uuid = url.substring(0, url.lastIndexOf("."));
         String extension = url.substring(url.lastIndexOf(".") + 1);

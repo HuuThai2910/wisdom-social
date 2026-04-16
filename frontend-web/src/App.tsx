@@ -15,7 +15,7 @@ import FriendDataProvider from "./contexts/FriendDataContext";
 import MainLayout from "./components/layout/MainLayout";
 import PublicLayout from "./components/layout/PublicLayout";
 import RequireAuth from "./components/auth/RequireAuth";
-import PostModal from "./components/post/PostModal";
+import PostModal from "./components/post/PostModal/PostModal";
 
 // Auth Pages
 import Login from "./pages/LogIn";
@@ -39,6 +39,7 @@ import ProfileMyPosts from "./pages/ProfileMyPosts";
 import ProfileSavedPost from "./pages/ProfileSavedPost";
 import ProfileTaggedPost from "./pages/ProfileTaggedPost";
 import ProfileBlocked from "./pages/ProfileBlocked";
+import ProfileShared from "./pages/ProfileShared";
 import ProfileGeneral from "./pages/ProfileGeneral";
 import CreatePost from "./pages/CreatePost";
 import Settings from "./pages/Settings";
@@ -147,6 +148,7 @@ function App() {
                       <Route path="posts" element={<ProfileMyPosts />} />
                       <Route path="saved" element={<ProfileSavedPost />} />
                       <Route path="tagged" element={<ProfileTaggedPost />} />
+                      <Route path="shared" element={<ProfileShared />} />
                       <Route path="blocked" element={<ProfileBlocked />} />
                     </Route>
 
