@@ -571,6 +571,8 @@ export default function ChatWindow({
             `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 
         let previousDayKey: string | null = null;
+        const isPinSystemMessageType = (type?: string) =>
+            type === "SYSTEM_PIN" || type === "SYSTEM_UPIN";
 
         for (let idx = 0; idx < messages.length; idx++) {
             const message = messages[idx];
@@ -607,15 +609,22 @@ export default function ChatWindow({
                 ? getDayKey(new Date(nextMsg.createdAt))
                 : null;
 
-            const isFirstInGroup =
-                !prevMsg ||
-                prevMsg.senderId !== message.senderId ||
-                prevDayKey !== dayKey;
+            const isCurrentPinSystem = isPinSystemMessageType(message.type);
+            const isPrevContinuousMessage =
+                !!prevMsg &&
+                !isCurrentPinSystem &&
+                !isPinSystemMessageType(prevMsg.type) &&
+                prevMsg.senderId === message.senderId &&
+                prevDayKey === dayKey;
+            const isNextContinuousMessage =
+                !!nextMsg &&
+                !isCurrentPinSystem &&
+                !isPinSystemMessageType(nextMsg.type) &&
+                nextMsg.senderId === message.senderId &&
+                nextDayKey === dayKey;
 
-            const isLastInGroup =
-                !nextMsg ||
-                nextMsg.senderId !== message.senderId ||
-                nextDayKey !== dayKey;
+            const isFirstInGroup = !isPrevContinuousMessage;
+            const isLastInGroup = !isNextContinuousMessage;
 
             // Tin nhắn: dùng MessageBubble để handle recalled state + hover menu.
             const isOwn = message.senderId === userId;

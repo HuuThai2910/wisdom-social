@@ -142,25 +142,9 @@ export const MessageBubble = React.memo(
             };
         }, [clearAudioWaveLongPressTimer]);
 
-        let previousMessage: Message | undefined;
-        for (let cursor = index - 1; cursor >= 0; cursor--) {
-            const candidate = messages[cursor];
-            if (isPinSystemMessageType(candidate.type)) {
-                continue;
-            }
-            previousMessage = candidate;
-            break;
-        }
-
-        let nextMessage: Message | undefined;
-        for (let cursor = index + 1; cursor < messages.length; cursor++) {
-            const candidate = messages[cursor];
-            if (isPinSystemMessageType(candidate.type)) {
-                continue;
-            }
-            nextMessage = candidate;
-            break;
-        }
+        const previousMessage = index > 0 ? messages[index - 1] : undefined;
+        const nextMessage =
+            index + 1 < messages.length ? messages[index + 1] : undefined;
         const isFirstInGroup =
             !previousMessage || previousMessage.senderId !== item.senderId;
         const isLastInGroup =
