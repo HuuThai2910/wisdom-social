@@ -704,7 +704,11 @@ export default function ChatWindow({
                 <div
                     key={stableMessageKey}
                     data-message-id={message.id}
-                    className={isFirstInGroup ? "mt-3" : "mt-2"}
+                    className={
+                        isFirstInGroup
+                            ? "mt-3 px-1 sm:px-2"
+                            : "mt-2 px-1 sm:px-2"
+                    }
                     ref={(element) => {
                         messageElementRefs.current[message.id] = element;
                     }}
@@ -1111,7 +1115,7 @@ export default function ChatWindow({
 
                     {/* Typing Indicator - Dummy message bubble khi có người đang gõ */}
                     {typingUsers.size > 0 && (
-                        <div className="flex items-end gap-2 mt-3">
+                        <div className="flex items-end gap-2 mt-3 px-1 sm:px-2">
                             {/* Avatar của người đang gõ */}
                             {Array.from(typingUsers).map((typingUserId) => {
                                 const typingMember = membersById[typingUserId];
