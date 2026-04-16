@@ -108,6 +108,13 @@ export interface SendMessageRequest {
     }>;
 }
 
+export interface SendCallMessageRequest {
+    conversationId: number;
+    callType: "audio" | "video";
+    status: "calling" | "ringing" | "accepted" | "rejected" | "ended";
+    durationSeconds: number;
+}
+
 export interface PresignedUrlResponse {
     presignedUrl: string;
     objectKey: string;

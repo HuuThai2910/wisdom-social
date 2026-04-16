@@ -1,29 +1,43 @@
 import React from "react";
-import { View, Text, Image, Pressable, Animated, StyleSheet, Linking, Platform } from "react-native";
+import {
+    View,
+    Text,
+    Image,
+    Pressable,
+    Animated,
+    StyleSheet,
+    Linking,
+    Platform,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Video, ResizeMode } from "expo-av";
 import { UserAvatar } from "@/components";
 import { colors, spacing } from "@/constants";
 const RIGHT_SCROLL_CUE_HEIGHT = 38;
-import { Message, Conversation, ConversationMember, PinnedMessageDetail } from "@/types/chat";
+import {
+    Message,
+    Conversation,
+    ConversationMember,
+    PinnedMessageDetail,
+} from "@/types/chat";
 import { MembersByUserId } from "@/stores/chatRuntimeStore";
-import { 
-    isPinSystemMessageType, 
-    formatMessageTime, 
-    resolveAttachmentUrls, 
-    parseCallMeta, 
-    isLikelyStoragePathOrUrl, 
-    resolveMediaUrl, 
-    inferReplyPreviewType, 
-    normalizeSearchText, 
-    isEmojiOnlyText, 
-    resolvePinSystemPreview, 
-    getFileBadgeLabel, 
-    formatFileSize, 
+import {
+    isPinSystemMessageType,
+    formatMessageTime,
+    resolveAttachmentUrls,
+    parseCallMeta,
+    isLikelyStoragePathOrUrl,
+    resolveMediaUrl,
+    inferReplyPreviewType,
+    normalizeSearchText,
+    isEmojiOnlyText,
+    resolvePinSystemPreview,
+    getFileBadgeLabel,
+    formatFileSize,
     formatDurationMillis,
     MediaViewerState,
     PinSystemRunRenderMeta,
-    formatReplyLabel
+    formatReplyLabel,
 } from "@/utils/messageUtils";
 
 export type MessageBubbleProps = {
@@ -37,1231 +51,1293 @@ export type MessageBubbleProps = {
     pinRunMeta: PinSystemRunRenderMeta | undefined;
     highlightedMessageId: string | null;
     setMediaViewer: (viewer: MediaViewerState | null) => void;
-    handleMessageLongPress: (event: any, messageId: string, mine: boolean) => void;
+    handleMessageLongPress: (
+        event: any,
+        messageId: string,
+        mine: boolean,
+    ) => void;
     requestJumpToMessage: (messageId: string) => Promise<void>;
     handleExpandPinSystemRun: (runKey: string) => void;
     audioPlayback: any;
+    onRecallCall?: (callType: "audio" | "video") => void;
 };
 
-export const MessageBubble = React.memo(({
-    item,
-    index,
-    messages,
-    currentUserId,
-    membersById,
-    conversation,
-    readReceipts,
-    pinRunMeta,
-    highlightedMessageId,
-    setMediaViewer,
-    handleMessageLongPress,
-    requestJumpToMessage,
-    handleExpandPinSystemRun,
-    audioPlayback
-}: MessageBubbleProps) => {
+export const MessageBubble = React.memo(
+    ({
+        item,
+        index,
+        messages,
+        currentUserId,
+        membersById,
+        conversation,
+        readReceipts,
+        pinRunMeta,
+        highlightedMessageId,
+        setMediaViewer,
+        handleMessageLongPress,
+        requestJumpToMessage,
+        handleExpandPinSystemRun,
+        audioPlayback,
+        onRecallCall,
+    }: MessageBubbleProps) => {
+        const {
+            audioLoadingKey,
+            playingAudioKey,
+            activePressAudioKey,
+            activeSeekAudioKey,
+            audioProgressMap,
+            toggleAudioPlayback,
+            handleAudioPressIn,
+            handleAudioPressOut,
+            handleSeekInteractionStart,
+            seekAudioByLocation,
+            handleSeekInteractionEnd,
+            getAudioWaveBars,
+            combinedAudioIconScale,
+            setAudioTrackWidthMap,
+            audioSeekScale,
+            audioPlayPulse,
+            audioPressScale,
+            audioIconFade,
+        } = audioPlayback;
 
-    const { 
-        audioLoadingKey, playingAudioKey, activePressAudioKey, activeSeekAudioKey, 
-        audioProgressMap, toggleAudioPlayback, handleAudioPressIn, handleAudioPressOut, 
-        handleSeekInteractionStart, seekAudioByLocation, handleSeekInteractionEnd, 
-        getAudioWaveBars, combinedAudioIconScale, setAudioTrackWidthMap, audioSeekScale, 
-        audioPlayPulse, audioPressScale, audioIconFade 
-    } = audioPlayback;
-    
-                        const mine = item.senderId === currentUserId;
-                        const sender = membersById[item.senderId];
-                        const senderDisplayName =
-                            sender?.nickname ||
-                            sender?.username ||
-                            "Nguoi dung";
+        const mine = item.senderId === currentUserId;
+        const sender = membersById[item.senderId];
+        const senderDisplayName =
+            sender?.nickname || sender?.username || "Nguoi dung";
 
-                        let previousMessage: Message | undefined;
-                        for (let cursor = index - 1; cursor >= 0; cursor--) {
-                            const candidate = messages[cursor];
-                            if (isPinSystemMessageType(candidate.type)) {
-                                continue;
+        let previousMessage: Message | undefined;
+        for (let cursor = index - 1; cursor >= 0; cursor--) {
+            const candidate = messages[cursor];
+            if (isPinSystemMessageType(candidate.type)) {
+                continue;
+            }
+            previousMessage = candidate;
+            break;
+        }
+
+        let nextMessage: Message | undefined;
+        for (let cursor = index + 1; cursor < messages.length; cursor++) {
+            const candidate = messages[cursor];
+            if (isPinSystemMessageType(candidate.type)) {
+                continue;
+            }
+            nextMessage = candidate;
+            break;
+        }
+        const isFirstInGroup =
+            !previousMessage || previousMessage.senderId !== item.senderId;
+        const isLastInGroup =
+            !nextMessage || nextMessage.senderId !== item.senderId;
+        const isConsecutiveRecalledInGroup =
+            !isFirstInGroup &&
+            item.isRecalled &&
+            Boolean(previousMessage?.isRecalled) &&
+            previousMessage?.senderId === item.senderId;
+        const showSenderLabel =
+            !mine &&
+            conversation?.type === "GROUP" &&
+            isFirstInGroup &&
+            !item.isRecalled;
+        const showAvatar = !mine && isLastInGroup;
+        const messageTime = formatMessageTime(item.createdAt);
+        const receiptsForThisMessage =
+            mine && !item.isRecalled
+                ? readReceipts.filter(
+                      (receipt) =>
+                          receipt.lastMessageId === item.id &&
+                          receipt.userId !== currentUserId,
+                  )
+                : [];
+
+        const imageUrls =
+            item.type === "IMAGE" ? resolveAttachmentUrls(item) : [];
+        const videoUrls =
+            item.type === "VIDEO" ? resolveAttachmentUrls(item) : [];
+        const audioUrls =
+            item.type === "AUDIO" ? resolveAttachmentUrls(item) : [];
+        const callMeta = parseCallMeta(item);
+
+        const rawFileAttachments =
+            item.type === "FILE"
+                ? Array.isArray(item.attachments) && item.attachments.length > 0
+                    ? item.attachments
+                    : isLikelyStoragePathOrUrl(item.content)
+                      ? [
+                            {
+                                url: item.content ?? "",
+                                fileName:
+                                    (item.content ?? "").split("/").pop() ||
+                                    "Tep dinh kem",
+                            },
+                        ]
+                      : []
+                : [];
+
+        const fileAttachments = rawFileAttachments.map((attachment) => ({
+            ...attachment,
+            resolvedUrl: resolveMediaUrl(attachment.url) || attachment.url,
+        }));
+
+        const replySenderName =
+            typeof item.replyInfo?.senderId === "number"
+                ? membersById[item.replyInfo.senderId]?.nickname ||
+                  membersById[item.replyInfo.senderId]?.username ||
+                  "Nguoi dung"
+                : "Nguoi dung";
+
+        const replyPreviewType = inferReplyPreviewType(item.replyInfo);
+        const replyPreviewContent = item.replyInfo?.content?.trim() ?? "";
+        const normalizedReplyPreviewContent =
+            normalizeSearchText(replyPreviewContent);
+        const isReplyPreviewRecalled =
+            normalizedReplyPreviewContent.includes("thu hoi") ||
+            normalizedReplyPreviewContent.includes("da bi go bo") ||
+            normalizedReplyPreviewContent.includes("da duoc go bo");
+        const isReplyMedia =
+            replyPreviewType === "IMAGE" || replyPreviewType === "VIDEO";
+        const replyPreviewImageUrl =
+            isReplyMedia && isLikelyStoragePathOrUrl(replyPreviewContent)
+                ? resolveMediaUrl(replyPreviewContent)
+                : "";
+        const isFullMediaReply =
+            !!replyPreviewImageUrl && !isReplyPreviewRecalled;
+        const hasReplyLeadingVisual =
+            !isReplyPreviewRecalled &&
+            (replyPreviewType === "IMAGE" ||
+                replyPreviewType === "VIDEO" ||
+                replyPreviewType === "AUDIO" ||
+                replyPreviewType === "CALL");
+        const replyPreviewText = isReplyPreviewRecalled
+            ? "Tin nhan da duoc thu hoi"
+            : replyPreviewType === "IMAGE"
+              ? ""
+              : replyPreviewType === "VIDEO"
+                ? ""
+                : replyPreviewType === "AUDIO"
+                  ? "Tin nhan thoai"
+                  : replyPreviewType === "FILE"
+                    ? "File dinh kem"
+                    : replyPreviewType === "CALL"
+                      ? "Cuoc goi"
+                      : replyPreviewContent || "Tin nhan";
+
+        const trimmedContent = item.content?.trim() ?? "";
+        const messageIsEmojiOnly =
+            item.type === "TEXT" &&
+            !item.isRecalled &&
+            isEmojiOnlyText(trimmedContent);
+
+        const shouldShowFallbackText =
+            !item.isRecalled &&
+            item.type !== "IMAGE" &&
+            item.type !== "FILE" &&
+            item.type !== "VIDEO" &&
+            item.type !== "AUDIO" &&
+            item.type !== "CALL" &&
+            item.type !== "SYSTEM_PIN" &&
+            item.type !== "SYSTEM_UPIN";
+
+        const shouldShowAttachmentCaption =
+            !item.isRecalled &&
+            (item.type === "IMAGE" ||
+                item.type === "FILE" ||
+                item.type === "VIDEO" ||
+                item.type === "AUDIO") &&
+            trimmedContent.length > 0 &&
+            !isLikelyStoragePathOrUrl(trimmedContent);
+
+        const isRichCardMessage =
+            !item.isRecalled &&
+            (item.type === "IMAGE" ||
+                item.type === "FILE" ||
+                item.type === "VIDEO" ||
+                item.type === "AUDIO" ||
+                item.type === "CALL");
+        const hasReplyPreview = Boolean(item.replyInfo) && !item.isRecalled;
+        const shouldOverlayReplyWithBubble =
+            hasReplyPreview && !isRichCardMessage;
+        const replySenderId = item.replyInfo?.senderId;
+        const replyMessageId = item.replyInfo?.messageId ?? "";
+
+        const bubbleGroupShape = !isRichCardMessage
+            ? mine
+                ? isFirstInGroup
+                    ? isLastInGroup
+                        ? styles.bubbleMineSingle
+                        : styles.bubbleMineFirst
+                    : isLastInGroup
+                      ? styles.bubbleMineLast
+                      : styles.bubbleMineMiddle
+                : isFirstInGroup
+                  ? isLastInGroup
+                      ? styles.bubbleOtherSingle
+                      : styles.bubbleOtherFirst
+                  : isLastInGroup
+                    ? styles.bubbleOtherLast
+                    : styles.bubbleOtherMiddle
+            : null;
+
+        const isPinSystemMessage = isPinSystemMessageType(item.type);
+
+        if (isPinSystemMessage) {
+            if (pinRunMeta?.shouldHideMessage) {
+                return null;
+            }
+
+            if (pinRunMeta?.shouldRenderCollapsedButton) {
+                return (
+                    <View style={styles.systemMessageRow}>
+                        <Pressable
+                            style={styles.systemCollapsedBtn}
+                            onPress={() =>
+                                handleExpandPinSystemRun(pinRunMeta.runKey)
                             }
-                            previousMessage = candidate;
-                            break;
-                        }
+                        >
+                            <Ionicons
+                                name="pin-outline"
+                                size={13}
+                                color="#57585aff"
+                            />
+                            <Text style={styles.systemCollapsedBtnText}>
+                                {`Xem cap nhat truoc (${pinRunMeta.runLength})`}
+                            </Text>
+                        </Pressable>
+                    </View>
+                );
+            }
 
-                        let nextMessage: Message | undefined;
-                        for (
-                            let cursor = index + 1;
-                            cursor < messages.length;
-                            cursor++
-                        ) {
-                            const candidate = messages[cursor];
-                            if (isPinSystemMessageType(candidate.type)) {
-                                continue;
-                            }
-                            nextMessage = candidate;
-                            break;
-                        }
-                        const isFirstInGroup =
-                            !previousMessage ||
-                            previousMessage.senderId !== item.senderId;
-                        const isLastInGroup =
-                            !nextMessage ||
-                            nextMessage.senderId !== item.senderId;
-                        const isConsecutiveRecalledInGroup =
+            const actorLabel = mine ? "Ban" : senderDisplayName;
+            const actionLabel = item.type === "SYSTEM_UPIN" ? "" : "ghim";
+
+            return (
+                <View style={styles.systemMessageRow}>
+                    <View style={styles.systemMessageBadge}>
+                        <Ionicons
+                            name="pin-outline"
+                            size={12}
+                            color="#4B5563"
+                        />
+                        <Text
+                            numberOfLines={1}
+                            style={styles.systemMessageText}
+                        >
+                            {`${actorLabel} ${actionLabel} ${resolvePinSystemPreview(item)}`}
+                        </Text>
+                    </View>
+                </View>
+            );
+        }
+
+        return (
+            <View style={styles.messageItemWrap}>
+                <View
+                    style={[
+                        styles.row,
+                        isFirstInGroup
+                            ? styles.rowGroupStart
+                            : styles.rowGrouped,
+                        hasReplyPreview &&
                             !isFirstInGroup &&
-                            item.isRecalled &&
-                            Boolean(previousMessage?.isRecalled) &&
-                            previousMessage?.senderId === item.senderId;
-                        const showSenderLabel =
-                            !mine &&
-                            conversation?.type === "GROUP" &&
-                            isFirstInGroup &&
-                            !item.isRecalled;
-                        const showAvatar = !mine && isLastInGroup;
-                        const messageTime = formatMessageTime(item.createdAt);
-                        const receiptsForThisMessage =
-                            mine && !item.isRecalled
-                                ? readReceipts.filter(
-                                      (receipt) =>
-                                          receipt.lastMessageId === item.id &&
-                                          receipt.userId !== currentUserId,
-                                  )
-                                : [];
+                            styles.rowGroupedWithReply,
+                        isConsecutiveRecalledInGroup &&
+                            styles.rowGroupedRecalled,
+                        mine ? styles.rowMine : styles.rowOther,
+                    ]}
+                >
+                    {!mine ? (
+                        showAvatar ? (
+                            <UserAvatar
+                                uri={sender?.avatar}
+                                name={sender?.username ?? "?"}
+                                size={30}
+                            />
+                        ) : (
+                            <View style={styles.avatarSpacer} />
+                        )
+                    ) : null}
 
-                        const imageUrls =
-                            item.type === "IMAGE"
-                                ? resolveAttachmentUrls(item)
-                                : [];
-                        const videoUrls =
-                            item.type === "VIDEO"
-                                ? resolveAttachmentUrls(item)
-                                : [];
-                        const audioUrls =
-                            item.type === "AUDIO"
-                                ? resolveAttachmentUrls(item)
-                                : [];
-                        const callMeta = parseCallMeta(item);
+                    <View
+                        style={[
+                            styles.messageColumn,
+                            mine
+                                ? styles.messageColumnMine
+                                : styles.messageColumnOther,
+                        ]}
+                    >
+                        {showSenderLabel ? (
+                            <Text
+                                style={styles.groupSenderLabel}
+                                numberOfLines={1}
+                            >
+                                {senderDisplayName}
+                            </Text>
+                        ) : null}
 
-                        const rawFileAttachments =
-                            item.type === "FILE"
-                                ? Array.isArray(item.attachments) &&
-                                  item.attachments.length > 0
-                                    ? item.attachments
-                                    : isLikelyStoragePathOrUrl(item.content)
-                                      ? [
-                                            {
-                                                url: item.content ?? "",
-                                                fileName:
-                                                    (item.content ?? "")
-                                                        .split("/")
-                                                        .pop() ||
-                                                    "Tep dinh kem",
-                                            },
-                                        ]
-                                      : []
-                                : [];
-
-                        const fileAttachments = rawFileAttachments.map(
-                            (attachment) => ({
-                                ...attachment,
-                                resolvedUrl:
-                                    resolveMediaUrl(attachment.url) ||
-                                    attachment.url,
-                            }),
-                        );
-
-                        const replySenderName =
-                            typeof item.replyInfo?.senderId === "number"
-                                ? membersById[item.replyInfo.senderId]
-                                      ?.nickname ||
-                                  membersById[item.replyInfo.senderId]
-                                      ?.username ||
-                                  "Nguoi dung"
-                                : "Nguoi dung";
-
-                        const replyPreviewType = inferReplyPreviewType(
-                            item.replyInfo,
-                        );
-                        const replyPreviewContent =
-                            item.replyInfo?.content?.trim() ?? "";
-                        const normalizedReplyPreviewContent =
-                            normalizeSearchText(replyPreviewContent);
-                        const isReplyPreviewRecalled =
-                            normalizedReplyPreviewContent.includes("thu hoi") ||
-                            normalizedReplyPreviewContent.includes(
-                                "da bi go bo",
-                            ) ||
-                            normalizedReplyPreviewContent.includes(
-                                "da duoc go bo",
-                            );
-                        const isReplyMedia = replyPreviewType === "IMAGE" || replyPreviewType === "VIDEO";
-                        const replyPreviewImageUrl =
-                            isReplyMedia && isLikelyStoragePathOrUrl(replyPreviewContent)
-                                ? resolveMediaUrl(replyPreviewContent)
-                                : "";
-                        const isFullMediaReply = !!replyPreviewImageUrl && !isReplyPreviewRecalled;
-                        const hasReplyLeadingVisual =
-                            !isReplyPreviewRecalled &&
-                            (replyPreviewType === "IMAGE" ||
-                                replyPreviewType === "VIDEO" ||
-                                replyPreviewType === "AUDIO" ||
-                                replyPreviewType === "CALL");
-                        const replyPreviewText = isReplyPreviewRecalled
-                            ? "Tin nhan da duoc thu hoi"
-                            : replyPreviewType === "IMAGE"
-                              ? ""
-                              : replyPreviewType === "VIDEO"
-                                ? ""
-                                : replyPreviewType === "AUDIO"
-                                  ? "Tin nhan thoai"
-                                  : replyPreviewType === "FILE"
-                                    ? "File dinh kem"
-                                    : replyPreviewType === "CALL"
-                                      ? "Cuoc goi"
-                                      : replyPreviewContent || "Tin nhan";
-
-                        const trimmedContent = item.content?.trim() ?? "";
-                        const messageIsEmojiOnly =
-                            item.type === "TEXT" &&
-                            !item.isRecalled &&
-                            isEmojiOnlyText(trimmedContent);
-
-                        const shouldShowFallbackText =
-                            !item.isRecalled &&
-                            item.type !== "IMAGE" &&
-                            item.type !== "FILE" &&
-                            item.type !== "VIDEO" &&
-                            item.type !== "AUDIO" &&
-                            item.type !== "CALL" &&
-                            item.type !== "SYSTEM_PIN" &&
-                            item.type !== "SYSTEM_UPIN";
-
-                        const shouldShowAttachmentCaption =
-                            !item.isRecalled &&
-                            (item.type === "IMAGE" ||
-                                item.type === "FILE" ||
-                                item.type === "VIDEO" ||
-                                item.type === "AUDIO") &&
-                            trimmedContent.length > 0 &&
-                            !isLikelyStoragePathOrUrl(trimmedContent);
-
-                        const isRichCardMessage =
-                            !item.isRecalled &&
-                            (item.type === "IMAGE" ||
-                                item.type === "FILE" ||
-                                item.type === "VIDEO" ||
-                                item.type === "AUDIO" ||
-                                item.type === "CALL");
-                        const hasReplyPreview =
-                            Boolean(item.replyInfo) && !item.isRecalled;
-                        const shouldOverlayReplyWithBubble =
-                            hasReplyPreview && !isRichCardMessage;
-                        const replySenderId = item.replyInfo?.senderId;
-                        const replyMessageId = item.replyInfo?.messageId ?? "";
-
-                        const bubbleGroupShape = !isRichCardMessage
-                            ? mine
-                                ? isFirstInGroup
-                                    ? isLastInGroup
-                                        ? styles.bubbleMineSingle
-                                        : styles.bubbleMineFirst
-                                    : isLastInGroup
-                                      ? styles.bubbleMineLast
-                                      : styles.bubbleMineMiddle
-                                : isFirstInGroup
-                                  ? isLastInGroup
-                                      ? styles.bubbleOtherSingle
-                                      : styles.bubbleOtherFirst
-                                  : isLastInGroup
-                                    ? styles.bubbleOtherLast
-                                    : styles.bubbleOtherMiddle
-                            : null;
-
-                        const isPinSystemMessage = isPinSystemMessageType(
-                            item.type,
-                        );
-
-                        if (isPinSystemMessage) {
-                            if (pinRunMeta?.shouldHideMessage) {
-                                return null;
-                            }
-
-                            if (pinRunMeta?.shouldRenderCollapsedButton) {
-                                return (
-                                    <View style={styles.systemMessageRow}>
-                                        <Pressable
-                                            style={styles.systemCollapsedBtn}
-                                            onPress={() =>
-                                                handleExpandPinSystemRun(
-                                                    pinRunMeta.runKey,
-                                                )
-                                            }
-                                        >
-                                            <Ionicons
-                                                name="pin-outline"
-                                                size={13}
-                                                color="#57585aff"
-                                            />
-                                            <Text
-                                                style={
-                                                    styles.systemCollapsedBtnText
-                                                }
-                                            >
-                                                {`Xem cap nhat truoc (${pinRunMeta.runLength})`}
-                                            </Text>
-                                        </Pressable>
-                                    </View>
-                                );
-                            }
-
-                            const actorLabel = mine ? "Ban" : senderDisplayName;
-                            const actionLabel =
-                                item.type === "SYSTEM_UPIN"
-                                    ? ""
-                                    : "ghim";
-
-                            return (
-                                <View style={styles.systemMessageRow}>
-                                    <View style={styles.systemMessageBadge}>
-                                        <Ionicons
-                                            name="pin-outline"
-                                            size={12}
-                                            color="#4B5563"
-                                        />
-                                        <Text
-                                            numberOfLines={1}
-                                            style={styles.systemMessageText}
-                                        >
-                                            {`${actorLabel} ${actionLabel} ${resolvePinSystemPreview(item)}`}
-                                        </Text>
-                                    </View>
-                                </View>
-                            );
-                        }
-
-                        return (
-                            <View style={styles.messageItemWrap}>
-                                <View
+                        {hasReplyPreview ? (
+                            <View
+                                style={[
+                                    styles.replyRelationRow,
+                                    mine && styles.replyRelationRowMine,
+                                ]}
+                            >
+                                <Ionicons
+                                    name="arrow-undo"
+                                    size={12}
+                                    color="#6B7280"
+                                />
+                                <Text
                                     style={[
-                                        styles.row,
-                                        isFirstInGroup
-                                            ? styles.rowGroupStart
-                                            : styles.rowGrouped,
-                                        hasReplyPreview &&
-                                            !isFirstInGroup &&
-                                            styles.rowGroupedWithReply,
-                                        isConsecutiveRecalledInGroup &&
-                                            styles.rowGroupedRecalled,
-                                        mine ? styles.rowMine : styles.rowOther,
+                                        styles.replyRelationLabel,
+                                        mine && styles.replyRelationLabelMine,
                                     ]}
+                                    numberOfLines={1}
                                 >
-                                    {!mine ? (
-                                        showAvatar ? (
-                                            <UserAvatar
-                                                uri={sender?.avatar}
-                                                name={sender?.username ?? "?"}
-                                                size={30}
-                                            />
-                                        ) : (
-                                            <View style={styles.avatarSpacer} />
-                                        )
+                                    {formatReplyLabel({
+                                        currentUserId,
+                                        messageSenderId: item.senderId,
+                                        messageSenderName: senderDisplayName,
+                                        replySenderId,
+                                        replySenderName,
+                                    })}
+                                </Text>
+                            </View>
+                        ) : null}
+
+                        <Pressable
+                            delayLongPress={500}
+                            onLongPress={(event) =>
+                                handleMessageLongPress(event, item.id, mine)
+                            }
+                        >
+                            {messageIsEmojiOnly ? (
+                                <Text style={styles.emojiOnlyText}>
+                                    {trimmedContent}
+                                </Text>
+                            ) : (
+                                <>
+                                    {hasReplyPreview ? (
+                                        <Pressable
+                                            style={[
+                                                isFullMediaReply
+                                                    ? styles.replyPreviewFullWrap
+                                                    : styles.replyPreview,
+                                                styles.replyPreviewOverlay,
+                                                mine &&
+                                                    (isFullMediaReply
+                                                        ? styles.replyPreviewFullWrapMine
+                                                        : styles.replyPreviewMine),
+                                                mine
+                                                    ? styles.replyPreviewConnectedMine
+                                                    : styles.replyPreviewConnectedOther,
+                                            ]}
+                                            onPress={() => {
+                                                if (!replyMessageId) return;
+                                                void requestJumpToMessage(
+                                                    replyMessageId,
+                                                );
+                                            }}
+                                        >
+                                            {isFullMediaReply ? (
+                                                <View
+                                                    style={
+                                                        styles.replyPreviewFullBody
+                                                    }
+                                                >
+                                                    {replyPreviewType ===
+                                                    "VIDEO" ? (
+                                                        <>
+                                                            <Video
+                                                                source={{
+                                                                    uri: replyPreviewImageUrl,
+                                                                }}
+                                                                style={
+                                                                    styles.replyPreviewFullImage
+                                                                }
+                                                                resizeMode={
+                                                                    ResizeMode.COVER
+                                                                }
+                                                                shouldPlay={
+                                                                    false
+                                                                }
+                                                                positionMillis={
+                                                                    0
+                                                                }
+                                                                useNativeControls={
+                                                                    false
+                                                                }
+                                                            />
+                                                            <View
+                                                                style={
+                                                                    styles.replyPreviewFullVideoOverlay
+                                                                }
+                                                            >
+                                                                <Ionicons
+                                                                    name="play"
+                                                                    size={20}
+                                                                    color="#FFF"
+                                                                />
+                                                            </View>
+                                                        </>
+                                                    ) : (
+                                                        <Image
+                                                            source={{
+                                                                uri: replyPreviewImageUrl,
+                                                            }}
+                                                            style={
+                                                                styles.replyPreviewFullImage
+                                                            }
+                                                        />
+                                                    )}
+                                                </View>
+                                            ) : (
+                                                <View
+                                                    style={
+                                                        styles.replyPreviewBody
+                                                    }
+                                                >
+                                                    {replyPreviewType ===
+                                                        "IMAGE" &&
+                                                    !isReplyPreviewRecalled ? (
+                                                        <View
+                                                            style={[
+                                                                styles.replyPreviewIconBox,
+                                                                mine &&
+                                                                    styles.replyPreviewIconBoxMine,
+                                                            ]}
+                                                        >
+                                                            <Ionicons
+                                                                name="image-outline"
+                                                                size={20}
+                                                                color="#4B5563"
+                                                            />
+                                                        </View>
+                                                    ) : replyPreviewType ===
+                                                          "VIDEO" &&
+                                                      !isReplyPreviewRecalled ? (
+                                                        <View
+                                                            style={[
+                                                                styles.replyPreviewIconBox,
+                                                                mine &&
+                                                                    styles.replyPreviewIconBoxMine,
+                                                            ]}
+                                                        >
+                                                            <Ionicons
+                                                                name="videocam-outline"
+                                                                size={20}
+                                                                color="#4B5563"
+                                                            />
+                                                        </View>
+                                                    ) : replyPreviewType ===
+                                                          "AUDIO" &&
+                                                      !isReplyPreviewRecalled ? (
+                                                        <View
+                                                            style={[
+                                                                styles.replyPreviewIconBox,
+                                                                mine &&
+                                                                    styles.replyPreviewIconBoxMine,
+                                                            ]}
+                                                        >
+                                                            <Ionicons
+                                                                name="mic-outline"
+                                                                size={18}
+                                                                color="#4B5563"
+                                                            />
+                                                        </View>
+                                                    ) : replyPreviewType ===
+                                                          "CALL" &&
+                                                      !isReplyPreviewRecalled ? (
+                                                        <View
+                                                            style={[
+                                                                styles.replyPreviewIconBox,
+                                                                mine &&
+                                                                    styles.replyPreviewIconBoxMine,
+                                                            ]}
+                                                        >
+                                                            <Ionicons
+                                                                name="call-outline"
+                                                                size={17}
+                                                                color="#4B5563"
+                                                            />
+                                                        </View>
+                                                    ) : null}
+
+                                                    {replyPreviewText ? (
+                                                        <View
+                                                            style={[
+                                                                styles.replyPreviewTextWrap,
+                                                                !hasReplyLeadingVisual &&
+                                                                    styles.replyPreviewTextWrapNoLead,
+                                                            ]}
+                                                        >
+                                                            {replyPreviewType ===
+                                                                "FILE" &&
+                                                            !isReplyPreviewRecalled ? (
+                                                                <View
+                                                                    style={
+                                                                        styles.replyFileInline
+                                                                    }
+                                                                >
+                                                                    <Text
+                                                                        numberOfLines={
+                                                                            1
+                                                                        }
+                                                                        style={[
+                                                                            styles.replyContentOnly,
+                                                                            mine &&
+                                                                                styles.replyContentOnlyMine,
+                                                                        ]}
+                                                                    >
+                                                                        {
+                                                                            replyPreviewText
+                                                                        }
+                                                                    </Text>
+                                                                    <Ionicons
+                                                                        name="attach-outline"
+                                                                        size={
+                                                                            13
+                                                                        }
+                                                                        color="#6B7280"
+                                                                    />
+                                                                </View>
+                                                            ) : (
+                                                                <Text
+                                                                    numberOfLines={
+                                                                        1
+                                                                    }
+                                                                    style={[
+                                                                        styles.replyContentOnly,
+                                                                        mine &&
+                                                                            styles.replyContentOnlyMine,
+                                                                    ]}
+                                                                >
+                                                                    {
+                                                                        replyPreviewText
+                                                                    }
+                                                                </Text>
+                                                            )}
+                                                        </View>
+                                                    ) : null}
+                                                </View>
+                                            )}
+                                        </Pressable>
                                     ) : null}
 
                                     <View
                                         style={[
-                                            styles.messageColumn,
+                                            styles.bubble,
                                             mine
-                                                ? styles.messageColumnMine
-                                                : styles.messageColumnOther,
+                                                ? styles.bubbleAlignMine
+                                                : styles.bubbleAlignOther,
+                                            highlightedMessageId === item.id &&
+                                                styles.highlightedBubble,
+                                            item.isRecalled
+                                                ? styles.bubbleRecalled
+                                                : isRichCardMessage
+                                                  ? styles.bubblePlain
+                                                  : mine
+                                                    ? styles.bubbleMine
+                                                    : styles.bubbleOther,
+                                            bubbleGroupShape,
+                                            shouldOverlayReplyWithBubble &&
+                                                styles.bubbleWithReply,
+                                            shouldOverlayReplyWithBubble &&
+                                                (mine
+                                                    ? styles.bubbleWithReplyMine
+                                                    : styles.bubbleWithReplyOther),
+                                            !mine &&
+                                                !isRichCardMessage &&
+                                                styles.cardShadow,
                                         ]}
                                     >
-                                        {showSenderLabel ? (
-                                            <Text
-                                                style={styles.groupSenderLabel}
-                                                numberOfLines={1}
-                                            >
-                                                {senderDisplayName}
-                                            </Text>
-                                        ) : null}
-
-                                        {hasReplyPreview ? (
-                                            <View
-                                                style={[
-                                                    styles.replyRelationRow,
-                                                    mine &&
-                                                        styles.replyRelationRowMine,
-                                                ]}
-                                            >
-                                                <Ionicons
-                                                    name="arrow-undo"
-                                                    size={12}
-                                                    color="#6B7280"
-                                                />
+                                        <View style={styles.bubbleMainContent}>
+                                            {item.isRecalled ? (
                                                 <Text
                                                     style={[
-                                                        styles.replyRelationLabel,
+                                                        styles.messageText,
                                                         mine &&
-                                                            styles.replyRelationLabelMine,
+                                                            styles.messageTextMine,
+                                                        styles.recalledText,
                                                     ]}
-                                                    numberOfLines={1}
                                                 >
-                                                    {formatReplyLabel({
-                                                        currentUserId,
-                                                        messageSenderId:
-                                                            item.senderId,
-                                                        messageSenderName:
-                                                            senderDisplayName,
-                                                        replySenderId,
-                                                        replySenderName,
-                                                    })}
+                                                    Tin nhan da duoc thu hoi
                                                 </Text>
-                                            </View>
-                                        ) : null}
+                                            ) : null}
 
-                                        <Pressable
-                                            delayLongPress={500}
-                                            onLongPress={(event) =>
-                                                handleMessageLongPress(
-                                                    event,
-                                                    item.id,
-                                                    mine,
-                                                )
-                                            }
-                                        >
-                                            {messageIsEmojiOnly ? (
-                                                <Text
-                                                    style={styles.emojiOnlyText}
-                                                >
-                                                    {trimmedContent}
-                                                </Text>
-                                            ) : (
-                                                <>
-                                                    {hasReplyPreview ? (
-                                                        <Pressable
-                                                            style={[
-                                                                isFullMediaReply ? styles.replyPreviewFullWrap : styles.replyPreview,
-                                                                styles.replyPreviewOverlay,
-                                                                mine && (isFullMediaReply ? styles.replyPreviewFullWrapMine : styles.replyPreviewMine),
-                                                                mine
-                                                                    ? styles.replyPreviewConnectedMine
-                                                                    : styles.replyPreviewConnectedOther,
-                                                            ]}
-                                                            onPress={() => {
-                                                                if (
-                                                                    !replyMessageId
-                                                                )
-                                                                    return;
-                                                                void requestJumpToMessage(
-                                                                    replyMessageId,
-                                                                );
-                                                            }}
-                                                        >
-                                                            {isFullMediaReply ? (
-                                                                <View style={styles.replyPreviewFullBody}>
-                                                                    {replyPreviewType === "VIDEO" ? (
-                                                                        <>
-                                                                            <Video
-                                                                                source={{ uri: replyPreviewImageUrl }}
-                                                                                style={styles.replyPreviewFullImage}
-                                                                                resizeMode={ResizeMode.COVER}
-                                                                                shouldPlay={false}
-                                                                                positionMillis={0}
-                                                                                useNativeControls={false}
-                                                                            />
-                                                                            <View style={styles.replyPreviewFullVideoOverlay}>
-                                                                                <Ionicons name="play" size={20} color="#FFF" />
-                                                                            </View>
-                                                                        </>
-                                                                    ) : (
-                                                                        <Image
-                                                                            source={{ uri: replyPreviewImageUrl }}
-                                                                            style={styles.replyPreviewFullImage}
-                                                                        />
-                                                                    )}
-                                                                </View>
-                                                            ) : (
-                                                                <View style={styles.replyPreviewBody}>
-                                                                    {replyPreviewType === "IMAGE" && !isReplyPreviewRecalled ? (
-                                                                        <View style={[styles.replyPreviewIconBox, mine && styles.replyPreviewIconBoxMine]}>
-                                                                            <Ionicons name="image-outline" size={20} color="#4B5563" />
-                                                                        </View>
-                                                                    ) : replyPreviewType === "VIDEO" && !isReplyPreviewRecalled ? (
-                                                                        <View style={[styles.replyPreviewIconBox, mine && styles.replyPreviewIconBoxMine]}>
-                                                                            <Ionicons name="videocam-outline" size={20} color="#4B5563" />
-                                                                        </View>
-                                                                    ) : replyPreviewType === "AUDIO" && !isReplyPreviewRecalled ? (
-                                                                        <View style={[styles.replyPreviewIconBox, mine && styles.replyPreviewIconBoxMine]}>
-                                                                            <Ionicons name="mic-outline" size={18} color="#4B5563" />
-                                                                        </View>
-                                                                    ) : replyPreviewType === "CALL" && !isReplyPreviewRecalled ? (
-                                                                        <View style={[styles.replyPreviewIconBox, mine && styles.replyPreviewIconBoxMine]}>
-                                                                            <Ionicons name="call-outline" size={17} color="#4B5563" />
-                                                                        </View>
-                                                                    ) : null}
-
-                                                                    {replyPreviewText ? (
-                                                                        <View style={[styles.replyPreviewTextWrap, !hasReplyLeadingVisual && styles.replyPreviewTextWrapNoLead]}>
-                                                                            {replyPreviewType === "FILE" && !isReplyPreviewRecalled ? (
-                                                                                <View style={styles.replyFileInline}>
-                                                                                    <Text numberOfLines={1} style={[styles.replyContentOnly, mine && styles.replyContentOnlyMine]}>
-                                                                                        {replyPreviewText}
-                                                                                    </Text>
-                                                                                    <Ionicons name="attach-outline" size={13} color="#6B7280" />
-                                                                                </View>
-                                                                            ) : (
-                                                                                <Text numberOfLines={1} style={[styles.replyContentOnly, mine && styles.replyContentOnlyMine]}>
-                                                                                    {replyPreviewText}
-                                                                                </Text>
-                                                                            )}
-                                                                        </View>
-                                                                    ) : null}
-                                                                </View>
-                                                            )}
-                                                        </Pressable>
-                                                    ) : null}
-
-                                                    <View
-                                                        style={[
-                                                            styles.bubble,
-                                                            mine
-                                                                ? styles.bubbleAlignMine
-                                                                : styles.bubbleAlignOther,
-                                                            highlightedMessageId ===
-                                                                item.id &&
-                                                                styles.highlightedBubble,
-                                                            item.isRecalled
-                                                                ? styles.bubbleRecalled
-                                                                : isRichCardMessage
-                                                                  ? styles.bubblePlain
-                                                                  : mine
-                                                                    ? styles.bubbleMine
-                                                                    : styles.bubbleOther,
-                                                            bubbleGroupShape,
-                                                            shouldOverlayReplyWithBubble &&
-                                                                styles.bubbleWithReply,
-                                                            shouldOverlayReplyWithBubble &&
-                                                                (mine
-                                                                    ? styles.bubbleWithReplyMine
-                                                                    : styles.bubbleWithReplyOther),
-                                                            !mine &&
-                                                                !isRichCardMessage &&
-                                                                styles.cardShadow,
-                                                        ]}
-                                                    >
-                                                        <View
-                                                            style={
-                                                                styles.bubbleMainContent
-                                                            }
-                                                        >
-                                                            {item.isRecalled ? (
-                                                                <Text
-                                                                    style={[
-                                                                        styles.messageText,
-                                                                        mine &&
-                                                                            styles.messageTextMine,
-                                                                        styles.recalledText,
-                                                                    ]}
-                                                                >
-                                                                    Tin nhan da
-                                                                    duoc thu hoi
-                                                                </Text>
-                                                            ) : null}
-
-                                                            {imageUrls.length >
-                                                            0 ? (
-                                                                <View
-                                                                    style={
-                                                                        styles.imageGrid
-                                                                    }
-                                                                >
-                                                                    {imageUrls.map(
-                                                                        (
+                                            {imageUrls.length > 0 ? (
+                                                <View style={styles.imageGrid}>
+                                                    {imageUrls.map(
+                                                        (url, imageIndex) => (
+                                                            <Pressable
+                                                                key={`${item.id}-image-${imageIndex}`}
+                                                                onPress={() =>
+                                                                    setMediaViewer(
+                                                                        {
+                                                                            type: "IMAGE",
                                                                             url,
-                                                                            imageIndex,
-                                                                        ) => (
-                                                                            <Pressable
-                                                                                key={`${item.id}-image-${imageIndex}`}
-                                                                                onPress={() =>
-                                                                                    setMediaViewer(
-                                                                                        {
-                                                                                            type: "IMAGE",
-                                                                                            url,
-                                                                                        },
-                                                                                    )
-                                                                                }
-                                                                            >
-                                                                                <Image
-                                                                                    source={{
-                                                                                        uri: url,
-                                                                                    }}
-                                                                                    style={[
-                                                                                        styles.imageAttachment,
-                                                                                        imageUrls.length ===
-                                                                                            1 &&
-                                                                                            styles.imageAttachmentLarge,
-                                                                                        mine
-                                                                                            ? styles.mediaCardMine
-                                                                                            : styles.mediaCardOther,
-                                                                                        !mine &&
-                                                                                            styles.cardShadow,
-                                                                                    ]}
-                                                                                />
-                                                                            </Pressable>
-                                                                        ),
-                                                                    )}
-                                                                </View>
-                                                            ) : null}
-
-                                                            {videoUrls.length >
-                                                            0 ? (
-                                                                <View
-                                                                    style={
-                                                                        styles.videoList
-                                                                    }
-                                                                >
-                                                                    {videoUrls.map(
-                                                                        (
-                                                                            url,
-                                                                            videoIndex,
-                                                                        ) => (
-                                                                            <View
-                                                                                key={`${item.id}-video-${videoIndex}`}
-                                                                                style={[
-                                                                                    styles.videoWrap,
-                                                                                    mine
-                                                                                        ? styles.mediaCardMine
-                                                                                        : styles.mediaCardOther,
-                                                                                    !mine &&
-                                                                                        styles.cardShadow,
-                                                                                ]}
-                                                                            >
-                                                                                <Video
-                                                                                    source={{
-                                                                                        uri: url,
-                                                                                    }}
-                                                                                    style={
-                                                                                        styles.videoAttachment
-                                                                                    }
-                                                                                    useNativeControls
-                                                                                    resizeMode={
-                                                                                        ResizeMode.COVER
-                                                                                    }
-                                                                                />
-                                                                                <Pressable
-                                                                                    style={
-                                                                                        styles.videoExpandBtn
-                                                                                    }
-                                                                                    onPress={() =>
-                                                                                        setMediaViewer(
-                                                                                            {
-                                                                                                type: "VIDEO",
-                                                                                                url,
-                                                                                            },
-                                                                                        )
-                                                                                    }
-                                                                                >
-                                                                                    <Ionicons
-                                                                                        name="expand-outline"
-                                                                                        size={
-                                                                                            15
-                                                                                        }
-                                                                                        color={
-                                                                                            colors.white
-                                                                                        }
-                                                                                    />
-                                                                                </Pressable>
-                                                                            </View>
-                                                                        ),
-                                                                    )}
-                                                                </View>
-                                                            ) : null}
-
-                                                            {audioUrls.length >
-                                                            0 ? (
-                                                                <View
-                                                                    style={
-                                                                        styles.audioList
-                                                                    }
-                                                                >
-                                                                    {audioUrls.map(
-                                                                        (
-                                                                            url,
-                                                                            audioIndex,
-                                                                        ) => {
-                                                                            const audioKey = `${item.id}-audio-${audioIndex}`;
-                                                                            const isLoading =
-                                                                                audioLoadingKey ===
-                                                                                audioKey;
-                                                                            const isPlaying =
-                                                                                playingAudioKey ===
-                                                                                audioKey;
-                                                                            const isPressing =
-                                                                                activePressAudioKey ===
-                                                                                audioKey;
-                                                                            const isSeeking =
-                                                                                activeSeekAudioKey ===
-                                                                                audioKey;
-                                                                            const shouldAnimateIcon =
-                                                                                isLoading ||
-                                                                                isPlaying;
-                                                                            const progressInfo =
-                                                                                audioProgressMap[
-                                                                                    audioKey
-                                                                                ];
-                                                                            const positionMillis =
-                                                                                progressInfo?.positionMillis ??
-                                                                                0;
-                                                                            const durationMillis =
-                                                                                progressInfo?.durationMillis ??
-                                                                                0;
-                                                                            const progressRatio =
-                                                                                durationMillis >
-                                                                                0
-                                                                                    ? Math.min(
-                                                                                          1,
-                                                                                          Math.max(
-                                                                                              0,
-                                                                                              positionMillis /
-                                                                                                  durationMillis,
-                                                                                          ),
-                                                                                      )
-                                                                                    : 0;
-                                                                            const waveBars =
-                                                                                getAudioWaveBars(
-                                                                                    url,
-                                                                                );
-                                                                            const iconScaleNode =
-                                                                                isPlaying &&
-                                                                                isPressing
-                                                                                    ? combinedAudioIconScale
-                                                                                    : isPlaying
-                                                                                      ? audioPlayPulse
-                                                                                      : audioPressScale;
-
-                                                                            return (
-                                                                                <View
-                                                                                    key={
-                                                                                        audioKey
-                                                                                    }
-                                                                                    style={[
-                                                                                        styles.audioItem,
-                                                                                        mine &&
-                                                                                            styles.audioItemMine,
-                                                                                        !mine &&
-                                                                                            styles.cardShadow,
-                                                                                    ]}
-                                                                                >
-                                                                                    <Pressable
-                                                                                        style={[
-                                                                                            styles.audioPlayBtn,
-                                                                                            mine &&
-                                                                                                styles.audioPlayBtnMine,
-                                                                                        ]}
-                                                                                        onPress={() =>
-                                                                                            void toggleAudioPlayback(
-                                                                                                audioKey,
-                                                                                                url,
-                                                                                            )
-                                                                                        }
-                                                                                        onPressIn={() =>
-                                                                                            handleAudioPressIn(
-                                                                                                audioKey,
-                                                                                            )
-                                                                                        }
-                                                                                        onPressOut={
-                                                                                            handleAudioPressOut
-                                                                                        }
-                                                                                        disabled={
-                                                                                            isLoading
-                                                                                        }
-                                                                                    >
-                                                                                        <Animated.View
-                                                                                            style={[
-                                                                                                styles.audioPlayIconWrap,
-                                                                                                (isPlaying ||
-                                                                                                    isPressing) && {
-                                                                                                    transform:
-                                                                                                        [
-                                                                                                            {
-                                                                                                                scale: iconScaleNode,
-                                                                                                            },
-                                                                                                        ],
-                                                                                                },
-                                                                                                shouldAnimateIcon && {
-                                                                                                    opacity:
-                                                                                                        audioIconFade,
-                                                                                                },
-                                                                                            ]}
-                                                                                        >
-                                                                                            <Ionicons
-                                                                                                name={
-                                                                                                    isLoading
-                                                                                                        ? "time-outline"
-                                                                                                        : isPlaying
-                                                                                                          ? "pause"
-                                                                                                          : "play"
-                                                                                                }
-                                                                                                size={
-                                                                                                    20
-                                                                                                }
-                                                                                                color={
-                                                                                                    colors.white
-                                                                                                }
-                                                                                            />
-                                                                                        </Animated.View>
-                                                                                    </Pressable>
-                                                                                    <View
-                                                                                        style={
-                                                                                            styles.audioMeta
-                                                                                        }
-                                                                                    >
-                                                                                        <View
-                                                                                            style={[
-                                                                                                styles.audioWaveformTrack,
-                                                                                                mine &&
-                                                                                                    styles.audioWaveformTrackMine,
-                                                                                                isSeeking && {
-                                                                                                    transform:
-                                                                                                        [
-                                                                                                            {
-                                                                                                                scaleY: audioSeekScale,
-                                                                                                            },
-                                                                                                        ],
-                                                                                                },
-                                                                                            ]}
-                                                                                            onLayout={(
-                                                                                                event,
-                                                                                            ) => {
-                                                                                                const width =
-                                                                                                    event
-                                                                                                        .nativeEvent
-                                                                                                        .layout
-                                                                                                        .width;
-                                                                                                setAudioTrackWidthMap((prev: Record<string, number>) => {
-                                                                                                        if (
-                                                                                                            prev[
-                                                                                                                audioKey
-                                                                                                            ] ===
-                                                                                                            width
-                                                                                                        ) {
-                                                                                                            return prev;
-                                                                                                        }
-
-                                                                                                        return {
-                                                                                                            ...prev,
-                                                                                                            [audioKey]:
-                                                                                                                width,
-                                                                                                        };
-                                                                                                    },
-                                                                                                );
-                                                                                            }}
-                                                                                            onStartShouldSetResponder={() =>
-                                                                                                true
-                                                                                            }
-                                                                                            onMoveShouldSetResponder={() =>
-                                                                                                true
-                                                                                            }
-                                                                                            onResponderGrant={(
-                                                                                                event,
-                                                                                            ) => {
-                                                                                                handleSeekInteractionStart(
-                                                                                                    audioKey,
-                                                                                                );
-                                                                                                seekAudioByLocation(
-                                                                                                    audioKey,
-                                                                                                    url,
-                                                                                                    event
-                                                                                                        .nativeEvent
-                                                                                                        .locationX,
-                                                                                                    false,
-                                                                                                );
-                                                                                            }}
-                                                                                            onResponderMove={(
-                                                                                                event,
-                                                                                            ) =>
-                                                                                                seekAudioByLocation(
-                                                                                                    audioKey,
-                                                                                                    url,
-                                                                                                    event
-                                                                                                        .nativeEvent
-                                                                                                        .locationX,
-                                                                                                    true,
-                                                                                                )
-                                                                                            }
-                                                                                            onResponderRelease={(
-                                                                                                event,
-                                                                                            ) => {
-                                                                                                seekAudioByLocation(
-                                                                                                    audioKey,
-                                                                                                    url,
-                                                                                                    event
-                                                                                                        .nativeEvent
-                                                                                                        .locationX,
-                                                                                                    false,
-                                                                                                );
-                                                                                                handleSeekInteractionEnd();
-                                                                                            }}
-                                                                                            onResponderTerminate={() =>
-                                                                                                handleSeekInteractionEnd()
-                                                                                            }
-                                                                                        >
-                                                                                            {waveBars.map((barHeight: number, barIndex: number) => {
-                                                                                                    const barStart =
-                                                                                                        barIndex /
-                                                                                                        waveBars.length;
-                                                                                                    const barEnd =
-                                                                                                        (barIndex +
-                                                                                                            1) /
-                                                                                                        waveBars.length;
-                                                                                                    const fillRatio =
-                                                                                                        progressRatio <=
-                                                                                                        barStart
-                                                                                                            ? 0
-                                                                                                            : progressRatio >=
-                                                                                                                barEnd
-                                                                                                              ? 1
-                                                                                                              : (progressRatio -
-                                                                                                                    barStart) /
-                                                                                                                (barEnd -
-                                                                                                                    barStart);
-
-                                                                                                    return (
-                                                                                                        <View
-                                                                                                            key={`${audioKey}-bar-${barIndex}`}
-                                                                                                            style={[
-                                                                                                                styles.audioWaveBar,
-                                                                                                                {
-                                                                                                                    height: `${barHeight}%`,
-                                                                                                                },
-                                                                                                                mine
-                                                                                                                    ? styles.audioWaveBarIdleMine
-                                                                                                                    : styles.audioWaveBarIdleOther,
-                                                                                                            ]}
-                                                                                                        >
-                                                                                                            <View
-                                                                                                                style={[
-                                                                                                                    styles.audioWaveBarFill,
-                                                                                                                    mine
-                                                                                                                        ? styles.audioWaveBarPlayedMine
-                                                                                                                        : styles.audioWaveBarPlayedOther,
-                                                                                                                    {
-                                                                                                                        opacity:
-                                                                                                                            fillRatio,
-                                                                                                                    },
-                                                                                                                ]}
-                                                                                                            />
-                                                                                                        </View>
-                                                                                                    );
-                                                                                                },
-                                                                                            )}
-                                                                                        </View>
-                                                                                        <Text
-                                                                                            style={[
-                                                                                                styles.audioTimeText,
-                                                                                                mine &&
-                                                                                                    styles.audioTimeTextMine,
-                                                                                            ]}
-                                                                                        >
-                                                                                            {isSeeking &&
-                                                                                            durationMillis >
-                                                                                                0
-                                                                                                ? `${formatDurationMillis(positionMillis)} / ${formatDurationMillis(durationMillis)}`
-                                                                                                : formatDurationMillis(
-                                                                                                      positionMillis >
-                                                                                                          0
-                                                                                                          ? positionMillis
-                                                                                                          : durationMillis,
-                                                                                                  )}
-                                                                                        </Text>
-                                                                                    </View>
-                                                                                </View>
-                                                                            );
                                                                         },
-                                                                    )}
-                                                                </View>
-                                                            ) : null}
+                                                                    )
+                                                                }
+                                                            >
+                                                                <Image
+                                                                    source={{
+                                                                        uri: url,
+                                                                    }}
+                                                                    style={[
+                                                                        styles.imageAttachment,
+                                                                        imageUrls.length ===
+                                                                            1 &&
+                                                                            styles.imageAttachmentLarge,
+                                                                        mine
+                                                                            ? styles.mediaCardMine
+                                                                            : styles.mediaCardOther,
+                                                                        !mine &&
+                                                                            styles.cardShadow,
+                                                                    ]}
+                                                                />
+                                                            </Pressable>
+                                                        ),
+                                                    )}
+                                                </View>
+                                            ) : null}
 
-                                                            {fileAttachments.length >
-                                                            0 ? (
-                                                                <View
+                                            {videoUrls.length > 0 ? (
+                                                <View style={styles.videoList}>
+                                                    {videoUrls.map(
+                                                        (url, videoIndex) => (
+                                                            <View
+                                                                key={`${item.id}-video-${videoIndex}`}
+                                                                style={[
+                                                                    styles.videoWrap,
+                                                                    mine
+                                                                        ? styles.mediaCardMine
+                                                                        : styles.mediaCardOther,
+                                                                    !mine &&
+                                                                        styles.cardShadow,
+                                                                ]}
+                                                            >
+                                                                <Video
+                                                                    source={{
+                                                                        uri: url,
+                                                                    }}
                                                                     style={
-                                                                        styles.fileList
+                                                                        styles.videoAttachment
+                                                                    }
+                                                                    useNativeControls
+                                                                    resizeMode={
+                                                                        ResizeMode.COVER
+                                                                    }
+                                                                />
+                                                                <Pressable
+                                                                    style={
+                                                                        styles.videoExpandBtn
+                                                                    }
+                                                                    onPress={() =>
+                                                                        setMediaViewer(
+                                                                            {
+                                                                                type: "VIDEO",
+                                                                                url,
+                                                                            },
+                                                                        )
                                                                     }
                                                                 >
-                                                                    {fileAttachments.map(
-                                                                        (
-                                                                            attachment,
-                                                                            fileIndex,
-                                                                        ) => (
-                                                                            <Pressable
-                                                                                key={`${item.id}-file-${fileIndex}`}
-                                                                                style={[
-                                                                                    styles.fileItem,
-                                                                                    mine &&
-                                                                                        styles.fileItemMine,
-                                                                                    !mine &&
-                                                                                        styles.cardShadow,
-                                                                                ]}
-                                                                                onPress={() => {
-                                                                                    if (
-                                                                                        attachment.resolvedUrl
-                                                                                    ) {
-                                                                                        void Linking.openURL(
-                                                                                            attachment.resolvedUrl,
-                                                                                        );
-                                                                                    }
-                                                                                }}
-                                                                            >
-                                                                                <View
-                                                                                    style={
-                                                                                        styles.fileBadge
-                                                                                    }
-                                                                                >
-                                                                                    <Text
-                                                                                        style={
-                                                                                            styles.fileBadgeText
-                                                                                        }
-                                                                                    >
-                                                                                        {getFileBadgeLabel(
-                                                                                            attachment.fileName,
-                                                                                        )}
-                                                                                    </Text>
-                                                                                </View>
-                                                                                <View
-                                                                                    style={
-                                                                                        styles.fileMeta
-                                                                                    }
-                                                                                >
-                                                                                    <Text
-                                                                                        numberOfLines={
-                                                                                            1
-                                                                                        }
-                                                                                        style={[
-                                                                                            styles.fileName,
-                                                                                            mine &&
-                                                                                                styles.fileNameMine,
-                                                                                        ]}
-                                                                                    >
-                                                                                        {attachment.fileName ||
-                                                                                            "Tep dinh kem"}
-                                                                                    </Text>
-                                                                                    <Text
-                                                                                        style={[
-                                                                                            styles.fileSize,
-                                                                                            mine &&
-                                                                                                styles.fileSizeMine,
-                                                                                        ]}
-                                                                                    >
-                                                                                        {formatFileSize(
-                                                                                            attachment.fileSize,
-                                                                                        )}
-                                                                                    </Text>
-                                                                                </View>
-                                                                                <View
-                                                                                    style={[
-                                                                                        styles.fileActionIconWrap,
-                                                                                        mine &&
-                                                                                            styles.fileActionIconWrapMine,
-                                                                                    ]}
-                                                                                >
-                                                                                    <Ionicons
-                                                                                        name="download-outline"
-                                                                                        size={
-                                                                                            14
-                                                                                        }
-                                                                                        color={
-                                                                                            mine
-                                                                                                ? colors.white
-                                                                                                : "#475569"
-                                                                                        }
-                                                                                    />
-                                                                                </View>
-                                                                            </Pressable>
-                                                                        ),
-                                                                    )}
-                                                                </View>
-                                                            ) : null}
+                                                                    <Ionicons
+                                                                        name="expand-outline"
+                                                                        size={
+                                                                            15
+                                                                        }
+                                                                        color={
+                                                                            colors.white
+                                                                        }
+                                                                    />
+                                                                </Pressable>
+                                                            </View>
+                                                        ),
+                                                    )}
+                                                </View>
+                                            ) : null}
 
-                                                            {callMeta ? (
-                                                                <Pressable
+                                            {audioUrls.length > 0 ? (
+                                                <View style={styles.audioList}>
+                                                    {audioUrls.map(
+                                                        (url, audioIndex) => {
+                                                            const audioKey = `${item.id}-audio-${audioIndex}`;
+                                                            const isLoading =
+                                                                audioLoadingKey ===
+                                                                audioKey;
+                                                            const isPlaying =
+                                                                playingAudioKey ===
+                                                                audioKey;
+                                                            const isPressing =
+                                                                activePressAudioKey ===
+                                                                audioKey;
+                                                            const isSeeking =
+                                                                activeSeekAudioKey ===
+                                                                audioKey;
+                                                            const shouldAnimateIcon =
+                                                                isLoading ||
+                                                                isPlaying;
+                                                            const progressInfo =
+                                                                audioProgressMap[
+                                                                    audioKey
+                                                                ];
+                                                            const positionMillis =
+                                                                progressInfo?.positionMillis ??
+                                                                0;
+                                                            const durationMillis =
+                                                                progressInfo?.durationMillis ??
+                                                                0;
+                                                            const progressRatio =
+                                                                durationMillis >
+                                                                0
+                                                                    ? Math.min(
+                                                                          1,
+                                                                          Math.max(
+                                                                              0,
+                                                                              positionMillis /
+                                                                                  durationMillis,
+                                                                          ),
+                                                                      )
+                                                                    : 0;
+                                                            const waveBars =
+                                                                getAudioWaveBars(
+                                                                    url,
+                                                                );
+                                                            const iconScaleNode =
+                                                                isPlaying &&
+                                                                isPressing
+                                                                    ? combinedAudioIconScale
+                                                                    : isPlaying
+                                                                      ? audioPlayPulse
+                                                                      : audioPressScale;
+
+                                                            return (
+                                                                <View
+                                                                    key={
+                                                                        audioKey
+                                                                    }
                                                                     style={[
-                                                                        styles.callCard,
+                                                                        styles.audioItem,
                                                                         mine &&
-                                                                            styles.callCardMine,
+                                                                            styles.audioItemMine,
                                                                         !mine &&
                                                                             styles.cardShadow,
                                                                     ]}
                                                                 >
-                                                                    <View
-                                                                        style={
-                                                                            styles.callMainRow
+                                                                    <Pressable
+                                                                        style={[
+                                                                            styles.audioPlayBtn,
+                                                                            mine &&
+                                                                                styles.audioPlayBtnMine,
+                                                                        ]}
+                                                                        onPress={() =>
+                                                                            void toggleAudioPlayback(
+                                                                                audioKey,
+                                                                                url,
+                                                                            )
+                                                                        }
+                                                                        onPressIn={() =>
+                                                                            handleAudioPressIn(
+                                                                                audioKey,
+                                                                            )
+                                                                        }
+                                                                        onPressOut={
+                                                                            handleAudioPressOut
+                                                                        }
+                                                                        disabled={
+                                                                            isLoading
                                                                         }
                                                                     >
-                                                                        <View
+                                                                        <Animated.View
                                                                             style={[
-                                                                                styles.callIconWrap,
-                                                                                mine &&
-                                                                                    styles.callIconWrapMine,
+                                                                                styles.audioPlayIconWrap,
+                                                                                (isPlaying ||
+                                                                                    isPressing) && {
+                                                                                    transform:
+                                                                                        [
+                                                                                            {
+                                                                                                scale: iconScaleNode,
+                                                                                            },
+                                                                                        ],
+                                                                                },
+                                                                                shouldAnimateIcon && {
+                                                                                    opacity:
+                                                                                        audioIconFade,
+                                                                                },
                                                                             ]}
                                                                         >
                                                                             <Ionicons
                                                                                 name={
-                                                                                    callMeta.icon
+                                                                                    isLoading
+                                                                                        ? "time-outline"
+                                                                                        : isPlaying
+                                                                                          ? "pause"
+                                                                                          : "play"
                                                                                 }
                                                                                 size={
-                                                                                    18
+                                                                                    20
                                                                                 }
                                                                                 color={
-                                                                                    mine
-                                                                                        ? colors.white
-                                                                                        : callMeta.iconColor
+                                                                                    colors.white
                                                                                 }
                                                                             />
-                                                                        </View>
+                                                                        </Animated.View>
+                                                                    </Pressable>
+                                                                    <View
+                                                                        style={
+                                                                            styles.audioMeta
+                                                                        }
+                                                                    >
                                                                         <View
-                                                                            style={
-                                                                                styles.callMeta
+                                                                            style={[
+                                                                                styles.audioWaveformTrack,
+                                                                                mine &&
+                                                                                    styles.audioWaveformTrackMine,
+                                                                                isSeeking && {
+                                                                                    transform:
+                                                                                        [
+                                                                                            {
+                                                                                                scaleY: audioSeekScale,
+                                                                                            },
+                                                                                        ],
+                                                                                },
+                                                                            ]}
+                                                                            onLayout={(
+                                                                                event,
+                                                                            ) => {
+                                                                                const width =
+                                                                                    event
+                                                                                        .nativeEvent
+                                                                                        .layout
+                                                                                        .width;
+                                                                                setAudioTrackWidthMap(
+                                                                                    (
+                                                                                        prev: Record<
+                                                                                            string,
+                                                                                            number
+                                                                                        >,
+                                                                                    ) => {
+                                                                                        if (
+                                                                                            prev[
+                                                                                                audioKey
+                                                                                            ] ===
+                                                                                            width
+                                                                                        ) {
+                                                                                            return prev;
+                                                                                        }
+
+                                                                                        return {
+                                                                                            ...prev,
+                                                                                            [audioKey]:
+                                                                                                width,
+                                                                                        };
+                                                                                    },
+                                                                                );
+                                                                            }}
+                                                                            onStartShouldSetResponder={() =>
+                                                                                true
+                                                                            }
+                                                                            onMoveShouldSetResponder={() =>
+                                                                                true
+                                                                            }
+                                                                            onResponderGrant={(
+                                                                                event,
+                                                                            ) => {
+                                                                                handleSeekInteractionStart(
+                                                                                    audioKey,
+                                                                                );
+                                                                                seekAudioByLocation(
+                                                                                    audioKey,
+                                                                                    url,
+                                                                                    event
+                                                                                        .nativeEvent
+                                                                                        .locationX,
+                                                                                    false,
+                                                                                );
+                                                                            }}
+                                                                            onResponderMove={(
+                                                                                event,
+                                                                            ) =>
+                                                                                seekAudioByLocation(
+                                                                                    audioKey,
+                                                                                    url,
+                                                                                    event
+                                                                                        .nativeEvent
+                                                                                        .locationX,
+                                                                                    true,
+                                                                                )
+                                                                            }
+                                                                            onResponderRelease={(
+                                                                                event,
+                                                                            ) => {
+                                                                                seekAudioByLocation(
+                                                                                    audioKey,
+                                                                                    url,
+                                                                                    event
+                                                                                        .nativeEvent
+                                                                                        .locationX,
+                                                                                    false,
+                                                                                );
+                                                                                handleSeekInteractionEnd();
+                                                                            }}
+                                                                            onResponderTerminate={() =>
+                                                                                handleSeekInteractionEnd()
                                                                             }
                                                                         >
-                                                                            <Text
-                                                                                style={[
-                                                                                    styles.callTitle,
-                                                                                    mine &&
-                                                                                        styles.callTitleMine,
-                                                                                ]}
-                                                                            >
-                                                                                {
-                                                                                    callMeta.title
-                                                                                }
-                                                                            </Text>
-                                                                            <Text
-                                                                                style={[
-                                                                                    styles.callSubtitle,
-                                                                                    mine &&
-                                                                                        styles.callSubtitleMine,
-                                                                                ]}
-                                                                            >
-                                                                                {
-                                                                                    callMeta.subtitle
-                                                                                }
-                                                                            </Text>
+                                                                            {waveBars.map(
+                                                                                (
+                                                                                    barHeight: number,
+                                                                                    barIndex: number,
+                                                                                ) => {
+                                                                                    const barStart =
+                                                                                        barIndex /
+                                                                                        waveBars.length;
+                                                                                    const barEnd =
+                                                                                        (barIndex +
+                                                                                            1) /
+                                                                                        waveBars.length;
+                                                                                    const fillRatio =
+                                                                                        progressRatio <=
+                                                                                        barStart
+                                                                                            ? 0
+                                                                                            : progressRatio >=
+                                                                                                barEnd
+                                                                                              ? 1
+                                                                                              : (progressRatio -
+                                                                                                    barStart) /
+                                                                                                (barEnd -
+                                                                                                    barStart);
+
+                                                                                    return (
+                                                                                        <View
+                                                                                            key={`${audioKey}-bar-${barIndex}`}
+                                                                                            style={[
+                                                                                                styles.audioWaveBar,
+                                                                                                {
+                                                                                                    height: `${barHeight}%`,
+                                                                                                },
+                                                                                                mine
+                                                                                                    ? styles.audioWaveBarIdleMine
+                                                                                                    : styles.audioWaveBarIdleOther,
+                                                                                            ]}
+                                                                                        >
+                                                                                            <View
+                                                                                                style={[
+                                                                                                    styles.audioWaveBarFill,
+                                                                                                    mine
+                                                                                                        ? styles.audioWaveBarPlayedMine
+                                                                                                        : styles.audioWaveBarPlayedOther,
+                                                                                                    {
+                                                                                                        opacity:
+                                                                                                            fillRatio,
+                                                                                                    },
+                                                                                                ]}
+                                                                                            />
+                                                                                        </View>
+                                                                                    );
+                                                                                },
+                                                                            )}
                                                                         </View>
-                                                                    </View>
-                                                                    <View
-                                                                        style={[
-                                                                            styles.callRecallBadge,
-                                                                            mine &&
-                                                                                styles.callRecallBadgeMine,
-                                                                        ]}
-                                                                    >
                                                                         <Text
                                                                             style={[
-                                                                                styles.callRecallText,
+                                                                                styles.audioTimeText,
                                                                                 mine &&
-                                                                                    styles.callRecallTextMine,
+                                                                                    styles.audioTimeTextMine,
                                                                             ]}
                                                                         >
-                                                                            Goi
-                                                                            lai
+                                                                            {isSeeking &&
+                                                                            durationMillis >
+                                                                                0
+                                                                                ? `${formatDurationMillis(positionMillis)} / ${formatDurationMillis(durationMillis)}`
+                                                                                : formatDurationMillis(
+                                                                                      positionMillis >
+                                                                                          0
+                                                                                          ? positionMillis
+                                                                                          : durationMillis,
+                                                                                  )}
                                                                         </Text>
                                                                     </View>
-                                                                </Pressable>
-                                                            ) : null}
+                                                                </View>
+                                                            );
+                                                        },
+                                                    )}
+                                                </View>
+                                            ) : null}
 
-                                                            {shouldShowFallbackText ? (
-                                                                <Text
-                                                                    style={[
-                                                                        styles.messageText,
-                                                                        mine &&
-                                                                            styles.messageTextMine,
-                                                                    ]}
-                                                                >
-                                                                    {item.content ||
-                                                                        "Tin nhan khong co noi dung"}
-                                                                </Text>
-                                                            ) : null}
-
-                                                            {shouldShowAttachmentCaption ? (
+                                            {fileAttachments.length > 0 ? (
+                                                <View style={styles.fileList}>
+                                                    {fileAttachments.map(
+                                                        (
+                                                            attachment,
+                                                            fileIndex,
+                                                        ) => (
+                                                            <Pressable
+                                                                key={`${item.id}-file-${fileIndex}`}
+                                                                style={[
+                                                                    styles.fileItem,
+                                                                    mine &&
+                                                                        styles.fileItemMine,
+                                                                    !mine &&
+                                                                        styles.cardShadow,
+                                                                ]}
+                                                                onPress={() => {
+                                                                    if (
+                                                                        attachment.resolvedUrl
+                                                                    ) {
+                                                                        void Linking.openURL(
+                                                                            attachment.resolvedUrl,
+                                                                        );
+                                                                    }
+                                                                }}
+                                                            >
                                                                 <View
-                                                                    style={[
-                                                                        styles.attachmentCaptionBubble,
-                                                                        mine &&
-                                                                            styles.attachmentCaptionBubbleMine,
-                                                                    ]}
+                                                                    style={
+                                                                        styles.fileBadge
+                                                                    }
                                                                 >
                                                                     <Text
-                                                                        style={[
-                                                                            styles.attachmentCaptionText,
-                                                                            mine &&
-                                                                                styles.attachmentCaptionTextMine,
-                                                                        ]}
-                                                                    >
-                                                                        {
-                                                                            item.content
+                                                                        style={
+                                                                            styles.fileBadgeText
                                                                         }
+                                                                    >
+                                                                        {getFileBadgeLabel(
+                                                                            attachment.fileName,
+                                                                        )}
                                                                     </Text>
                                                                 </View>
-                                                            ) : null}
+                                                                <View
+                                                                    style={
+                                                                        styles.fileMeta
+                                                                    }
+                                                                >
+                                                                    <Text
+                                                                        numberOfLines={
+                                                                            1
+                                                                        }
+                                                                        style={[
+                                                                            styles.fileName,
+                                                                            mine &&
+                                                                                styles.fileNameMine,
+                                                                        ]}
+                                                                    >
+                                                                        {attachment.fileName ||
+                                                                            "Tep dinh kem"}
+                                                                    </Text>
+                                                                    <Text
+                                                                        style={[
+                                                                            styles.fileSize,
+                                                                            mine &&
+                                                                                styles.fileSizeMine,
+                                                                        ]}
+                                                                    >
+                                                                        {formatFileSize(
+                                                                            attachment.fileSize,
+                                                                        )}
+                                                                    </Text>
+                                                                </View>
+                                                                <View
+                                                                    style={[
+                                                                        styles.fileActionIconWrap,
+                                                                        mine &&
+                                                                            styles.fileActionIconWrapMine,
+                                                                    ]}
+                                                                >
+                                                                    <Ionicons
+                                                                        name="download-outline"
+                                                                        size={
+                                                                            14
+                                                                        }
+                                                                        color={
+                                                                            mine
+                                                                                ? colors.white
+                                                                                : "#475569"
+                                                                        }
+                                                                    />
+                                                                </View>
+                                                            </Pressable>
+                                                        ),
+                                                    )}
+                                                </View>
+                                            ) : null}
+
+                                            {callMeta ? (
+                                                <Pressable
+                                                    style={[
+                                                        styles.callCard,
+                                                        mine &&
+                                                            styles.callCardMine,
+                                                        !mine &&
+                                                            styles.cardShadow,
+                                                    ]}
+                                                    onPress={() =>
+                                                        onRecallCall?.(
+                                                            callMeta.callType,
+                                                        )
+                                                    }
+                                                >
+                                                    <View
+                                                        style={
+                                                            styles.callMainRow
+                                                        }
+                                                    >
+                                                        <View
+                                                            style={[
+                                                                styles.callIconWrap,
+                                                                mine &&
+                                                                    styles.callIconWrapMine,
+                                                            ]}
+                                                        >
+                                                            <Ionicons
+                                                                name={
+                                                                    callMeta.icon
+                                                                }
+                                                                size={18}
+                                                                color={
+                                                                    mine
+                                                                        ? colors.white
+                                                                        : callMeta.iconColor
+                                                                }
+                                                            />
+                                                        </View>
+                                                        <View
+                                                            style={
+                                                                styles.callMeta
+                                                            }
+                                                        >
+                                                            <Text
+                                                                style={[
+                                                                    styles.callTitle,
+                                                                    mine &&
+                                                                        styles.callTitleMine,
+                                                                ]}
+                                                            >
+                                                                {callMeta.title}
+                                                            </Text>
+                                                            <Text
+                                                                style={[
+                                                                    styles.callSubtitle,
+                                                                    mine &&
+                                                                        styles.callSubtitleMine,
+                                                                ]}
+                                                            >
+                                                                {
+                                                                    callMeta.subtitle
+                                                                }
+                                                            </Text>
                                                         </View>
                                                     </View>
-                                                </>
-                                            )}
-                                        </Pressable>
-                                    </View>
-                                </View>
+                                                    <View
+                                                        style={[
+                                                            styles.callRecallBadge,
+                                                            mine &&
+                                                                styles.callRecallBadgeMine,
+                                                        ]}
+                                                    >
+                                                        <Text
+                                                            style={[
+                                                                styles.callRecallText,
+                                                                mine &&
+                                                                    styles.callRecallTextMine,
+                                                            ]}
+                                                        >
+                                                            Goi lai
+                                                        </Text>
+                                                    </View>
+                                                </Pressable>
+                                            ) : null}
 
-                                {isLastInGroup && messageTime ? (
-                                    <View
-                                        style={[
-                                            styles.messageMetaRow,
-                                            mine
-                                                ? styles.messageMetaRowMine
-                                                : styles.messageMetaRowOther,
-                                        ]}
-                                    >
-                                        <Text
-                                            style={[
-                                                styles.messageTime,
-                                                mine && styles.messageTimeMine,
-                                            ]}
-                                        >
-                                            {messageTime}
-                                        </Text>
-                                    </View>
-                                ) : null}
+                                            {shouldShowFallbackText ? (
+                                                <Text
+                                                    style={[
+                                                        styles.messageText,
+                                                        mine &&
+                                                            styles.messageTextMine,
+                                                    ]}
+                                                >
+                                                    {item.content ||
+                                                        "Tin nhan khong co noi dung"}
+                                                </Text>
+                                            ) : null}
 
-                                {receiptsForThisMessage.length > 0 ? (
-                                    <View
-                                        style={[
-                                            styles.messageMetaRow,
-                                            styles.messageMetaRowMine,
-                                        ]}
-                                    >
-                                        <View style={styles.seenReceiptsRow}>
-                                            {receiptsForThisMessage.map(
-                                                (receipt) => {
-                                                    const member =
-                                                        membersById[
-                                                            receipt.userId
-                                                        ];
-                                                    return (
-                                                        <UserAvatar
-                                                            key={`${item.id}-${receipt.userId}`}
-                                                            uri={member?.avatar}
-                                                            name={
-                                                                member?.nickname ||
-                                                                member?.username ||
-                                                                "?"
-                                                            }
-                                                            size={16}
-                                                        />
-                                                    );
-                                                },
-                                            )}
+                                            {shouldShowAttachmentCaption ? (
+                                                <View
+                                                    style={[
+                                                        styles.attachmentCaptionBubble,
+                                                        mine &&
+                                                            styles.attachmentCaptionBubbleMine,
+                                                    ]}
+                                                >
+                                                    <Text
+                                                        style={[
+                                                            styles.attachmentCaptionText,
+                                                            mine &&
+                                                                styles.attachmentCaptionTextMine,
+                                                        ]}
+                                                    >
+                                                        {item.content}
+                                                    </Text>
+                                                </View>
+                                            ) : null}
                                         </View>
                                     </View>
-                                ) : null}
-                            </View>
-                        );
+                                </>
+                            )}
+                        </Pressable>
+                    </View>
+                </View>
 
-});
+                {isLastInGroup && messageTime ? (
+                    <View
+                        style={[
+                            styles.messageMetaRow,
+                            mine
+                                ? styles.messageMetaRowMine
+                                : styles.messageMetaRowOther,
+                        ]}
+                    >
+                        <Text
+                            style={[
+                                styles.messageTime,
+                                mine && styles.messageTimeMine,
+                            ]}
+                        >
+                            {messageTime}
+                        </Text>
+                    </View>
+                ) : null}
+
+                {receiptsForThisMessage.length > 0 ? (
+                    <View
+                        style={[
+                            styles.messageMetaRow,
+                            styles.messageMetaRowMine,
+                        ]}
+                    >
+                        <View style={styles.seenReceiptsRow}>
+                            {receiptsForThisMessage.map((receipt) => {
+                                const member = membersById[receipt.userId];
+                                return (
+                                    <UserAvatar
+                                        key={`${item.id}-${receipt.userId}`}
+                                        uri={member?.avatar}
+                                        name={
+                                            member?.nickname ||
+                                            member?.username ||
+                                            "?"
+                                        }
+                                        size={16}
+                                    />
+                                );
+                            })}
+                        </View>
+                    </View>
+                ) : null}
+            </View>
+        );
+    },
+);
+
+MessageBubble.displayName = "MessageBubble";
 
 const styles = StyleSheet.create({
     container: {
@@ -1350,7 +1426,6 @@ const styles = StyleSheet.create({
     },
     avatarSpacer: {
         width: 30,
-        
     },
     messageColumn: {
         maxWidth: "80%",
@@ -1591,9 +1666,7 @@ const styles = StyleSheet.create({
         marginBottom: 8,
         marginLeft: -5,
     },
-    replyPreviewIconBoxMine: {
-        
-    },
+    replyPreviewIconBoxMine: {},
     replyPreviewTextWrap: {
         marginLeft: 5,
         flexShrink: 1,
