@@ -2,6 +2,7 @@ import { styles } from "./styles";
 import { MessageComposer } from "@/components/MessageComposer";
 import { MessageBubble } from "@/components/MessageBubble";
 import { useMessageAudioPlayback } from "@/hooks/useMessageAudioPlayback";
+import { useMessageComposerMediaActions } from "@/hooks/useMessageComposerMediaActions";
 import { MediaViewerModal } from "@/components/MediaViewerModal";
 import { MessageContextMenu } from "@/components/MessageContextMenu";
 import { UserAvatar } from "@/components";
@@ -11,9 +12,7 @@ import type { LocalUploadFile, Message } from "@/types/chat";
 import { formatRelativeTime } from "@/utils/format";
 import { Ionicons } from "@expo/vector-icons";
 import { Audio, type AVPlaybackStatus, ResizeMode, Video } from "expo-av";
-import * as DocumentPicker from "expo-document-picker";
 import * as Haptics from "expo-haptics";
-import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -41,18 +40,45 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
-    MENU_WIDTH, MENU_HORIZONTAL_MARGIN, MENU_VERTICAL_MARGIN, MENU_ESTIMATED_HEIGHT,
-    LOAD_OLDER_TRIGGER_PX, LOAD_NEWER_TRIGGER_PX, STICKY_BOTTOM_THRESHOLD_PX,
-    SHOW_SCROLL_BUTTON_THRESHOLD_PX, RIGHT_SCROLL_CUE_TRIGGER_PX,
-    RIGHT_SCROLL_CUE_HIDE_MS, RIGHT_SCROLL_CUE_HEIGHT, RIGHT_SCROLL_CUE_MARGIN,
-    JUMP_SCROLL_LOCK_MS, JUMP_AUTO_PAGING_SUPPRESS_MS, QUICK_EMOJIS,
-    ContextMenuState, ReplyComposerState, MediaViewerState, AudioProgress,
-    PinnedBannerItem, PinSystemRunRenderMeta, contextActions,
-    formatDurationMillis, formatFileSize, resolveMediaUrl, isLikelyStoragePathOrUrl,
-    resolveAttachmentUrls, formatMessageTime, isEmojiOnlyText, formatReplyLabel,
-    getFileBadgeLabel, resolvePinSystemPreview, parseCallMeta, isPinSystemMessageType,
-    buildReplyPreview, normalizeSearchText, inferReplyPreviewType, buildAudioWaveBars
-} from '@/utils/messageUtils';
+    MENU_WIDTH,
+    MENU_HORIZONTAL_MARGIN,
+    MENU_VERTICAL_MARGIN,
+    MENU_ESTIMATED_HEIGHT,
+    LOAD_OLDER_TRIGGER_PX,
+    LOAD_NEWER_TRIGGER_PX,
+    STICKY_BOTTOM_THRESHOLD_PX,
+    SHOW_SCROLL_BUTTON_THRESHOLD_PX,
+    RIGHT_SCROLL_CUE_TRIGGER_PX,
+    RIGHT_SCROLL_CUE_HIDE_MS,
+    RIGHT_SCROLL_CUE_HEIGHT,
+    RIGHT_SCROLL_CUE_MARGIN,
+    JUMP_SCROLL_LOCK_MS,
+    JUMP_AUTO_PAGING_SUPPRESS_MS,
+    QUICK_EMOJIS,
+    ContextMenuState,
+    ReplyComposerState,
+    MediaViewerState,
+    AudioProgress,
+    PinnedBannerItem,
+    PinSystemRunRenderMeta,
+    contextActions,
+    formatDurationMillis,
+    formatFileSize,
+    resolveMediaUrl,
+    isLikelyStoragePathOrUrl,
+    resolveAttachmentUrls,
+    formatMessageTime,
+    isEmojiOnlyText,
+    formatReplyLabel,
+    getFileBadgeLabel,
+    resolvePinSystemPreview,
+    parseCallMeta,
+    isPinSystemMessageType,
+    buildReplyPreview,
+    normalizeSearchText,
+    inferReplyPreviewType,
+    buildAudioWaveBars,
+} from "@/utils/messageUtils";
 import { PinnedBanner } from "@/components/PinnedBanner";
 export default function MessagesConversationScreen() {
     const { conversationId: conversationIdParam } = useLocalSearchParams<{
@@ -158,12 +184,27 @@ export default function MessagesConversationScreen() {
     const rightScrollCueOpacity = useRef(new Animated.Value(0)).current;
     const rightScrollCueTranslateY = useRef(new Animated.Value(0)).current;
     const {
-        audioPlayPulse, audioIconFade, audioPressScale, audioSeekScale,
-        activeSeekAudioKey, activePressAudioKey, audioLoadingKey, playingAudioKey,
-        audioProgressMap, audioTrackWidthMap, setAudioTrackWidthMap,
-        stopAndUnloadAudio, seekAudioByLocation, handleSeekInteractionStart,
-        handleSeekInteractionEnd, handleAudioPressIn, handleAudioPressOut,
-        seekAudioByDelta, toggleAudioPlayback, getAudioWaveBars, combinedAudioIconScale
+        audioPlayPulse,
+        audioIconFade,
+        audioPressScale,
+        audioSeekScale,
+        activeSeekAudioKey,
+        activePressAudioKey,
+        audioLoadingKey,
+        playingAudioKey,
+        audioProgressMap,
+        audioTrackWidthMap,
+        setAudioTrackWidthMap,
+        stopAndUnloadAudio,
+        seekAudioByLocation,
+        handleSeekInteractionStart,
+        handleSeekInteractionEnd,
+        handleAudioPressIn,
+        handleAudioPressOut,
+        seekAudioByDelta,
+        toggleAudioPlayback,
+        getAudioWaveBars,
+        combinedAudioIconScale,
     } = useMessageAudioPlayback();
     const activeRecordingRef = useRef<Audio.Recording | null>(null);
     const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(
@@ -467,10 +508,8 @@ export default function MessagesConversationScreen() {
         [requestJumpToMessage],
     );
 
-
     useEffect(() => {
         return () => {
-
             if (recordingTimerRef.current) {
                 clearInterval(recordingTimerRef.current);
                 recordingTimerRef.current = null;
@@ -811,98 +850,21 @@ export default function MessagesConversationScreen() {
         }
     };
 
-    const onPickMediaAndSend = async () => {
-        try {
-            const permission =
-                await ImagePicker.requestMediaLibraryPermissionsAsync();
-            if (!permission.granted) {
-                Alert.alert(
-                    "Thong bao",
-                    "Can cap quyen thu vien anh de gui tep",
-                );
-                return;
-            }
-
-            const result = await ImagePicker.launchImageLibraryAsync({
-                mediaTypes: ImagePicker.MediaTypeOptions.All,
-                allowsMultipleSelection: true,
-                quality: 1,
-                selectionLimit: 20,
-            });
-
-            if (result.canceled || result.assets.length === 0) return;
-
-            const files: LocalUploadFile[] = result.assets.map(
-                (asset, index) => {
-                    const fileName =
-                        asset.fileName ||
-                        asset.uri.split("/").pop() ||
-                        `upload-${Date.now()}-${index}`;
-                    const mimeType =
-                        asset.mimeType ||
-                        (asset.type === "video" ? "video/mp4" : "image/jpeg");
-
-                    return {
-                        uri: asset.uri,
-                        fileName,
-                        mimeType,
-                        fileSize: asset.fileSize ?? 1,
-                    };
-                },
-            );
-
-            const sent = await handleSendMixedMedia(
-                files,
-                undefined,
-                replyToMessage?.id,
-            );
-            if (sent) {
-                setReplyToMessage(null);
-                scrollToConversationBottom(true);
-            }
-        } catch {
-            Alert.alert("Thong bao", "Khong the chon tep vao luc nay");
-        }
-    };
-
-    const onPickDocumentAndSend = async () => {
-        try {
-            const result = await DocumentPicker.getDocumentAsync({
-                multiple: true,
-                type: "*/*",
-                copyToCacheDirectory: true,
-            });
-
-            if (
-                result.canceled ||
-                !result.assets ||
-                result.assets.length === 0
-            ) {
-                return;
-            }
-
-            const files: LocalUploadFile[] = result.assets.map(
-                (asset, index) => ({
-                    uri: asset.uri,
-                    fileName: asset.name || `document-${Date.now()}-${index}`,
-                    mimeType: asset.mimeType || "application/octet-stream",
-                    fileSize: asset.size ?? 1,
-                }),
-            );
-
-            const sent = await handleSendMixedMedia(
-                files,
-                undefined,
-                replyToMessage?.id,
-            );
-            if (sent) {
-                setReplyToMessage(null);
-                scrollToConversationBottom(true);
-            }
-        } catch {
-            Alert.alert("Thong bao", "Khong the chon tep vao luc nay");
-        }
-    };
+    const {
+        onPickMediaAndSend,
+        onCapturePhotoAndSend,
+        onCaptureVideoAndSend,
+        onPickDocumentAndSend,
+    } = useMessageComposerMediaActions({
+        handleSendMixedMedia,
+        replyToMessageId: replyToMessage?.id,
+        uploading,
+        sending,
+        onSendSuccess: () => {
+            setReplyToMessage(null);
+            scrollToConversationBottom(true);
+        },
+    });
 
     const stopRecordingTimer = useCallback(() => {
         if (recordingTimerRef.current) {
@@ -1363,7 +1325,7 @@ export default function MessagesConversationScreen() {
                     scrollEventThrottle={16}
                     onScrollToIndexFailed={handleScrollToIndexFailed}
                     renderItem={({ item, index }) => (
-                        <MessageBubble 
+                        <MessageBubble
                             item={item}
                             index={index}
                             messages={messages}
@@ -1378,11 +1340,24 @@ export default function MessagesConversationScreen() {
                             requestJumpToMessage={requestJumpToMessage}
                             handleExpandPinSystemRun={handleExpandPinSystemRun}
                             audioPlayback={{
-                                audioLoadingKey, playingAudioKey, activePressAudioKey, activeSeekAudioKey, 
-                                audioProgressMap, toggleAudioPlayback, handleAudioPressIn, handleAudioPressOut, 
-                                handleSeekInteractionStart, seekAudioByLocation, handleSeekInteractionEnd, 
-                                getAudioWaveBars, combinedAudioIconScale, setAudioTrackWidthMap, audioSeekScale, 
-                                audioPlayPulse, audioPressScale, audioIconFade
+                                audioLoadingKey,
+                                playingAudioKey,
+                                activePressAudioKey,
+                                activeSeekAudioKey,
+                                audioProgressMap,
+                                toggleAudioPlayback,
+                                handleAudioPressIn,
+                                handleAudioPressOut,
+                                handleSeekInteractionStart,
+                                seekAudioByLocation,
+                                handleSeekInteractionEnd,
+                                getAudioWaveBars,
+                                combinedAudioIconScale,
+                                setAudioTrackWidthMap,
+                                audioSeekScale,
+                                audioPlayPulse,
+                                audioPressScale,
+                                audioIconFade,
                             }}
                         />
                     )}
@@ -1595,36 +1570,38 @@ export default function MessagesConversationScreen() {
                     </Pressable>
                 ) : null}
 
-                    <MessageComposer
-                        replyToMessage={replyToMessage}
-                        setReplyToMessage={setReplyToMessage}
-                        isRecordingVoice={isRecordingVoice}
-                        onCancelRecording={onCancelRecording}
-                        onStopRecordingAndSend={onStopRecordingAndSend}
-                        onStartRecording={onStartRecording}
-                        uploading={uploading}
-                        sending={sending}
-                        recordingSeconds={recordingSeconds}
-                        messageInputRef={messageInputRef}
-                        messageText={messageText}
-                        setMessageText={setMessageText}
-                        sendTypingSignal={sendTypingSignal}
-                        inputSelection={inputSelection}
-                        setInputSelection={setInputSelection}
-                        onSend={onSend}
-                        hasTypedText={hasTypedText}
-                        emojiPickerOpen={emojiPickerOpen}
-                        setEmojiPickerOpen={setEmojiPickerOpen}
-                        onToggleEmojiPicker={onToggleEmojiPicker}
-                        onPickMediaAndSend={onPickMediaAndSend}
-                        onPickDocumentAndSend={onPickDocumentAndSend}
-                        loading={loading}
-                        uploadProgressLabel={uploadProgressLabel || ""}
-                        uploadProgressPercent={uploadProgressPercent}
-                        uploadFailedFileNames={uploadFailedFileNames}
-                        error={error}
-                        onPickEmoji={onPickEmoji}
-                    />
+                <MessageComposer
+                    replyToMessage={replyToMessage}
+                    setReplyToMessage={setReplyToMessage}
+                    isRecordingVoice={isRecordingVoice}
+                    onCancelRecording={onCancelRecording}
+                    onStopRecordingAndSend={onStopRecordingAndSend}
+                    onStartRecording={onStartRecording}
+                    uploading={uploading}
+                    sending={sending}
+                    recordingSeconds={recordingSeconds}
+                    messageInputRef={messageInputRef}
+                    messageText={messageText}
+                    setMessageText={setMessageText}
+                    sendTypingSignal={sendTypingSignal}
+                    inputSelection={inputSelection}
+                    setInputSelection={setInputSelection}
+                    onSend={onSend}
+                    hasTypedText={hasTypedText}
+                    emojiPickerOpen={emojiPickerOpen}
+                    setEmojiPickerOpen={setEmojiPickerOpen}
+                    onToggleEmojiPicker={onToggleEmojiPicker}
+                    onCapturePhotoAndSend={onCapturePhotoAndSend}
+                    onCaptureVideoAndSend={onCaptureVideoAndSend}
+                    onPickMediaAndSend={onPickMediaAndSend}
+                    onPickDocumentAndSend={onPickDocumentAndSend}
+                    loading={loading}
+                    uploadProgressLabel={uploadProgressLabel || ""}
+                    uploadProgressPercent={uploadProgressPercent}
+                    uploadFailedFileNames={uploadFailedFileNames}
+                    error={error}
+                    onPickEmoji={onPickEmoji}
+                />
             </KeyboardAvoidingView>
 
             <MessageContextMenu

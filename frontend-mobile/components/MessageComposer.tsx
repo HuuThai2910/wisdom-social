@@ -1,5 +1,15 @@
 import React from "react";
-import { View, Text, Pressable, TextInput, Modal, StyleSheet, KeyboardAvoidingView, Platform, Animated } from "react-native";
+import {
+    View,
+    Text,
+    Pressable,
+    TextInput,
+    Modal,
+    StyleSheet,
+    KeyboardAvoidingView,
+    Platform,
+    Animated,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing } from "@/constants";
 import { formatDurationMillis } from "@/utils/messageUtils";
@@ -33,6 +43,8 @@ export interface MessageComposerProps {
     emojiPickerOpen: boolean;
     setEmojiPickerOpen: (open: boolean) => void;
     onToggleEmojiPicker: () => void;
+    onCapturePhotoAndSend: () => void;
+    onCaptureVideoAndSend: () => void;
     onPickMediaAndSend: () => void;
     onPickDocumentAndSend: () => void;
     loading: boolean;
@@ -44,23 +56,63 @@ export interface MessageComposerProps {
 }
 
 const QUICK_EMOJIS = [
-    "👍", "❤️", "😂", "😮", "😢", "🙏", 
-    "👏", "🔥", "🎉", "💯", "✅", "✨",
-    "🤔", "👀", "🙌", "😅", "🥰", "😎"
+    "👍",
+    "❤️",
+    "😂",
+    "😮",
+    "😢",
+    "🙏",
+    "👏",
+    "🔥",
+    "🎉",
+    "💯",
+    "✅",
+    "✨",
+    "🤔",
+    "👀",
+    "🙌",
+    "😅",
+    "🥰",
+    "😎",
 ];
 
-export const MessageComposer = React.memo(({
-    replyToMessage, setReplyToMessage, isRecordingVoice, onCancelRecording,
-    onStopRecordingAndSend, onStartRecording, uploading, sending, 
-    recordingSeconds, messageInputRef, messageText, setMessageText,
-    sendTypingSignal, inputSelection, setInputSelection, onSend,
-    hasTypedText, emojiPickerOpen, setEmojiPickerOpen, onToggleEmojiPicker,
-    onPickMediaAndSend, onPickDocumentAndSend, loading, uploadProgressLabel,
-    uploadProgressPercent, uploadFailedFileNames, error, onPickEmoji
-}: MessageComposerProps) => {
+export const MessageComposer = React.memo(
+    ({
+        replyToMessage,
+        setReplyToMessage,
+        isRecordingVoice,
+        onCancelRecording,
+        onStopRecordingAndSend,
+        onStartRecording,
+        uploading,
+        sending,
+        recordingSeconds,
+        messageInputRef,
+        messageText,
+        setMessageText,
+        sendTypingSignal,
+        inputSelection,
+        setInputSelection,
+        onSend,
+        hasTypedText,
+        emojiPickerOpen,
+        setEmojiPickerOpen,
+        onToggleEmojiPicker,
+        onCapturePhotoAndSend,
+        onCaptureVideoAndSend,
+        onPickMediaAndSend,
+        onPickDocumentAndSend,
+        loading,
+        uploadProgressLabel,
+        uploadProgressPercent,
+        uploadFailedFileNames,
+        error,
+        onPickEmoji,
+    }: MessageComposerProps) => {
+        const cameraLongPressTriggeredRef = React.useRef(false);
 
-    return (
-        <View style={{ flexShrink: 0 }}>
+        return (
+            <View style={{ flexShrink: 0 }}>
                 <View style={styles.composerWrap}>
                     {replyToMessage ? (
                         <View style={styles.replyComposerBox}>
@@ -154,7 +206,25 @@ export const MessageComposer = React.memo(({
                             </View>
                         ) : (
                             <>
-                                <Pressable style={styles.cameraBtn} hitSlop={8}>
+                                <Pressable
+                                    style={styles.cameraBtn}
+                                    hitSlop={8}
+                                    onPress={() => {
+                                        if (
+                                            cameraLongPressTriggeredRef.current
+                                        ) {
+                                            cameraLongPressTriggeredRef.current = false;
+                                            return;
+                                        }
+                                        onCapturePhotoAndSend();
+                                    }}
+                                    onLongPress={() => {
+                                        cameraLongPressTriggeredRef.current = true;
+                                        onCaptureVideoAndSend();
+                                    }}
+                                    delayLongPress={220}
+                                    disabled={uploading || sending}
+                                >
                                     <Ionicons
                                         name="camera"
                                         size={20}
@@ -306,53 +376,56 @@ export const MessageComposer = React.memo(({
                     ) : null}
                 </View>
 
-            <Modal
-                visible={emojiPickerOpen && !isRecordingVoice}
-                transparent
-                animationType="fade"
-                onRequestClose={() => setEmojiPickerOpen(false)}
-            >
-                <Pressable
-                    style={styles.emojiPickerOverlay}
-                    onPress={() => setEmojiPickerOpen(false)}
+                <Modal
+                    visible={emojiPickerOpen && !isRecordingVoice}
+                    transparent
+                    animationType="fade"
+                    onRequestClose={() => setEmojiPickerOpen(false)}
                 >
                     <Pressable
-                        style={styles.emojiPickerCard}
-                        onPress={() => undefined}
+                        style={styles.emojiPickerOverlay}
+                        onPress={() => setEmojiPickerOpen(false)}
                     >
-                        <View style={styles.emojiPickerHeader}>
-                            <Text style={styles.emojiPickerTitle}>Emoji</Text>
-                            <Pressable
-                                hitSlop={8}
-                                onPress={() => setEmojiPickerOpen(false)}
-                            >
-                                <Ionicons
-                                    name="close"
-                                    size={18}
-                                    color={colors.textMuted}
-                                />
-                            </Pressable>
-                        </View>
-
-                        <View style={styles.emojiGrid}>
-                            {QUICK_EMOJIS.map((emoji) => (
+                        <Pressable
+                            style={styles.emojiPickerCard}
+                            onPress={() => undefined}
+                        >
+                            <View style={styles.emojiPickerHeader}>
+                                <Text style={styles.emojiPickerTitle}>
+                                    Emoji
+                                </Text>
                                 <Pressable
-                                    key={emoji}
-                                    style={styles.emojiCell}
-                                    onPress={() => onPickEmoji(emoji)}
+                                    hitSlop={8}
+                                    onPress={() => setEmojiPickerOpen(false)}
                                 >
-                                    <Text style={styles.emojiCellText}>
-                                        {emoji}
-                                    </Text>
+                                    <Ionicons
+                                        name="close"
+                                        size={18}
+                                        color={colors.textMuted}
+                                    />
                                 </Pressable>
-                            ))}
-                        </View>
+                            </View>
+
+                            <View style={styles.emojiGrid}>
+                                {QUICK_EMOJIS.map((emoji) => (
+                                    <Pressable
+                                        key={emoji}
+                                        style={styles.emojiCell}
+                                        onPress={() => onPickEmoji(emoji)}
+                                    >
+                                        <Text style={styles.emojiCellText}>
+                                            {emoji}
+                                        </Text>
+                                    </Pressable>
+                                ))}
+                            </View>
+                        </Pressable>
                     </Pressable>
-                </Pressable>
-            </Modal>
-        </View>
-    );
-});
+                </Modal>
+            </View>
+        );
+    },
+);
 
 const styles = StyleSheet.create({
     container: {
@@ -1091,7 +1164,6 @@ const styles = StyleSheet.create({
         borderTopColor: colors.border,
         paddingHorizontal: spacing.md,
         paddingVertical: 10,
-    
     },
     replyComposerBox: {
         backgroundColor: "#f5f5f5ff",
