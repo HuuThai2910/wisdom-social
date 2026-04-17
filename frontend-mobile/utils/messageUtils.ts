@@ -16,10 +16,46 @@ export const RIGHT_SCROLL_CUE_MARGIN = 8;
 export const JUMP_SCROLL_LOCK_MS = 1500;
 export const JUMP_AUTO_PAGING_SUPPRESS_MS = 2600;
 export const QUICK_EMOJIS = [
-    "😀", "😂", "😍", "🥰", "😘", "😊", "😉", "😎", "😭", "😡",
-    "😮", "🤔", "🙏", "👍", "👎", "👏", "🔥", "💯", "🎉", "❤️",
-    "💙", "💚", "💛", "🧡", "💜", "🤍", "🤎", "💔", "✨", "🌟",
-    "😴", "🤯", "😅", "😇", "🤗", "😋", "🙌", "👌", "🤝", "🎵",
+    "😀",
+    "😂",
+    "😍",
+    "🥰",
+    "😘",
+    "😊",
+    "😉",
+    "😎",
+    "😭",
+    "😡",
+    "😮",
+    "🤔",
+    "🙏",
+    "👍",
+    "👎",
+    "👏",
+    "🔥",
+    "💯",
+    "🎉",
+    "❤️",
+    "💙",
+    "💚",
+    "💛",
+    "🧡",
+    "💜",
+    "🤍",
+    "🤎",
+    "💔",
+    "✨",
+    "🌟",
+    "😴",
+    "🤯",
+    "😅",
+    "😇",
+    "🤗",
+    "😋",
+    "🙌",
+    "👌",
+    "🤝",
+    "🎵",
 ];
 
 export type ContextMenuState = {
@@ -206,7 +242,9 @@ export function getFileBadgeLabel(fileName?: string): string {
 }
 
 export function resolvePinSystemPreview(message: Message): string {
+    let content = message.replyInfo?.type === "IMAGE" ? "1 ảnh" : "";
     const source =
+        content ||
         message.replyInfo?.content ||
         message.content ||
         message.attachments?.[0]?.fileName ||
