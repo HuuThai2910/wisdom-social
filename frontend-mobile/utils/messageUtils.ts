@@ -242,7 +242,14 @@ export function getFileBadgeLabel(fileName?: string): string {
 }
 
 export function resolvePinSystemPreview(message: Message): string {
-    let content = message.replyInfo?.type === "IMAGE" ? "1 ảnh" : "";
+    let content = "";
+    if (message.replyInfo?.type === "VIDEO") {
+        content = "1 tin nhắn video";
+    }
+    if (message.replyInfo?.type === "IMAGE") {
+        content = "1 tin nhắn ảnh";
+    }
+
     const source =
         content ||
         message.replyInfo?.content ||
