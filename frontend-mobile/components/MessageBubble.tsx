@@ -174,8 +174,22 @@ export const MessageBubble = React.memo(
             item.type === "IMAGE" ? resolveAttachmentUrls(item) : [];
         const videoUrls =
             item.type === "VIDEO" ? resolveAttachmentUrls(item) : [];
-        const audioUrls =
-            item.type === "AUDIO" ? resolveAttachmentUrls(item) : [];
+        const audioAttachments =
+            item.type === "AUDIO"
+                ? Array.isArray(item.attachments) && item.attachments.length > 0
+                    ? item.attachments
+                          .map((attachment) => ({
+                              url:
+                                  resolveMediaUrl(attachment.url) ||
+                                  attachment.url,
+                              mimeType: attachment.type,
+                          }))
+                          .filter((attachment) => Boolean(attachment.url))
+                    : resolveAttachmentUrls(item).map((url) => ({
+                          url,
+                          mimeType: undefined,
+                      }))
+                : [];
         const callMeta = parseCallMeta(item);
 
         const rawFileAttachments =
@@ -807,10 +821,17 @@ export const MessageBubble = React.memo(
                                                 </View>
                                             ) : null}
 
-                                            {audioUrls.length > 0 ? (
+                                            {audioAttachments.length > 0 ? (
                                                 <View style={styles.audioList}>
-                                                    {audioUrls.map(
-                                                        (url, audioIndex) => {
+                                                    {audioAttachments.map(
+                                                        (
+                                                            attachment,
+                                                            audioIndex,
+                                                        ) => {
+                                                            const url =
+                                                                attachment.url;
+                                                            const mimeType =
+                                                                attachment.mimeType;
                                                             const audioKey = `${item.id}-audio-${audioIndex}`;
                                                             const isLoading =
                                                                 audioLoadingKey ===
@@ -892,6 +913,7 @@ export const MessageBubble = React.memo(
                                                                                     void toggleAudioPlayback(
                                                                                         audioKey,
                                                                                         url,
+                                                                                        mimeType,
                                                                                     );
                                                                                 },
                                                                             )
@@ -948,7 +970,7 @@ export const MessageBubble = React.memo(
                                                                             styles.audioMeta
                                                                         }
                                                                     >
-                                                                        <View
+                                                                        <Animated.View
                                                                             style={[
                                                                                 styles.audioWaveformTrack,
                                                                                 mine &&
@@ -1131,7 +1153,7 @@ export const MessageBubble = React.memo(
                                                                                     );
                                                                                 },
                                                                             )}
-                                                                        </View>
+                                                                        </Animated.View>
                                                                         <Text
                                                                             style={[
                                                                                 styles.audioTimeText,

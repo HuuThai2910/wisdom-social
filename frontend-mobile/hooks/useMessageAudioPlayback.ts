@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
-import { Animated, Easing, Alert, Linking } from "react-native";
+import { Animated, Easing, Alert, Linking, Platform } from "react-native";
 import { Audio, AVPlaybackStatus } from "expo-av";
 import * as Haptics from "expo-haptics";
 import { AudioProgress, buildAudioWaveBars } from "@/utils/messageUtils";
@@ -32,6 +32,56 @@ export function useMessageAudioPlayback() {
     const audioBoundaryStateRef = useRef<
         Record<string, "start" | "end" | null>
     >({});
+
+    const isLikelyUnsupportedAudioFormat = useCallback(
+        (audioUrl: string, mimeType?: string) => {
+            const normalizedMime = mimeType?.toLowerCase() ?? "";
+            const normalizedUrl = audioUrl.toLowerCase();
+
+            const isWebmFamily =
+                normalizedMime.includes("webm") ||
+                normalizedMime.includes("opus") ||
+                normalizedUrl.includes(".webm") ||
+                normalizedUrl.includes(".opus") ||
+                normalizedUrl.includes(".weba");
+            const isOggFamily =
+                normalizedMime.includes("ogg") ||
+                normalizedUrl.includes(".ogg");
+
+            if (Platform.OS === "ios") {
+                return isWebmFamily || isOggFamily;
+            }
+
+            return false;
+        },
+        [],
+    );
+
+    const promptExternalAudioPlayback = useCallback((audioUrl: string) => {
+        Alert.alert(
+            "Thong bao",
+            "Khong the phat am thanh trong app luc nay. Ban co muon mo trinh duyet de nghe khong?",
+            [
+                { text: "Huy", style: "cancel" },
+                {
+                    text: "Mo",
+                    onPress: () => {
+                        void Linking.openURL(audioUrl);
+                    },
+                },
+            ],
+        );
+    }, []);
+
+    const ensurePlaybackAudioMode = useCallback(async () => {
+        await Audio.setAudioModeAsync({
+            allowsRecordingIOS: false,
+            playsInSilentModeIOS: true,
+            shouldDuckAndroid: true,
+            playThroughEarpieceAndroid: false,
+            staysActiveInBackground: false,
+        });
+    }, []);
 
     const handleAudioStatusUpdate = useCallback(
         (audioKey: string, status: AVPlaybackStatus) => {
@@ -298,9 +348,18 @@ export function useMessageAudioPlayback() {
     );
 
     const toggleAudioPlayback = useCallback(
-        async (audioKey: string, audioUrl: string) => {
+        async (audioKey: string, audioUrl: string, mimeType?: string) => {
             try {
                 setAudioLoadingKey(audioKey);
+
+                const shouldUseExternalPlayback =
+                    isLikelyUnsupportedAudioFormat(audioUrl, mimeType);
+                if (shouldUseExternalPlayback) {
+                    promptExternalAudioPlayback(audioUrl);
+                    return;
+                }
+
+                await ensurePlaybackAudioMode();
 
                 if (
                     activeAudioRef.current &&
@@ -354,21 +413,8 @@ export function useMessageAudioPlayback() {
                 activeAudioKeyRef.current = audioKey;
                 setPlayingAudioKey(audioKey);
             } catch {
-                const isWebm = /\.webm($|\?)/i.test(audioUrl);
-                if (isWebm) {
-                    Alert.alert(
-                        "Thong bao",
-                        "Thiet bi khong ho tro phat webm trong app. Ban co muon mo trinh duyet de nghe khong?",
-                        [
-                            { text: "Huy", style: "cancel" },
-                            {
-                                text: "Mo",
-                                onPress: () => {
-                                    void Linking.openURL(audioUrl);
-                                },
-                            },
-                        ],
-                    );
+                if (/^https?:\/\//i.test(audioUrl)) {
+                    promptExternalAudioPlayback(audioUrl);
                 } else {
                     Alert.alert("Thong bao", "Khong the phat tep am thanh");
                 }
@@ -376,7 +422,13 @@ export function useMessageAudioPlayback() {
                 setAudioLoadingKey(null);
             }
         },
-        [handleAudioStatusUpdate, stopAndUnloadAudio],
+        [
+            ensurePlaybackAudioMode,
+            handleAudioStatusUpdate,
+            isLikelyUnsupportedAudioFormat,
+            promptExternalAudioPlayback,
+            stopAndUnloadAudio,
+        ],
     );
 
     useEffect(() => {
