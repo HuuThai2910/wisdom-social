@@ -46,7 +46,7 @@ public class Post {
     @Id
     private String id;
 
-    @Indexed
+        @Indexed(name = "post_author_idx")
     private String authorId;
     
     // Text search index cho content

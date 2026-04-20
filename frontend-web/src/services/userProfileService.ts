@@ -24,6 +24,22 @@ export interface ApiResponse<T> {
     data: T;
 }
 
+const fetchUserPostCount = async (userId: string | number): Promise<number> => {
+    try {
+        const countRes = await axiosClient.get(`/posts/user/${userId}/count`);
+        const countData = countRes.data?.data ?? countRes.data;
+        return typeof countData === "number" ? countData : 0;
+    } catch (error: any) {
+        console.warn("⚠️ Failed to fetch post count, fallback to profile/post list data", {
+            userId,
+            message: error.message,
+            status: error.response?.status,
+            data: error.response?.data,
+        });
+        return 0;
+    }
+};
+
 /**
  * Fetch user profile by username
  * First search username, then get full profile with stats
@@ -59,11 +75,13 @@ export const fetchUserProfileByUsername = async (
 
         // Step 2: Get full profile with stats using user ID
         console.log(`📤 Fetching full profile for user ID: ${userBasic.id}`);
-        const profileRes = await axiosClient.get(
-            `/auth/user/${userBasic.id}`
-        );
+        const [profileRes, postCount] = await Promise.all([
+            axiosClient.get(`/auth/user/${userBasic.id}`),
+            fetchUserPostCount(userBasic.id),
+        ]);
 
         console.log("📥 Profile response:", profileRes.data);
+        console.log("📥 Post count response:", postCount);
 
         // Handle both wrapped ApiResponse and direct object response
         const profileData = profileRes.data?.data || profileRes.data;
@@ -83,10 +101,10 @@ export const fetchUserProfileByUsername = async (
             phone: profileData.phone,
             birthday: profileData.birthday,
             gender: profileData.gender,
-            friendCount: profileData.friendCount || 0,
-            followerCount: profileData.followerCount || 0,
-            followingCount: profileData.followingCount || 0,
-            postCount: profileData.postCount || 0,
+            friendCount: profileData.friendCount || profileData.friendsCount || 0,
+            followerCount: profileData.followerCount || profileData.followersCount || 0,
+            followingCount: profileData.followingCount || profileData.followingCount || 0,
+            postCount: postCount || profileData.postCount || profileData.postsCount || 0,
             createdAt: profileData.createdAt,
             updatedAt: profileData.updatedAt,
         };
@@ -113,10 +131,12 @@ export const fetchUserProfileById = async (
 ): Promise<UserProfile | null> => {
     try {
         console.log(`📤 Fetching user profile by ID: ${userId}`);
-        const res = await axiosClient.get(
-            `/auth/user/${userId}`
-        );
+        const [res, postCount] = await Promise.all([
+            axiosClient.get(`/auth/user/${userId}`),
+            fetchUserPostCount(userId),
+        ]);
         console.log("📥 Profile response:", res.data);
+        console.log("📥 Post count response:", postCount);
 
         // Handle both wrapped ApiResponse and direct object response
         const profileData = res.data?.data || res.data;
@@ -136,10 +156,10 @@ export const fetchUserProfileById = async (
             phone: profileData.phone,
             birthday: profileData.birthday,
             gender: profileData.gender,
-            friendCount: profileData.friendCount || 0,
-            followerCount: profileData.followerCount || 0,
-            followingCount: profileData.followingCount || 0,
-            postCount: profileData.postCount || 0,
+            friendCount: profileData.friendCount || profileData.friendsCount || 0,
+            followerCount: profileData.followerCount || profileData.followersCount || 0,
+            followingCount: profileData.followingCount || profileData.followingCount || 0,
+            postCount: postCount || profileData.postCount || profileData.postsCount || 0,
             createdAt: profileData.createdAt,
             updatedAt: profileData.updatedAt,
         };
@@ -167,11 +187,12 @@ export const fetchUserPosts = async (userId: string | number): Promise<any[]> =>
         );
         console.log("📥 Posts response:", res.data);
 
-        // Handle both wrapped ApiResponse and direct array response
-        const posts = Array.isArray(res.data)
-            ? res.data
-            : Array.isArray(res.data?.data)
-                ? res.data.data
+        // Handle direct array, wrapped array, and wrapped Page response
+        const rawData = res.data?.data ?? res.data;
+        const posts = Array.isArray(rawData)
+            ? rawData
+            : Array.isArray(rawData?.content)
+                ? rawData.content
                 : [];
 
         console.log(`✅ Fetched ${posts.length} posts for user ${userId}`);

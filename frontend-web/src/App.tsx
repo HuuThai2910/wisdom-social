@@ -15,7 +15,7 @@ import FriendDataProvider from "./contexts/FriendDataContext";
 import MainLayout from "./components/layout/MainLayout";
 import PublicLayout from "./components/layout/PublicLayout";
 import RequireAuth from "./components/auth/RequireAuth";
-import PostModal from "./components/post/PostModal/PostModal";
+import PostModal from "./components/post/post-modal/PostModal";
 
 // Auth Pages
 import Login from "./pages/LogIn";

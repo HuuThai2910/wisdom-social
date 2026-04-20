@@ -74,7 +74,7 @@ public class UserSettingServiceImpl implements UserSettingService {
         long friendCount = friendRepository.findFriendsByUser(user).size();
         long followerCount = followRepository.countByFollowing(user);
         long followingCount = followRepository.countByFollower(user);
-        long postCount = postRepository.findByAuthorIdOrderByCreatedAtDesc(user.getId().toString()).size();
+        long postCount = postRepository.countByAuthorId(user.getId());
 
         // Build and return response with stats
         return UserProfileResponse.builder()

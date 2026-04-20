@@ -204,7 +204,14 @@ export const fetchUserById = async (userId: string | number): Promise<UserData> 
         throw new Error("No user data in response");
     }
 
-    return response.data.data;
+    const userData = response.data.data;
+    return {
+        ...userData,
+        avatarUrl:
+            buildS3Url(userData.avatarUrl) ||
+            userData.avatarUrl ||
+            "https://i.pravatar.cc/150?img=5",
+    };
 };
 
 /**
@@ -215,7 +222,18 @@ export const fetchUsersByIds = async (userIds: string[]): Promise<UserData[]> =>
         axiosClient.get(`/auth/user/${userId}`).catch(() => null)
     );
     const responses = await Promise.all(promises);
-    return responses.filter((res) => res !== null).map((res) => res!.data.data);
+    return responses
+        .filter((res) => res !== null)
+        .map((res) => {
+            const userData = res!.data.data;
+            return {
+                ...userData,
+                avatarUrl:
+                    buildS3Url(userData.avatarUrl) ||
+                    userData.avatarUrl ||
+                    "https://i.pravatar.cc/150?img=5",
+            };
+        });
 };
 
 /**
@@ -783,7 +801,12 @@ export const getUserPostsWithDetails = async (userId: string | number): Promise<
     try {
         console.log(`📥 Fetching posts for user: ${userId}`);
         const response = await axiosClient.get(`/posts/user/${userId}`);
-        const postsData = response.data?.data || [];
+        const rawData = response.data?.data ?? response.data;
+        const postsData = Array.isArray(rawData)
+            ? rawData
+            : Array.isArray(rawData?.content)
+                ? rawData.content
+                : [];
 
         const transformedPosts = postsData.map((post: any) => {
             const images = transformMediaToS3Urls(post.media, post.authorId);
@@ -831,7 +854,10 @@ export const getUserByUsername = async (username: string): Promise<any> => {
             id: userData.id.toString(),
             username: userData.username,
             fullName: userData.name || userData.username,
-            avatarUrl: userData.avatarUrl || "https://i.pravatar.cc/150?img=5",
+            avatarUrl:
+                buildS3Url(userData.avatarUrl) ||
+                userData.avatarUrl ||
+                "https://i.pravatar.cc/150?img=5",
             bio: userData.bio,
             friendsCount: userData.friendCount || 0,
             followersCount: userData.followerCount || 0,

@@ -15,11 +15,11 @@ import iuh.fit.edu.backend.service.s3.S3Service;
 import iuh.fit.edu.backend.service.user.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Map;
 
 /*
  * @description: Post management controller
@@ -130,20 +130,48 @@ public class PostController {
     }
 
     /**
-     * Get all posts by user ID
+     * Get posts by user ID with pagination
      * @param userId User ID
-     * @return List of posts
+     * @param page 0-based page index
+     * @param size page size
+     * @return Page of posts with metadata
      */
     @GetMapping("/user/{userId}")
-    public ResponseEntity<ApiResponse<List<Post>>> getPostsByUserId(@PathVariable Long userId) {
+    public ResponseEntity<ApiResponse<Page<Post>>> getPostsByUserId(
+            @PathVariable Long userId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
         try {
-            log.info("Fetching posts for user: {}", userId);
-            List<Post> posts = postService.getPostsByUserId(userId);
+            if (page < 0 || size <= 0) {
+                return ResponseEntity.badRequest()
+                        .body(ApiResponse.error(400, "Tham số phân trang không hợp lệ", null));
+            }
+
+            log.info("Fetching posts for user: {}, page={}, size={}", userId, page, size);
+            Page<Post> posts = postService.getPostsByUserId(userId, page, size);
             return ResponseEntity.ok(ApiResponse.success(200, "Lấy danh sách post thành công", posts));
         } catch (Exception e) {
             log.error("Error fetching posts", e);
             return ResponseEntity.badRequest()
                     .body(ApiResponse.error(400, "Lỗi khi lấy danh sách post: " + e.getMessage(), null));
+        }
+    }
+
+    /**
+     * Count total posts by user ID
+     * @param userId User ID
+     * @return total number of posts
+     */
+    @GetMapping("/user/{userId}/count")
+    public ResponseEntity<ApiResponse<Long>> countPostsByUserId(@PathVariable Long userId) {
+        try {
+            log.info("Counting posts for user: {}", userId);
+            long postCount = postService.countPostsByUserId(userId);
+            return ResponseEntity.ok(ApiResponse.success(200, "Lấy số lượng post thành công", postCount));
+        } catch (Exception e) {
+            log.error("Error counting posts", e);
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error(400, "Lỗi khi đếm số lượng post: " + e.getMessage(), null));
         }
     }
 

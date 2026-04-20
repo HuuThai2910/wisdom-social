@@ -5,6 +5,7 @@ import ProfileTabs from "../components/profile/ProfileTabs";
 import axios from "axios";
 import type { User } from "../types";
 import { useCurrentUser } from "../hooks/useCurrentUser";
+import { buildS3Url } from "../utils/s3";
 
 const API_BASE_URL = "http://localhost:8080/api";
 
@@ -25,7 +26,10 @@ export default function ProfileGeneral() {
             id: userData.id.toString(),
             username: userData.username,
             fullName: userData.name || userData.username,
-            avatarUrl: userData.avatarUrl || "https://i.pravatar.cc/150?img=5",
+            avatarUrl:
+              buildS3Url(userData.avatarUrl) ||
+              userData.avatarUrl ||
+              "https://i.pravatar.cc/150?img=5",
             bio: userData.bio,
             birthday: userData.birthday || "",
             gender: userData.gender || "HIDDEN",

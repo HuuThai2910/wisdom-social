@@ -1,8 +1,9 @@
 import { useParams } from "react-router-dom";
 import { useEffect, useState } from "react";
-import PostCard from "../components/post/PostCard";
+import PostCard from "../components/post/post-card/PostCard";
 import axiosClient from "../api/axiosClient";
 import { transformMediaToS3Urls } from "../services/postService";
+import { buildS3Url } from "../utils/s3";
 
 interface PostData {
   id: string;
@@ -40,7 +41,10 @@ export default function Post() {
             id: userData.id,
             username: userData.username,
             fullName: userData.name || userData.username,
-            avatarUrl: userData.avatarUrl || "https://i.pravatar.cc/150?img=5",
+            avatarUrl:
+              buildS3Url(userData.avatarUrl) ||
+              userData.avatarUrl ||
+              "https://i.pravatar.cc/150?img=5",
           },
           images:
             postData.media && postData.media.length > 0

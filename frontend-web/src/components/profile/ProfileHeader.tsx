@@ -3,15 +3,13 @@ import { useState, useEffect } from "react";
 import type { User } from "../../types";
 import { Settings, LogOut, QrCode, X, MessageCircle } from "lucide-react";
 import { logout } from "../../utils/auth";
-import axiosClient from "../../api/axiosClient";
 import NoteModal from "./NoteModal";
 import FriendsModal from "./FriendsModal";
 import { buildS3Url } from "../../utils/s3";
 import BlockUnblockButton from "../friend/BlockUnblockButton";
 import FriendActions from "../friend/FriendActions";
-import * as postService from "../../services/postService";
-
-import type { Note } from "../../types/note";
+import { getUserPostsWithDetails } from "../../services/postService";
+import { useProfileNote } from "../../hooks/useProfileNote";
 
 interface ProfileHeaderProps {
   user: User;
@@ -30,17 +28,21 @@ export default function ProfileHeader({
   isOwnProfile = false,
 }: ProfileHeaderProps) {
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
-  const [note, setNote] = useState<Note | null>(null);
-  const [showNoteModal, setShowNoteModal] = useState(false);
   const [showFriendsModal, setShowFriendsModal] = useState(false);
   const [showAvatarModal, setShowAvatarModal] = useState(false);
+  const [postsCount, setPostsCount] = useState(0);
+  const { note, showNoteModal, openNoteModal, closeNoteModal, setNote } =
+    useProfileNote(user?.id);
 
+  //
   useEffect(() => {
     if (!user?.id) return;
-    axiosClient
-      .get(`/notes/user/${user.id}`)
-      .then((res) => setNote(res.data.data ?? null))
-      .catch(() => setNote(null));
+
+    getUserPostsWithDetails(user.id)
+      .then((posts) => {
+        setPostsCount(posts.length);
+      })
+      .catch(() => setPostsCount(0));
   }, [user?.id]);
 
   const handleLogout = async () => {
@@ -94,14 +96,14 @@ export default function ProfileHeader({
           {/* Top section: Avatar + User Info */}
           <div className="flex gap-8 md:gap-10">
             {/* Avatar Column */}
-            <div className="flex flex-col items-center flex-shrink-0">
+            <div className="flex flex-col items-center shrink-0">
               {note && (
                 <button
-                  onClick={() => setShowNoteModal(true)}
+                  onClick={openNoteModal}
                   className="mb-3 w-24 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-2xl rounded-bl-none px-3 py-2 shadow-sm text-left text-xs hover:shadow-md transition-all"
                 >
                   {note.content ? (
-                    <span className="text-gray-700 dark:text-gray-200 line-clamp-2 break-words">
+                    <span className="text-gray-700 dark:text-gray-200 line-clamp-2 wrap-break-word">
                       {note.content}
                     </span>
                   ) : note.music ? (
@@ -113,9 +115,7 @@ export default function ProfileHeader({
               )}
               <button
                 onClick={() =>
-                  isOwnProfile
-                    ? setShowNoteModal(true)
-                    : setShowAvatarModal(true)
+                  isOwnProfile ? openNoteModal() : setShowAvatarModal(true)
                 }
                 className="relative mb-2 hover:opacity-80 transition-opacity"
               >
@@ -142,13 +142,13 @@ export default function ProfileHeader({
                   <>
                     <Link
                       to="/"
-                      className="px-4 py-[7px] bg-[#efefef] dark:bg-[#262626] hover:bg-[#dbdbdb] dark:hover:bg-[#363636] rounded-lg text-sm font-semibold dark:text-white"
+                      className="px-4 py-1.75 bg-[#efefef] dark:bg-[#262626] hover:bg-[#dbdbdb] dark:hover:bg-[#363636] rounded-lg text-sm font-semibold dark:text-white"
                     >
                       Edit profile
                     </Link>
                     <Link
                       to="/settings"
-                      className="px-4 py-[7px] bg-[#efefef] dark:bg-[#262626] hover:bg-[#dbdbdb] dark:hover:bg-[#363636] rounded-lg text-sm font-semibold dark:text-white"
+                      className="px-4 py-1.75 bg-[#efefef] dark:bg-[#262626] hover:bg-[#dbdbdb] dark:hover:bg-[#363636] rounded-lg text-sm font-semibold dark:text-white"
                     >
                       View archive
                     </Link>
@@ -167,14 +167,14 @@ export default function ProfileHeader({
                             className="fixed inset-0 z-40"
                             onClick={() => setShowSettingsMenu(false)}
                           />
-                          <div className="absolute right-0 top-full mt-2 w-[266px] bg-white dark:bg-[#262626] rounded-2xl shadow-[0_4px_12px_rgba(0,0,0,0.15)] dark:shadow-[0_4px_12px_rgba(0,0,0,0.5)] overflow-hidden z-50">
+                          <div className="absolute right-0 top-full mt-2 w-66.5 bg-white dark:bg-[#262626] rounded-2xl shadow-[0_4px_12px_rgba(0,0,0,0.15)] dark:shadow-[0_4px_12px_rgba(0,0,0,0.5)] overflow-hidden z-50">
                             {/* QR Code Button */}
                             <button className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-gray-50 dark:hover:bg-[#3a3a3a] dark:text-white transition-colors">
                               <QrCode size={18} />
                               <span className="text-[14px]">QR code</span>
                             </button>
 
-                            <div className="h-[1px] bg-gray-200 dark:bg-[#363636]" />
+                            <div className="h-px bg-gray-200 dark:bg-[#363636]" />
 
                             {/* Log Out Button */}
                             <button
@@ -198,7 +198,7 @@ export default function ProfileHeader({
                       targetUsername={user.username}
                       size="md"
                     />
-                    <button className="px-6 py-[7px] bg-[#efefef] dark:bg-[#262626] hover:bg-[#dbdbdb] dark:hover:bg-[#363636] rounded-lg text-sm font-semibold dark:text-white">
+                    <button className="px-6 py-1.75 bg-[#efefef] dark:bg-[#262626] hover:bg-[#dbdbdb] dark:hover:bg-[#363636] rounded-lg text-sm font-semibold dark:text-white">
                       Message
                     </button>
                     <BlockUnblockButton
@@ -250,9 +250,7 @@ export default function ProfileHeader({
                 <div className="grid grid-cols-2 gap-8 mb-6 pb-6 border-b border-gray-200 dark:border-[#262626]">
                   <div>
                     <p className="text-2xl font-bold dark:text-white">
-                      {typeof user.postsCount === "number"
-                        ? user.postsCount.toLocaleString()
-                        : user.postsCount || 0}
+                      {postsCount.toLocaleString()}
                     </p>
                     <p className="text-sm text-gray-600 dark:text-gray-400">
                       Bài viết
@@ -297,7 +295,7 @@ export default function ProfileHeader({
                         targetUsername={user.username}
                         size="md"
                       />
-                      <button className="flex-1 min-w-[140px] px-6 py-3 bg-gray-200 dark:bg-[#262626] hover:bg-gray-300 dark:hover:bg-[#363636] dark:text-white rounded-lg font-semibold transition-colors flex items-center justify-center gap-2">
+                      <button className="flex-1 min-w-35 px-6 py-3 bg-gray-200 dark:bg-[#262626] hover:bg-gray-300 dark:hover:bg-[#363636] dark:text-white rounded-lg font-semibold transition-colors flex items-center justify-center gap-2">
                         <MessageCircle size={18} />
                         Nhắn tin
                       </button>
@@ -336,7 +334,7 @@ export default function ProfileHeader({
         <NoteModal
           userId={String(user.id)}
           isOwnProfile={isOwnProfile}
-          onClose={() => setShowNoteModal(false)}
+          onClose={closeNoteModal}
           onNoteChange={(updated) => setNote(updated)}
         />
       )}

@@ -55,7 +55,7 @@ import EditPostModal from "../EditPostModal";
 import PostHeader from "./PostHeader";
 import PostMediaViewer from "./PostMediaViewer";
 import PostActions from "./PostActions";
-import PostComments from "./PostComments/PostComments";
+import PostComments from "./post-comment/PostComments";
 import { useAuth } from "../../../contexts/AuthContext";
 import * as postApi from "../../../services/postService";
 import type {

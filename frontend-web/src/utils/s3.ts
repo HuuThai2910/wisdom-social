@@ -121,7 +121,17 @@ export const uploadImageAndGetFormat = uploadMediaAndGetFormat;
  */
 export const buildS3Url = (s3Key: string | null | undefined): string | null => {
     if (!s3Key) return null;
-    return `https://${S3_BUCKET_NAME}.s3.${S3_REGION}.amazonaws.com/${s3Key}`;
+
+    const value = s3Key.trim();
+    if (!value) return null;
+
+    // Keep fully-qualified URLs and browser object URLs as-is.
+    if (/^https?:\/\//i.test(value) || /^data:/i.test(value) || /^blob:/i.test(value)) {
+        return value;
+    }
+
+    const normalizedKey = value.startsWith("/") ? value.substring(1) : value;
+    return `https://${S3_BUCKET_NAME}.s3.${S3_REGION}.amazonaws.com/${normalizedKey}`;
 };
 
 /**

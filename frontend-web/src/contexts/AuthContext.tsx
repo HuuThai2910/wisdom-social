@@ -102,12 +102,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     try {
       // Fetch posts count
-      console.log(`📤 Calling /posts/user/${userId}`);
-      const postsRes = await axiosClient.get(`/posts/user/${userId}`);
-      console.log("📥 Posts response:", postsRes.data);
-      stats.postsCount = Array.isArray(postsRes.data)
-        ? postsRes.data.length
-        : postsRes.data?.data?.length || 0;
+      console.log(`📤 Calling /posts/user/${userId}/count`);
+      const postsRes = await axiosClient.get(`/posts/user/${userId}/count`);
+      console.log("📥 Posts count response:", postsRes.data);
+      const countValue = postsRes.data?.data ?? postsRes.data;
+      stats.postsCount = typeof countValue === "number" ? countValue : 0;
       console.log("📝 Posts count:", stats.postsCount);
     } catch (e: any) {
       console.error(

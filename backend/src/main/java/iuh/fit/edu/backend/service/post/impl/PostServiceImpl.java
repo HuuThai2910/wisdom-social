@@ -21,6 +21,10 @@ import iuh.fit.edu.backend.service.s3.S3Service;
 import iuh.fit.edu.backend.service.post.PostService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -216,11 +220,14 @@ public class PostServiceImpl implements PostService {
     }
 
     @Override
-    public List<Post> getPostsByUserId(Long userId) {
-        log.info("Getting posts for user: {}", userId);
-        List<Post> posts = postRepository.findByAuthorIdOrderByCreatedAtDesc(userId.toString());
-        log.info("Found {} posts for user {}", posts.size(), userId);
-        posts.forEach(post -> {
+    public Page<Post> getPostsByUserId(Long userId, int page, int size) {
+        log.info("Getting posts for user {} with page={}, size={}", userId, page, size);
+
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<Post> postsPage = postRepository.findByAuthorId(userId, pageable);
+
+        log.info("Found {} posts for user {} in this page", postsPage.getNumberOfElements(), userId);
+        postsPage.getContent().forEach(post -> {
             sanitizeMediaKeys(post);
             int mediaCount = post.getMedia() != null ? post.getMedia().size() : 0;
             log.info("Post {}: {} media items", post.getId(), mediaCount);
@@ -230,7 +237,13 @@ public class PostServiceImpl implements PostService {
                 }
             }
         });
-        return posts;
+        return postsPage;
+    }
+
+    @Override
+    public long countPostsByUserId(Long userId) {
+        log.info("Counting posts for user: {}", userId);
+        return postRepository.countByAuthorId(userId);
     }
 
     @Override

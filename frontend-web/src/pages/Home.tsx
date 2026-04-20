@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
 import { mockStories } from "../api/mockData";
 import StoriesBar from "../components/story/StoriesBar";
-import PostCard from "../components/post/PostCard";
+import PostCard from "../components/post/post-card/PostCard";
 import axiosClient from "../api/axiosClient";
 import { useCurrentUser } from "../hooks/useCurrentUser";
 import { transformMediaToS3Urls } from "../services/postService";
+import { buildS3Url } from "../utils/s3";
 import type { Post } from "../types";
 
 interface PostData {
@@ -23,6 +24,17 @@ interface PostData {
   stats?: { reactCount: number; commentCount: number; shareCount: number };
   createdAt: string;
 }
+
+const extractPostsArray = (payload: any): PostData[] => {
+  const rawData = payload?.data ?? payload;
+  if (Array.isArray(rawData)) {
+    return rawData as PostData[];
+  }
+  if (Array.isArray(rawData?.content)) {
+    return rawData.content as PostData[];
+  }
+  return [];
+};
 
 export default function Home() {
   const currentUser = useCurrentUser();
@@ -77,8 +89,8 @@ export default function Home() {
 
           if (!isMounted) return;
 
-          allPosts = postsResponses.flatMap(
-            (response) => response.data.data || []
+          allPosts = postsResponses.flatMap((response) =>
+            extractPostsArray(response.data)
           );
         } catch (friendsError: any) {
           console.warn("⚠️ Could not fetch friends:", friendsError.message);
@@ -92,7 +104,7 @@ export default function Home() {
 
           if (!isMounted) return;
 
-          allPosts = postsResponse.data.data || [];
+          allPosts = extractPostsArray(postsResponse.data);
         }
 
         if (!isMounted) return;
@@ -133,7 +145,9 @@ export default function Home() {
                   username: userData.username,
                   fullName: userData.name || userData.username,
                   avatarUrl:
-                    userData.avatarUrl || "https://i.pravatar.cc/150?img=5",
+                    buildS3Url(userData.avatarUrl) ||
+                    userData.avatarUrl ||
+                    "https://i.pravatar.cc/150?img=5",
                 },
                 images: transformedImages,
                 media: transformedMedia,
