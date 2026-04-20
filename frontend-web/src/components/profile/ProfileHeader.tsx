@@ -1,13 +1,14 @@
 import { Link } from "react-router-dom";
 import { useState, useEffect } from "react";
 import type { User } from "../../types";
-import { Settings, LogOut, QrCode, X, MessageCircle } from "lucide-react";
+import { Settings, LogOut, QrCode, MessageCircle, MapPin } from "lucide-react";
 import { logout } from "../../utils/auth";
-import NoteModal from "./NoteModal";
+import NoteModal from "./note-modal/NoteModal";
 import FriendsModal from "./FriendsModal";
 import { buildS3Url } from "../../utils/s3";
 import BlockUnblockButton from "../friend/BlockUnblockButton";
 import FriendActions from "../friend/FriendActions";
+import { NOTE_PLACEHOLDERS } from "./note-modal/NoteContentDefault";
 import { getUserPostsWithDetails } from "../../services/postService";
 import { useProfileNote } from "../../hooks/useProfileNote";
 
@@ -29,8 +30,11 @@ export default function ProfileHeader({
 }: ProfileHeaderProps) {
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   const [showFriendsModal, setShowFriendsModal] = useState(false);
-  const [showAvatarModal, setShowAvatarModal] = useState(false);
   const [postsCount, setPostsCount] = useState(0);
+  const [notePlaceholder] = useState(
+    () =>
+      NOTE_PLACEHOLDERS[Math.floor(Math.random() * NOTE_PLACEHOLDERS.length)]
+  );
   const { note, showNoteModal, openNoteModal, closeNoteModal, setNote } =
     useProfileNote(user?.id);
 
@@ -49,8 +53,6 @@ export default function ProfileHeader({
     await logout();
     window.location.href = "/login";
   };
-
-  const genderLabel = GENDER_LABELS[user.gender || "HIDDEN"] || "Ẩn";
 
   return (
     <div className="bg-white dark:bg-black px-6 md:px-8 py-8 md:py-12">
@@ -97,28 +99,62 @@ export default function ProfileHeader({
           <div className="flex gap-8 md:gap-10">
             {/* Avatar Column */}
             <div className="flex flex-col items-center shrink-0">
-              {note && (
+              {(isOwnProfile || note) && (
                 <button
                   onClick={openNoteModal}
-                  className="mb-3 w-24 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-2xl rounded-bl-none px-3 py-2 shadow-sm text-left text-xs hover:shadow-md transition-all"
+                  className="mb-3 w-42 max-w-full bg-white dark:bg-gray-800 border border-blue-200/80 dark:border-blue-700/60 rounded-2xl rounded-bl-md px-3.5 py-2.5 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all text-left"
+                  title={isOwnProfile ? "Create or edit note" : "View note"}
                 >
-                  {note.content ? (
-                    <span className="text-gray-700 dark:text-gray-200 line-clamp-2 wrap-break-word">
-                      {note.content}
-                    </span>
-                  ) : note.music ? (
-                    <span>🎵 {note.music.title}</span>
-                  ) : note.location ? (
-                    <span>📍 {note.location}</span>
-                  ) : null}
+                  <div className="flex items-start gap-2">
+                    <div className="min-w-0">
+                      {note ? (
+                        <div className="space-y-0.5 mt-0.5">
+                          {note.content?.trim() && (
+                            <p className="text-xs font-semibold text-gray-900 dark:text-gray-100 line-clamp-1 wrap-break-word">
+                              {note.content}
+                            </p>
+                          )}
+
+                          {note.music?.title && (
+                            <p className="text-xs text-gray-700 dark:text-gray-200 line-clamp-1">
+                              {note.music.title}
+                            </p>
+                          )}
+
+                          {note.music?.artist && (
+                            <p className="text-[11px] text-gray-500 dark:text-gray-400 line-clamp-1">
+                              {note.music.artist}
+                            </p>
+                          )}
+
+                          {note.location?.trim() && (
+                            <p className="text-[11px] text-gray-600 dark:text-gray-300 line-clamp-1 flex items-center gap-1">
+                              <MapPin className="w-3 h-3 text-rose-400 shrink-0" />
+                              <span className="truncate">
+                                {note.location.trim()}
+                              </span>
+                            </p>
+                          )}
+
+                          {!note.content?.trim() &&
+                            !note.music?.title &&
+                            !note.music?.artist &&
+                            !note.location?.trim() && (
+                              <p className="text-xs text-gray-500 dark:text-gray-400">
+                                Tap to update your note
+                              </p>
+                            )}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                          {notePlaceholder}
+                        </p>
+                      )}
+                    </div>
+                  </div>
                 </button>
               )}
-              <button
-                onClick={() =>
-                  isOwnProfile ? openNoteModal() : setShowAvatarModal(true)
-                }
-                className="relative mb-2 hover:opacity-80 transition-opacity"
-              >
+              <div className="relative mb-2">
                 <img
                   src={
                     buildS3Url(user.avatarUrl) ||
@@ -129,7 +165,7 @@ export default function ProfileHeader({
                   className="w-32 h-32 rounded-full object-cover border-4 border-gray-200 dark:border-[#363636]"
                 />
                 <div className="absolute bottom-2 right-2 w-5 h-5 bg-green-500 rounded-full border-3 border-white dark:border-[#1a1a1a]" />
-              </button>
+              </div>
             </div>
 
             {/* Info */}
@@ -311,23 +347,6 @@ export default function ProfileHeader({
           </div>
         </div>
       </div>
-
-      {/* Avatar View Modal */}
-      {showAvatarModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90">
-          <button
-            onClick={() => setShowAvatarModal(false)}
-            className="absolute top-4 right-4 text-white hover:text-gray-300 transition-colors"
-          >
-            <X size={32} />
-          </button>
-          <img
-            src={buildS3Url(user.avatarUrl) || user.avatarUrl}
-            alt={user.username}
-            className="max-w-full max-h-[90vh] rounded-lg object-contain"
-          />
-        </div>
-      )}
 
       {/* Note modal */}
       {showNoteModal && (

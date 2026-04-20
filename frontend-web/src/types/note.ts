@@ -1,7 +1,9 @@
 export interface NoteMusic {
+    trackId?: string;
     title: string;
     artist: string;
     coverUrl: string;
+    thumbnail?: string;
     audioUrl: string;
     duration?: number;
 }

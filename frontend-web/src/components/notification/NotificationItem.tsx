@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import type { Notification } from "../../types";
+import { buildS3Url } from "../../utils/s3";
 
 interface NotificationItemProps {
   notification: Notification;

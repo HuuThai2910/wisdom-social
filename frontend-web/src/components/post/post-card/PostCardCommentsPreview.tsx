@@ -1,5 +1,5 @@
 import type React from "react";
-import CommentItemNormalized from "../../comment/CommentItemNormalized";
+import CommentItemNormalized from "../post-comment/CommentItemNormalized";
 
 interface PostCardCommentsPreviewProps {
   rootIds: string[];

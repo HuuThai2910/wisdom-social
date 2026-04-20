@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import axiosClient from "../api/axiosClient";
 import type { Note } from "../types/note";
+import { getNoteByUserId } from "../services/noteService";
 
 interface UseProfileNoteResult {
   note: Note | null;
@@ -17,9 +17,8 @@ export const useProfileNote = (userId?: number | string): UseProfileNoteResult =
   useEffect(() => {
     if (!userId) return;
 
-    axiosClient
-      .get(`/notes/user/${userId}`)
-      .then((res) => setNote(res.data.data ?? null))
+    getNoteByUserId(String(userId))
+      .then((fetched) => setNote(fetched))
       .catch(() => setNote(null));
   }, [userId]);
 

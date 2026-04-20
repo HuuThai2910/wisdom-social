@@ -1,13 +1,22 @@
 import { useState, useEffect, useRef } from "react";
-import { X, Trash2, MapPin, Music, Smile, Play, Pause } from "lucide-react";
-import EmojiPicker, {
-  type EmojiClickData,
-  type Theme,
-} from "emoji-picker-react";
-import axiosClient from "../../api/axiosClient";
-import MusicSelector from "./MusicSelector";
-import { type MusicMetadata } from "../../services/musicService";
-import type { Note, NoteMusic, NoteModalProps } from "../../types/note";
+import { X, Trash2, MapPin, Smile, Play, Pause } from "lucide-react";
+import { Theme } from "emoji-picker-react";
+import {
+  playAudioPreview,
+  resolveMusicMediaUrl,
+  stopAudioPreview,
+  type MusicMetadata,
+} from "../../../services/musicService";
+import {
+  buildSaveNoteRequest,
+  deleteNoteById,
+  getNoteByUserId,
+  saveNote,
+} from "../../../services/noteService";
+import type { Note, NoteModalProps } from "../../../types/note";
+import IconModal from "../../icon-modal/IconModal";
+import NoteMusicPicker from "./NoteMusicPicker";
+import NoteLocationField from "./NoteLocationField";
 
 const MAX_CHARS = 200;
 
@@ -32,32 +41,43 @@ export default function NoteModal({
 
   // emoji picker
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const emojiPickerRef = useRef<HTMLDivElement>(null);
   const emojiButtonRef = useRef<HTMLButtonElement>(null);
   const [pickerPos, setPickerPos] = useState({ top: 0, left: 0 });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // music selector
-  const [showMusicSelector, setShowMusicSelector] = useState(false);
-  const musicSelectorRef = useRef<HTMLDivElement>(null);
 
   // audio preview
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playingUrl, setPlayingUrl] = useState<string | null>(null);
 
+  const mapNoteMusicToSelectedMusic = (
+    currentNote: Note
+  ): MusicMetadata | null => {
+    if (!currentNote.music) return null;
+
+    const coverKey =
+      currentNote.music.coverUrl || currentNote.music.thumbnail || "";
+
+    return {
+      id: currentNote.music.trackId || "",
+      title: currentNote.music.title || "",
+      artist: currentNote.music.artist || "",
+      duration: currentNote.music.duration || 0,
+      imageUrl: coverKey,
+      audioUrl: currentNote.music.audioUrl || "",
+      createdAt: currentNote.createdAt || new Date().toISOString(),
+    };
+  };
+
   const prefillEdit = (n: Note) => {
     setContent(n.content || "");
     setLocation(n.location || "");
-    // Note: Music from API stores title/artist, not full MusicMetadata
-    setSelectedMusic(null);
+    setSelectedMusic(mapNoteMusicToSelectedMusic(n));
   };
 
   // Fetch existing note
   useEffect(() => {
-    axiosClient
-      .get(`/notes/user/${userId}`)
-      .then((res) => {
-        const fetched: Note | null = res.data.data;
+    getNoteByUserId(userId)
+      .then((fetched) => {
         setNote(fetched);
         if (fetched) prefillEdit(fetched);
       })
@@ -75,30 +95,10 @@ export default function NoteModal({
     if (isEditing) setTimeout(() => textareaRef.current?.focus(), 50);
   }, [isEditing]);
 
-  // Close emoji picker on outside click
-  useEffect(() => {
-    const h = (e: MouseEvent) => {
-      if (!emojiPickerRef.current?.contains(e.target as Node))
-        setShowEmojiPicker(false);
-    };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, []);
-
-  // Close music selector on outside click
-  useEffect(() => {
-    const h = (e: MouseEvent) => {
-      if (!musicSelectorRef.current?.contains(e.target as Node))
-        setShowMusicSelector(false);
-    };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, []);
-
   // Stop audio on unmount
   useEffect(
     () => () => {
-      audioRef.current?.pause();
+      stopAudioPreview(audioRef.current);
     },
     []
   );
@@ -122,17 +122,26 @@ export default function NoteModal({
   };
 
   // Audio preview toggle
+  const startPreview = (url: string) => {
+    if (!url) return;
+
+    stopAudioPreview(audioRef.current);
+    const a = playAudioPreview(url, {
+      onEnded: () => setPlayingUrl(null),
+    });
+    if (!a) return;
+    audioRef.current = a;
+    setPlayingUrl(url);
+  };
+
   const togglePreview = (url: string) => {
+    if (!url) return;
+
     if (playingUrl === url) {
-      audioRef.current?.pause();
+      stopAudioPreview(audioRef.current);
       setPlayingUrl(null);
     } else {
-      audioRef.current?.pause();
-      const a = new Audio(url);
-      a.onended = () => setPlayingUrl(null);
-      a.play().catch((err) => console.error("Error playing audio:", err));
-      audioRef.current = a;
-      setPlayingUrl(url);
+      startPreview(url);
     }
   };
 
@@ -145,17 +154,13 @@ export default function NoteModal({
     if (!canSave) return;
     setSaving(true);
     try {
-      const body: Record<string, string> = { userId };
-      if (content.trim()) body.content = content.trim();
-      if (location.trim()) body.location = location.trim();
-      if (selectedMusic) {
-        body.musicTitle = selectedMusic.title;
-        body.musicArtist = selectedMusic.artist;
-        body.musicPreviewUrl = selectedMusic.audioUrl;
-        body.musicCoverUrl = selectedMusic.imageUrl;
-      }
-      const res = await axiosClient.post("/notes", body);
-      const saved: Note = res.data.data;
+      const payload = buildSaveNoteRequest(
+        userId,
+        content,
+        location,
+        selectedMusic
+      );
+      const saved = await saveNote(payload);
       setNote(saved);
       setIsEditing(false);
       onNoteChange?.(saved);
@@ -170,11 +175,13 @@ export default function NoteModal({
     if (!note) return;
     setSaving(true);
     try {
-      await axiosClient.delete(`/notes/${note.id}`);
+      await deleteNoteById(note.id);
       setNote(null);
       setContent("");
       setLocation("");
       setSelectedMusic(null);
+      stopAudioPreview(audioRef.current);
+      setPlayingUrl(null);
       setIsEditing(false);
       onNoteChange?.(null);
       onClose();
@@ -206,13 +213,24 @@ export default function NoteModal({
     return h > 0 ? `${h}h ${m}m left` : `${m}m left`;
   };
 
+  const noteCoverUrl = resolveMusicMediaUrl(
+    note?.music?.coverUrl || note?.music?.thumbnail
+  );
+  const noteAudioUrl = resolveMusicMediaUrl(note?.music?.audioUrl);
+
+  // Auto-play note music whenever modal opens in view mode.
+  useEffect(() => {
+    if (loading || isEditing || !noteAudioUrl) return;
+    startPreview(noteAudioUrl);
+  }, [loading, isEditing, noteAudioUrl]);
+
   return (
     <div
-      className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-60 flex items-center justify-center bg-black/30 backdrop-blur-md p-4"
       onClick={onClose}
     >
       <div
-        className="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden"
+        className="relative bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -253,7 +271,7 @@ export default function NoteModal({
                   }
                   placeholder="What's on your mind? (optional)"
                   rows={4}
-                  className="w-full px-3 py-2.5 text-sm border dark:border-gray-700 rounded-xl resize-none dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 pb-8"
+                  className="w-full px-3 py-2.5 text-sm border dark:border-gray-700 rounded-md resize-none dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 pb-8"
                 />
 
                 {/* Emoji insert button — bottom left inside textarea */}
@@ -276,21 +294,23 @@ export default function NoteModal({
                   </button>
 
                   {showEmojiPicker && (
-                    <div
-                      ref={emojiPickerRef}
-                      className="fixed z-200"
-                      style={{ top: pickerPos.top, left: pickerPos.left }}
-                    >
-                      <EmojiPicker
-                        onEmojiClick={(emojiData: EmojiClickData) =>
-                          insertEmoji(emojiData.emoji)
-                        }
-                        theme={"auto" as Theme}
-                        lazyLoadEmojis
-                        width={350}
-                        height={400}
-                      />
-                    </div>
+                    <IconModal
+                      open={showEmojiPicker}
+                      onClose={() => setShowEmojiPicker(false)}
+                      onEmojiClick={(emojiData) => insertEmoji(emojiData.emoji)}
+                      theme={Theme.AUTO}
+                      anchorRef={emojiButtonRef}
+                      containerClassName="fixed z-200"
+                      containerStyle={{
+                        top: pickerPos.top,
+                        left: pickerPos.left,
+                      }}
+                      pickerProps={{
+                        lazyLoadEmojis: true,
+                        width: 350,
+                        height: 400,
+                      }}
+                    />
                   )}
                 </div>
 
@@ -308,92 +328,28 @@ export default function NoteModal({
                 </span>
               </div>
 
-              {/* Location */}
-              <div className="flex items-center gap-2 px-3 py-2 border dark:border-gray-700 rounded-xl dark:bg-gray-800 focus-within:ring-2 focus-within:ring-blue-500">
-                <MapPin className="w-4 h-4 text-gray-400 shrink-0" />
-                <input
-                  type="text"
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                  placeholder="Add location..."
-                  className="flex-1 text-sm bg-transparent dark:text-white focus:outline-none"
-                />
-                {location && (
-                  <button
-                    onClick={() => setLocation("")}
-                    className="text-gray-400 hover:text-gray-600"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-
               {/* Music */}
-              <div ref={musicSelectorRef} className="space-y-2">
-                {selectedMusic ? (
-                  /* Selected music chip */
-                  <div className="flex items-center gap-3 px-3 py-2 border dark:border-gray-700 rounded-xl dark:bg-gray-800 bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
-                    <img
-                      src={selectedMusic.imageUrl}
-                      alt={selectedMusic.title}
-                      className="w-9 h-9 rounded-lg object-cover shrink-0"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold dark:text-white truncate">
-                        {selectedMusic.title}
-                      </p>
-                      <p className="text-[11px] text-gray-500 truncate">
-                        {selectedMusic.artist}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => togglePreview(selectedMusic.audioUrl)}
-                      className="p-1.5 rounded-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-                      title="Preview music"
-                    >
-                      {playingUrl === selectedMusic.audioUrl ? (
-                        <Pause className="w-3 h-3 text-gray-700 dark:text-gray-300" />
-                      ) : (
-                        <Play className="w-3 h-3 text-gray-700 dark:text-gray-300" />
-                      )}
-                    </button>
-                    <button
-                      onClick={() => {
-                        setSelectedMusic(null);
-                        audioRef.current?.pause();
-                        setPlayingUrl(null);
-                      }}
-                      className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                      title="Remove music"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                ) : (
-                  /* Music selector trigger button */
-                  <button
-                    type="button"
-                    onClick={() => setShowMusicSelector((p) => !p)}
-                    className="w-full flex items-center gap-2 px-3 py-2 border dark:border-gray-700 rounded-xl dark:bg-gray-800 text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                  >
-                    <Music className="w-4 h-4 shrink-0" />
-                    <span>Add music from library...</span>
-                  </button>
-                )}
+              <NoteMusicPicker
+                selectedMusic={selectedMusic}
+                playingUrl={playingUrl}
+                onTogglePreview={togglePreview}
+                onClearSelection={() => {
+                  setSelectedMusic(null);
+                  stopAudioPreview(audioRef.current);
+                  setPlayingUrl(null);
+                }}
+                onSelectMusic={(music) => {
+                  setSelectedMusic(music);
+                  startPreview(resolveMusicMediaUrl(music.audioUrl));
+                }}
+              />
 
-                {/* Music selector panel with search */}
-                {showMusicSelector && !selectedMusic && (
-                  <MusicSelector
-                    onSelect={(music) => {
-                      setSelectedMusic(music);
-                      setShowMusicSelector(false);
-                      audioRef.current?.pause();
-                      setPlayingUrl(null);
-                    }}
-                    onClose={() => setShowMusicSelector(false)}
-                  />
-                )}
-              </div>
+              {/* Location */}
+              <NoteLocationField
+                location={location}
+                onChangeLocation={setLocation}
+                onClearLocation={() => setLocation("")}
+              />
 
               <p className="text-[11px] text-gray-400 dark:text-gray-500">
                 ⏱ Note disappears after 24 hours
@@ -409,16 +365,10 @@ export default function NoteModal({
                   </p>
                 </div>
               )}
-              {note.location && (
-                <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
-                  <MapPin className="w-4 h-4 text-rose-400 shrink-0" />
-                  <span>{note.location}</span>
-                </div>
-              )}
               {note.music && (
                 <div className="flex items-center gap-3 px-3 py-2 bg-gray-50 dark:bg-gray-800 rounded-xl border dark:border-gray-700">
                   <img
-                    src={note.music.coverUrl}
+                    src={noteCoverUrl}
                     alt={note.music.title}
                     className="w-10 h-10 rounded-lg object-cover shrink-0"
                   />
@@ -430,19 +380,25 @@ export default function NoteModal({
                       {note.music.artist}
                     </p>
                   </div>
-                  {note.music.audioUrl && (
+                  {noteAudioUrl && (
                     <button
-                      onClick={() => togglePreview(note.music!.audioUrl)}
+                      onClick={() => togglePreview(noteAudioUrl)}
                       className="p-2 rounded-full bg-white dark:bg-gray-700 shadow hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
                       title="Play music"
                     >
-                      {playingUrl === note.music.audioUrl ? (
+                      {playingUrl === noteAudioUrl ? (
                         <Pause className="w-4 h-4 text-gray-700 dark:text-gray-300" />
                       ) : (
                         <Play className="w-4 h-4 text-gray-700 dark:text-gray-300" />
                       )}
                     </button>
                   )}
+                </div>
+              )}
+              {note.location?.trim() && (
+                <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+                  <MapPin className="w-4 h-4 text-rose-400 shrink-0" />
+                  <span>{note.location.trim()}</span>
                 </div>
               )}
               <p className="text-[11px] text-gray-400 dark:text-gray-500 text-right">

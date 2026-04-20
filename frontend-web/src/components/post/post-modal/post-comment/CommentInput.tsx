@@ -36,6 +36,9 @@
  */
 
 import React from "react";
+import { Smile } from "lucide-react";
+import { Theme } from "emoji-picker-react";
+import IconModal from "../../../icon-modal/IconModal";
 import type { UserData } from "../../../../types/postType";
 
 interface CommentInputProps {
@@ -44,6 +47,8 @@ interface CommentInputProps {
   showMentionDropdown: boolean;
   mentionUsers: UserData[];
   onCommentChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onCursorChange: (cursorPos: number) => void;
+  onInsertEmoji: (emoji: string) => void;
   onSelectMention: (user: UserData) => void;
   onSubmitComment: () => void;
 }
@@ -54,9 +59,19 @@ const CommentInput: React.FC<CommentInputProps> = ({
   showMentionDropdown,
   mentionUsers,
   onCommentChange,
+  onCursorChange,
+  onInsertEmoji,
   onSelectMention,
   onSubmitComment,
 }) => {
+  const [showEmojiPicker, setShowEmojiPicker] = React.useState(false);
+  const emojiButtonRef = React.useRef<HTMLButtonElement | null>(null);
+
+  const handleEmojiClick = (emoji: string) => {
+    onInsertEmoji(emoji);
+    setShowEmojiPicker(false);
+  };
+
   return (
     <div className="p-4 border-t dark:border-gray-800 relative">
       {/* Mention Dropdown Suggestions */}
@@ -88,6 +103,36 @@ const CommentInput: React.FC<CommentInputProps> = ({
 
       {/* Input Container */}
       <div className="flex items-center gap-3">
+        <div className="relative">
+          <button
+            ref={emojiButtonRef}
+            type="button"
+            onClick={() => setShowEmojiPicker((prev) => !prev)}
+            className="p-2 hover:bg-gray-100 dark:hover:bg-[#363636] rounded-full"
+            aria-label="Insert emoji"
+            title="Insert emoji"
+          >
+            <Smile size={20} className="text-gray-500 dark:text-gray-400" />
+          </button>
+
+          <IconModal
+            open={showEmojiPicker}
+            onClose={() => setShowEmojiPicker(false)}
+            onEmojiClick={(emojiData) => handleEmojiClick(emojiData.emoji)}
+            theme={
+              document.documentElement.classList.contains("dark")
+                ? Theme.DARK
+                : Theme.LIGHT
+            }
+            anchorRef={emojiButtonRef}
+            containerClassName="absolute bottom-full left-0 mb-2 z-50"
+            pickerProps={{
+              height: 350,
+              width: 300,
+            }}
+          />
+        </div>
+
         <div className="relative flex-1">
           {/* Mention Highlight Background (for styling mentions in blue) */}
           <div className="absolute inset-0 text-sm pointer-events-none whitespace-pre-wrap wrap-break-word dark:text-white opacity-0">
@@ -115,6 +160,13 @@ const CommentInput: React.FC<CommentInputProps> = ({
             type="text"
             value={commentInput}
             onChange={onCommentChange}
+            onClick={(e) => onCursorChange(e.currentTarget.selectionStart || 0)}
+            onKeyUp={(e) => onCursorChange(e.currentTarget.selectionStart || 0)}
+            onSelect={(e) =>
+              onCursorChange(
+                e.currentTarget.selectionStart || commentInput.length
+              )
+            }
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();

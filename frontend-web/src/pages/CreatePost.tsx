@@ -11,14 +11,12 @@ import {
   Settings2,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { Theme } from "emoji-picker-react";
 import { useAuth } from "../contexts/AuthContext";
 import { useUserFriends } from "../hooks/useProfileHooks";
-import EmojiPicker, {
-  type EmojiClickData,
-  type Theme,
-} from "emoji-picker-react";
 import { createPost } from "../services/postService";
 import FriendSelectorModal from "../components/post/FriendSelectorModal";
+import IconModal from "../components/icon-modal/IconModal";
 
 type PrivacyType =
   | "PUBLIC"
@@ -158,8 +156,9 @@ export default function CreatePost() {
     setTaggedUsers(taggedUsers.filter((t) => t !== tag));
   };
 
-  const handleEmojiClick = (emojiClickData: EmojiClickData) => {
-    setCaption(caption + emojiClickData.emoji);
+  const handleEmojiClick = (emoji: string) => {
+    setCaption((prev) => prev + emoji);
+    setShowEmojiPicker(false);
   };
 
   const handlePost = async () => {
@@ -445,23 +444,24 @@ export default function CreatePost() {
                       className="text-gray-500 dark:text-gray-400"
                     />
                   </button>
-                  {showEmojiPicker && (
-                    <div
-                      className="absolute bottom-10 left-0 z-50"
-                      onMouseLeave={() => setShowEmojiPicker(false)}
-                    >
-                      <EmojiPicker
-                        onEmojiClick={handleEmojiClick}
-                        theme={
-                          (document.documentElement.classList.contains("dark")
-                            ? "dark"
-                            : "light") as Theme
-                        }
-                        height={400}
-                        width={320}
-                      />
-                    </div>
-                  )}
+
+                  <IconModal
+                    open={showEmojiPicker}
+                    onClose={() => setShowEmojiPicker(false)}
+                    onEmojiClick={(emojiData) =>
+                      handleEmojiClick(emojiData.emoji)
+                    }
+                    theme={
+                      document.documentElement.classList.contains("dark")
+                        ? Theme.DARK
+                        : Theme.LIGHT
+                    }
+                    containerClassName="absolute bottom-10 left-0 z-50"
+                    pickerProps={{
+                      height: 400,
+                      width: 320,
+                    }}
+                  />
                 </div>
                 <span className="text-xs text-gray-400 dark:text-gray-600">
                   {caption.length}/2,200

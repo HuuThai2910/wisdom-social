@@ -1,9 +1,12 @@
-import { useState, useEffect } from "react";
-import { useAuth } from "../../contexts/AuthContext";
-import * as postApi from "../../services/postService";
-import { commentService } from "../../services/commentService";
-import type { Comment } from "../../services/commentService";
-import type { UserData } from "../../types/postType";
+import { useState, useEffect, useRef } from "react";
+import { Smile } from "lucide-react";
+import { Theme } from "emoji-picker-react";
+import { useAuth } from "../../../contexts/AuthContext";
+import * as postApi from "../../../services/postService";
+import { commentService } from "../../../services/commentService";
+import type { Comment } from "../../../services/commentService";
+import type { UserData } from "../../../types/postType";
+import IconModal from "../../icon-modal/IconModal";
 
 interface CommentItemNormalizedProps {
   commentId: string;
@@ -49,6 +52,14 @@ export default function CommentItemNormalized({
   const [showReplyInput, setShowReplyInput] = useState(false);
   const [replyContent, setReplyContent] = useState("");
   const [submittingReply, setSubmittingReply] = useState(false);
+  const [showReplyEmojiPicker, setShowReplyEmojiPicker] = useState(false);
+  const [replyEmojiPosition, setReplyEmojiPosition] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
+  const [replyCursorPos, setReplyCursorPos] = useState(0);
+  const replyInputRef = useRef<HTMLInputElement | null>(null);
+  const replyEmojiButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const [currentReaction, setCurrentReaction] = useState<string | null>(null);
   const [showReactionPicker, setShowReactionPicker] = useState(false);
@@ -92,6 +103,29 @@ export default function CommentItemNormalized({
     fetchUserReaction();
   }, [currentUser, comment.id]);
 
+  useEffect(() => {
+    if (!showReplyEmojiPicker) return;
+
+    const updatePickerPosition = () => {
+      const buttonRect = replyEmojiButtonRef.current?.getBoundingClientRect();
+      if (!buttonRect) return;
+
+      setReplyEmojiPosition({
+        top: buttonRect.top - 8,
+        left: Math.max(8, Math.min(buttonRect.left, window.innerWidth - 320)),
+      });
+    };
+
+    updatePickerPosition();
+    window.addEventListener("resize", updatePickerPosition);
+    window.addEventListener("scroll", updatePickerPosition, true);
+
+    return () => {
+      window.removeEventListener("resize", updatePickerPosition);
+      window.removeEventListener("scroll", updatePickerPosition, true);
+    };
+  }, [showReplyEmojiPicker]);
+
   const renderCommentContent = (content: string) => {
     const parts = content.split(/(@[a-zA-Z0-9_]+)/g);
     return parts.map((part, index) => {
@@ -128,6 +162,30 @@ export default function CommentItemNormalized({
     } finally {
       setSubmittingReply(false);
     }
+  };
+
+  const handleInsertReplyEmoji = (emoji: string) => {
+    const selectionPos = replyInputRef.current?.selectionStart;
+    const safeCursorPos = Math.min(
+      Math.max(selectionPos ?? replyCursorPos, 0),
+      replyContent.length
+    );
+    const newValue =
+      replyContent.slice(0, safeCursorPos) +
+      emoji +
+      replyContent.slice(safeCursorPos);
+    const nextCursorPos = safeCursorPos + emoji.length;
+
+    setReplyContent(newValue);
+    setReplyCursorPos(nextCursorPos);
+    setShowReplyEmojiPicker(false);
+
+    requestAnimationFrame(() => {
+      if (replyInputRef.current) {
+        replyInputRef.current.focus();
+        replyInputRef.current.setSelectionRange(nextCursorPos, nextCursorPos);
+      }
+    });
   };
 
   const handleDeleteComment = () => {
@@ -328,11 +386,67 @@ export default function CommentItemNormalized({
 
           {/* Reply Input */}
           {showReplyInput && (
-            <div className="mt-2 flex gap-2">
+            <div className="mt-2 flex gap-2 items-center">
+              <div className="relative">
+                <button
+                  ref={replyEmojiButtonRef}
+                  type="button"
+                  onClick={() => setShowReplyEmojiPicker((prev) => !prev)}
+                  className="p-2 hover:bg-gray-100 dark:hover:bg-[#363636] rounded-full"
+                  aria-label="Insert emoji"
+                  title="Insert emoji"
+                >
+                  <Smile
+                    size={20}
+                    className="text-gray-500 dark:text-gray-400"
+                  />
+                </button>
+
+                <IconModal
+                  open={showReplyEmojiPicker}
+                  onClose={() => setShowReplyEmojiPicker(false)}
+                  onEmojiClick={(emojiData) =>
+                    handleInsertReplyEmoji(emojiData.emoji)
+                  }
+                  theme={
+                    document.documentElement.classList.contains("dark")
+                      ? Theme.DARK
+                      : Theme.LIGHT
+                  }
+                  anchorRef={replyEmojiButtonRef}
+                  containerClassName="fixed z-120"
+                  containerStyle={
+                    replyEmojiPosition
+                      ? {
+                          top: replyEmojiPosition.top,
+                          left: replyEmojiPosition.left,
+                          transform: "translateY(-100%)",
+                        }
+                      : undefined
+                  }
+                  pickerProps={{
+                    height: 350,
+                    width: 300,
+                  }}
+                />
+              </div>
+
               <input
+                ref={replyInputRef}
                 type="text"
                 value={replyContent}
                 onChange={(e) => setReplyContent(e.target.value)}
+                onClick={(e) =>
+                  setReplyCursorPos(e.currentTarget.selectionStart || 0)
+                }
+                onKeyUp={(e) =>
+                  setReplyCursorPos(e.currentTarget.selectionStart || 0)
+                }
+                onSelect={(e) =>
+                  setReplyCursorPos(
+                    e.currentTarget.selectionStart || replyContent.length
+                  )
+                }
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
@@ -343,6 +457,7 @@ export default function CommentItemNormalized({
                 className="flex-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-full bg-gray-50 dark:bg-gray-900 dark:text-white outline-none focus:border-blue-500"
                 disabled={submittingReply}
               />
+
               <button
                 onClick={handleSubmitReply}
                 disabled={!replyContent.trim() || submittingReply}

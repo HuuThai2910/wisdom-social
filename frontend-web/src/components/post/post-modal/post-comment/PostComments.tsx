@@ -75,7 +75,7 @@ import { commentService } from "../../../../services/commentService";
 import * as postApi from "../../../../services/postService";
 import type { Comment } from "../../../../services/commentService";
 import type { UserData } from "../../../../types/postType";
-import CommentItemNormalized from "../../../comment/CommentItemNormalized";
+import CommentItemNormalized from "../../post-comment/CommentItemNormalized";
 import CommentInput from "./CommentInput";
 
 interface PostCommentsProps {
@@ -328,6 +328,24 @@ const PostComments: React.FC<PostCommentsProps> = ({ postId, currentUser }) => {
     setMentionUsers([]);
   };
 
+  const handleCommentCursorChange = (cursorPos: number) => {
+    setMentionCursorPos(cursorPos);
+  };
+
+  const handleInsertEmoji = (emoji: string) => {
+    const safeCursorPos = Math.min(
+      Math.max(mentionCursorPos, 0),
+      commentInput.length
+    );
+    const newValue =
+      commentInput.slice(0, safeCursorPos) +
+      emoji +
+      commentInput.slice(safeCursorPos);
+
+    setCommentInput(newValue);
+    setMentionCursorPos(safeCursorPos + emoji.length);
+  };
+
   // ============ Comment Input: Submit new comment ============
   const handleSubmitComment = async () => {
     if (!commentInput.trim() || submittingComment) return;
@@ -437,6 +455,8 @@ const PostComments: React.FC<PostCommentsProps> = ({ postId, currentUser }) => {
         showMentionDropdown={showMentionDropdown}
         mentionUsers={mentionUsers}
         onCommentChange={handleCommentInputChange}
+        onCursorChange={handleCommentCursorChange}
+        onInsertEmoji={handleInsertEmoji}
         onSelectMention={handleSelectMention}
         onSubmitComment={handleSubmitComment}
       />
