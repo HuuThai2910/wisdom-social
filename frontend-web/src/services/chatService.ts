@@ -164,9 +164,7 @@ const chatService = {
     async getConversations(
         userId: number,
     ): Promise<ApiResponse<Conversation[]>> {
-        const response = await axiosClient.get(
-            `/conversations?userId=${userId}`,
-        );
+        const response = await axiosClient.get("/conversations");
         return response.data;
     },
 
@@ -178,7 +176,6 @@ const chatService = {
         signal?: AbortSignal,
     ): Promise<ApiResponse<CursorResponse<Message[]>>> {
         const params = new URLSearchParams({
-            userId: userId.toString(),
             limit: limit.toString(),
         });
         if (before) params.append("before", before);
@@ -197,7 +194,6 @@ const chatService = {
         limit: number = 20,
     ): Promise<ApiResponse<CursorResponse<Message[]>>> {
         const params = new URLSearchParams({
-            userId: userId.toString(),
             limit: limit.toString(),
             after,
         });
@@ -212,11 +208,8 @@ const chatService = {
         targetMessageId: string,
         userId: number,
     ): Promise<ApiResponse<CursorResponse<Message[]>>> {
-        const params = new URLSearchParams({
-            userId: userId.toString(),
-        });
         const response = await axiosClient.get(
-            `/conversations/${conversationId}/messages/${targetMessageId}/jump?${params.toString()}`,
+            `/conversations/${conversationId}/messages/${targetMessageId}/jump`,
         );
         return response.data;
     },
@@ -225,10 +218,7 @@ const chatService = {
         request: SendMessageRequest,
         userId: number,
     ): Promise<Message> {
-        const response = await axiosClient.post(
-            `/messages/send?userId=${userId}`,
-            request,
-        );
+        const response = await axiosClient.post("/messages/send", request);
         return response.data;
     },
 
@@ -236,10 +226,7 @@ const chatService = {
         request: SendCallMessageRequest,
         userId: number,
     ): Promise<Message> {
-        const response = await axiosClient.post(
-            `/messages/call?userId=${userId}`,
-            request,
-        );
+        const response = await axiosClient.post("/messages/call", request);
         return response.data;
     },
 
@@ -248,7 +235,7 @@ const chatService = {
         userId: number,
     ): Promise<ApiResponse<Conversation>> {
         const response = await axiosClient.get(
-            `/conversations/${conversationId}?userId=${userId}`,
+            `/conversations/${conversationId}`,
         );
         return response.data;
     },
@@ -259,7 +246,7 @@ const chatService = {
         lastMessageId: string,
     ): Promise<void> {
         await axiosClient.put(
-            `/conversations/${conversationId}/read?userId=${userId}&lastMessageId=${lastMessageId}`,
+            `/conversations/${conversationId}/read?lastMessageId=${lastMessageId}`,
         );
     },
 
@@ -289,17 +276,15 @@ const chatService = {
     },
 
     async recallMessage(messageId: string, userId: number): Promise<void> {
-        await axiosClient.delete(
-            `/messages/${messageId}/recall?userId=${userId}`,
-        );
+        await axiosClient.delete(`/messages/${messageId}/recall`);
     },
 
     async pinMessage(messageId: string, userId: number): Promise<void> {
-        await axiosClient.post(`/messages/${messageId}/pin?userId=${userId}`);
+        await axiosClient.post(`/messages/${messageId}/pin`);
     },
 
     async unpinMessage(messageId: string, userId: number): Promise<void> {
-        await axiosClient.delete(`/messages/${messageId}/pin?userId=${userId}`);
+        await axiosClient.delete(`/messages/${messageId}/pin`);
     },
 
     // Bước 1: Xin presigned URL từ BE để upload file lên S3
@@ -383,9 +368,7 @@ const chatService = {
 
     // Xóa tin nhắn ở phía tôi (chỉ user hiện tại không thấy, người khác vẫn thấy)
     async deleteMessageForMe(messageId: string, userId: number): Promise<void> {
-        await axiosClient.delete(
-            `/messages/${messageId}/delete-for-me?userId=${userId}`,
-        );
+        await axiosClient.delete(`/messages/${messageId}/delete-for-me`);
     },
 
     // Xóa cuộc trò chuyện ở phía tôi (xóa lịch sử chat cho user hiện tại)
@@ -394,7 +377,7 @@ const chatService = {
         userId: number,
     ): Promise<void> {
         await axiosClient.delete(
-            `/conversations/${conversationId}/delete-for-me?userId=${userId}`,
+            `/conversations/${conversationId}/delete-for-me`,
         );
     },
 };

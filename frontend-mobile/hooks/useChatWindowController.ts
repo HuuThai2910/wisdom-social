@@ -21,6 +21,7 @@ import type {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useIsFocused } from "@react-navigation/native";
 import { setActiveConversationId } from "@/hooks/useMessagesController";
+import { useAppContext } from "@/context/AppContext";
 
 const MARK_AS_READ_DEBOUNCE_MS = 1000;
 const TYPING_STOP_TIMEOUT_MS = 10000;
@@ -144,7 +145,8 @@ export function useChatWindowController(args: {
 }) {
     const { conversationId, onMarkAsRead } = args;
 
-    const currentUserId = DEFAULT_CHAT_USER_ID;
+    const { currentUser } = useAppContext();
+    const currentUserId = Number(currentUser?.id ?? 0);
     const isScreenFocused = useIsFocused();
 
     // Thông báo cho useMessagesController biết conversation nào đang mở.

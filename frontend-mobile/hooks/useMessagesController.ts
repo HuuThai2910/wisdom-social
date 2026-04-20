@@ -4,6 +4,7 @@ import chatService from "@/services/chatService";
 import chatWebsocketService from "@/services/chatWebsocketService";
 import chatRuntimeStore from "@/stores/chatRuntimeStore";
 import type { Conversation } from "@/types/chat";
+import { useAppContext } from "@/context/AppContext";
 
 // Module-level ref: track which conversation is currently open on screen.
 // Set by useChatWindowController (via setActiveConversationId) when entering/leaving a chat.
@@ -82,7 +83,8 @@ export function useMessagesController() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    const currentUserId = DEFAULT_CHAT_USER_ID;
+    const { currentUser } = useAppContext();
+    const currentUserId = Number(currentUser?.id ?? 0);
 
     const currentUserIdRef = useRef(currentUserId);
 

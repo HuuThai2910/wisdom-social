@@ -11,8 +11,8 @@ import iuh.fit.edu.backend.dto.response.message.MessageResponse;
 import iuh.fit.edu.backend.service.chat.ConversationMemberService;
 import iuh.fit.edu.backend.service.chat.ConversationService;
 import iuh.fit.edu.backend.service.chat.MessageService;
+import iuh.fit.edu.backend.service.user.UserService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -33,14 +33,17 @@ public class ConversationController {
     private final ConversationService conversationService;
     private final MessageService messageService;
     private final ConversationMemberService memberService;
+    private final UserService userService;
 
     @GetMapping
-    public ResponseEntity<List<ConversationResponse>> getConversationsByUser(@RequestParam Long userId){
+    public ResponseEntity<List<ConversationResponse>> getConversationsByUser(){
+        Long userId = this.userService.getCurrentUser().getId();
         return ResponseEntity.ok(conversationService.getConversationsByUser(userId));
     }
 
     @GetMapping("/{conversationId}")
-    public ResponseEntity<ConversationResponse> getConversationById(@PathVariable Long conversationId, @RequestParam Long userId){
+    public ResponseEntity<ConversationResponse> getConversationById(@PathVariable Long conversationId){
+        Long userId = this.userService.getCurrentUser().getId();
         ConversationResponse conversationResponse = conversationService.getConversationById(conversationId, userId);
         return ResponseEntity.ok(conversationResponse);
     }
@@ -48,10 +51,10 @@ public class ConversationController {
     @GetMapping("/{conversationId}/messages")
     public ResponseEntity<CursorResponse<List<MessageResponse>>> getMessages(
             @PathVariable Long conversationId,
-            @RequestParam Long userId,
             @RequestParam(required = false) Instant before,
             @RequestParam(defaultValue = "20") int limit
     ) {
+        Long userId = this.userService.getCurrentUser().getId();
         return ResponseEntity.ok(
                 messageService.getMessagesByConversation(
                         conversationId,
@@ -64,10 +67,10 @@ public class ConversationController {
     @GetMapping("/{conversationId}/messages/newer")
     public ResponseEntity<CursorResponse<List<MessageResponse>>> getNewerMessages(
             @PathVariable Long conversationId,
-            @RequestParam Long userId,
             @RequestParam Instant after, // Không để required = false vì thao tác này luôn cần mốc thời gian
             @RequestParam(defaultValue = "20") int limit
     ) {
+        Long userId = this.userService.getCurrentUser().getId();
         return ResponseEntity.ok(
                 messageService.getNewerMessages(
                         conversationId,
@@ -80,21 +83,22 @@ public class ConversationController {
     @GetMapping("/{id}/messages/{targetMessageId}/jump")
     public ResponseEntity<CursorResponse<List<MessageResponse>>> jumpToMessage(
             @PathVariable Long id,
-            @PathVariable String targetMessageId,
-            @RequestParam Long userId) {
-
+            @PathVariable String targetMessageId) {
+        Long userId = this.userService.getCurrentUser().getId();
         return ResponseEntity.ok(messageService.jumpToMessage(id, targetMessageId, userId));
     }
 
 
     @PutMapping("/{id}/read")
-    public ResponseEntity<Void> markAsRead(@PathVariable Long id, @RequestParam Long userId, @RequestParam(required = false) String lastMessageId){
+    public ResponseEntity<Void> markAsRead(@PathVariable Long id, @RequestParam(required = false) String lastMessageId){
+        Long userId = this.userService.getCurrentUser().getId();
         conversationService.markAsRead(id,userId, lastMessageId);
         return ResponseEntity.ok().build();
     }
 
     @DeleteMapping("/{conversationId}/delete-for-me")
-    public ResponseEntity<Void> deleteConversationForMe(@PathVariable Long conversationId, @RequestParam Long userId){
+    public ResponseEntity<Void> deleteConversationForMe(@PathVariable Long conversationId){
+        Long userId = this.userService.getCurrentUser().getId();
         this.conversationService.deleteConversationForMe(conversationId, userId);
         return ResponseEntity.ok().build();
     }
@@ -102,7 +106,7 @@ public class ConversationController {
     @GetMapping("/{conversationId}/members")
     public ResponseEntity<Map<Long, ConversationMemberResponse>> getConversationMembers(
             @PathVariable Long conversationId) {
-
+        Long userId = this.userService.getCurrentUser().getId();
         Map<Long, ConversationMemberResponse> membersMap = memberService.getMembersMap(conversationId);
         return ResponseEntity.ok(membersMap);
     }
@@ -112,9 +116,7 @@ public class ConversationController {
             @PathVariable Long conversationId,
             @PathVariable Long targetUserId,
             @RequestBody String nickname) {
-
         memberService.updateNickname(conversationId, targetUserId, nickname);
-
         return ResponseEntity.ok("Cập nhật biệt danh thành công");
     }
 }

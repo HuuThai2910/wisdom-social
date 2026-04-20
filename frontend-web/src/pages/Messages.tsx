@@ -745,7 +745,6 @@ export default function Messages() {
                             <ChatWindow
                                 key={selectedConversationId}
                                 conversationId={selectedConversationId}
-                                userId={currentUserId}
                                 onMarkAsRead={clearUnreadCount}
                                 onToggleInfoPanel={handleToggleInfoPanel}
                                 showInfoPanel={showInfoPanel}

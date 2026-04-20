@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import chatService, { type Conversation } from "../services/chatService";
 import websocketService, {
     type LastMessageUpdate,
 } from "../services/websocket";
 import { DEFAULT_AVATAR_URL, DEFAULT_GROUP_AVATAR_URL } from "../constants/ui";
-
-const LAST_USER_ID_KEY = "ws_user_id";
+import { useAuth } from "../contexts/AuthContext";
 
 /**
  * parseOptionalInt
@@ -17,19 +16,6 @@ function parseOptionalInt(value: string | undefined): number | null {
     if (!value) return null;
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : null;
-}
-
-/**
- * parseIntWithFallback
- * - Nhận vào string (thường lấy từ query params) và convert sang number.
- * - Nếu không hợp lệ thì dùng fallback.
- *
- * Ghi chú: app hiện đang dùng userId từ query (?userId=...).
- * Nếu về sau chuyển sang auth thật, phần này sẽ đổi sang lấy từ context/auth store.
- */
-function parseIntWithFallback(value: string | null, fallback: number): number {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 /**
@@ -55,17 +41,13 @@ export function useMessagesController() {
     // navigate: chuyển route khi user chọn hội thoại
     const navigate = useNavigate();
     const { conversationId } = useParams<{ conversationId?: string }>();
-    const [searchParams] = useSearchParams();
 
     // selectedConversationId: param trong URL (có thể null nếu chưa chọn)
     const selectedConversationId = parseOptionalInt(conversationId);
 
-    // currentUserId: lấy từ query (?userId=...). Nếu thiếu/không hợp lệ => fallback.
-    const currentUserId = parseIntWithFallback(searchParams.get("userId"), 1);
-
-    useEffect(() => {
-        localStorage.setItem(LAST_USER_ID_KEY, String(currentUserId));
-    }, [currentUserId]);
+    // currentUserId: lấy từ AuthContext (security integration)
+    const { currentUser } = useAuth();
+    const currentUserId = currentUser?.id ?? 0;
 
     // ====== Refs chống stale-closure (đặc biệt cho websocket callbacks) ======
     // Lý do: callback subscribe có thể chạy sau nhiều render; dùng ref để đọc giá trị mới nhất.
@@ -301,10 +283,9 @@ export function useMessagesController() {
     const handleSelectConversation = useCallback(
         (convId: number) => {
             // Chuyển route để ChatWindow load theo conversationId mới.
-            // userId vẫn giữ qua query param.
-            navigate(`/messages/${convId}?userId=${currentUserId}`);
+            navigate(`/messages/${convId}`);
         },
-        [currentUserId, navigate],
+        [navigate],
     );
 
     const filteredConversations = useMemo(() => {
@@ -383,7 +364,7 @@ export function useMessagesController() {
 
                 // Nếu đang xem conversation này → navigate về trang messages (không chọn conversation nào)
                 if (selectedConversationId === conversationId) {
-                    navigate(`/messages?userId=${currentUserId}`);
+                    navigate(`/messages`);
                 }
             } catch {
                 console.error("Không thể xóa cuộc trò chuyện");

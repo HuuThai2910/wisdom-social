@@ -48,7 +48,7 @@ const chatService = {
     async getConversations(
         userId: number,
     ): Promise<ApiResponse<Conversation[]>> {
-        const response = await apiClient.get(`/conversations?userId=${userId}`);
+        const response = await apiClient.get(`/conversations`);
         return response.data;
     },
 
@@ -57,7 +57,7 @@ const chatService = {
         userId: number,
     ): Promise<ApiResponse<Conversation>> {
         const response = await apiClient.get(
-            `/conversations/${conversationId}?userId=${userId}`,
+            `/conversations/${conversationId}`,
         );
         return response.data;
     },
@@ -79,7 +79,6 @@ const chatService = {
         signal?: AbortSignal,
     ): Promise<ApiResponse<CursorResponse<Message[]>>> {
         const params = new URLSearchParams({
-            userId: String(userId),
             limit: String(limit),
         });
 
@@ -102,7 +101,6 @@ const chatService = {
         limit = 20,
     ): Promise<ApiResponse<CursorResponse<Message[]>>> {
         const params = new URLSearchParams({
-            userId: String(userId),
             limit: String(limit),
             after,
         });
@@ -119,12 +117,8 @@ const chatService = {
         targetMessageId: string,
         userId: number,
     ): Promise<ApiResponse<CursorResponse<Message[]>>> {
-        const params = new URLSearchParams({
-            userId: String(userId),
-        });
-
         const response = await apiClient.get(
-            `/conversations/${conversationId}/messages/${targetMessageId}/jump?${params.toString()}`,
+            `/conversations/${conversationId}/messages/${targetMessageId}/jump`,
         );
 
         return response.data;
@@ -135,7 +129,7 @@ const chatService = {
         userId: number,
     ): Promise<Message> {
         const response = await apiClient.post(
-            `/messages/send?userId=${userId}`,
+            `/messages/send`,
             request,
         );
         return normalizeMessagePayload(response.data);
@@ -146,9 +140,7 @@ const chatService = {
         userId: number,
         lastMessageId?: string,
     ): Promise<void> {
-        const params = new URLSearchParams({
-            userId: String(userId),
-        });
+        const params = new URLSearchParams({});
 
         if (lastMessageId) {
             params.set("lastMessageId", lastMessageId);
@@ -161,21 +153,21 @@ const chatService = {
 
     async recallMessage(messageId: string, userId: number): Promise<void> {
         await apiClient.delete(
-            `/messages/${messageId}/recall?userId=${userId}`,
+            `/messages/${messageId}/recall`,
         );
     },
 
     async pinMessage(messageId: string, userId: number): Promise<void> {
-        await apiClient.post(`/messages/${messageId}/pin?userId=${userId}`);
+        await apiClient.post(`/messages/${messageId}/pin`);
     },
 
     async unpinMessage(messageId: string, userId: number): Promise<void> {
-        await apiClient.delete(`/messages/${messageId}/pin?userId=${userId}`);
+        await apiClient.delete(`/messages/${messageId}/pin`);
     },
 
     async deleteMessageForMe(messageId: string, userId: number): Promise<void> {
         await apiClient.delete(
-            `/messages/${messageId}/delete-for-me?userId=${userId}`,
+            `/messages/${messageId}/delete-for-me`,
         );
     },
 
@@ -184,7 +176,7 @@ const chatService = {
         userId: number,
     ): Promise<void> {
         await apiClient.delete(
-            `/conversations/${conversationId}/delete-for-me?userId=${userId}`,
+            `/conversations/${conversationId}/delete-for-me`,
         );
     },
 

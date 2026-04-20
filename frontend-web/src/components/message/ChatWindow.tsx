@@ -43,7 +43,6 @@ import type { MessagePreviewDTO } from "../../features/chat-ai/types/chatAI";
 
 interface ChatWindowProps {
     conversationId: number;
-    userId: number;
     onMarkAsRead?: (conversationId: number) => void;
     onToggleInfoPanel?: () => void;
     showInfoPanel?: boolean;
@@ -58,7 +57,6 @@ function createClientFileId(): string {
 
 export default function ChatWindow({
     conversationId,
-    userId,
     onMarkAsRead,
     onToggleInfoPanel,
     showInfoPanel = true,
@@ -124,7 +122,8 @@ export default function ChatWindow({
         readReceipts,
         typingUsers,
         sendTypingSignal,
-    } = useChatWindowController({ conversationId, userId, onMarkAsRead });
+        userId,
+    } = useChatWindowController({ conversationId, onMarkAsRead });
 
     const otherMember = useMemo(
         () => Object.values(membersById).find((m) => m.userId !== userId),

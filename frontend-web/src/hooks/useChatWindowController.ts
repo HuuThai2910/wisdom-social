@@ -25,6 +25,7 @@ import chatRuntimeStore, {
     type MembersByUserId,
     type PinnedMessageDetail,
 } from "../stores/chatRuntimeStore";
+import { useAuth } from "../contexts/AuthContext";
 
 /**
  * Các hằng số điều khiển UX & paging.
@@ -100,7 +101,8 @@ function toMembersByUserId(
 
     if (Array.isArray(members)) {
         for (const member of members) {
-            normalized[member.userId] = member;
+            const numericId = Number(member.userId);
+            normalized[numericId] = { ...member, userId: numericId };
         }
         return normalized;
     }
@@ -188,10 +190,13 @@ function normalizeMessagesForUi(messages: Message[]): Message[] {
  */
 export function useChatWindowController(args: {
     conversationId: number;
-    userId: number;
     onMarkAsRead?: (conversationId: number) => void; // Callback để clear unreadCount ở sidebar
 }) {
-    const { conversationId, userId, onMarkAsRead } = args;
+    const { conversationId, onMarkAsRead } = args;
+
+    // userId: lấy từ AuthContext (security integration - không nhận qua prop nữa)
+    const { currentUser } = useAuth();
+    const userId = currentUser?.id ?? 0;
 
     // ====== UI State (render) ======
     const [messageText, setMessageText] = useState("");
@@ -722,9 +727,9 @@ export function useChatWindowController(args: {
                 const initialReceipts: ReadReceipt[] = Object.values(
                     mergedMembers,
                 )
-                    .filter((m) => m.userId !== userId && m.lastReadMessageId)
+                    .filter((m) => Number(m.userId) !== Number(userIdRef.current) && m.lastReadMessageId)
                     .map((m) => ({
-                        userId: m.userId,
+                        userId: Number(m.userId),
                         lastMessageId: m.lastReadMessageId!,
                         seenAt: new Date().toISOString(),
                     }));
@@ -1641,6 +1646,8 @@ export function useChatWindowController(args: {
     }, [typingUsers.size, messages.length, isNearBottom, scrollToBottom]);
 
     useEffect(() => {
+        if (!userId) return; // Wait until authenticated
+
         // Mỗi lần đổi conversationId:
         // - tăng token để invalidate request cũ
         // - reset state liên quan
@@ -1717,11 +1724,11 @@ export function useChatWindowController(args: {
         // Theo đặc tả room switching: luôn bỏ cache messages/paging của room cũ.
         chatRuntimeStore.clearConversationRuntime(conversationId);
 
-        if (cachedMembers[userId]) {
+        if (cachedMembers[userIdRef.current]) {
             const cachedReceipts: ReadReceipt[] = Object.values(cachedMembers)
-                .filter((m) => m.userId !== userId && m.lastReadMessageId)
+                .filter((m) => Number(m.userId) !== Number(userIdRef.current) && m.lastReadMessageId)
                 .map((m) => ({
-                    userId: m.userId,
+                    userId: Number(m.userId),
                     lastMessageId: m.lastReadMessageId!,
                     seenAt: new Date().toISOString(),
                 }));
@@ -2558,6 +2565,9 @@ export function useChatWindowController(args: {
         uploadFileProgressMap,
         uploadFailedFileNames,
         error,
+
+        // userId được expose để component dùng lại (lấy từ useAuth() bên trong hook)
+        userId,
 
         displayName: displayInfo.displayName,
         displayAvatar: displayInfo.displayAvatar,
