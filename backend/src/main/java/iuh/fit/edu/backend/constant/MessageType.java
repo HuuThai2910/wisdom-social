@@ -11,5 +11,5 @@ package iuh.fit.edu.backend.constant;
  * @version: 1.0
  */
 public enum MessageType {
-    TEXT, FILE, VIDEO, IMAGE, LINK, STICKER, AUDIO, CALL, SYSTEM_PIN, SYSTEM_UPIN
+    TEXT, FILE, VIDEO, IMAGE, LINK, STICKER, AUDIO, CALL, SYSTEM_PIN, SYSTEM_UPIN, SYSTEM_ADD_MEMBER, SYSTEM_LEAVE, SYSTEM_KICK
 }

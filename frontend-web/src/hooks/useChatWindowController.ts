@@ -26,6 +26,7 @@ import chatRuntimeStore, {
     type PinnedMessageDetail,
 } from "../stores/chatRuntimeStore";
 import { useAuth } from "../contexts/AuthContext";
+import { isMessageDeletedForUser } from "../utils/chatMessageGuards";
 
 /**
  * Các hằng số điều khiển UX & paging.
@@ -45,6 +46,8 @@ const MAX_FILES_PER_SEND = 50;
 const MAX_IMAGE_SIZE_BYTES = 25 * 1024 * 1024;
 const MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024;
 const RECALLED_REPLY_TEXT = "Tin nhắn đã được thu hồi";
+const JUMP_NOT_FOUND_TOAST = "Không thể tìm thấy tin nhắn.";
+const JUMP_TOAST_TIMEOUT_MS = 2400;
 
 type LoadOlderOptions = { keepAtBottom?: boolean };
 type VisibleAnchorSnapshot = { messageId: string; topOffset: number };
@@ -269,8 +272,19 @@ export function useChatWindowController(args: {
 
     // Toast ngắn cho lỗi thu hồi (tự biến mất sau 2 giây)
     const [recallToast, setRecallToast] = useState<string | null>(null);
+    const [jumpToast, setJumpToast] = useState<string | null>(null);
     const recallToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
         null,
+    );
+    const jumpToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+        null,
+    );
+
+    const showJumpToast = useCallback(
+        (message: string = JUMP_NOT_FOUND_TOAST) => {
+            setJumpToast(message);
+        },
+        [],
     );
 
     // Tự động xoá toast sau 2s, dọn timer cũ nếu toast xuất hiện lại sớm
@@ -287,6 +301,21 @@ export function useChatWindowController(args: {
                 clearTimeout(recallToastTimerRef.current);
         };
     }, [recallToast]);
+
+    useEffect(() => {
+        if (!jumpToast) return;
+
+        if (jumpToastTimerRef.current) clearTimeout(jumpToastTimerRef.current);
+        jumpToastTimerRef.current = setTimeout(() => {
+            setJumpToast(null);
+            jumpToastTimerRef.current = null;
+        }, JUMP_TOAST_TIMEOUT_MS);
+
+        return () => {
+            if (jumpToastTimerRef.current)
+                clearTimeout(jumpToastTimerRef.current);
+        };
+    }, [jumpToast]);
 
     // UX: nút xuống cuối + số tin mới chưa xem khi user không ở near-bottom.
     const [showScrollToBottomButton, setShowScrollToBottomButton] =
@@ -727,7 +756,11 @@ export function useChatWindowController(args: {
                 const initialReceipts: ReadReceipt[] = Object.values(
                     mergedMembers,
                 )
-                    .filter((m) => Number(m.userId) !== Number(userIdRef.current) && m.lastReadMessageId)
+                    .filter(
+                        (m) =>
+                            Number(m.userId) !== Number(userIdRef.current) &&
+                            m.lastReadMessageId,
+                    )
                     .map((m) => ({
                         userId: Number(m.userId),
                         lastMessageId: m.lastReadMessageId!,
@@ -1055,7 +1088,7 @@ export function useChatWindowController(args: {
 
                 return true;
             } catch {
-                setError("Không thể nhảy tới tin nhắn");
+                showJumpToast();
                 return false;
             } finally {
                 if (token === loadTokenRef.current) {
@@ -1067,18 +1100,38 @@ export function useChatWindowController(args: {
                 }, 1200);
             }
         },
-        [conversationId, mergeReferenceUsers, resetMediaLoadStabilizer, userId],
+        [
+            conversationId,
+            mergeReferenceUsers,
+            resetMediaLoadStabilizer,
+            showJumpToast,
+            userId,
+        ],
     );
 
     const handleJumpToMessage = useCallback(
         async (targetMessageId: string): Promise<boolean> => {
-            const existed = messages.some(
+            const messageFromState = messages.find(
                 (message) => message.id === targetMessageId,
             );
-            if (existed) return true;
+            const messageFromStore = messageFromState
+                ? null
+                : chatRuntimeStore
+                      .getMessages(conversationId)
+                      .find((message) => message.id === targetMessageId);
+            const localMessage = messageFromState ?? messageFromStore;
+
+            if (localMessage) {
+                if (isMessageDeletedForUser(localMessage, userId)) {
+                    showJumpToast();
+                    return false;
+                }
+                return true;
+            }
+
             return jumpToMessage(targetMessageId);
         },
-        [jumpToMessage, messages],
+        [conversationId, jumpToMessage, messages, showJumpToast, userId],
     );
 
     useEffect(() => {
@@ -1726,7 +1779,11 @@ export function useChatWindowController(args: {
 
         if (cachedMembers[userIdRef.current]) {
             const cachedReceipts: ReadReceipt[] = Object.values(cachedMembers)
-                .filter((m) => Number(m.userId) !== Number(userIdRef.current) && m.lastReadMessageId)
+                .filter(
+                    (m) =>
+                        Number(m.userId) !== Number(userIdRef.current) &&
+                        m.lastReadMessageId,
+                )
                 .map((m) => ({
                     userId: Number(m.userId),
                     lastMessageId: m.lastReadMessageId!,
@@ -2597,6 +2654,7 @@ export function useChatWindowController(args: {
         appendRealtimeMessage: handleNewMessage,
         scrollToBottom,
         recallToast,
+        jumpToast,
 
         // === Voice recording state & actions (Ghi âm tin nhắn thoại) ===
         isRecording, // true nếu đang ghi âm

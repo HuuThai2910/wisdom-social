@@ -60,14 +60,12 @@ import {
     ReplyComposerState,
     MediaViewerState,
     AudioProgress,
-    PinnedBannerItem,
     PinSystemRunRenderMeta,
     contextActions,
     formatDurationMillis,
     formatFileSize,
     resolveMediaUrl,
     isLikelyStoragePathOrUrl,
-    resolveAttachmentUrls,
     formatMessageTime,
     isEmojiOnlyText,
     formatReplyLabel,
@@ -81,6 +79,7 @@ import {
     buildAudioWaveBars,
 } from "@/utils/messageUtils";
 import { PinnedBanner } from "@/components/PinnedBanner";
+import { buildPinnedBannerItemsFromSnapshot } from "@/utils/pinnedMessageSnapshot";
 export default function MessagesConversationScreen() {
     const { conversationId: conversationIdParam } = useLocalSearchParams<{
         conversationId?: string;
@@ -111,6 +110,7 @@ export default function MessagesConversationScreen() {
         uploadProgressLabel,
         uploadFailedFileNames,
         error,
+        jumpToast,
         handleSend,
         handleSendMixedMedia,
         handleRecall,
@@ -398,43 +398,14 @@ export default function MessagesConversationScreen() {
         scheduleReleaseJumpScrollLock,
     ]);
 
-    const pinnedBannerItems = useMemo<PinnedBannerItem[]>(() => {
-        const previewText = (message: Message) => {
-            if (message.isRecalled) return "Tin nhan da duoc thu hoi";
-            if (message.type === "IMAGE") return "[Hinh anh]";
-            if (message.type === "VIDEO") return "[Video]";
-            if (message.type === "AUDIO") return "[Tin nhan thoai]";
-            if (message.type === "FILE") return "[Tep dinh kem]";
-            if (message.type === "CALL") return "[Cuoc goi]";
-            return message.content?.trim() || "Tin nhan";
-        };
-
-        return pinnedMessages.slice(0, 3).map((pin) => {
-            const matchedMessage = messages.find(
-                (message) => message.id === pin.messageId,
-            );
-            const sender = matchedMessage
-                ? membersById[matchedMessage.senderId]
-                : undefined;
-
-            const senderName =
-                sender?.nickname || sender?.username || "Nguoi dung";
-            const thumbUrl =
-                matchedMessage?.type === "IMAGE"
-                    ? resolveAttachmentUrls(matchedMessage)[0]
-                    : undefined;
-
-            return {
-                messageId: pin.messageId,
-                pinnedAt: pin.pinnedAt,
-                senderName,
-                preview: matchedMessage
-                    ? previewText(matchedMessage)
-                    : "Tin nhan da ghim",
-                thumbUrl,
-            };
-        });
-    }, [membersById, messages, pinnedMessages]);
+    const pinnedBannerItems = useMemo(
+        () =>
+            buildPinnedBannerItemsFromSnapshot({
+                pins: pinnedMessages,
+                membersById,
+            }),
+        [membersById, pinnedMessages],
+    );
 
     const primaryPinnedItem = pinnedBannerItems[0];
     const canExpandPinnedList = pinnedBannerItems.length > 1;
@@ -1302,6 +1273,8 @@ export default function MessagesConversationScreen() {
                     </View>
                 </View>
 
+              
+
                 <PinnedBanner
                     pinnedBannerItems={pinnedBannerItems}
                     primaryPinnedItem={primaryPinnedItem}
@@ -1311,6 +1284,11 @@ export default function MessagesConversationScreen() {
                     handleOpenPinnedMessage={handleOpenPinnedMessage}
                     handleUnpinMessage={handleUnpinMessage}
                 />
+                  {jumpToast ? (
+                    <View style={styles.jumpToastWrap} pointerEvents="none">
+                        <Text style={styles.jumpToastText}>{jumpToast}</Text>
+                    </View>
+                ) : null}
 
                 <FlatList
                     ref={listRef}

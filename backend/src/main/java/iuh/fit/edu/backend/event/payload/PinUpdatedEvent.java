@@ -8,7 +8,6 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import iuh.fit.edu.backend.domain.entity.mysql.PinnedMessageDetail;
 import iuh.fit.edu.backend.event.type.DomainEventType;
-import lombok.AllArgsConstructor;
 import lombok.Getter;
 
 import java.util.List;

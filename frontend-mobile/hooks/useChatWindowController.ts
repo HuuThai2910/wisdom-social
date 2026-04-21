@@ -22,6 +22,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useIsFocused } from "@react-navigation/native";
 import { setActiveConversationId } from "@/hooks/useMessagesController";
 import { useAppContext } from "@/context/AppContext";
+import { isMessageDeletedForUser } from "@/utils/chatMessageGuards";
 
 const MARK_AS_READ_DEBOUNCE_MS = 1000;
 const TYPING_STOP_TIMEOUT_MS = 10000;
@@ -29,6 +30,8 @@ const REALTIME_FALLBACK_POLL_MS = 1500;
 const MAX_FILES_PER_SEND = 20;
 const MAX_IMAGE_SIZE_BYTES = 25 * 1024 * 1024;
 const MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024;
+const JUMP_NOT_FOUND_TOAST = "Khong the tim thay tin nhan";
+const JUMP_TOAST_TIMEOUT_MS = 2400;
 
 export interface ReadReceipt {
     userId: number;
@@ -185,6 +188,7 @@ export function useChatWindowController(args: {
         string[]
     >([]);
     const [error, setError] = useState<string | null>(null);
+    const [jumpToast, setJumpToast] = useState<string | null>(null);
     const [olderCursor, setOlderCursor] = useState<string | null>(null);
     const [hasMoreOlder, setHasMoreOlder] = useState(false);
     const [hasMoreNewer, setHasMoreNewer] = useState(false);
@@ -202,9 +206,19 @@ export function useChatWindowController(args: {
     const realtimePollLockRef = useRef(false);
     const isTypingSentRef = useRef(false);
     const loadInitialDataRunCountRef = useRef(0);
+    const jumpToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+        null,
+    );
     const typingTimeoutsRef = useRef<
         Map<number, ReturnType<typeof setTimeout>>
     >(new Map());
+
+    const showJumpToast = useCallback(
+        (message: string = JUMP_NOT_FOUND_TOAST) => {
+            setJumpToast(message);
+        },
+        [],
+    );
 
     const clearUnreadLocally = useCallback(() => {
         setConversation((prev) =>
@@ -455,6 +469,25 @@ export function useChatWindowController(args: {
         });
         void loadInitialData();
     }, [conversationId, loadInitialData]);
+
+    useEffect(() => {
+        if (!jumpToast) return;
+
+        if (jumpToastTimerRef.current) {
+            clearTimeout(jumpToastTimerRef.current);
+        }
+
+        jumpToastTimerRef.current = setTimeout(() => {
+            setJumpToast(null);
+            jumpToastTimerRef.current = null;
+        }, JUMP_TOAST_TIMEOUT_MS);
+
+        return () => {
+            if (!jumpToastTimerRef.current) return;
+            clearTimeout(jumpToastTimerRef.current);
+            jumpToastTimerRef.current = null;
+        };
+    }, [jumpToast]);
 
     const applyRecallDomino = useCallback(
         (messageId: string) => {
@@ -1322,7 +1355,6 @@ export function useChatWindowController(args: {
         if (!hasMoreOlder || !olderCursor || loadingMore) return;
 
         try {
-
             setLoadingMore(true);
             const response = await chatService.getMessages(
                 conversationId,
@@ -1404,8 +1436,6 @@ export function useChatWindowController(args: {
         if (!afterCursor) return;
 
         try {
-          
-
             setLoadingNewer(true);
 
             const response = await chatService.getNewerMessages(
@@ -1493,8 +1523,21 @@ export function useChatWindowController(args: {
                 messageCount: messages.length,
             });
 
-            if (messages.some((message) => message.id === targetMessageId)) {
-               
+            const messageFromState = messages.find(
+                (message) => message.id === targetMessageId,
+            );
+            const messageFromStore = messageFromState
+                ? null
+                : chatRuntimeStore
+                      .getMessages(conversationId)
+                      .find((message) => message.id === targetMessageId);
+            const localMessage = messageFromState ?? messageFromStore;
+
+            if (localMessage) {
+                if (isMessageDeletedForUser(localMessage, currentUserId)) {
+                    showJumpToast();
+                    return false;
+                }
                 return true;
             }
 
@@ -1508,6 +1551,7 @@ export function useChatWindowController(args: {
                 );
 
                 if (!response.success || !response.data) {
+                    showJumpToast();
                     return false;
                 }
 
@@ -1560,7 +1604,8 @@ export function useChatWindowController(args: {
 
                 return true;
             } catch {
-                setError("Khong the nhay toi tin nhan");
+                showJumpToast();
+                // setError("Khong the nhay toi tin nhan");
                 console.log(
                     "[JUMP_DEBUG][controller] handleJumpToMessage:failed",
                     {
@@ -1573,7 +1618,13 @@ export function useChatWindowController(args: {
                 setLoadingMore(false);
             }
         },
-        [conversationId, currentUserId, mergeReferenceUsers, messages],
+        [
+            conversationId,
+            currentUserId,
+            mergeReferenceUsers,
+            messages,
+            showJumpToast,
+        ],
     );
 
     const resetToPresent = useCallback(async () => {
@@ -1609,6 +1660,7 @@ export function useChatWindowController(args: {
         uploadFileProgressMap,
         uploadFailedFileNames,
         error,
+        jumpToast,
         handleSend,
         handleSendMixedMedia,
         handleRecall,

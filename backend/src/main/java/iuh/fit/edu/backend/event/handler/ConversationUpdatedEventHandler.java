@@ -5,7 +5,6 @@
 package iuh.fit.edu.backend.event.handler;
 
 import iuh.fit.edu.backend.event.payload.ConversationUpdatedEvent;
-import iuh.fit.edu.backend.event.payload.MemberUpdatedEvent;
 import iuh.fit.edu.backend.event.type.DomainEventType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

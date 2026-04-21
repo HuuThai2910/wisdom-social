@@ -32,6 +32,7 @@ export interface Message {
     isActive?: boolean;
     isRecalled?: boolean;
     attachments?: MessageAttachment[];
+    deletedFor?: number[];
 }
 
 export interface MessageAttachment {
@@ -67,6 +68,9 @@ export interface PinnedMessageDetail {
     messageId: string;
     pinnerId: number;
     pinnedAt: string;
+    originalSenderId?: number;
+    type?: MessageType;
+    content?: string;
 }
 
 export interface Conversation {

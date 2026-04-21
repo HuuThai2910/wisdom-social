@@ -4,8 +4,14 @@
  */
 package iuh.fit.edu.backend.service.chat.impl;
 
+import iuh.fit.edu.backend.constant.ConversationType;
+import iuh.fit.edu.backend.constant.MemberRole;
+import iuh.fit.edu.backend.constant.MemberStatus;
+import iuh.fit.edu.backend.constant.MessageType;
 import iuh.fit.edu.backend.domain.entity.mysql.Conversation;
 import iuh.fit.edu.backend.domain.entity.mysql.ConversationMember;
+import iuh.fit.edu.backend.domain.entity.nosql.Message;
+import iuh.fit.edu.backend.dto.request.convesation.CreateGroupRequest;
 import iuh.fit.edu.backend.dto.response.conversation.ConversationMemberResponse;
 import iuh.fit.edu.backend.dto.response.conversation.ConversationResponse;
 import iuh.fit.edu.backend.dto.response.message.LastMessageResponse;
@@ -13,12 +19,14 @@ import iuh.fit.edu.backend.dto.response.message.MessageSeenResponse;
 import iuh.fit.edu.backend.event.payload.MessageSeenEvent;
 import iuh.fit.edu.backend.mapper.ConversationMapper;
 import iuh.fit.edu.backend.repository.mysql.ConversationMemberRepository;
+import iuh.fit.edu.backend.repository.mysql.ConversationRepository;
+import iuh.fit.edu.backend.repository.mysql.UserRepository;
 import iuh.fit.edu.backend.service.chat.ConversationMemberService;
-import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -39,8 +47,9 @@ public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat
     private final ConversationMapper conversationMapper;
     private final ConversationMemberService conversationMemberService;
     private final ApplicationEventPublisher eventPublisher;
-
-
+    private final ConversationRepository conversationRepository;
+    private final UserRepository userRepository;
+    
     @Override
     public List<ConversationResponse> getConversationsByUser(Long userId){
         log.info("Get conversation by user {}", userId);

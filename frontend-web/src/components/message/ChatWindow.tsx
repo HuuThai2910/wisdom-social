@@ -40,6 +40,7 @@ import AIConsentModal from "../../features/chat-ai/components/AIConsentModal";
 import AIActionPanel from "../../features/chat-ai/components/AIActionPanel";
 import AIResultPanel from "../../features/chat-ai/components/AIResultPanel";
 import type { MessagePreviewDTO } from "../../features/chat-ai/types/chatAI";
+import { buildPinnedBannerItemsFromSnapshot } from "../../utils/pinnedMessageSnapshot";
 
 interface ChatWindowProps {
     conversationId: number;
@@ -103,6 +104,7 @@ export default function ChatWindow({
         appendRealtimeMessage,
         scrollToBottom,
         recallToast,
+        jumpToast,
 
         isRecording,
         recordingDuration,
@@ -208,44 +210,11 @@ export default function ChatWindow({
     );
 
     const pinnedBannerItems = useMemo(() => {
-        // Chuẩn hoá text preview theo loại tin nhắn để banner dễ đọc.
-        const previewText = (message: (typeof messages)[number]) => {
-            if (message.type === "IMAGE") return "[Hình ảnh]";
-            if (message.type === "VIDEO") return "[Video]";
-            if (message.type === "AUDIO") return "[Tin nhắn thoại]";
-            if (message.type === "FILE") return "[Tệp đính kèm]";
-            if (message.type === "CALL") return "[Cuộc gọi]";
-            return message.content || "Tin nhắn";
-        };
-
-        return pinnedMessages.map((pin) => {
-            const matchedMessage = messages.find(
-                (message) => message.id === pin.messageId,
-            );
-
-            // Hiển thị tên người gửi của tin nhắn gốc đang được ghim.
-            // Nếu không tìm thấy member thì fallback về chuỗi chung để UI không bị rỗng.
-            const originalSender = matchedMessage
-                ? membersById[matchedMessage.senderId]
-                : undefined;
-            const senderName = originalSender?.nickname || "Người dùng";
-
-            // Nếu tin ghim là ảnh thì hiện thumbnail nhỏ trong banner/list.
-            const thumbUrl =
-                matchedMessage?.type === "IMAGE"
-                    ? matchedMessage.content
-                    : undefined;
-
-            return {
-                ...pin,
-                preview: matchedMessage
-                    ? previewText(matchedMessage)
-                    : "Tin nhắn đã ghim",
-                thumbUrl,
-                senderName,
-            };
+        return buildPinnedBannerItemsFromSnapshot({
+            pins: pinnedMessages,
+            membersById,
         });
-    }, [membersById, messages, pinnedMessages]);
+    }, [membersById, pinnedMessages]);
 
     // Item ghim đầu tiên luôn hiển thị ở banner dạng gọn.
     const primaryPinnedItem = pinnedBannerItems[0];
@@ -1089,6 +1058,12 @@ export default function ChatWindow({
                 {recallToast && (
                     <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 bg-gray-800 dark:bg-gray-700 text-white text-sm px-4 py-2 rounded-lg shadow-lg pointer-events-none whitespace-nowrap">
                         {recallToast}
+                    </div>
+                )}
+
+                {jumpToast && (
+                    <div className="absolute top-14 left-1/2 -translate-x-1/2 z-30 bg-gray-800 dark:bg-gray-700 text-white text-sm px-4 py-2 rounded-lg shadow-lg pointer-events-none whitespace-nowrap">
+                        {jumpToast}
                     </div>
                 )}
 

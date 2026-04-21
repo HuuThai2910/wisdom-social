@@ -7,14 +7,11 @@ package iuh.fit.edu.backend.event.publisher;
 import iuh.fit.edu.backend.config.RedisPubSubConfig;
 import iuh.fit.edu.backend.event.payload.MemberUpdatedEvent;
 import iuh.fit.edu.backend.event.payload.RedisEnvelope;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.event.EventListener;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
-
 import java.util.Collections;
 
 /*

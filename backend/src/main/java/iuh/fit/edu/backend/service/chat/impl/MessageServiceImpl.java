@@ -155,9 +155,17 @@ public class MessageServiceImpl implements MessageService {
                     MessageType.SYSTEM_UPIN, "đã bỏ ghim một tin nhắn"
             );
         }
-
+        MessageType type = targetMessage.getMessageType();
+        boolean checkType = type == MessageType.IMAGE
+                || type == MessageType.VIDEO
+                || type == MessageType.FILE
+                || type == MessageType.AUDIO;
         // Thêm tin mới vào danh sách ghim
-        pinnedList.add(new PinnedMessageDetail(messageId, userId, Instant.now().truncatedTo(ChronoUnit.MILLIS)));
+        pinnedList.add(new PinnedMessageDetail(messageId,
+                userId, Instant.now().truncatedTo(ChronoUnit.MILLIS),
+                targetMessage.getSenderId(),
+                checkType ? targetMessage.getAttachments().get(0).getUrl() : targetMessage.getContent(),
+                targetMessage.getMessageType()));
 
         // Gán list mới để Hibernate detect dirty cho cột JSON pin list
         conversation.setPinnedMessages(pinnedList);
@@ -261,10 +269,8 @@ public class MessageServiceImpl implements MessageService {
 
         // Cập nhật lại các tin nhắn reply lại tin nhắn đang thu hồi
         messageRepository.updateContentOfRepliedMessages(messageId);
-
-
-
         MessageRecalledResponse messageRecalledResponse = new MessageRecalledResponse(message.getId(), message.getConversationId(), message.getCreatedAt());
+
         // Cập nhật Redis cache để tránh trả về tin nhắn cũ
         messageCacheService.updateMessage(messageRecalledResponse);
 
@@ -447,7 +453,12 @@ public class MessageServiceImpl implements MessageService {
     public CursorResponse<List<MessageResponse>> jumpToMessage(Long conversationId, String targetMessageId, Long userId) {
         log.info("Jump to message");
         ConversationMemberResponse member = conversationMemberService.getMemberInfo(conversationId, userId);
-
+        Message targetMsg = messageRepository.findById(targetMessageId)
+                .orElseThrow(() -> new RuntimeException("Tin nhắn không tồn tại"));
+        if (targetMsg.getDeletedFor() != null &&
+                targetMsg.getDeletedFor().contains(userId)) {
+            throw new RuntimeException("Không thể tìm thấy tin nhắn");
+        }
         List<MessageResponse> resultList;
         boolean hasMoreOlder = false;
         boolean hasMoreNewer = false;
@@ -462,10 +473,6 @@ public class MessageServiceImpl implements MessageService {
             hasMoreNewer = false;
         } else {
             // Chuyển qua lấy từ db
-            Message targetMsg = messageRepository.findById(targetMessageId)
-                    .orElseThrow(() -> new RuntimeException("Tin nhắn không tồn tại"));
-
-
             // Tin cũ sẽ lấy ra 11 dữ liệu để kiểm tra xem còn dữ liệu cũ hơn nữa không
             List<Message> older = messageRepository.findTop11ByConversationIdAndCreatedAtBeforeOrderByCreatedAtDesc(
                     conversationId, targetMsg.getCreatedAt());

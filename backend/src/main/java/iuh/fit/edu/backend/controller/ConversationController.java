@@ -106,7 +106,6 @@ public class ConversationController {
     @GetMapping("/{conversationId}/members")
     public ResponseEntity<Map<Long, ConversationMemberResponse>> getConversationMembers(
             @PathVariable Long conversationId) {
-        Long userId = this.userService.getCurrentUser().getId();
         Map<Long, ConversationMemberResponse> membersMap = memberService.getMembersMap(conversationId);
         return ResponseEntity.ok(membersMap);
     }

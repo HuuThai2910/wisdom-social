@@ -8,6 +8,17 @@ export interface PinnedMessageDetail {
     messageId: string;
     pinnerId: number;
     pinnedAt: string;
+    originalSenderId?: number;
+    type?:
+        | "TEXT"
+        | "IMAGE"
+        | "VIDEO"
+        | "FILE"
+        | "AUDIO"
+        | "CALL"
+        | "SYSTEM_PIN"
+        | "SYSTEM_UPIN";
+    content?: string;
 }
 
 export interface ConversationPagingState {

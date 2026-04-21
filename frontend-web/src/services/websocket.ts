@@ -61,6 +61,17 @@ export interface PinUpdatedEvent {
         messageId: string;
         pinnerId: number;
         pinnedAt: string;
+        originalSenderId?: number;
+        type?:
+            | "TEXT"
+            | "IMAGE"
+            | "VIDEO"
+            | "FILE"
+            | "AUDIO"
+            | "CALL"
+            | "SYSTEM_PIN"
+            | "SYSTEM_UPIN";
+        content?: string;
     }>;
 }
 
@@ -280,7 +291,9 @@ class WebSocketService {
                  * Endpoint: http://localhost:8080/ws (backend Spring Boot)
                  */
                 webSocketFactory: () => {
-                    console.log("🟡 Creating SockJS connection to http://localhost:8080/ws");
+                    console.log(
+                        "🟡 Creating SockJS connection to http://localhost:8080/ws",
+                    );
                     return new SockJS("http://localhost:8080/ws");
                 },
 
@@ -872,7 +885,10 @@ class WebSocketService {
      */
     subscribeToTopic(destination: string, callback: (message: any) => void) {
         if (!this.client?.connected) {
-            console.error("WebSocket not connected, cannot subscribe to topic:", destination);
+            console.error(
+                "WebSocket not connected, cannot subscribe to topic:",
+                destination,
+            );
             return;
         }
 
@@ -896,9 +912,12 @@ class WebSocketService {
                     }
                     callback(parsedMessage);
                 } catch (error) {
-                    console.error(`Error handling message from ${destination}:`, error);
+                    console.error(
+                        `Error handling message from ${destination}:`,
+                        error,
+                    );
                 }
-            }
+            },
         );
 
         this.subscriptions.set(destination, subscription);
@@ -958,7 +977,10 @@ class WebSocketService {
                 console.log("📨 Message headers:", message.headers);
                 console.log("📨 Raw body string:", message.body);
                 console.log("📨 Body length:", message.body.length);
-                console.log("📨 Body first 100 chars:", message.body.substring(0, 100));
+                console.log(
+                    "📨 Body first 100 chars:",
+                    message.body.substring(0, 100),
+                );
 
                 try {
                     const updatedUser = JSON.parse(message.body);

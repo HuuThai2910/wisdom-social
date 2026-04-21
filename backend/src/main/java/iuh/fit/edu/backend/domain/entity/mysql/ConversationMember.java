@@ -4,6 +4,8 @@
  */
 package iuh.fit.edu.backend.domain.entity.mysql;
 
+import iuh.fit.edu.backend.constant.MemberRole;
+import iuh.fit.edu.backend.constant.MemberStatus;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -36,16 +38,24 @@ public class ConversationMember {
     @JoinColumn(name = "user_id")
     private User user;
 
-    // Đánh dấu là nhóm trưởng (chỉ có khi là group chat)
-    private boolean isAdmin;
     private boolean isMuted;
     private Long lastReadId;
     private String nickname;
 
+    @Enumerated(EnumType.STRING)
+    private MemberRole role;       // <--- TRƯỜNG MỚI
+
+    @Enumerated(EnumType.STRING)
+    private MemberStatus status;
+
+    @Column(name = "joined_at")
+    private Instant joinedAt;
+
+    @Column(name = "left_at")
+    private Instant leftAt;
 
     // Lưu ID của tin nhắn mới nhất mà người này vừa xem
     private String lastReadMessageId;
-
     // Số lượng tin nhắn chưa đọc
     @Column(columnDefinition = "int default 0")
     private int unreadCount = 0;
@@ -53,6 +63,7 @@ public class ConversationMember {
     // Mốc thời gian xóa cuộc hội thoại
     @Column(name = "cleared_at")
     private Instant clearedAt;
+
     @Column(name = "is_hidden")
     private boolean isHidden = false;
 
