@@ -7,6 +7,7 @@ package iuh.fit.edu.backend.service.post.impl;
 import iuh.fit.edu.backend.constant.ReactionType;
 import iuh.fit.edu.backend.constant.TargetType;
 import iuh.fit.edu.backend.domain.entity.nosql.Reaction;
+import iuh.fit.edu.backend.dto.response.post.ReactionSummaryResponse;
 import iuh.fit.edu.backend.repository.nosql.ReactionRepository;
 import iuh.fit.edu.backend.service.post.ReactionService;
 import iuh.fit.edu.backend.repository.nosql.PostRepository;
@@ -16,8 +17,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /*
  * @description: Service implementation for Reaction operations
@@ -108,5 +112,61 @@ public class ReactionServiceImpl implements ReactionService {
         log.info("Get user reaction: userId={}, targetType={}, targetId={}", userId, targetType, targetId);
         return reactionRepository.findByUserIdAndTargetTypeAndTargetId(userId, targetType, targetId)
                 .orElse(null);
+    }
+
+    @Override
+    public ReactionSummaryResponse getReactionSummary(TargetType targetType, String targetId, int topLimit) {
+        log.info("Get reaction summary: targetType={}, targetId={}, topLimit={}", targetType, targetId, topLimit);
+
+        List<Reaction> reactions = reactionRepository.findByTargetTypeAndTargetId(targetType, targetId);
+        long totalCount = reactions.size();
+
+        if (totalCount == 0) {
+            return ReactionSummaryResponse.builder()
+                    .totalCount(0)
+                    .topReactions(List.of())
+                    .build();
+        }
+
+        Map<ReactionType, Long> counts = new EnumMap<>(ReactionType.class);
+        for (Reaction reaction : reactions) {
+            counts.merge(reaction.getType(), 1L, Long::sum);
+        }
+
+        int safeTopLimit = Math.max(1, topLimit);
+
+        List<ReactionSummaryResponse.ReactionCountItem> topReactions = counts.entrySet().stream()
+                .sorted((a, b) -> {
+                    int byCount = Long.compare(b.getValue(), a.getValue());
+                    if (byCount != 0) {
+                        return byCount;
+                    }
+                    return Integer.compare(
+                            getReactionPriority(a.getKey()),
+                            getReactionPriority(b.getKey())
+                    );
+                })
+                .limit(safeTopLimit)
+                .map(entry -> ReactionSummaryResponse.ReactionCountItem.builder()
+                        .type(entry.getKey())
+                        .count(entry.getValue())
+                        .build())
+                .collect(Collectors.toList());
+
+        return ReactionSummaryResponse.builder()
+                .totalCount(totalCount)
+                .topReactions(topReactions)
+                .build();
+    }
+
+    private int getReactionPriority(ReactionType type) {
+        return switch (type) {
+            case LOVE -> 1;
+            case LIKE -> 2;
+            case HAHA -> 3;
+            case WOW -> 4;
+            case SAD -> 5;
+            case ANGRY -> 6;
+        };
     }
 }

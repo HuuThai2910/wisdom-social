@@ -68,6 +68,25 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
   const location = useLocation();
   const { currentUser } = useAuth();
 
+  const normalizeId = (value: string | number | null | undefined): string => {
+    if (value === null || value === undefined) return "";
+    return String(value).trim();
+  };
+
+  const isSameUserId = (
+    first: string | number | null | undefined,
+    second: string | number | null | undefined
+  ): boolean => {
+    const firstId = normalizeId(first);
+    const secondId = normalizeId(second);
+    return Boolean(firstId) && Boolean(secondId) && firstId === secondId;
+  };
+
+  const getPostOwnerId = (postData: PostData | null): string => {
+    if (!postData) return "";
+    return normalizeId(postData.authorId);
+  };
+
   // ============ POST DATA STATES ============
   const [post, setPost] = useState<PostData | null>(null);
   const [author, setAuthor] = useState<UserData | null>(null);
@@ -96,6 +115,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
   const reactionsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
+  const [viewerId, setViewerId] = useState("");
 
   // ============ EDIT STATE ============
   const [isEditing, setIsEditing] = useState(false);
@@ -111,17 +131,35 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
     onClose();
   };
 
+  // ============ EFFECT: Sync viewer identity from backend ============
+  useEffect(() => {
+    setViewerId(normalizeId(currentUser?.id));
+
+    const syncViewerIdentity = async () => {
+      try {
+        const meId = normalizeId(await postApi.fetchCurrentViewerId());
+        if (meId) {
+          setViewerId(meId);
+        }
+      } catch {
+        // Fallback to AuthContext id if /auth/me is unavailable.
+      }
+    };
+
+    syncViewerIdentity();
+  }, [currentUser?.id]);
+
   // ============ EFFECT: Auto-open edit mode for post owner ============
   useEffect(() => {
     const shouldOpenEdit = Boolean((location.state as any)?.openEdit);
-    if (!shouldOpenEdit || !post || !currentUser?.id) {
+    if (!shouldOpenEdit || !post || !viewerId) {
       return;
     }
 
-    if (post.authorId === currentUser.id.toString()) {
+    if (isSameUserId(viewerId, getPostOwnerId(post))) {
       setIsEditing(true);
     }
-  }, [location.state, post, currentUser?.id]);
+  }, [location.state, post, viewerId]);
 
   // ============ EFFECT: Fetch post data ============
   useEffect(() => {
@@ -146,11 +184,8 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
         const reactCountData = await postApi.fetchPostReactionsCount(postId);
         setReactCount(reactCountData);
 
-        if (currentUser?.id) {
-          const savedStatus = await postApi.checkPostSaved(
-            currentUser.id.toString(),
-            postId
-          );
+        if (viewerId) {
+          const savedStatus = await postApi.checkPostSaved(viewerId, postId);
           setIsSaved(savedStatus);
         }
 
@@ -166,18 +201,15 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
     };
 
     fetchPost();
-  }, [postId, currentUser?.id]);
+  }, [postId, viewerId]);
 
   // ============ EFFECT: Fetch user's reaction ============
   useEffect(() => {
     const fetchUserReaction = async () => {
-      if (!currentUser?.id) return;
+      if (!viewerId) return;
 
       try {
-        const reaction = await postApi.fetchUserReaction(
-          currentUser.id.toString(),
-          postId
-        );
+        const reaction = await postApi.fetchUserReaction(viewerId, postId);
         setCurrentReaction(reaction?.type || null);
       } catch (error) {
         console.log("PostModal: Error fetching reaction:", error);
@@ -185,7 +217,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
       }
     };
     fetchUserReaction();
-  }, [postId, currentUser]);
+  }, [postId, viewerId]);
 
   // ============ EFFECT: Transform media URLs ============
   useEffect(() => {
@@ -208,23 +240,17 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
   // ============ EFFECT: Refetch on window focus ============
   useEffect(() => {
     const handleFocus = () => {
-      if (!currentUser?.id) return;
+      if (!viewerId) return;
 
       const refetchData = async () => {
         try {
-          const reaction = await postApi.fetchUserReaction(
-            currentUser.id.toString(),
-            postId
-          );
+          const reaction = await postApi.fetchUserReaction(viewerId, postId);
           setCurrentReaction(reaction?.type || null);
 
           const count = await postApi.fetchPostReactionsCount(postId);
           setReactCount(count);
 
-          const saved = await postApi.checkPostSaved(
-            currentUser.id.toString(),
-            postId
-          );
+          const saved = await postApi.checkPostSaved(viewerId, postId);
           setIsSaved(saved);
         } catch (error) {
           console.debug("Error refetching data:", error);
@@ -236,7 +262,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
 
     window.addEventListener("focus", handleFocus);
     return () => window.removeEventListener("focus", handleFocus);
-  }, [currentUser, postId]);
+  }, [viewerId, postId]);
 
   // ============ HANDLERS: Menu & Privacy ============
   const handleEdit = () => {
@@ -249,13 +275,13 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
     if (!post) return;
 
     try {
-      if (!currentUser?.id) {
+      if (!viewerId) {
         alert("Please login to update privacy");
         return;
       }
 
       const updatedPost = await postApi.updatePostPrivacy(
-        currentUser.id.toString(),
+        viewerId,
         postId,
         newPrivacy
       );
@@ -277,7 +303,11 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
     }
 
     try {
-      await postApi.deletePost(postId, (currentUser?.id || 0).toString());
+      if (!viewerId) {
+        alert("Please login to delete post");
+        return;
+      }
+      await postApi.deletePost(postId, viewerId);
       alert("Xóa bài viết thành công!");
       handleCloseModal();
     } catch (error) {
@@ -294,14 +324,14 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
 
   // ============ HANDLERS: Actions (Reaction, Save) ============
   const handleReaction = async (reactionType: string) => {
-    if (!currentUser?.id) {
+    if (!viewerId) {
       alert("Please login to react");
       return;
     }
 
     try {
       const reaction = await postApi.togglePostReaction(
-        currentUser.id.toString(),
+        viewerId,
         postId,
         reactionType
       );
@@ -322,13 +352,13 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
   };
 
   const handleSave = async () => {
-    if (!currentUser?.id) {
+    if (!viewerId) {
       alert("Please login to save posts");
       return;
     }
 
     try {
-      await postApi.togglePostSaved(currentUser.id.toString(), postId);
+      await postApi.togglePostSaved(viewerId, postId);
       setIsSaved(!isSaved);
     } catch (error) {
       console.error("Error toggling save status:", error);
@@ -371,7 +401,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
     return null;
   }
 
-  const isOwnPost = currentUser?.id.toString() === post.authorId;
+  const isOwnPost = isSameUserId(viewerId, getPostOwnerId(post));
 
   // ============ RENDER ============
   return (
@@ -420,7 +450,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
           />
 
           {/* Comments */}
-          <PostComments postId={postId} currentUser={currentUser} />
+          <PostComments postId={postId} viewerId={viewerId} />
 
           {/* Actions & Reactions */}
           <PostActions
@@ -440,7 +470,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
       <FriendSelectorModal
         isOpen={showSpecificModal}
         onClose={() => setShowSpecificModal(false)}
-        onConfirm={(selected) => {
+        onConfirm={() => {
           handleChangePrivacy("SPECIFIC");
         }}
         title="Who can see this?"
@@ -451,7 +481,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
       <FriendSelectorModal
         isOpen={showExcludedModal}
         onClose={() => setShowExcludedModal(false)}
-        onConfirm={(selected) => {
+        onConfirm={() => {
           handleChangePrivacy("EXCEPT");
         }}
         title="Hide from"

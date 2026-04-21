@@ -80,10 +80,10 @@ import CommentInput from "./CommentInput";
 
 interface PostCommentsProps {
   postId: string;
-  currentUser: { id: string | number; username?: string } | null;
+  viewerId: string;
 }
 
-const PostComments: React.FC<PostCommentsProps> = ({ postId, currentUser }) => {
+const PostComments: React.FC<PostCommentsProps> = ({ postId, viewerId }) => {
   const location = useLocation();
 
   // ============ COMMENT STATE ============
@@ -293,10 +293,7 @@ const PostComments: React.FC<PostCommentsProps> = ({ postId, currentUser }) => {
 
         if (afterAt.length > 0) {
           try {
-            const users = await postApi.searchUsers(
-              String(currentUser?.id || ""),
-              afterAt
-            );
+            const users = await postApi.searchUsers(viewerId, afterAt);
             setMentionUsers(users);
           } catch (error) {
             console.error("Error searching users:", error);
@@ -352,7 +349,7 @@ const PostComments: React.FC<PostCommentsProps> = ({ postId, currentUser }) => {
 
     try {
       setSubmittingComment(true);
-      if (!currentUser?.id) {
+      if (!viewerId) {
         alert("Please login to comment");
         return;
       }
@@ -361,7 +358,7 @@ const PostComments: React.FC<PostCommentsProps> = ({ postId, currentUser }) => {
         "POST",
         postId,
         commentInput,
-        Number(currentUser.id)
+        Number(viewerId)
       );
 
       createReply(null, newComment);
@@ -386,11 +383,11 @@ const PostComments: React.FC<PostCommentsProps> = ({ postId, currentUser }) => {
       return;
 
     try {
-      if (!currentUser?.id) {
+      if (!viewerId) {
         alert("Please login to delete comment");
         return;
       }
-      await commentService.deleteComment(commentId, Number(currentUser.id));
+      await commentService.deleteComment(commentId, Number(viewerId));
       deleteComment(commentId, parentId);
     } catch (error) {
       console.error("Error deleting comment:", error);
@@ -429,6 +426,7 @@ const PostComments: React.FC<PostCommentsProps> = ({ postId, currentUser }) => {
                   hasMoreReplies={hasMoreReplies}
                   loadingMap={loadingMap}
                   postId={postId}
+                  currentUserId={viewerId}
                 />
               ))}
 

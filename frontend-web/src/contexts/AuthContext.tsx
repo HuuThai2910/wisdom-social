@@ -7,6 +7,7 @@ import {
 } from "react";
 import axiosClient from "../api/axiosClient";
 import { buildS3Url } from "../utils/s3";
+import { getCookie } from "../utils/cookies";
 import type { User } from "../types";
 
 interface UserProfile extends User {
@@ -70,18 +71,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setCurrentUser(user);
   };
 
-  const reloadCurrentUser = async () => {
+  const clearCurrentUserState = () => {
+    setCurrentUser(null);
+    localStorage.removeItem("current_user");
+    clearCache();
+  };
+
+  const reloadCurrentUser = async (): Promise<boolean> => {
     try {
       const meResponse = await axiosClient.get("/auth/me");
       const meData = meResponse.data?.data ?? meResponse.data;
-      if (!meData?.id) return;
+      if (!meData?.id) return false;
 
       const refreshedUser = mapUserFromApi(meData, currentUser);
       setCurrentUser(refreshedUser);
       localStorage.setItem("current_user", JSON.stringify(refreshedUser));
       clearCache();
+      return true;
     } catch (error) {
       console.error("❌ Error reloading current user:", error);
+      return false;
+    }
+  };
+
+  const syncAuthUserState = async () => {
+    // Fast path: paint current user from local cache first.
+    refreshUser();
+
+    const hasAccessToken = Boolean(getCookie("accessToken"));
+    if (!hasAccessToken) {
+      clearCurrentUserState();
+      return;
+    }
+
+    const reloaded = await reloadCurrentUser();
+    if (!reloaded) {
+      // Keep local user if server temporarily fails, but prevent stale user without token.
+      if (!getCookie("accessToken")) {
+        clearCurrentUserState();
+      }
     }
   };
 
@@ -339,19 +367,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       initializeAuth();
     });
 
-    // Load user khi app khởi động
-    console.log("🟡 Loading user from localStorage");
-    refreshUser();
+    // Load user khi app khởi động và đồng bộ lại bằng /auth/me
+    console.log("🟡 Syncing auth user on app start");
+    void syncAuthUserState();
 
     // Register callback với auth utils
     import("../utils/auth").then(({ setAuthChangeCallback }) => {
-      setAuthChangeCallback(refreshUser);
+      setAuthChangeCallback(() => {
+        void syncAuthUserState();
+      });
     });
 
     // Lắng nghe storage event để cập nhật khi localStorage thay đổi
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === "current_user") {
-        refreshUser();
+        void syncAuthUserState();
       }
     };
 

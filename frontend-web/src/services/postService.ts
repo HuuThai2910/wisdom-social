@@ -193,6 +193,15 @@ export const fetchPostById = async (postId: string): Promise<PostData> => {
 };
 
 /**
+ * Fetch current authenticated viewer id
+ */
+export const fetchCurrentViewerId = async (): Promise<string> => {
+    const response = await axiosClient.get(`/auth/me`);
+    const meData = response.data?.data ?? response.data;
+    return String(meData?.id ?? "").trim();
+};
+
+/**
  * Fetch user data by ID
  */
 export const fetchUserById = async (userId: string | number): Promise<UserData> => {
@@ -506,60 +515,6 @@ export const searchUsers = async (
     });
     console.log("✅ Search results:", response.data);
     return response.data.data || [];
-};
-
-/**
- * Submit reaction on a comment
- */
-export const toggleCommentReaction = async (
-    userId: string,
-    commentId: string,
-    reactionType: string
-): Promise<any> => {
-    console.log(`😊 Toggling reaction on comment: ${commentId}`);
-    const response = await axiosClient.post(`/reactions/toggle`, null, {
-        params: {
-            userId,
-            targetType: "COMMENT",
-            targetId: commentId,
-            reactionType,
-        },
-    });
-    console.log("✅ Comment reaction toggled:", response.data);
-    return response.data.data;
-};
-
-/**
- * Fetch reactions count for a comment
- */
-export const fetchCommentReactionsCount = async (commentId: string): Promise<number> => {
-    console.log(`📥 Fetching reactions for comment: ${commentId}`);
-    const response = await axiosClient.get(`/reactions`, {
-        params: { targetType: "COMMENT", targetId: commentId },
-    });
-    return response.data.data?.length || 0;
-};
-
-/**
- * Fetch user's reaction on a comment
- */
-export const fetchUserCommentReaction = async (
-    userId: string,
-    commentId: string
-): Promise<{ type: string } | null> => {
-    try {
-        console.log(`📥 Fetching user reaction on comment: ${commentId}`);
-        const response = await axiosClient.get(`/reactions/user`, {
-            params: {
-                userId,
-                targetType: "COMMENT",
-                targetId: commentId,
-            },
-        });
-        return response.data.data || null;
-    } catch (error) {
-        return null;
-    }
 };
 
 /**

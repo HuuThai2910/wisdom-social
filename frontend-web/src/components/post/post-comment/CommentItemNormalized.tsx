@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Smile } from "lucide-react";
 import { Theme } from "emoji-picker-react";
 import { useAuth } from "../../../contexts/AuthContext";
@@ -22,6 +22,7 @@ interface CommentItemNormalizedProps {
   loadingMap: Record<string, boolean>;
   postId: string;
   level?: number;
+  currentUserId?: string;
 }
 
 export default function CommentItemNormalized({
@@ -38,6 +39,7 @@ export default function CommentItemNormalized({
   loadingMap,
   postId,
   level = 0,
+  currentUserId,
 }: CommentItemNormalizedProps) {
   const comment = commentsById[commentId];
   if (!comment) return null;
@@ -48,6 +50,7 @@ export default function CommentItemNormalized({
   const [commentUser, setCommentUser] = useState<UserData | null>(null);
   const [userLoading, setUserLoading] = useState(true);
   const { currentUser } = useAuth();
+  const activeUserId = currentUserId || currentUser?.id?.toString() || "";
 
   const [showReplyInput, setShowReplyInput] = useState(false);
   const [replyContent, setReplyContent] = useState("");
@@ -62,7 +65,39 @@ export default function CommentItemNormalized({
   const replyEmojiButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const [currentReaction, setCurrentReaction] = useState<string | null>(null);
+  const [reactionSummary, setReactionSummary] = useState<{
+    totalCount: number;
+    topReactions: { type: string; count: number }[];
+  }>({
+    totalCount: Number(comment.reactCount || 0),
+    topReactions: [],
+  });
   const [showReactionPicker, setShowReactionPicker] = useState(false);
+  const [reactionDetail, setReactionDetail] = useState<{
+    totalCount: number;
+    topReactions: { type: string; count: number }[];
+  }>({
+    totalCount: 0,
+    topReactions: [],
+  });
+  const fetchReactionSummary = useCallback(async () => {
+    try {
+      const summary = await commentService.fetchCommentReactionSummary(
+        comment.id
+      );
+      setReactionSummary(summary);
+    } catch (error) {
+      setReactionSummary((prev) => ({
+        ...prev,
+        totalCount: Number(comment.reactCount || 0),
+      }));
+    }
+  }, [comment.id, comment.reactCount]);
+
+  useEffect(() => {
+    fetchReactionSummary();
+  }, [fetchReactionSummary]);
+
   const [reactionTimeout, setReactionTimeout] = useState<ReturnType<
     typeof setTimeout
   > | null>(null);
@@ -85,11 +120,11 @@ export default function CommentItemNormalized({
   // Fetch user's reaction
   useEffect(() => {
     const fetchUserReaction = async () => {
-      if (!currentUser?.id) return;
+      if (!activeUserId) return;
 
       try {
-        const reaction = await postApi.fetchUserCommentReaction(
-          currentUser.id.toString(),
+        const reaction = await commentService.fetchUserCommentReaction(
+          activeUserId,
           comment.id
         );
         if (reaction) {
@@ -101,7 +136,7 @@ export default function CommentItemNormalized({
     };
 
     fetchUserReaction();
-  }, [currentUser, comment.id]);
+  }, [activeUserId, comment.id]);
 
   useEffect(() => {
     if (!showReplyEmojiPicker) return;
@@ -141,7 +176,7 @@ export default function CommentItemNormalized({
   };
 
   const handleSubmitReply = async () => {
-    if (!replyContent.trim() || !currentUser?.id) return;
+    if (!replyContent.trim() || !activeUserId) return;
 
     setSubmittingReply(true);
     try {
@@ -149,7 +184,7 @@ export default function CommentItemNormalized({
         "POST",
         postId,
         replyContent,
-        currentUser.id,
+        Number(activeUserId),
         comment.id
       );
 
@@ -189,21 +224,21 @@ export default function CommentItemNormalized({
   };
 
   const handleDeleteComment = () => {
-    if (!currentUser?.id) return;
+    if (!activeUserId) return;
 
     // Parent handler (PostModal) is the single source of truth for delete API + state update.
     onDelete(comment.id, comment.parentId ?? undefined);
   };
 
   const handleReaction = async (reactionType: string) => {
-    if (!currentUser?.id) {
+    if (!activeUserId) {
       alert("Please login to react");
       return;
     }
 
     try {
-      const reaction = await postApi.toggleCommentReaction(
-        currentUser.id.toString(),
+      const reaction = await commentService.toggleCommentReaction(
+        activeUserId,
         comment.id,
         reactionType
       );
@@ -213,6 +248,7 @@ export default function CommentItemNormalized({
       } else {
         setCurrentReaction(reaction.type);
       }
+      await fetchReactionSummary();
       setShowReactionPicker(false);
     } catch (error) {
       console.error("Error toggling reaction:", error);
@@ -240,6 +276,30 @@ export default function CommentItemNormalized({
       setShowReactionPicker(false);
     }, 300);
     setReactionTimeout(timeout);
+  };
+
+  const fetchReactionDetail = useCallback(async () => {
+    try {
+      const summary = await commentService.fetchCommentReactionSummary(
+        comment.id,
+        6
+      );
+      setReactionDetail(summary);
+    } catch (error) {
+      console.error("Error fetching reaction detail:", error);
+    }
+  }, [comment.id]);
+
+  const getReactionLabel = (type: string) => {
+    const labels: Record<string, string> = {
+      LIKE: "Like",
+      LOVE: "Love",
+      HAHA: "Haha",
+      WOW: "Wow",
+      SAD: "Sad",
+      ANGRY: "Angry",
+    };
+    return labels[type] || type;
   };
 
   const getReactionEmoji = (type: string) => {
@@ -289,6 +349,8 @@ export default function CommentItemNormalized({
   const showToggleButton = comment.replyCount > 0;
 
   const timeAgo = new Date(comment.createdAt).toLocaleDateString("vi-VN");
+  const totalReactionCount = Number(reactionSummary.totalCount || 0);
+  const topReactionIcons = (reactionSummary.topReactions || []).slice(0, 3);
 
   return (
     <div id={`comment-${commentId}`} className={level > 0 ? "ml-10" : ""}>
@@ -366,7 +428,7 @@ export default function CommentItemNormalized({
             </button>
 
             {/* Delete Button */}
-            {currentUser && comment.userId === currentUser.id.toString() && (
+            {activeUserId && comment.userId === activeUserId && (
               <button
                 onClick={handleDeleteComment}
                 className="text-xs text-red-500 dark:text-red-400 font-semibold hover:underline"
@@ -375,12 +437,76 @@ export default function CommentItemNormalized({
               </button>
             )}
 
-            {/* Reaction Count */}
-            {comment.reactCount > 0 && (
-              <span className="text-xs text-gray-500 dark:text-gray-400">
-                {comment.reactCount}{" "}
-                {comment.reactCount === 1 ? "like" : "likes"}
-              </span>
+            {/* Reaction Count with Hover Dropdown */}
+            {totalReactionCount > 0 && (
+              <div className="relative ml-auto group">
+                <button
+                  type="button"
+                  className="flex items-center gap-1 rounded-full px-1 py-0.5 hover:bg-gray-100 dark:hover:bg-gray-800"
+                >
+                  <div className="flex -space-x-1">
+                    {(topReactionIcons.length > 0
+                      ? topReactionIcons
+                      : [{ type: "LIKE", count: totalReactionCount }]
+                    ).map((reaction, index) => (
+                      <span
+                        key={`${reaction.type}-${index}`}
+                        className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-white text-[10px] ring-1 ring-gray-200 dark:bg-gray-900 dark:ring-gray-700"
+                        title={`${reaction.type}: ${reaction.count}`}
+                      >
+                        {getReactionEmoji(reaction.type)}
+                      </span>
+                    ))}
+                  </div>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                    {totalReactionCount}
+                  </span>
+                </button>
+
+                {/* Hover Dropdown */}
+                <div
+                  className="pointer-events-none absolute top-full right-0 z-50 mt-2 opacity-0 transition-all duration-150 group-hover:pointer-events-auto group-hover:opacity-100"
+                  onMouseEnter={fetchReactionDetail}
+                >
+                  <div className="w-44 overflow-hidden rounded-xl bg-white shadow-xl ring-1 ring-gray-200 dark:bg-gray-900 dark:ring-gray-700">
+                    <div className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 border-b border-gray-100 dark:border-gray-800">
+                      Chi tiết lượt react
+                    </div>
+                    <div className="p-1.5 space-y-0.5">
+                      {reactionDetail.topReactions.length === 0 && (
+                        <div className="text-xs text-gray-400 text-center py-2">
+                          No reactions yet
+                        </div>
+                      )}
+                      {reactionDetail.topReactions.map((reaction, index) => (
+                        <div
+                          key={`${reaction.type}-${index}`}
+                          className="flex items-center justify-between rounded-lg px-2.5 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-800"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm leading-none">
+                              {getReactionEmoji(reaction.type)}
+                            </span>
+                            <span className="text-xs text-gray-700 dark:text-gray-300">
+                              {getReactionLabel(reaction.type)}
+                            </span>
+                          </div>
+                          <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">
+                            {reaction.count}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="border-t border-gray-100 dark:border-gray-800 px-3 py-1.5 text-right text-xs text-gray-400 dark:text-gray-500">
+                      Tổng: {reactionDetail.totalCount}
+                    </div>
+                  </div>
+                  {/* Arrow */}
+                  <div className="absolute right-3 -top-1.5 flex justify-center">
+                    <div className="h-3 w-3 rotate-45 border-t border-l border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900" />
+                  </div>
+                </div>
+              </div>
             )}
           </div>
 
@@ -515,6 +641,7 @@ export default function CommentItemNormalized({
               loadingMap={loadingMap}
               postId={postId}
               level={level + 1}
+              currentUserId={activeUserId}
             />
           ))}
 
