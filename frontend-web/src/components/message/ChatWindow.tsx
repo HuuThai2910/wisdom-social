@@ -268,28 +268,9 @@ export default function ChatWindow({
       document.removeEventListener("mousedown", handlePinnedMenuOutside);
   }, []);
 
-  const [plusMenuOpen, setPlusMenuOpen] = useState(false);
-  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
-  const [replyToMessage, setReplyToMessage] = useState<{
-    id: string;
-    senderName: string;
-    content: string;
-  } | null>(null);
-  const [highlightedMessageId, setHighlightedMessageId] = useState<
-    string | null
-  >(null);
-  const [jumpRequestToken, setJumpRequestToken] = useState(0);
-  const plusMenuRef = useRef<HTMLDivElement>(null);
-  const emojiPickerRef = useRef<HTMLDivElement>(null);
-  const pendingJumpMessageIdRef = useRef<string | null>(null);
-  const messageElementRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const [selectedFiles, setSelectedFiles] = useState<
-    Array<{ id: string; file: File }>
-  >([]);
-  const [selectedImagePreviewUrls, setSelectedImagePreviewUrls] = useState<
-    Record<string, string>
-  >({});
-  const selectedImagePreviewUrlsRef = useRef<Record<string, string>>({});
+        let previousDayKey: string | null = null;
+        const isPinSystemMessageType = (type?: string) =>
+            type === "SYSTEM_PIN" || type === "SYSTEM_UPIN";
 
   useEffect(() => {
     if (!plusMenuOpen) return;
@@ -334,26 +315,196 @@ export default function ChatWindow({
   const gifInputRef = useRef<HTMLInputElement>(null);
   const messageInputRef = useRef<HTMLInputElement>(null);
 
-  const handleApplySuggestion = useCallback(
-    (suggestion: string) => {
-      setMessageText(suggestion);
-      requestAnimationFrame(() => {
-        messageInputRef.current?.focus();
-      });
-    },
-    [setMessageText]
-  );
+            const isCurrentPinSystem = isPinSystemMessageType(message.type);
+            const isPrevContinuousMessage =
+                !!prevMsg &&
+                !isCurrentPinSystem &&
+                !isPinSystemMessageType(prevMsg.type) &&
+                prevMsg.senderId === message.senderId &&
+                prevDayKey === dayKey;
+            const isNextContinuousMessage =
+                !!nextMsg &&
+                !isCurrentPinSystem &&
+                !isPinSystemMessageType(nextMsg.type) &&
+                nextMsg.senderId === message.senderId &&
+                nextDayKey === dayKey;
 
-  const onFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const incoming = Array.from(e.target.files ?? []);
-    if (incoming.length === 0) return;
+            const isFirstInGroup = !isPrevContinuousMessage;
+            const isLastInGroup = !isNextContinuousMessage;
 
-    setSelectedFiles((prev) => [
-      ...prev,
-      ...incoming.map((file) => ({
-        id: createClientFileId(),
-        file,
-      })),
+            // Tin nhắn: dùng MessageBubble để handle recalled state + hover menu.
+            const isOwn = message.senderId === userId;
+
+            // Kiểm tra xem tin nhắn này có được ghim không
+            const isPinned = pinnedMessages.some(
+                (pin) => pin.messageId === message.id,
+            );
+
+            const senderInfo = membersById[message.senderId];
+            const senderName = senderInfo?.nickname || "Người dùng";
+            const senderAvatar = senderInfo?.avatar;
+
+            const repliedSenderId = message.replyInfo?.senderId;
+            const repliedSender =
+                typeof repliedSenderId === "number"
+                    ? membersById[repliedSenderId]
+                    : undefined;
+            const repliedMessage = message.replyInfo?.messageId
+                ? messageById.get(message.replyInfo.messageId)
+                : undefined;
+            const repliedAttachment = Array.isArray(repliedMessage?.attachments)
+                ? repliedMessage.attachments[0]
+                : undefined;
+
+            const replyInfoContent = (message.replyInfo?.content || "").trim();
+            const repliedMessageContent = (
+                repliedMessage?.content || ""
+            ).trim();
+            const resolvedReplyContent =
+                replyInfoContent ||
+                repliedAttachment?.url ||
+                repliedMessageContent ||
+                "Tin nhắn";
+
+            const repliedAttachmentMeta = repliedAttachment as
+                | (typeof repliedAttachment & Record<string, unknown>)
+                | undefined;
+            const resolvedReplyThumbnailUrl =
+                (typeof repliedAttachmentMeta?.thumbnailUrl === "string" &&
+                    repliedAttachmentMeta.thumbnailUrl) ||
+                (typeof repliedAttachmentMeta?.thumbnail === "string" &&
+                    repliedAttachmentMeta.thumbnail) ||
+                undefined;
+            const resolvedReplyPosterUrl =
+                (typeof repliedAttachmentMeta?.posterUrl === "string" &&
+                    repliedAttachmentMeta.posterUrl) ||
+                (typeof repliedAttachmentMeta?.poster === "string" &&
+                    repliedAttachmentMeta.poster) ||
+                undefined;
+
+            // Luôn hiện tên người gửi tin gốc được reply
+            const repliedSenderName = repliedSender?.nickname || "Người dùng";
+
+            const replyPreview = message.replyInfo
+                ? {
+                      messageId: message.replyInfo.messageId,
+                      senderId: repliedSenderId,
+                      senderName: repliedSenderName,
+                      content: resolvedReplyContent,
+                      type: message.replyInfo.type || repliedMessage?.type,
+                      fileName: repliedAttachment?.fileName,
+                      mimeType: repliedAttachment?.type,
+                      thumbnailUrl: resolvedReplyThumbnailUrl,
+                      posterUrl: resolvedReplyPosterUrl,
+                  }
+                : null;
+
+            // Tìm các read receipts có lastMessageId trùng với tin nhắn này
+            // Chỉ hiển thị cho tin nhắn KHÔNG bị thu hồi và là tin của mình
+            const receiptsForThisMessage =
+                isOwn && !message.isRecalled
+                    ? readReceipts.filter((r) => r.lastMessageId === message.id)
+                    : [];
+
+            items.push(
+                <div
+                    key={stableMessageKey}
+                    data-message-id={message.id}
+                    className={
+                        isFirstInGroup
+                            ? "mt-3 px-1 sm:px-2"
+                            : "mt-2 px-1 sm:px-2"
+                    }
+                    ref={(element) => {
+                        messageElementRefs.current[message.id] = element;
+                    }}
+                >
+                    <MessageBubble
+                        message={message}
+                        isOwn={isOwn}
+                        senderName={senderName}
+                        senderAvatar={senderAvatar}
+                        replyPreview={replyPreview}
+                        currentUserId={userId}
+                        conversationType={conversation?.type}
+                        defaultAvatarSmallUrl={defaultAvatarSmallUrl}
+                        isPinned={isPinned}
+                        onPin={(messageId) => void handlePinMessage(messageId)}
+                        onUnpin={(messageId) =>
+                            void handleUnpinMessage(messageId)
+                        }
+                        onReply={handleReplyMessage}
+                        onJumpToMessage={requestJumpToMessage}
+                        onRecall={handleRecall}
+                        onRecallCall={(callType) => void startCall(callType)}
+                        onDeleteForMe={handleDeleteMessageForMe}
+                        onMediaLoad={() => {
+                            stabilizeMediaLayoutOnMediaLoad();
+                            // Chỉ cuộn xuống cuối khi:
+                            // 1. Đang trong giai đoạn initial load (F5/mở chat)
+                            // 2. User đang ở gần cuối (đang xem tin mới)
+                            // 3. Vừa nhận tin nhắn mới IMAGE/VIDEO (flag được set trong handleNewMessage)
+                            // KHÔNG dùng isOwn vì sẽ gây scroll khi load tin cũ từ pagination
+                            if (
+                                isInitialLoad() ||
+                                isNearBottom() ||
+                                shouldScrollOnMediaLoad()
+                            ) {
+                                scrollToBottom(
+                                    shouldForceAutoScroll() ? "auto" : "smooth",
+                                );
+                            }
+                        }}
+                        isHighlighted={highlightedMessageId === message.id}
+                        isFirstInGroup={isFirstInGroup}
+                        isLastInGroup={isLastInGroup}
+                    />
+
+                    {/* Read Receipt Avatars - hiển thị avatar "đã xem" bên dưới tin nhắn */}
+                    {receiptsForThisMessage.length > 0 && (
+                        <div className="flex justify-end mt-1 mr-1 gap-1">
+                            {receiptsForThisMessage.map((receipt) => {
+                                // Lấy thông tin member từ conversation
+                                const member = membersById[receipt.userId];
+                                return (
+                                    <img
+                                        key={receipt.userId}
+                                        src={
+                                            member?.avatar ||
+                                            defaultAvatarSmallUrl
+                                        }
+                                        alt={member?.nickname || "User"}
+                                        title={`Đã xem bởi ${member?.nickname || "User"}`}
+                                        className="w-4 h-4 rounded-full object-cover border border-white dark:border-gray-800"
+                                    />
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>,
+            );
+        }
+
+        return items;
+    }, [
+        conversation?.type,
+        defaultAvatarSmallUrl,
+        handlePinMessage,
+        handleDeleteMessageForMe,
+        handleReplyMessage,
+        handleRecall,
+        highlightedMessageId,
+        isInitialLoad,
+        isNearBottom,
+        membersById,
+        messageElementRefs,
+        shouldScrollOnMediaLoad,
+        messages,
+        readReceipts,
+        requestJumpToMessage,
+        scrollToBottom,
+        startCall,
+        userId,
     ]);
     e.target.value = ""; // reset để cho phép chọn lại cùng file
 
@@ -929,9 +1080,43 @@ export default function ChatWindow({
                   <MoreVertical size={16} />
                 </button>
 
-                {openPinnedMenuId ===
-                  `${primaryPinnedItem.messageId}-${primaryPinnedItem.pinnedAt}` && (
-                  <div className="absolute right-0 top-full mt-1 min-w-24 rounded-lg border border-gray-200 dark:border-[#303030] bg-white dark:bg-gray-900 shadow-lg z-20 py-1">
+                    {messageItems}
+
+                    {/* Typing Indicator - Dummy message bubble khi có người đang gõ */}
+                    {typingUsers.size > 0 && (
+                        <div className="flex items-end gap-2 mt-3 px-1 sm:px-2">
+                            {/* Avatar của người đang gõ */}
+                            {Array.from(typingUsers).map((typingUserId) => {
+                                const typingMember = membersById[typingUserId];
+                                return (
+                                    <img
+                                        key={typingUserId}
+                                        src={
+                                            typingMember?.avatar ||
+                                            defaultAvatarSmallUrl
+                                        }
+                                        alt={typingMember?.nickname || "User"}
+                                        className="w-7 h-7 rounded-full object-cover"
+                                    />
+                                );
+                            })}
+                            {/* Bubble với 3 chấm nhấp nháy */}
+                            <div className="bg-gray-200 dark:bg-gray-700 rounded-2xl px-3 py-3 max-w-20">
+                                <div className="flex items-center gap-1">
+                                    <span className="w-2 h-2 bg-gray-500 dark:bg-gray-400 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                                    <span className="w-2 h-2 bg-gray-500 dark:bg-gray-400 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                                    <span className="w-2 h-2 bg-gray-500 dark:bg-gray-400 rounded-full animate-bounce" />
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    <div ref={messagesEndRef} className="h-1 scroll-mb-6" />
+                </div>
+
+                {/* Nút cuộn xuống cuối (Messenger/Zalo style) */}
+                {(showScrollToBottomButton ||
+                    (isHistoricalMode && !isNearBottom())) && (
                     <button
                       type="button"
                       onClick={() => {

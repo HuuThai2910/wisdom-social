@@ -44,7 +44,6 @@ export interface MessageComposerProps {
     setEmojiPickerOpen: (open: boolean) => void;
     onToggleEmojiPicker: () => void;
     onCapturePhotoAndSend: () => void;
-    onCaptureVideoAndSend: () => void;
     onPickMediaAndSend: () => void;
     onPickDocumentAndSend: () => void;
     loading: boolean;
@@ -99,7 +98,6 @@ export const MessageComposer = React.memo(
         setEmojiPickerOpen,
         onToggleEmojiPicker,
         onCapturePhotoAndSend,
-        onCaptureVideoAndSend,
         onPickMediaAndSend,
         onPickDocumentAndSend,
         loading,
@@ -109,7 +107,11 @@ export const MessageComposer = React.memo(
         error,
         onPickEmoji,
     }: MessageComposerProps) => {
-        const cameraLongPressTriggeredRef = React.useRef(false);
+        const handleCapturePhotoPress = React.useCallback(() => {
+            if (uploading || sending) return;
+
+            void onCapturePhotoAndSend();
+        }, [onCapturePhotoAndSend, sending, uploading]);
 
         return (
             <View style={{ flexShrink: 0 }}>
@@ -209,20 +211,7 @@ export const MessageComposer = React.memo(
                                 <Pressable
                                     style={styles.cameraBtn}
                                     hitSlop={8}
-                                    onPress={() => {
-                                        if (
-                                            cameraLongPressTriggeredRef.current
-                                        ) {
-                                            cameraLongPressTriggeredRef.current = false;
-                                            return;
-                                        }
-                                        onCapturePhotoAndSend();
-                                    }}
-                                    onLongPress={() => {
-                                        cameraLongPressTriggeredRef.current = true;
-                                        onCaptureVideoAndSend();
-                                    }}
-                                    delayLongPress={220}
+                                    onPress={handleCapturePhotoPress}
                                     disabled={uploading || sending}
                                 >
                                     <Ionicons

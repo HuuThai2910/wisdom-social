@@ -10,6 +10,7 @@ import { colors, spacing } from "@/constants";
 import { useChatWindowController } from "@/hooks/useChatWindowController";
 import type { LocalUploadFile, Message } from "@/types/chat";
 import { formatRelativeTime } from "@/utils/format";
+import { focusComposerInput } from "@/utils/focusComposerInput";
 import { Ionicons } from "@expo/vector-icons";
 import { Audio, type AVPlaybackStatus, ResizeMode, Video } from "expo-av";
 import * as Haptics from "expo-haptics";
@@ -850,21 +851,17 @@ export default function MessagesConversationScreen() {
         }
     };
 
-    const {
-        onPickMediaAndSend,
-        onCapturePhotoAndSend,
-        onCaptureVideoAndSend,
-        onPickDocumentAndSend,
-    } = useMessageComposerMediaActions({
-        handleSendMixedMedia,
-        replyToMessageId: replyToMessage?.id,
-        uploading,
-        sending,
-        onSendSuccess: () => {
-            setReplyToMessage(null);
-            scrollToConversationBottom(true);
-        },
-    });
+    const { onPickMediaAndSend, onCapturePhotoAndSend, onPickDocumentAndSend } =
+        useMessageComposerMediaActions({
+            handleSendMixedMedia,
+            replyToMessageId: replyToMessage?.id,
+            uploading,
+            sending,
+            onSendSuccess: () => {
+                setReplyToMessage(null);
+                scrollToConversationBottom(true);
+            },
+        });
 
     const stopRecordingTimer = useCallback(() => {
         if (recordingTimerRef.current) {
@@ -1093,6 +1090,10 @@ export default function MessagesConversationScreen() {
                     senderName,
                     content: buildReplyPreview(targetMessage),
                 });
+
+                closeContextMenu();
+                focusComposerInput(messageInputRef, { delayMs: 80 });
+                return;
             }
         }
 
@@ -1592,7 +1593,6 @@ export default function MessagesConversationScreen() {
                     setEmojiPickerOpen={setEmojiPickerOpen}
                     onToggleEmojiPicker={onToggleEmojiPicker}
                     onCapturePhotoAndSend={onCapturePhotoAndSend}
-                    onCaptureVideoAndSend={onCaptureVideoAndSend}
                     onPickMediaAndSend={onPickMediaAndSend}
                     onPickDocumentAndSend={onPickDocumentAndSend}
                     loading={loading}

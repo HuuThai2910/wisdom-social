@@ -704,12 +704,6 @@ export function MessageBubble({
                   .map((attachment) => attachment.url)
                   .filter((url): url is string => Boolean(url))
             : [];
-    const videoUrls =
-        message.type === "VIDEO"
-            ? messageAttachments
-                  .map((attachment) => attachment.url)
-                  .filter((url): url is string => Boolean(url))
-            : [];
     const audioUrls =
         message.type === "AUDIO"
             ? messageAttachments
@@ -880,13 +874,13 @@ export function MessageBubble({
           ? "text-blue-100"
           : "text-gray-500 dark:text-gray-400";
 
-    // Metadata cho tin nhắn bên người gửi:
-    // - Bubble luôn hiển thị phía trên
-    // - Dòng avatar + tên + thời gian nằm dưới bubble để dễ đọc hơn
-    const showIncomingMetaRow = !isOwn && !message.isRecalled && isLastInGroup;
-    const incomingMetaSpacingClass = isFirstInGroup ? "mt-1.5" : "mt-1";
-    const incomingNameWeightClass =
-        conversationType === "GROUP" ? "font-semibold" : "font-medium";
+    // Incoming avatar kiểu Messenger/Zalo:
+    // - Chỉ tin nhắn cuối nhóm mới hiện avatar
+    // - Các tin nhắn incoming khác giữ slot rỗng để bubble thẳng hàng
+    const showIncomingAvatarSlot = !isOwn;
+    const showIncomingAvatar = showIncomingAvatarSlot && isLastInGroup;
+    const showIncomingGroupSenderName =
+        conversationType === "GROUP" && !isOwn && isFirstInGroup;
 
     const normalizedReplyContent = (replyPreview?.content ?? "").trim();
     const isReplyPreviewRecalled =
@@ -1038,6 +1032,18 @@ export function MessageBubble({
         <div
             className={`flex items-end gap-1 overflow-visible ${isOwn ? "justify-end" : "justify-start"} group`}
         >
+            {showIncomingAvatarSlot && (
+                <div className="h-7 w-7 shrink-0 self-end mb-0.5">
+                    {showIncomingAvatar && (
+                        <img
+                            src={senderAvatar || defaultAvatarSmallUrl}
+                            alt={senderName}
+                            className="h-7 w-7 rounded-full object-cover ring-1 ring-gray-200/80 dark:ring-gray-700/80"
+                        />
+                    )}
+                </div>
+            )}
+
             {/* Nút "..." — hiện khi hover, căn giữa theo bubble */}
             <div
                 ref={menuRef}
@@ -1201,8 +1207,14 @@ export function MessageBubble({
 
             {/* Cột: bubble + metadata dưới (với tin người gửi) */}
             <div
-                className={`relative flex flex-col max-w-[70%] overflow-visible ${isOwn ? "items-end" : "items-start"}`}
+                className={`relative flex flex-col max-w-[78%] sm:max-w-[72%] lg:max-w-[68%] overflow-visible ${isOwn ? "items-end" : "items-start"}`}
             >
+                {showIncomingGroupSenderName && (
+                    <p className="mb-1 px-1 text-[11px] font-medium text-gray-400 dark:text-gray-500">
+                        {senderName}
+                    </p>
+                )}
+
                 {/* Bubble hoặc Emoji-only */}
                 {message.type === "TEXT" &&
                 !message.isRecalled &&
@@ -1743,29 +1755,6 @@ export function MessageBubble({
                     </div>
                 )}
 
-                {/* Metadata dưới bubble cho tin người gửi */}
-                {showIncomingMetaRow && (
-                    <div
-                        className={`flex items-center gap-2 px-1 ${incomingMetaSpacingClass}`}
-                    >
-                        <img
-                            src={senderAvatar || defaultAvatarSmallUrl}
-                            alt={senderName}
-                            className="h-5 w-5 rounded-full object-cover ring-1 ring-gray-200/80 dark:ring-gray-700/80"
-                        />
-                        <span
-                            className={`max-w-36 truncate text-xs ${incomingNameWeightClass} text-gray-600 dark:text-gray-300`}
-                        >
-                            {senderName}
-                        </span>
-                        {timeStr && !isFileMessageBubble && (
-                            <span className="text-xs text-gray-400 dark:text-gray-500">
-                                {timeStr}
-                            </span>
-                        )}
-                    </div>
-                )}
-
                 {/* Giờ dưới bubble cho tin nhắn của mình */}
                 {!message.isRecalled &&
                     isLastInGroup &&
@@ -1774,6 +1763,17 @@ export function MessageBubble({
                         <p
                             className={`text-xs mt-0.5 px-1 text-gray-400  dark:text-gray-500 ${isOwn ? "self-end" : "self-start"}`}
                         >
+                            {timeStr}
+                        </p>
+                    )}
+
+                {/* Giờ dưới bubble cho tin nhắn phía đối diện */}
+                {!message.isRecalled &&
+                    isLastInGroup &&
+                    !isOwn &&
+                    !isFileMessageBubble &&
+                    message.type !== "CALL" && (
+                        <p className="text-xs mt-0.5 px-1 text-gray-400 dark:text-gray-500 self-start">
                             {timeStr}
                         </p>
                     )}
