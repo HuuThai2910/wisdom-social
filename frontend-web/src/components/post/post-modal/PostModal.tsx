@@ -439,10 +439,6 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
             setShowMenu={setShowMenu}
             showPrivacyMenu={showPrivacyMenu}
             setShowPrivacyMenu={setShowPrivacyMenu}
-            showSpecificModal={showSpecificModal}
-            setShowSpecificModal={setShowSpecificModal}
-            showExcludedModal={showExcludedModal}
-            setShowExcludedModal={setShowExcludedModal}
             onEdit={handleEdit}
             onChangePrivacy={handleChangePrivacy}
             onDelete={handleDelete}

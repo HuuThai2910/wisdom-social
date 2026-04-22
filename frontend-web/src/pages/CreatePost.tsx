@@ -196,9 +196,18 @@ export default function CreatePost() {
         selectedImages
       );
 
+      const createdPostId = String(
+        newPost?.id ?? (newPost as any)?._id ?? ""
+      ).trim();
+
       console.log("Post created:", newPost);
       alert("Post created successfully!");
-      navigate("/");
+
+      if (createdPostId) {
+        sessionStorage.setItem("homeBoostPostId", createdPostId);
+      }
+
+      navigate("/", { state: { boostPostId: createdPostId || undefined } });
     } catch (error) {
       console.error("Error creating post:", error);
       alert("Failed to create post. Please try again.");

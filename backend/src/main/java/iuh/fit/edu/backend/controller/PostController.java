@@ -9,16 +9,20 @@ import iuh.fit.edu.backend.constant.UploadModule;
 import iuh.fit.edu.backend.domain.entity.nosql.Post;
 import iuh.fit.edu.backend.dto.request.post.CreatePostRequest;
 import iuh.fit.edu.backend.dto.response.ApiResponse;
+import iuh.fit.edu.backend.dto.response.feed.FeedSliceResponse;
 import iuh.fit.edu.backend.dto.response.PresignedUrlResponse;
+import iuh.fit.edu.backend.service.feed.FeedService;
 import iuh.fit.edu.backend.service.post.PostService;
 import iuh.fit.edu.backend.service.s3.S3Service;
 import iuh.fit.edu.backend.service.user.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Instant;
 import java.util.List;
 
 /*
@@ -34,9 +38,39 @@ import java.util.List;
 public class PostController {
 
     private final PostService postService;
+    private final FeedService feedService;
     private final ObjectMapper objectMapper;
     private final UserService userService;
     private final S3Service s3Service;
+
+// API này dùng để lấy danh sách bài viết (newsfeed) cho user hiện tại, bao gồm:
+// Bài viết của chính user
+// Bài viết của bạn bè (dựa trên quan hệ Friend)
+// Áp dụng filter theo privacy và status
+// Hỗ trợ pagination dạng cursor (không dùng page/skip)
+    @GetMapping("/feed")
+    public ResponseEntity<ApiResponse<FeedSliceResponse>> getFeed(
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+            Instant lastCreatedAt,
+            @RequestParam(required = false) String lastPostId,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String prioritizePostId) {
+        try {
+            var currentUser = userService.getCurrentUser();
+            if (currentUser == null) {
+                return ResponseEntity.badRequest()
+                        .body(ApiResponse.error(401, "Bạn cần đăng nhập để xem feed", null));
+            }
+
+            FeedSliceResponse feed = feedService.getFeed(currentUser.getId(), lastCreatedAt, lastPostId, size, prioritizePostId);
+            return ResponseEntity.ok(ApiResponse.success(200, "Lấy feed thành công", feed));
+        } catch (Exception e) {
+            log.error("Error fetching feed", e);
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error(400, "Lỗi khi lấy feed: " + e.getMessage(), null));
+        }
+    }
 
     /**
      * Get presigned upload URL for images

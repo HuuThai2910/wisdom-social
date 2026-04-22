@@ -38,7 +38,7 @@
 import React from "react";
 import { MapPin, Users, Globe } from "lucide-react";
 import type { PostData, UserData } from "../../../types/postType";
-import PostHeaderMenu from "./PostHeaderMenu";
+import PostHeaderMenu from "../PostHeaderMenu";
 
 interface PostHeaderProps {
   post: PostData;
@@ -49,10 +49,6 @@ interface PostHeaderProps {
   setShowMenu: (show: boolean) => void;
   showPrivacyMenu: boolean;
   setShowPrivacyMenu: (show: boolean) => void;
-  showSpecificModal: boolean;
-  setShowSpecificModal: (show: boolean) => void;
-  showExcludedModal: boolean;
-  setShowExcludedModal: (show: boolean) => void;
   onEdit: () => void;
   onChangePrivacy: (newPrivacy: string) => void;
   onDelete: () => void;
@@ -67,8 +63,6 @@ const PostHeader: React.FC<PostHeaderProps> = ({
   setShowMenu,
   showPrivacyMenu,
   setShowPrivacyMenu,
-  setShowSpecificModal,
-  setShowExcludedModal,
   onEdit,
   onChangePrivacy,
   onDelete,
@@ -173,8 +167,6 @@ const PostHeader: React.FC<PostHeaderProps> = ({
         setShowMenu={setShowMenu}
         showPrivacyMenu={showPrivacyMenu}
         setShowPrivacyMenu={setShowPrivacyMenu}
-        setShowSpecificModal={setShowSpecificModal}
-        setShowExcludedModal={setShowExcludedModal}
         onEdit={onEdit}
         onChangePrivacy={onChangePrivacy}
         onDelete={onDelete}

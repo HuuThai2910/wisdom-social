@@ -4,6 +4,7 @@
  */
 package iuh.fit.edu.backend.service.post.impl;
 
+import iuh.fit.edu.backend.constant.NotificationType;
 import iuh.fit.edu.backend.constant.TargetType;
 import iuh.fit.edu.backend.constant.UploadModule;
 import iuh.fit.edu.backend.domain.entity.nosql.Media;
@@ -21,6 +22,8 @@ import iuh.fit.edu.backend.service.s3.S3Service;
 import iuh.fit.edu.backend.service.post.PostService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -48,6 +51,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @Slf4j
 public class PostServiceImpl implements PostService {
+    private final ApplicationEventPublisher eventPublisher;
     
     private final PostRepository postRepository;
     private final UserRepository userRepository;
@@ -171,7 +175,7 @@ public class PostServiceImpl implements PostService {
         } else {
             log.info("No image URLs provided");
         }
-        
+    
         return savedPost;
     }
     

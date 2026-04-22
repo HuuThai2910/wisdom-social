@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -358,6 +359,14 @@ public class FriendServiceImpl implements FriendService {
             return listUser;
         }
         return null;
+    }
+
+    @Override
+    public List<Long> getAcceptedFriendIds(long userId) {
+        if (userId <= 0) {
+            return Collections.emptyList();
+        }
+        return friendRepository.findAcceptedFriendIds(userId, FriendStatus.ACCEPTED.ordinal());
     }
 
     private String buildSentRequestKey(long userId){

@@ -1,0 +1,28 @@
+package iuh.fit.edu.backend.repository.nosql.custom;
+
+import iuh.fit.edu.backend.domain.entity.nosql.Post;
+
+import java.time.Instant;
+import java.util.List;
+
+public interface PostFeedRepositoryCustom {
+
+    List<Post> findRecentFriendPosts(
+            List<String> friendIds,
+            String currentUserId,
+            Instant lastCreatedAt,
+            String lastPostId,
+        Instant recentThreshold,
+        int size
+    );
+
+    List<Post> findRandomFallbackPosts(
+        List<String> friendIds,
+        String currentUserId,
+        Instant lastCreatedAt,
+        String lastPostId,
+        Instant olderThan,
+        List<String> excludePostIds,
+            int size
+    );
+}

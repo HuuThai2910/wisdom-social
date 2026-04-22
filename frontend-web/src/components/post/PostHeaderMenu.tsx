@@ -6,6 +6,7 @@ import {
   Link as LinkIcon,
   Users,
   Globe,
+  Lock,
 } from "lucide-react";
 
 interface PostHeaderMenuProps {
@@ -14,8 +15,6 @@ interface PostHeaderMenuProps {
   setShowMenu: (show: boolean) => void;
   showPrivacyMenu: boolean;
   setShowPrivacyMenu: (show: boolean) => void;
-  setShowSpecificModal: (show: boolean) => void;
-  setShowExcludedModal: (show: boolean) => void;
   onEdit: () => void;
   onChangePrivacy: (newPrivacy: string) => void;
   onDelete: () => void;
@@ -28,8 +27,6 @@ const PostHeaderMenu: React.FC<PostHeaderMenuProps> = ({
   setShowMenu,
   showPrivacyMenu,
   setShowPrivacyMenu,
-  setShowSpecificModal,
-  setShowExcludedModal,
   onEdit,
   onChangePrivacy,
   onDelete,
@@ -39,9 +36,9 @@ const PostHeaderMenu: React.FC<PostHeaderMenuProps> = ({
     <div className="relative">
       <button
         onClick={() => setShowMenu(!showMenu)}
-        className="text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
+        className="text-gray-900 dark:text-white hover:text-gray-500 dark:hover:text-gray-400"
       >
-        <MoreHorizontal className="w-5 h-5" />
+        <MoreHorizontal size={24} />
       </button>
 
       {showMenu && (
@@ -89,28 +86,8 @@ const PostHeaderMenu: React.FC<PostHeaderMenuProps> = ({
                       onClick={() => onChangePrivacy("ONLY_ME")}
                       className="w-full px-4 py-1.5 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700 rounded dark:text-white flex items-center gap-2"
                     >
-                      <Globe className="w-3 h-3" />
+                      <Lock className="w-3 h-3" />
                       Only me
-                    </button>
-                    <button
-                      onClick={() => {
-                        setShowPrivacyMenu(false);
-                        setShowSpecificModal(true);
-                      }}
-                      className="w-full px-4 py-1.5 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700 rounded dark:text-white flex items-center gap-2"
-                    >
-                      <Users className="w-3 h-3" />
-                      Specific friends
-                    </button>
-                    <button
-                      onClick={() => {
-                        setShowPrivacyMenu(false);
-                        setShowExcludedModal(true);
-                      }}
-                      className="w-full px-4 py-1.5 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700 rounded dark:text-white flex items-center gap-2"
-                    >
-                      <Users className="w-3 h-3" />
-                      Friends except
                     </button>
                   </div>
                 )}
@@ -131,15 +108,6 @@ const PostHeaderMenu: React.FC<PostHeaderMenuProps> = ({
             >
               <LinkIcon className="w-4 h-4" />
               Copy link
-            </button>
-
-            <div className="border-t dark:border-gray-700 my-1" />
-
-            <button
-              onClick={() => setShowMenu(false)}
-              className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 dark:text-white"
-            >
-              Cancel
             </button>
           </div>
         </>

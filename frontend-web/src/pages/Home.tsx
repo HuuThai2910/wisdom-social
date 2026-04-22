@@ -1,42 +1,15 @@
 import { useState, useEffect } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { mockStories } from "../api/mockData";
 import StoriesBar from "../components/story/StoriesBar";
 import PostCard from "../components/post/post-card/PostCard";
-import axiosClient from "../api/axiosClient";
 import { useCurrentUser } from "../hooks/useCurrentUser";
-import { transformMediaToS3Urls } from "../services/postService";
-import { buildS3Url } from "../utils/s3";
+import { fetchHomeFeedPosts } from "../services/homeFeedService";
 import type { Post } from "../types";
 
-interface PostData {
-  id: string;
-  authorId: string;
-  content: string;
-  privacy?: string;
-  media?: Array<{
-    url: string;
-    type: string;
-    order: number;
-    duration?: number;
-    width?: number;
-    height?: number;
-  }>;
-  stats?: { reactCount: number; commentCount: number; shareCount: number };
-  createdAt: string;
-}
-
-const extractPostsArray = (payload: any): PostData[] => {
-  const rawData = payload?.data ?? payload;
-  if (Array.isArray(rawData)) {
-    return rawData as PostData[];
-  }
-  if (Array.isArray(rawData?.content)) {
-    return rawData.content as PostData[];
-  }
-  return [];
-};
-
 export default function Home() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const currentUser = useCurrentUser();
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
@@ -57,131 +30,41 @@ export default function Home() {
 
         if (isMounted) setError(null);
 
-        let allPosts: PostData[] = [];
+        const routeBoostPostId = (
+          location.state as { boostPostId?: string } | null
+        )?.boostPostId;
+        const storedBoostPostId =
+          sessionStorage.getItem("homeBoostPostId") || undefined;
+        const boostPostId = routeBoostPostId || storedBoostPostId;
 
-        try {
-          // First, try to fetch from friends
-          const friendsResponse = await axiosClient.get(
-            `/users/${currentUser.id}/friends`
-          );
-
-          if (!isMounted) return;
-
-          const friendsData =
-            friendsResponse.data.data || friendsResponse.data || [];
-
-          const friendIds = [
-            currentUser.id,
-            ...friendsData.map((friend: any) => friend.userId || friend.id),
-          ];
-
-          const postsPromises = friendIds.map((id) =>
-            axiosClient.get(`/posts/user/${id}`).catch((err) => {
-              console.log(
-                `⚠️ Failed to fetch posts for user ${id}:`,
-                err.message
-              );
-              return { data: { data: [] } };
-            })
-          );
-
-          const postsResponses = await Promise.all(postsPromises);
-
-          if (!isMounted) return;
-
-          allPosts = postsResponses.flatMap((response) =>
-            extractPostsArray(response.data)
-          );
-        } catch (friendsError: any) {
-          console.warn("⚠️ Could not fetch friends:", friendsError.message);
-
-          if (!isMounted) return;
-
-          // If friends API fails, just fetch current user's posts
-          const postsResponse = await axiosClient.get(
-            `/posts/user/${currentUser.id}`
-          );
-
-          if (!isMounted) return;
-
-          allPosts = extractPostsArray(postsResponse.data);
-        }
+        const feedResult = await fetchHomeFeedPosts(200, {
+          prioritizePostId: boostPostId,
+        });
 
         if (!isMounted) return;
-
-        // Sort by createdAt descending
-        allPosts.sort(
-          (a, b) =>
-            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        );
-
-        // Transform posts to match PostCard format
-        const transformedPosts = await Promise.all(
-          allPosts.map(async (post) => {
-            try {
-              // Fetch author data
-              const userResponse = await axiosClient.get(
-                `/auth/user/${post.authorId}`
-              );
-              const userData = userResponse.data.data;
-
-              const transformedImages = transformMediaToS3Urls(
-                post.media,
-                post.authorId
-              );
-              const transformedMedia = (post.media || []).map(
-                (m, mediaIndex) => ({
-                  url: transformedImages[mediaIndex] || "",
-                  type: (m.type || "image").toLowerCase(),
-                  duration:
-                    typeof m.duration === "number" ? m.duration : undefined,
-                })
-              );
-
-              return {
-                id: post.id,
-                user: {
-                  id: userData.id,
-                  username: userData.username,
-                  fullName: userData.name || userData.username,
-                  avatarUrl:
-                    buildS3Url(userData.avatarUrl) ||
-                    userData.avatarUrl ||
-                    "https://i.pravatar.cc/150?img=5",
-                },
-                images: transformedImages,
-                media: transformedMedia,
-                caption: post.content,
-                privacy: post.privacy as any,
-                likes: post.stats?.reactCount || 0,
-                comments: [],
-                createdAt: new Date(post.createdAt).toLocaleString("vi-VN"),
-                isLiked: false,
-                isSaved: false,
-              };
-            } catch (userErr: any) {
-              console.error(
-                "❌ Error fetching author for post",
-                post.id,
-                ":",
-                userErr.message
-              );
-              // Return null for failed posts
-              return null;
-            }
-          })
-        );
-
-        if (!isMounted) return;
-
-        // Filter out null posts (ones that failed to fetch author)
-        const validPosts = transformedPosts.filter(
-          (post) => post !== null
-        ) as Post[];
 
         if (isMounted) {
-          setPosts(validPosts);
+          const normalizedBoostPostId = boostPostId ? String(boostPostId) : "";
+          const orderedPosts = [...feedResult.posts];
+
+          if (normalizedBoostPostId) {
+            const boostedIndex = orderedPosts.findIndex(
+              (post) => String(post.id) === normalizedBoostPostId
+            );
+
+            if (boostedIndex > 0) {
+              const [boostedPost] = orderedPosts.splice(boostedIndex, 1);
+              orderedPosts.unshift(boostedPost);
+            }
+          }
+
+          setPosts(orderedPosts);
           setError(null);
+
+          if (boostPostId) {
+            sessionStorage.removeItem("homeBoostPostId");
+            navigate(location.pathname, { replace: true, state: null });
+          }
         }
       } catch (err: any) {
         console.error("❌ Error fetching posts:", err);
@@ -200,7 +83,7 @@ export default function Home() {
     return () => {
       isMounted = false;
     };
-  }, [currentUser]);
+  }, [currentUser, location.pathname, location.state, navigate]);
 
   return (
     <div>
