@@ -125,8 +125,8 @@ export const buildS3Url = (s3Key: string | null | undefined): string | null => {
     const value = s3Key.trim();
     if (!value) return null;
 
-    // Keep fully-qualified URLs and browser object URLs as-is.
-    if (/^https?:\/\//i.test(value) || /^data:/i.test(value) || /^blob:/i.test(value)) {
+    // Keep fully-qualified URLs, data URLs, blob URLs, and local paths (/path/to/asset) as-is.
+    if (/^https?:\/\//i.test(value) || /^data:/i.test(value) || /^blob:/i.test(value) || value.startsWith("/")) {
         return value;
     }
 

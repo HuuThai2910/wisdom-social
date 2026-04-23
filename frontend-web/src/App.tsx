@@ -10,6 +10,7 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import { AuthProvider } from "./contexts/AuthContext";
 import { AvatarProvider } from "./context/AvatarContext";
 import { FriendNotificationProvider } from "./contexts/FriendNotificationContext";
+import { NotificationProvider } from "./contexts/NotificationContext";
 import FriendDataProvider from "./contexts/FriendDataContext";
 import MainLayout from "./components/layout/MainLayout";
 import PublicLayout from "./components/layout/PublicLayout";
@@ -90,7 +91,8 @@ function App() {
         <AvatarProvider>
           <FriendDataProvider>
             <FriendNotificationProvider>
-              <Toaster
+              <NotificationProvider>
+                <Toaster
                 position="top-right"
                 toastOptions={{
                   duration: 4000,
@@ -173,6 +175,7 @@ function App() {
                 </Routes>
               )}
 
+              </NotificationProvider>
             </FriendNotificationProvider>
           </FriendDataProvider>
         </AvatarProvider>

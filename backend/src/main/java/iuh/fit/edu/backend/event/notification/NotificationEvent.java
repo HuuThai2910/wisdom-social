@@ -1,5 +1,6 @@
 package iuh.fit.edu.backend.event.notification;
 
+
 import iuh.fit.edu.backend.constant.NotificationType;
 import iuh.fit.edu.backend.constant.TargetType;
 import lombok.AllArgsConstructor;
@@ -22,6 +23,7 @@ public class NotificationEvent {
     private NotificationType type;
     private TargetType targetType;
     private String targetId;
+    private String rootTargetId; // The ID of the root object (e.g., Post ID) for nested targets (e.g., Comment)
     private String content;
     private String imageUrl;
 }

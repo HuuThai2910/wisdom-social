@@ -1,67 +1,49 @@
-import axios from "axios";
+import axiosClient from "../api/axiosClient";
 import type { ApiResponse, Notification } from "../types";
 
-const API_URL = "http://localhost:8080/api/notifications";
+const API_PATH = "/notifications";
 
 export const getNotifications = async (
   page: number = 0,
   size: number = 20
 ): Promise<Notification[]> => {
   try {
-    const token = localStorage.getItem("token");
-    if (!token) return [];
-
-    const response = await axios.get<ApiResponse<Notification[]>>(`${API_URL}?page=${page}&size=${size}`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
+    console.log(`notificationService: Fetching notifications (page: ${page}, size: ${size})`);
+    const response = await axiosClient.get<ApiResponse<Notification[]>>(
+      `${API_PATH}?page=${page}&size=${size}`
+    );
 
     if (response.data.success && response.data.data) {
+      console.log(`notificationService: Successfully fetched ${response.data.data.length} notifications`);
       return response.data.data;
     }
     return [];
   } catch (error) {
-    console.error("Error fetching notifications:", error);
+    console.error("notificationService: Error fetching notifications:", error);
     return [];
   }
 };
 
 export const getUnreadCount = async (): Promise<number> => {
   try {
-    const token = localStorage.getItem("token");
-    if (!token) return 0;
-
-    const response = await axios.get<ApiResponse<number>>(`${API_URL}/unread-count`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
+    const response = await axiosClient.get<ApiResponse<number>>(`${API_PATH}/unread-count`);
 
     if (response.data.success && response.data.data !== null) {
       return response.data.data;
     }
     return 0;
   } catch (error) {
-    console.error("Error fetching unread count:", error);
+    console.error("notificationService: Error fetching unread count:", error);
     return 0;
   }
 };
 
 export const markAsRead = async (notificationId: string): Promise<boolean> => {
   try {
-    const token = localStorage.getItem("token");
-    if (!token) return false;
-
-    const response = await axios.put<ApiResponse<void>>(`${API_URL}/${notificationId}/read`, {}, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-
+    const response = await axiosClient.put<ApiResponse<void>>(`${API_PATH}/${notificationId}/read`);
     return response.data.success;
   } catch (error) {
-    console.error("Error marking notification as read:", error);
+    console.error("notificationService: Error marking notification as read:", error);
     return false;
   }
 };

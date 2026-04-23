@@ -112,9 +112,10 @@ export const fetchHomeFeedPosts = async (
     const allPosts = extractPostsArray(feedResponse.data);
     const meta = extractFeedSliceMeta(feedResponse.data);
 
-    allPosts.sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
+    // Backend handles sorting and prioritization
+    // allPosts.sort(
+    //     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    // );
 
     const authorIds = Array.from(
         new Set(allPosts.map((post) => post.authorId).filter(Boolean))

@@ -56,22 +56,26 @@ public class FeedServiceImpl implements FeedService {
         boolean hasMoreFriendRecent = friendRecent.size() > friendTake;
 
         List<Post> merged = new ArrayList<>(pageSize + 1);
+        Set<String> seenPostIds = new HashSet<>();
 
-        // One-time boost: pin the freshly created post on top only on the first page load.
+        // One-time boost: pin the prioritized post on top only on the first page load.
+        Post prioritizedPost = null;
         if (lastCreatedAt == null && prioritizePostId != null && !prioritizePostId.isBlank()) {
-            postRepository.findById(prioritizePostId)
-                    .filter(post -> Objects.equals(post.getAuthorId(), currentUserId))
+            prioritizedPost = postRepository.findById(prioritizePostId)
                     .filter(post -> post.getStatus() != null && "ACTIVE".equals(post.getStatus().name()))
-                    .ifPresent(merged::add);
+                    .orElse(null);
+            if (prioritizedPost != null) {
+                merged.add(prioritizedPost);
+                seenPostIds.add(prioritizedPost.getId());
+            }
         }
 
         if (friendTake > 0) {
-            merged.addAll(friendRecent.subList(0, friendTake));
-        }
-
-        Set<String> seenPostIds = new HashSet<>();
-        for (Post post : merged) {
-            seenPostIds.add(post.getId());
+            for (Post post : friendRecent.subList(0, friendTake)) {
+                if (seenPostIds.add(post.getId())) {
+                    merged.add(post);
+                }
+            }
         }
 
         int remaining = pageSize - merged.size();
@@ -102,9 +106,21 @@ public class FeedServiceImpl implements FeedService {
             }
         }
 
-        merged.sort(Comparator
-                .comparing(Post::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder()))
-                .thenComparing(Post::getId, Comparator.nullsLast(Comparator.reverseOrder())));
+        final String pinnedId = prioritizedPost != null ? prioritizedPost.getId() : null;
+        merged.sort((a, b) -> {
+            if (Objects.equals(a.getId(), pinnedId)) return -1;
+            if (Objects.equals(b.getId(), pinnedId)) return 1;
+            
+            Instant ca = a.getCreatedAt();
+            Instant cb = b.getCreatedAt();
+            if (ca == null && cb == null) return Objects.compare(b.getId(), a.getId(), Comparator.nullsLast(Comparator.naturalOrder()));
+            if (ca == null) return 1;
+            if (cb == null) return -1;
+            
+            int dateCmp = cb.compareTo(ca);
+            if (dateCmp != 0) return dateCmp;
+            return Objects.compare(b.getId(), a.getId(), Comparator.nullsLast(Comparator.naturalOrder()));
+        });
 
         if (merged.size() > pageSize) {
             merged = new ArrayList<>(merged.subList(0, pageSize));

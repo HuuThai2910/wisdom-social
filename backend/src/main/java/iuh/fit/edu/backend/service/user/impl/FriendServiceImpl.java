@@ -64,17 +64,13 @@ public class FriendServiceImpl implements FriendService {
             redisTemplate.opsForSet().add(recievedKey, String.valueOf(senderId));
             redisTemplate.opsForValue().set(requestKey,FriendStatus.PENDING.toString(), Duration.ofDays(7));
             
-            // Trigger Notification
-            try {
-                notificationService.createNotification(NotificationEvent.builder()
-                        .recipientId(String.valueOf(receiverId))
-                        .actorIds(List.of(String.valueOf(senderId)))
-                        .type(NotificationType.FRIEND_REQUEST)
-                        .content("đã gửi cho bạn một lời mời kết bạn")
-                        .build());
-            } catch (Exception e) {
-                log.error("Failed to send notification for friend request", e);
-            }
+            // Trigger Standard Notification
+            notificationService.createNotification(NotificationEvent.builder()
+                    .recipientId(String.valueOf(receiverId))
+                    .actorIds(List.of(String.valueOf(senderId)))
+                    .type(NotificationType.FRIEND_REQUEST)
+                    .content("đã gửi cho bạn một lời mời kết bạn")
+                    .build());
 
             return true;
         }
@@ -121,17 +117,13 @@ public class FriendServiceImpl implements FriendService {
                 friendRepository.save(existingFriend);
             }
 
-            // Trigger Notification
-            try {
-                notificationService.createNotification(NotificationEvent.builder()
-                        .recipientId(String.valueOf(senderId))
-                        .actorIds(List.of(String.valueOf(receiverId)))
-                        .type(NotificationType.FRIEND_ACCEPT)
-                        .content("đã chấp nhận lời mời kết bạn của bạn")
-                        .build());
-            } catch (Exception e) {
-                log.error("Failed to send notification for friend accept", e);
-            }
+            // Trigger Standard Notification
+            notificationService.createNotification(NotificationEvent.builder()
+                    .recipientId(String.valueOf(senderId))
+                    .actorIds(List.of(String.valueOf(receiverId)))
+                    .type(NotificationType.FRIEND_ACCEPT)
+                    .content("đã chấp nhận lời mời kết bạn của bạn")
+                    .build());
             return true;
         }
         return false;

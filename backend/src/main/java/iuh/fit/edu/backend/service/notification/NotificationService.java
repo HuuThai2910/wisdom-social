@@ -10,4 +10,5 @@ public interface NotificationService {
     List<Notification> getNotifications(String userId, int page, int size);
     long getUnreadCount(String userId);
     void markAsRead(String notificationId, String userId);
+    void clearCache(String userId);
 }

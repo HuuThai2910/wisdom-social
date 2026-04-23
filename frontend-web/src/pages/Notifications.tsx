@@ -1,8 +1,8 @@
 import NotificationItem from "../components/notification/NotificationItem";
-import useNotifications from "../hooks/useNotifications";
+import { useNotificationContext } from "../contexts/NotificationContext";
 
 export default function Notifications() {
-    const { notifications, loading, markAsRead, unreadCount } = useNotifications();
+    const { notifications, loading, markAsRead, unreadCount } = useNotificationContext();
 
     return (
         <div className="max-w-[600px] mx-auto bg-white dark:bg-[#000] border border-gray-200 dark:border-[#262626] rounded-lg">

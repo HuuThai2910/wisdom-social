@@ -107,6 +107,7 @@ public class CommentServiceImpl implements CommentService {
                                 .type(NotificationType.REPLY_COMMENT)
                                 .targetType(TargetType.COMMENT)
                                 .targetId(savedComment.getId())
+                                .rootTargetId(request.getTargetId()) // TargetId of the request is the Post ID
                                 .content("đã phản hồi bình luận của bạn: " + savedComment.getContent())
                                 .build());
                     }
@@ -121,6 +122,7 @@ public class CommentServiceImpl implements CommentService {
                                 .type(NotificationType.COMMENT_POST)
                                 .targetType(TargetType.POST)
                                 .targetId(post.getId())
+                                .rootTargetId(post.getId())
                                 .content("đã bình luận về bài viết của bạn: " + savedComment.getContent())
                                 .build());
                     }
@@ -137,6 +139,7 @@ public class CommentServiceImpl implements CommentService {
                                 .type(NotificationType.COMMENT_MENTION)
                                 .targetType(TargetType.COMMENT)
                                 .targetId(savedComment.getId())
+                                .rootTargetId(request.getTargetId())
                                 .content("đã nhắc đến bạn trong một bình luận: " + savedComment.getContent())
                                 .build());
                     }

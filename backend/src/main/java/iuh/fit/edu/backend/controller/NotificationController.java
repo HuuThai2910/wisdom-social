@@ -86,4 +86,25 @@ public class NotificationController {
                     .body(ApiResponse.error(400, "Lỗi: " + e.getMessage(), null));
         }
     }
+
+    /**
+     * Xóa cache thông báo của user hiện tại
+     */
+    @DeleteMapping("/clear-cache")
+    public ResponseEntity<ApiResponse<Void>> clearCache() {
+        try {
+            var currentUser = userService.getCurrentUser();
+            if (currentUser == null) {
+                return ResponseEntity.status(401)
+                        .body(ApiResponse.error(401, "Bạn cần đăng nhập", null));
+            }
+
+            notificationService.clearCache(String.valueOf(currentUser.getId()));
+            return ResponseEntity.ok(ApiResponse.success(200, "Xóa cache thông báo thành công", null));
+        } catch (Exception e) {
+            log.error("Error clearing notification cache", e);
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error(400, "Lỗi: " + e.getMessage(), null));
+        }
+    }
 }

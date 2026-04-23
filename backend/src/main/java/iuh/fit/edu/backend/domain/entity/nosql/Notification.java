@@ -77,23 +77,3 @@ public class Notification {
     private Instant expireAt;
 }
 
-/**
- * Metadata bổ sung cho notification
- */
-@Data
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
-class NotificationMetadata {
-    // Preview image/avatar
-    private String imageUrl;
-
-    // Số lượng người tương tác (VD: "Bạn và 15 người khác")
-    private Integer count;
-
-    // Link đích
-    private String deepLink;
-
-    // Dữ liệu bổ sung dạng JSON
-    private String extraData;
-}

@@ -27,18 +27,27 @@ public class NotificationEventHandler implements RedisEventHandler {
 
     @Override
     public void handle(Object eventPayload, Set<Long> targetMemberIds) {
-        log.info("Handling notification via WebSocket for members: {}", targetMemberIds);
-        if (targetMemberIds == null || targetMemberIds.isEmpty()) {
+        if (!(eventPayload instanceof Notification)) {
             return;
         }
-
-        if (eventPayload instanceof Notification) {
-            Notification notification = (Notification) eventPayload;
-            targetMemberIds.forEach(userId -> {
-                String destination = "/topic/user/" + userId + "/notifications";
-                messagingTemplate.convertAndSend(destination, notification);
-                log.info("Notification sent to: {}", destination);
-            });
+        
+        Notification notification = (Notification) eventPayload;
+        
+        // Use targetMemberIds if provided, otherwise fallback to notification.recipientId
+        if (targetMemberIds != null && !targetMemberIds.isEmpty()) {
+            log.info("📡 [DEBUG-NOTI] 3a. Handler processing via targetMemberIds: {}", targetMemberIds);
+            targetMemberIds.forEach(userId -> sendToUser(userId.toString(), notification));
+        } else if (notification.getRecipientId() != null) {
+            log.info("📡 [DEBUG-NOTI] 3b. Handler processing via fallback recipientId: {}", notification.getRecipientId());
+            sendToUser(notification.getRecipientId(), notification);
+        } else {
+            log.warn("❌ [DEBUG-NOTI] Handler failed: No recipient found in payload");
         }
+    }
+
+    private void sendToUser(String userId, Notification notification) {
+        String destination = "/topic/user/" + userId + "/notifications";
+        log.info("📡 [DEBUG-NOTI] 4. Sending to WebSocket destination: {}", destination);
+        messagingTemplate.convertAndSend(destination, notification);
     }
 }

@@ -105,28 +105,38 @@ public class ReactionServiceImpl implements ReactionService {
         try {
             if (targetType == TargetType.POST) {
                 postRepository.findById(targetId).ifPresent(post -> {
-                    if (!post.getAuthorId().equals(userId)) {
+                    log.info("Reaction on POST {}. Author: {}, Current User: {}", targetId, post.getAuthorId(), userId);
+                    if (post.getAuthorId() != null && !post.getAuthorId().equals(userId)) {
+                        log.info("Sending REACTION_POST notification to user: {}", post.getAuthorId());
                         notificationService.createNotification(NotificationEvent.builder()
                                 .recipientId(post.getAuthorId())
                                 .actorIds(List.of(userId))
                                 .type(NotificationType.REACTION_POST)
                                 .targetType(TargetType.POST)
                                 .targetId(post.getId())
+                                .rootTargetId(post.getId())
                                 .content("đã thích bài viết của bạn")
                                 .build());
+                    } else {
+                        log.info("Skipping notification: user reacted to own post or authorId is null");
                     }
                 });
             } else if (targetType == TargetType.COMMENT) {
                 commentRepository.findById(targetId).ifPresent(comment -> {
-                    if (!comment.getUserId().equals(userId)) {
+                    log.info("Reaction on COMMENT {}. User: {}, Current User: {}", targetId, comment.getUserId(), userId);
+                    if (comment.getUserId() != null && !comment.getUserId().equals(userId)) {
+                        log.info("Sending REACTION_COMMENT notification to user: {}", comment.getUserId());
                         notificationService.createNotification(NotificationEvent.builder()
                                 .recipientId(comment.getUserId())
                                 .actorIds(List.of(userId))
                                 .type(NotificationType.REACTION_COMMENT)
                                 .targetType(TargetType.COMMENT)
                                 .targetId(comment.getId())
+                                .rootTargetId(getRootPostId(TargetType.COMMENT, comment.getId()))
                                 .content("đã thích bình luận của bạn")
                                 .build());
+                    } else {
+                        log.info("Skipping notification: user reacted to own comment or userId is null");
                     }
                 });
             }

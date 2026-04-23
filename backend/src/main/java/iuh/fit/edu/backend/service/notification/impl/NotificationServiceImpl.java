@@ -1,42 +1,45 @@
 package iuh.fit.edu.backend.service.notification.impl;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import iuh.fit.edu.backend.domain.entity.nosql.Notification;
 import iuh.fit.edu.backend.event.notification.NotificationEvent;
 import iuh.fit.edu.backend.repository.nosql.NotificationRepository;
 import iuh.fit.edu.backend.service.notification.NotificationService;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class NotificationServiceImpl implements NotificationService {
 
     private final NotificationRepository notificationRepository;
     private final ApplicationEventPublisher eventPublisher;
-    
-    @Qualifier("pubSubRedisTemplate")
     private final RedisTemplate<String, Object> pubSubRedisTemplate;
-    
     private final StringRedisTemplate stringRedisTemplate;
-    
-    @Qualifier("pubSubObjectMapper")
     private final ObjectMapper objectMapper;
+
+    public NotificationServiceImpl(
+            NotificationRepository notificationRepository,
+            ApplicationEventPublisher eventPublisher,
+            @Qualifier("pubSubRedisTemplate") RedisTemplate<String, Object> pubSubRedisTemplate,
+            StringRedisTemplate stringRedisTemplate,
+            @Qualifier("pubSubObjectMapper") ObjectMapper objectMapper) {
+        this.notificationRepository = notificationRepository;
+        this.eventPublisher = eventPublisher;
+        this.pubSubRedisTemplate = pubSubRedisTemplate;
+        this.stringRedisTemplate = stringRedisTemplate;
+        this.objectMapper = objectMapper;
+    }
 
     private static final String UNREAD_COUNT_KEY = "notification:unread:%s";
     private static final String RECENT_NOTIFICATIONS_KEY = "notification:recent:%s";
@@ -142,5 +145,14 @@ public class NotificationServiceImpl implements NotificationService {
                 }
             }
         }
+    }
+
+    @Override
+    public void clearCache(String userId) {
+        String countKey = String.format(UNREAD_COUNT_KEY, userId);
+        String zsetKey = String.format(RECENT_NOTIFICATIONS_KEY, userId);
+        stringRedisTemplate.delete(countKey);
+        stringRedisTemplate.delete(zsetKey);
+        log.info("Cleared notification cache for user: {}", userId);
     }
 }
