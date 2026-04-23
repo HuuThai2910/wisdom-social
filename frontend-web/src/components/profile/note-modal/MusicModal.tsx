@@ -203,11 +203,11 @@ export default function MusicSelector({
     if (!audioUrl) return;
 
     if (playingId === music.id) {
-      stopAudioPreview(audioRef.current);
+      stopAudioPreview();
       setPlayingId(null);
       setPlayingProgress(0);
     } else {
-      stopAudioPreview(audioRef.current);
+      stopAudioPreview();
       const audio = playAudioPreview(audioUrl, {
         onLoadedMetadata: () => {
           setPlayingProgress(0);
@@ -242,7 +242,7 @@ export default function MusicSelector({
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
       }
-      stopAudioPreview(audioRef.current);
+      stopAudioPreview();
       setPlayingProgress(0);
     };
   }, []);
@@ -298,7 +298,7 @@ export default function MusicSelector({
                   onSave={toggleSave}
                   onSelect={(picked) => {
                     onSelect(picked);
-                    stopAudioPreview(audioRef.current);
+                    stopAudioPreview();
                     setPlayingId(null);
                     onClose?.();
                   }}

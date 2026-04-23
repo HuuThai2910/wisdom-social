@@ -126,7 +126,7 @@ export default function ProfileLayout() {
     <div className="bg-white dark:bg-black min-h-screen">
       <ProfileHeader user={user} isOwnProfile={isOwnProfile} />
       <ProfileTabs username={user.username} />
-      <div className="max-w-6xl mx-auto px-6 md:px-8 py-8 md:py-12">
+      <div className="max-w-6xl mx-auto px-6 md:px-8 pt-2 pb-8">
         <Outlet context={{ user, isOwnProfile }} />
       </div>
     </div>

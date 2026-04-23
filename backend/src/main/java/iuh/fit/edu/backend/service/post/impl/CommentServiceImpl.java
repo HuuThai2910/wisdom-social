@@ -9,8 +9,13 @@ import iuh.fit.edu.backend.dto.response.post.PaginatedCommentsResponse;
 import iuh.fit.edu.backend.repository.nosql.CommentRepository;
 import iuh.fit.edu.backend.repository.nosql.PostRepository;
 import iuh.fit.edu.backend.service.post.CommentService;
+import iuh.fit.edu.backend.service.notification.NotificationService;
+import iuh.fit.edu.backend.event.notification.NotificationEvent;
+import iuh.fit.edu.backend.constant.NotificationType;
+import iuh.fit.edu.backend.event.post.CommentRealtimeEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
@@ -42,6 +47,8 @@ public class CommentServiceImpl implements CommentService {
 
     private final CommentRepository commentRepository;
     private final PostRepository postRepository;
+    private final NotificationService notificationService;
+    private final ApplicationEventPublisher eventPublisher;
     private static final int INITIAL_REPLY_LIMIT = 3;
 
     @Override
@@ -86,8 +93,79 @@ public class CommentServiceImpl implements CommentService {
             updatePostCommentCount(request.getTargetId(), 1);
         }
 
+        // Trigger Notifications
+        try {
+            if (request.getParentId() != null) {
+                // REPLY_COMMENT notification
+                commentRepository.findById(request.getParentId()).ifPresent(parent -> {
+                    if (!parent.getUserId().equals(userId.toString())) {
+                        notificationService.createNotification(NotificationEvent.builder()
+                                .recipientId(parent.getUserId())
+                                .actorIds(List.of(userId.toString()))
+                                .type(NotificationType.REPLY_COMMENT)
+                                .targetType(TargetType.COMMENT)
+                                .targetId(savedComment.getId())
+                                .content("đã phản hồi bình luận của bạn: " + savedComment.getContent())
+                                .build());
+                    }
+                });
+            } else if (request.getTargetType() == TargetType.POST) {
+                // COMMENT_POST notification
+                postRepository.findById(request.getTargetId()).ifPresent(post -> {
+                    if (!post.getAuthorId().equals(userId.toString())) {
+                        notificationService.createNotification(NotificationEvent.builder()
+                                .recipientId(post.getAuthorId())
+                                .actorIds(List.of(userId.toString()))
+                                .type(NotificationType.COMMENT_POST)
+                                .targetType(TargetType.POST)
+                                .targetId(post.getId())
+                                .content("đã bình luận về bài viết của bạn: " + savedComment.getContent())
+                                .build());
+                    }
+                });
+            }
+        } catch (Exception e) {
+            log.error("Failed to send notification for comment", e);
+        }
+
+        // Publish realtime event to WebSockets
+        try {
+            CommentResponse responsePayload = commentToResponse(savedComment);
+            String rootPostId = getRootPostId(savedComment);
+            
+            if (rootPostId != null) {
+                eventPublisher.publishEvent(new CommentRealtimeEvent("CREATE", rootPostId, responsePayload));
+            } else {
+                log.warn("Could not determine root postId for comment: {}", savedComment.getId());
+            }
+        } catch (Exception e) {
+            log.error("Failed to publish CommentRealtimeEvent", e);
+        }
+
         log.info("Comment created successfully with ID: {}", savedComment.getId());
         return savedComment;
+    }
+
+    private String getRootPostId(Comment comment) {
+        if (comment.getTargetType() == TargetType.POST) {
+            return comment.getTargetId();
+        }
+        
+        // If it's a reply, trace up to root
+        int depth = 0;
+        String currentParentId = comment.getParentId();
+        
+        while (currentParentId != null && depth < 10) { // Limit depth to prevent infinite loops
+            Comment parent = commentRepository.findById(currentParentId).orElse(null);
+            if (parent == null) break;
+            
+            if (parent.getTargetType() == TargetType.POST) {
+                return parent.getTargetId();
+            }
+            currentParentId = parent.getParentId();
+            depth++;
+        }
+        return null;
     }
 
     @Override
@@ -280,6 +358,9 @@ public class CommentServiceImpl implements CommentService {
         if (!comment.getUserId().equals(userId.toString())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Unauthorized to delete this comment");
         }
+        
+        String rootPostId = getRootPostId(comment);
+        String parentId = comment.getParentId();
 
         List<String> descendantIds = collectDescendantIds(commentId);
         List<String> allIdsToDelete = new ArrayList<>();
@@ -301,6 +382,19 @@ public class CommentServiceImpl implements CommentService {
 
         commentRepository.deleteAllById(allIdsToDelete);
         log.info("Comment deleted successfully. Removed {} docs (including descendants)", allIdsToDelete.size());
+        
+        // Publish realtime DELETE event
+        try {
+            if (rootPostId != null) {
+                CommentResponse deletePayload = CommentResponse.builder()
+                        .id(commentId)
+                        .parentId(parentId)
+                        .build();
+                eventPublisher.publishEvent(new CommentRealtimeEvent("DELETE", rootPostId, deletePayload));
+            }
+        } catch (Exception e) {
+            log.error("Failed to publish delete event", e);
+        }
     }
 
     private List<String> collectDescendantIds(String rootCommentId) {

@@ -14,8 +14,8 @@ import java.util.List;
  */
 public interface PostService {
     Post createPost(CreatePostRequest request, List<String> imageUrls, Long authorId);
-    Page<Post> getPostsByUserId(Long userId, int page, int size);
-    long countPostsByUserId(Long userId);
+    Page<Post> getPostsByUserId(Long userId, Long currentUserId, int page, int size);
+    long countPostsByUserId(Long userId, Long currentUserId);
     Post getPostById(String postId);
     void deletePost(String postId, Long userId);
     Post updatePost(String postId, CreatePostRequest request, List<String> newImageUrls, Long userId);

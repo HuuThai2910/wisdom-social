@@ -6,9 +6,13 @@ import iuh.fit.edu.backend.domain.entity.mysql.User;
 import iuh.fit.edu.backend.repository.mysql.FriendRepository;
 import iuh.fit.edu.backend.service.user.FriendService;
 import iuh.fit.edu.backend.service.user.UserService;
+import iuh.fit.edu.backend.service.notification.NotificationService;
+import iuh.fit.edu.backend.event.notification.NotificationEvent;
+import iuh.fit.edu.backend.constant.NotificationType;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.time.OffsetDateTime;
@@ -25,18 +29,24 @@ import java.util.Set;
  * @version: 1.0
  */
 @Service
+@Slf4j
 public class FriendServiceImpl implements FriendService {
     StringRedisTemplate redisTemplate;
     SimpMessagingTemplate messagingTemplate;
     FriendRepository friendRepository;
     UserService userService;
+    NotificationService notificationService;
 
     public FriendServiceImpl(FriendRepository friendRepository,
-                             SimpMessagingTemplate messagingTemplate, StringRedisTemplate redisTemplate, UserService userService) {
+                             SimpMessagingTemplate messagingTemplate, 
+                             StringRedisTemplate redisTemplate, 
+                             UserService userService,
+                             NotificationService notificationService) {
         this.friendRepository = friendRepository;
         this.messagingTemplate = messagingTemplate;
         this.redisTemplate = redisTemplate;
         this.userService = userService;
+        this.notificationService = notificationService;
     }
 
     @Override
@@ -54,20 +64,16 @@ public class FriendServiceImpl implements FriendService {
             redisTemplate.opsForSet().add(recievedKey, String.valueOf(senderId));
             redisTemplate.opsForValue().set(requestKey,FriendStatus.PENDING.toString(), Duration.ofDays(7));
             
-            //push websocket to receiver
-            if(receiver != null && receiver.getPhone() != null) {
-                String receiverPhone = convertToInternationalFormat(receiver.getPhone());
-                String senderName = sender.getName() != null && !sender.getName().isEmpty()
-                    ? sender.getName()
-                    : (sender.getUsername() != null && !sender.getUsername().isEmpty()
-                        ? sender.getUsername()
-                        : sender.getPhone());
-                String message = "Bạn có lời mời kết bạn từ " + senderName;
-                
-                messagingTemplate.convertAndSend(
-                        "/topic/user/" + receiverPhone + "/friend-request",
-                        message
-                );
+            // Trigger Notification
+            try {
+                notificationService.createNotification(NotificationEvent.builder()
+                        .recipientId(String.valueOf(receiverId))
+                        .actorIds(List.of(String.valueOf(senderId)))
+                        .type(NotificationType.FRIEND_REQUEST)
+                        .content("đã gửi cho bạn một lời mời kết bạn")
+                        .build());
+            } catch (Exception e) {
+                log.error("Failed to send notification for friend request", e);
             }
 
             return true;
@@ -115,15 +121,16 @@ public class FriendServiceImpl implements FriendService {
                 friendRepository.save(existingFriend);
             }
 
-            // 3. Push realtime cho sender
-            if(sender != null && sender.getPhone() != null) {
-                String senderPhone = convertToInternationalFormat(sender.getPhone());
-                String message = (receiver.getName() != null ? receiver.getName() : receiver.getPhone()) + " đã chấp nhận lời mời kết bạn của bạn";
-                
-                messagingTemplate.convertAndSend(
-                        "/topic/user/" + senderPhone + "/friend-accept",
-                        message
-                );
+            // Trigger Notification
+            try {
+                notificationService.createNotification(NotificationEvent.builder()
+                        .recipientId(String.valueOf(senderId))
+                        .actorIds(List.of(String.valueOf(receiverId)))
+                        .type(NotificationType.FRIEND_ACCEPT)
+                        .content("đã chấp nhận lời mời kết bạn của bạn")
+                        .build());
+            } catch (Exception e) {
+                log.error("Failed to send notification for friend accept", e);
             }
             return true;
         }

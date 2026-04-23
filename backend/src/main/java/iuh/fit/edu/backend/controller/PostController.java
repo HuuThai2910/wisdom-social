@@ -182,7 +182,11 @@ public class PostController {
             }
 
             log.info("Fetching posts for user: {}, page={}, size={}", userId, page, size);
-            Page<Post> posts = postService.getPostsByUserId(userId, page, size);
+            
+            var currentUser = userService.getCurrentUser();
+            Long currentUserId = currentUser != null ? currentUser.getId() : null;
+            
+            Page<Post> posts = postService.getPostsByUserId(userId, currentUserId, page, size);
             return ResponseEntity.ok(ApiResponse.success(200, "Lấy danh sách post thành công", posts));
         } catch (Exception e) {
             log.error("Error fetching posts", e);
@@ -200,7 +204,11 @@ public class PostController {
     public ResponseEntity<ApiResponse<Long>> countPostsByUserId(@PathVariable Long userId) {
         try {
             log.info("Counting posts for user: {}", userId);
-            long postCount = postService.countPostsByUserId(userId);
+            
+            var currentUser = userService.getCurrentUser();
+            Long currentUserId = currentUser != null ? currentUser.getId() : null;
+            
+            long postCount = postService.countPostsByUserId(userId, currentUserId);
             return ResponseEntity.ok(ApiResponse.success(200, "Lấy số lượng post thành công", postCount));
         } catch (Exception e) {
             log.error("Error counting posts", e);

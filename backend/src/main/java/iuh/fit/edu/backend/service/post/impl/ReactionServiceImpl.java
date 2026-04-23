@@ -11,8 +11,14 @@ import iuh.fit.edu.backend.dto.response.post.ReactionSummaryResponse;
 import iuh.fit.edu.backend.repository.nosql.ReactionRepository;
 import iuh.fit.edu.backend.service.post.ReactionService;
 import iuh.fit.edu.backend.repository.nosql.PostRepository;
+import iuh.fit.edu.backend.service.notification.NotificationService;
+import iuh.fit.edu.backend.event.notification.NotificationEvent;
+import iuh.fit.edu.backend.constant.NotificationType;
+import iuh.fit.edu.backend.repository.nosql.CommentRepository;
+import iuh.fit.edu.backend.event.post.ReactionRealtimeEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,6 +42,9 @@ public class ReactionServiceImpl implements ReactionService {
 
     private final ReactionRepository reactionRepository;
     private final PostRepository postRepository;
+    private final CommentRepository commentRepository;
+    private final NotificationService notificationService;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     @Transactional
@@ -59,6 +68,8 @@ public class ReactionServiceImpl implements ReactionService {
                     updatePostReactCount(targetId, -1);
                 }
                 
+                publishRealtimeReaction("UNREACT", targetType, targetId, reaction.getType(), userId);
+                
                 return null;
             }
             
@@ -67,6 +78,9 @@ public class ReactionServiceImpl implements ReactionService {
             reaction.setUpdatedAt(Instant.now());
             Reaction updated = reactionRepository.save(reaction);
             log.info("Updated reaction: {}", updated.getId());
+            
+            publishRealtimeReaction("REACT", targetType, targetId, reactionType, userId);
+            
             return updated;
         }
 
@@ -86,8 +100,83 @@ public class ReactionServiceImpl implements ReactionService {
         if (targetType == TargetType.POST) {
             updatePostReactCount(targetId, 1);
         }
+
+        // Trigger Notification
+        try {
+            if (targetType == TargetType.POST) {
+                postRepository.findById(targetId).ifPresent(post -> {
+                    if (!post.getAuthorId().equals(userId)) {
+                        notificationService.createNotification(NotificationEvent.builder()
+                                .recipientId(post.getAuthorId())
+                                .actorIds(List.of(userId))
+                                .type(NotificationType.REACTION_POST)
+                                .targetType(TargetType.POST)
+                                .targetId(post.getId())
+                                .content("đã thích bài viết của bạn")
+                                .build());
+                    }
+                });
+            } else if (targetType == TargetType.COMMENT) {
+                commentRepository.findById(targetId).ifPresent(comment -> {
+                    if (!comment.getUserId().equals(userId)) {
+                        notificationService.createNotification(NotificationEvent.builder()
+                                .recipientId(comment.getUserId())
+                                .actorIds(List.of(userId))
+                                .type(NotificationType.REACTION_COMMENT)
+                                .targetType(TargetType.COMMENT)
+                                .targetId(comment.getId())
+                                .content("đã thích bình luận của bạn")
+                                .build());
+                    }
+                });
+            }
+        } catch (Exception e) {
+            log.error("Failed to send notification for reaction", e);
+        }
+        
+        publishRealtimeReaction("REACT", targetType, targetId, reactionType, userId);
         
         return saved;
+    }
+
+    private void publishRealtimeReaction(String action, TargetType targetType, String targetId, ReactionType reactionType, String userId) {
+        try {
+            String rootPostId = getRootPostId(targetType, targetId);
+            if (rootPostId != null) {
+                ReactionRealtimeEvent event = ReactionRealtimeEvent.builder()
+                        .action(action)
+                        .rootPostId(rootPostId)
+                        .targetType(targetType)
+                        .targetId(targetId)
+                        .reactionType(reactionType)
+                        .userId(userId)
+                        .build();
+                eventPublisher.publishEvent(event);
+            }
+        } catch (Exception e) {
+            log.error("Failed to publish ReactionRealtimeEvent", e);
+        }
+    }
+
+    private String getRootPostId(TargetType targetType, String targetId) {
+        if (targetType == TargetType.POST) {
+            return targetId;
+        }
+        
+        int depth = 0;
+        String currentParentId = targetId;
+        
+        while (currentParentId != null && depth < 10) {
+            iuh.fit.edu.backend.domain.entity.nosql.Comment parent = commentRepository.findById(currentParentId).orElse(null);
+            if (parent == null) break;
+            
+            if (parent.getTargetType() == TargetType.POST) {
+                return parent.getTargetId();
+            }
+            currentParentId = parent.getParentId();
+            depth++;
+        }
+        return null;
     }
 
     private void updatePostReactCount(String postId, int delta) {

@@ -25,4 +25,18 @@ public interface PostFeedRepositoryCustom {
         List<String> excludePostIds,
             int size
     );
+
+    List<Post> findProfilePosts(
+            String targetUserId,
+            String currentUserId,
+            List<String> friendIds,
+            int page,
+            int size
+    );
+
+    long countProfilePosts(
+            String targetUserId,
+            String currentUserId,
+            List<String> friendIds
+    );
 }

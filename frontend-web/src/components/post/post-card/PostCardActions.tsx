@@ -118,7 +118,7 @@ export default function PostCardActions({
       </div>
 
       <button className="text-sm font-semibold mb-2 hover:opacity-50 block dark:text-white">
-        {likesCount.toLocaleString()} likes
+        {likesCount.toLocaleString()} {likesCount !== 1 ? "likes" : "like"}
       </button>
     </>
   );

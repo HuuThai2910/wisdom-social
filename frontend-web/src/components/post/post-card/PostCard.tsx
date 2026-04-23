@@ -5,6 +5,8 @@ import { buildS3Url } from "../../../utils/s3";
 import { useCurrentUser } from "../../../hooks/useCurrentUser";
 import useVideoAutoplay from "../../../hooks/useVideoAutoplay";
 import useCommentsNormalized from "../../../hooks/useCommentsNormalized";
+import useRealtimeComments from "../../../hooks/useRealtimeComments";
+import useRealtimeReactions from "../../../hooks/useRealtimeReactions";
 import { commentService } from "../../../services/commentService";
 import EditPostModal from "../EditPostModal";
 import type { PostData } from "../../../types/postType";
@@ -91,11 +93,50 @@ export default function PostCard({ post }: PostCardProps) {
     loadingMap,
     totalCount,
     createReply,
+    deleteComment,
     getDirectChildren,
     loadRootComments,
+    handleCommentReactionUpdate,
   } = useCommentsNormalized({
     targetType: "POST",
     targetId: post.id,
+  });
+
+  useRealtimeComments({
+    postId: post.id,
+    commentsById,
+    createReply,
+    deleteComment,
+    viewerId: currentUser?.id?.toString() || "",
+    onCommentReceived: (newComment) => {
+      if (!newComment.parentId) {
+        setRecentCommentIds((prev) => [newComment.id, ...prev]);
+        if (fullCommentsTimeoutRef.current) {
+          clearTimeout(fullCommentsTimeoutRef.current);
+        }
+        setShowFullCommentsPreview(true);
+        fullCommentsTimeoutRef.current = setTimeout(() => {
+          setShowFullCommentsPreview(false);
+          setRecentCommentIds([]);
+        }, 5000);
+      }
+    }
+  });
+
+  useRealtimeReactions({
+    postId: post.id,
+    onReactionUpdate: (event) => {
+      // Don't update for own actions (already handled optimistically)
+      if (event.userId === currentUser?.id?.toString()) return;
+
+      if (event.targetType === "POST" && event.targetId === post.id) {
+        setLikesCount((prev) => 
+          event.action === "REACT" ? prev + 1 : Math.max(0, prev - 1)
+        );
+      } else if (event.targetType === "COMMENT") {
+        handleCommentReactionUpdate(event.targetId, event.action);
+      }
+    }
   });
 
   const commentsCount =
@@ -390,14 +431,14 @@ export default function PostCard({ post }: PostCardProps) {
 
   const navigateToPost = () => {
     navigate(`/post/${post.id}`, {
-      state: { from: location.pathname },
+      state: { backgroundLocation: location },
     });
   };
 
   const navigateToPostWithExpand = (commentId: string) => {
     navigate(`/post/${post.id}`, {
       state: {
-        from: location.pathname,
+        backgroundLocation: location,
         expandCommentId: commentId,
       },
     });

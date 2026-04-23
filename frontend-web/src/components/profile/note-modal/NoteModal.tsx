@@ -5,6 +5,7 @@ import {
   playAudioPreview,
   resolveMusicMediaUrl,
   stopAudioPreview,
+  subscribeToPlayback,
   type MusicMetadata,
 } from "../../../services/musicService";
 import {
@@ -48,6 +49,7 @@ export default function NoteModal({
   // audio preview
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playingUrl, setPlayingUrl] = useState<string | null>(null);
+  const [isMusicSelectorOpen, setIsMusicSelectorOpen] = useState(false);
 
   const mapNoteMusicToSelectedMusic = (
     currentNote: Note
@@ -95,10 +97,17 @@ export default function NoteModal({
     if (isEditing) setTimeout(() => textareaRef.current?.focus(), 50);
   }, [isEditing]);
 
+  // Sync with global playback state
+  useEffect(() => {
+    return subscribeToPlayback((url) => {
+      setPlayingUrl(url);
+    });
+  }, []);
+
   // Stop audio on unmount
   useEffect(
     () => () => {
-      stopAudioPreview(audioRef.current);
+      stopAudioPreview();
     },
     []
   );
@@ -125,7 +134,7 @@ export default function NoteModal({
   const startPreview = (url: string) => {
     if (!url) return;
 
-    stopAudioPreview(audioRef.current);
+    stopAudioPreview();
     const a = playAudioPreview(url, {
       onEnded: () => setPlayingUrl(null),
     });
@@ -138,7 +147,7 @@ export default function NoteModal({
     if (!url) return;
 
     if (playingUrl === url) {
-      stopAudioPreview(audioRef.current);
+      stopAudioPreview();
       setPlayingUrl(null);
     } else {
       startPreview(url);
@@ -180,7 +189,7 @@ export default function NoteModal({
       setContent("");
       setLocation("");
       setSelectedMusic(null);
-      stopAudioPreview(audioRef.current);
+      stopAudioPreview();
       setPlayingUrl(null);
       setIsEditing(false);
       onNoteChange?.(null);
@@ -333,9 +342,16 @@ export default function NoteModal({
                 selectedMusic={selectedMusic}
                 playingUrl={playingUrl}
                 onTogglePreview={togglePreview}
+                onOpenSelector={() => setIsMusicSelectorOpen(true)}
+                onCloseSelector={() => {
+                  setIsMusicSelectorOpen(false);
+                  // Auto-resume note music when selector closes
+                  const audioUrl = resolveMusicMediaUrl(selectedMusic?.audioUrl);
+                  if (audioUrl) startPreview(audioUrl);
+                }}
                 onClearSelection={() => {
                   setSelectedMusic(null);
-                  stopAudioPreview(audioRef.current);
+                  stopAudioPreview();
                   setPlayingUrl(null);
                 }}
                 onSelectMusic={(music) => {

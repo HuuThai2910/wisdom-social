@@ -1,4 +1,4 @@
-import { Link, useLocation } from "react-router-dom";
+import { NavLink } from "react-router-dom";
 import { Grid, Bookmark, Ban, Share2 } from "lucide-react";
 
 interface ProfileTabsProps {
@@ -6,11 +6,10 @@ interface ProfileTabsProps {
 }
 
 export default function ProfileTabs({ username }: ProfileTabsProps) {
-  const location = useLocation();
   const basePath = `/profile/${username}`;
 
   const tabs = [
-    { icon: Grid, label: "Post", path: `${basePath}/posts` },
+    { icon: Grid, label: "Post", path: basePath, end: true },
     { icon: Bookmark, label: "Saved", path: `${basePath}/saved` },
     { icon: Share2, label: "Shared", path: `${basePath}/shared` },
     { icon: Ban, label: "Blocked", path: `${basePath}/blocked` },
@@ -21,21 +20,27 @@ export default function ProfileTabs({ username }: ProfileTabsProps) {
       <div className="max-w-6xl mx-auto px-6 md:px-8 flex gap-8">
         {tabs.map((tab) => {
           const Icon = tab.icon;
-          const isActive = location.pathname === tab.path;
 
           return (
-            <Link
+            <NavLink
               key={tab.path}
               to={tab.path}
-              className={`flex items-center gap-2 py-4 border-b-2 transition-colors font-medium text-base ${
-                isActive
-                  ? "border-black dark:border-white text-black dark:text-white"
-                  : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
-              }`}
+              end={tab.end}
+              className={({ isActive }) =>
+                `flex items-center gap-2 py-4 border-t-2 -mt-[1px] transition-colors uppercase tracking-wider text-xs ${
+                  isActive
+                    ? "border-black dark:border-white text-black dark:text-white font-bold"
+                    : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 font-normal"
+                }`
+              }
             >
-              <Icon size={20} strokeWidth={isActive ? 2 : 1.5} />
-              <span>{tab.label}</span>
-            </Link>
+              {({ isActive }) => (
+                <>
+                  <Icon size={20} strokeWidth={isActive ? 2 : 1.5} />
+                  <span>{tab.label}</span>
+                </>
+              )}
+            </NavLink>
           );
         })}
       </div>

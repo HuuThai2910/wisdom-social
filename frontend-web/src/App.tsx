@@ -1,5 +1,4 @@
 import {
-  BrowserRouter,
   Routes,
   Route,
   useParams,
@@ -61,26 +60,29 @@ import UserManagement from "./pages/UserManagement";
 import BlockedUsers from "./pages/BlockedUsers";
 import FriendRequests from "./pages/FriendRequests";
 
+function PostModalWrapper({ backgroundLocation, handleClose }: { backgroundLocation?: any, handleClose: () => void }) {
+  const { id } = useParams();
+  if (!id) return null;
+  return <PostModal postId={id} onClose={handleClose} />;
+}
+
 function App() {
-  // Modal wrapper component to handle post modal
-  function PostModalWrapper() {
-    const { id } = useParams();
-    const navigate = useNavigate();
-    const location = useLocation();
+  const location = useLocation();
+  const navigate = useNavigate();
+  
+  // Modal Gallery Pattern logic
+  const state = location.state as { backgroundLocation?: Location };
+  const backgroundLocation = state?.backgroundLocation;
 
-    const handleClose = () => {
-      // Go back to the previous page or home
-      if (location.state?.from) {
-        navigate(location.state.from);
-      } else {
-        navigate(-1);
-      }
-    };
-
-    if (!id) return null;
-
-    return <PostModal postId={id} onClose={handleClose} />;
-  }
+  const handleCloseModal = () => {
+    if (backgroundLocation) {
+      navigate(-1);
+    } else if (location.state?.from) {
+      navigate(location.state.from);
+    } else {
+      navigate("/");
+    }
+  };
 
   return (
     <ThemeProvider>
@@ -92,108 +94,85 @@ function App() {
                 position="top-right"
                 toastOptions={{
                   duration: 4000,
-                  style: {
-                    background: "#333",
-                    color: "#fff",
-                  },
+                  style: { background: "#333", color: "#fff" },
                 }}
               />
-              <BrowserRouter>
+              
+              <Routes location={backgroundLocation || location}>
+                {/* Public Routes */}
+                <Route element={<PublicLayout />}>
+                  <Route path="/login" element={<Login />} />
+                  <Route path="/login/email" element={<LoginWithEmail />} />
+                  <Route path="/login/qr" element={<QRLogin />} />
+                  <Route path="/signup" element={<SignUp />} />
+                  <Route path="/forgot-password" element={<ForgotPassword />} />
+                  <Route path="/checkinbox" element={<CheckInbox />} />
+                  <Route path="/verify-otp" element={<VerifyOTP />} />
+                  <Route path="/reset-password" element={<ResetPassword />} />
+                </Route>
+
+                {/* Private Routes */}
+                <Route
+                  element={
+                    <RequireAuth>
+                      <MainLayout />
+                    </RequireAuth>
+                  }
+                >
+                  <Route path="/" element={<Home />} />
+                  <Route path="/feed" element={<Feed />} />
+                  <Route path="/search" element={<Search />} />
+                  <Route path="/explore" element={<Explore />} />
+                  <Route path="/reels" element={<Reels />} />
+                  <Route path="/notifications" element={<Notifications />} />
+
+                  {/* Single Post Page (when direct URL access) */}
+                  {!backgroundLocation && (
+                    <Route path="/post/:id" element={<PostModalWrapper handleClose={handleCloseModal} />} />
+                  )}
+
+                  <Route path="/messages" element={<Messages />} />
+                  <Route path="/messages/:conversationId" element={<Messages />} />
+                  <Route path="/create" element={<CreatePost />} />
+
+                  {/* Profile Routes */}
+                  <Route path="/profile/:username" element={<ProfileLayout />}>
+                    <Route index element={<ProfileMyPosts />} />
+                    <Route path="posts" element={<ProfileMyPosts />} />
+                    <Route path="saved" element={<ProfileSavedPost />} />
+                    <Route path="tagged" element={<ProfileTaggedPost />} />
+                    <Route path="shared" element={<ProfileShared />} />
+                    <Route path="blocked" element={<ProfileBlocked />} />
+                  </Route>
+
+                  <Route path="/profile/:username/general" element={<ProfileGeneral />} />
+                  <Route path="/settings" element={<Settings />} />
+                  <Route path="/edit-profile" element={<EditProfile />} />
+                  <Route path="/user-management" element={<UserManagement />} />
+                  <Route path="/blocked-users" element={<BlockedUsers />} />
+                  <Route path="/friend-requests" element={<FriendRequests />} />
+
+                  {/* Pages Routes */}
+                  <Route path="/pages" element={<Pages />} />
+                  <Route path="/pages/create" element={<CreatePageForm />} />
+                  <Route path="/pages/:pageId" element={<PageDetail />} />
+                  <Route path="/pages/:pageId/edit" element={<EditPageForm />} />
+                  <Route path="/pages/:pageId/posts" element={<PagePosts />} />
+                  <Route path="/pages/:pageId/settings" element={<PageSettings />} />
+                </Route>
+
+                <Route path="/general" element={<General />} />
+                <Route path="/misc" element={<Misc />} />
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+
+              {/* Render Modal Overlay */}
+              {backgroundLocation && (
                 <Routes>
-                  {/* Public Routes */}
-                  <Route element={<PublicLayout />}>
-                    <Route path="/login" element={<Login />} />
-                    <Route path="/login/email" element={<LoginWithEmail />} />
-                    <Route path="/login/qr" element={<QRLogin />} />
-                    <Route path="/signup" element={<SignUp />} />
-                    <Route
-                      path="/forgot-password"
-                      element={<ForgotPassword />}
-                    />
-                    <Route path="/checkinbox" element={<CheckInbox />} />
-                    <Route path="/verify-otp" element={<VerifyOTP />} />
-                    <Route path="/reset-password" element={<ResetPassword />} />
-                  </Route>
-
-                  {/* Private Routes */}
-                  <Route
-                    element={
-                      <RequireAuth>
-                        <MainLayout />
-                      </RequireAuth>
-                    }
-                  >
-                    <Route path="/" element={<Home />} />
-                    <Route path="/feed" element={<Feed />} />
-                    <Route path="/search" element={<Search />} />
-                    <Route path="/explore" element={<Explore />} />
-                    <Route path="/reels" element={<Reels />} />
-                    <Route path="/notifications" element={<Notifications />} />
-
-                    {/* Post Modal Route */}
-                    <Route path="/post/:id" element={<PostModalWrapper />} />
-                    <Route path="/messages" element={<Messages />} />
-                    <Route
-                      path="/messages/:conversationId"
-                      element={<Messages />}
-                    />
-                    <Route path="/create" element={<CreatePost />} />
-
-                    {/* Profile Routes with nested tabs */}
-                    <Route
-                      path="/profile/:username"
-                      element={<ProfileLayout />}
-                    >
-                      <Route index element={<ProfileMyPosts />} />
-                      <Route path="posts" element={<ProfileMyPosts />} />
-                      <Route path="saved" element={<ProfileSavedPost />} />
-                      <Route path="tagged" element={<ProfileTaggedPost />} />
-                      <Route path="shared" element={<ProfileShared />} />
-                      <Route path="blocked" element={<ProfileBlocked />} />
-                    </Route>
-
-                    <Route
-                      path="/profile/:username/general"
-                      element={<ProfileGeneral />}
-                    />
-                    <Route path="/settings" element={<Settings />} />
-                    <Route path="/edit-profile" element={<EditProfile />} />
-                    <Route
-                      path="/user-management"
-                      element={<UserManagement />}
-                    />
-                    <Route path="/blocked-users" element={<BlockedUsers />} />
-                    <Route
-                      path="/friend-requests"
-                      element={<FriendRequests />}
-                    />
-
-                    {/* Pages Routes */}
-                    <Route path="/pages" element={<Pages />} />
-                    <Route path="/pages/create" element={<CreatePageForm />} />
-                    <Route path="/pages/:pageId" element={<PageDetail />} />
-                    <Route
-                      path="/pages/:pageId/edit"
-                      element={<EditPageForm />}
-                    />
-                    <Route
-                      path="/pages/:pageId/posts"
-                      element={<PagePosts />}
-                    />
-                    <Route
-                      path="/pages/:pageId/settings"
-                      element={<PageSettings />}
-                    />
-                  </Route>
-
-                  {/* Other Routes */}
-                  <Route path="/general" element={<General />} />
-                  <Route path="/misc" element={<Misc />} />
-
-                  {/* 404 */}
-                  <Route path="*" element={<NotFound />} />
+                  <Route path="/post/:id" element={<PostModalWrapper backgroundLocation={backgroundLocation} handleClose={handleCloseModal} />} />
                 </Routes>
-              </BrowserRouter>
+              )}
+
             </FriendNotificationProvider>
           </FriendDataProvider>
         </AvatarProvider>
@@ -202,20 +181,13 @@ function App() {
   );
 }
 
-// Simple Not Found component
 function NotFound() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-black text-gray-900 dark:text-gray-100">
       <div className="text-center">
-        <h1 className="text-6xl font-bold text-gray-800 dark:text-gray-100 mb-4">
-          404
-        </h1>
-        <p className="text-xl text-gray-600 dark:text-gray-300 mb-8">
-          Page not found
-        </p>
-        <a href="/" className="text-blue-500 hover:text-blue-700 font-semibold">
-          Go back home
-        </a>
+        <h1 className="text-6xl font-bold text-gray-800 dark:text-gray-100 mb-4">404</h1>
+        <p className="text-xl text-gray-600 dark:text-gray-300 mb-8">Page not found</p>
+        <a href="/" className="text-blue-500 hover:text-blue-700 font-semibold">Go back home</a>
       </div>
     </div>
   );

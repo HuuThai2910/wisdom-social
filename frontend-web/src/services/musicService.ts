@@ -118,13 +118,35 @@ export const resolveMusicMediaUrl = (
     return buildS3Url(mediaPath) || "";
 };
 
+let currentAudio: HTMLAudioElement | null = null;
+let currentUrl: string | null = null;
+const listeners = new Set<(url: string | null) => void>();
+
+/**
+ * Subscribe to playback state changes.
+ */
+export const subscribeToPlayback = (callback: (url: string | null) => void) => {
+    listeners.add(callback);
+    return () => {
+        listeners.delete(callback);
+    };
+};
+
+const notifyListeners = () => {
+    listeners.forEach((cb) => cb(currentUrl));
+};
+
 /**
  * Stop current preview audio if any.
  */
-export const stopAudioPreview = (
-    audio: HTMLAudioElement | null | undefined
-): void => {
-    audio?.pause();
+export const stopAudioPreview = (): void => {
+    if (currentAudio) {
+        currentAudio.pause();
+        currentAudio.src = ""; // Clear source to stop buffering
+        currentAudio = null;
+        currentUrl = null;
+        notifyListeners();
+    }
 };
 
 /**
@@ -141,9 +163,23 @@ export const playAudioPreview = (
 ): HTMLAudioElement | null => {
     if (!url) return null;
 
+    // Stop existing audio if any
+    stopAudioPreview();
+
     const audio = new Audio(url);
+    currentAudio = audio;
+    currentUrl = url;
+    notifyListeners();
+
     if (options?.onEnded) {
-        audio.onended = options.onEnded;
+        audio.onended = () => {
+            options.onEnded?.();
+            if (currentAudio === audio) {
+                currentAudio = null;
+                currentUrl = null;
+                notifyListeners();
+            }
+        };
     }
     if (options?.onTimeUpdate) {
         audio.ontimeupdate = () => options.onTimeUpdate?.(audio);
@@ -152,6 +188,10 @@ export const playAudioPreview = (
         audio.onloadedmetadata = () => options.onLoadedMetadata?.(audio);
     }
 
-    audio.play().catch((err) => console.error("Error playing audio:", err));
+    audio.play().catch((err) => {
+        console.error("Error playing audio:", err);
+        if (currentAudio === audio) currentAudio = null;
+    });
+
     return audio;
 };

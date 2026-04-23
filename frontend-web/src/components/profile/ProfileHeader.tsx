@@ -313,7 +313,7 @@ export default function ProfileHeader({
                     <>
                       <Link
                         to="/edit-profile"
-                        className="flex-1 min-w-35 px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-semibold transition-colors text-center"
+                        className="flex-1 min-w-35 px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-semibold text-center"
                       >
                         ✎ Chỉnh sửa hồ sơ
                       </Link>

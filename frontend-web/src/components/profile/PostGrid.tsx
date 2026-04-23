@@ -15,7 +15,7 @@ export default function PostGrid({
   const location = useLocation();
 
   return (
-    <div className="grid grid-cols-3 gap-3 mt-4">
+    <div className="grid grid-cols-3 gap-3">
       {/* Create New Post Card - Only show for own profile */}
       {isOwnProfile && (
         <Link
@@ -45,7 +45,7 @@ export default function PostGrid({
           <Link
             key={post.id}
             to={`/post/${post.id}`}
-            state={{ from: location.pathname }}
+            state={{ backgroundLocation: location }}
             className="aspect-4/5 relative group overflow-hidden bg-linear-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900"
           >
             {mediaUrl ? (

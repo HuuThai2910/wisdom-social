@@ -91,6 +91,42 @@ public class PostFeedRepositoryCustomImpl implements PostFeedRepositoryCustom {
 
         return aggregationResults.getMappedResults();
         }
+    
+    @Override
+    public List<Post> findProfilePosts(
+            String targetUserId,
+            String currentUserId,
+            List<String> friendIds,
+            int page,
+            int size
+    ) {
+        List<Criteria> andCriteria = new ArrayList<>();
+        andCriteria.add(Criteria.where("authorId").is(targetUserId));
+        andCriteria.add(Criteria.where("status").is(StatusType.ACTIVE));
+        andCriteria.add(buildPrivacyCriteria(currentUserId, friendIds));
+
+        Query query = new Query(new Criteria().andOperator(andCriteria));
+        query.with(Sort.by(Sort.Order.desc("createdAt")));
+        query.skip((long) page * size);
+        query.limit(size);
+
+        return mongoTemplate.find(query, Post.class);
+    }
+
+    @Override
+    public long countProfilePosts(
+            String targetUserId,
+            String currentUserId,
+            List<String> friendIds
+    ) {
+        List<Criteria> andCriteria = new ArrayList<>();
+        andCriteria.add(Criteria.where("authorId").is(targetUserId));
+        andCriteria.add(Criteria.where("status").is(StatusType.ACTIVE));
+        andCriteria.add(buildPrivacyCriteria(currentUserId, friendIds));
+
+        Query query = new Query(new Criteria().andOperator(andCriteria));
+        return mongoTemplate.count(query, Post.class);
+    }
 
     private Criteria buildPrivacyCriteria(String currentUserId, List<String> friendIds) {
         Criteria ownPost = Criteria.where("authorId").is(currentUserId);

@@ -20,11 +20,13 @@ import iuh.fit.edu.backend.repository.nosql.PostRepository;
 import iuh.fit.edu.backend.repository.nosql.ReactionRepository;
 import iuh.fit.edu.backend.service.s3.S3Service;
 import iuh.fit.edu.backend.service.post.PostService;
+import iuh.fit.edu.backend.service.user.FriendService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -58,6 +60,7 @@ public class PostServiceImpl implements PostService {
     private final S3Service s3Service;
     private final ReactionRepository reactionRepository;
     private final CommentRepository commentRepository;
+    private final FriendService friendService;
     
     @Override
     @Transactional
@@ -224,30 +227,40 @@ public class PostServiceImpl implements PostService {
     }
 
     @Override
-    public Page<Post> getPostsByUserId(Long userId, int page, int size) {
-        log.info("Getting posts for user {} with page={}, size={}", userId, page, size);
+    public Page<Post> getPostsByUserId(Long userId, Long currentUserId, int page, int size) {
+        log.info("Getting posts for user {} viewed by {}, page={}, size={}", userId, currentUserId, page, size);
+
+        // Fetch friend IDs of the viewer to apply privacy rules
+        List<String> friendIds = new ArrayList<>();
+        if (currentUserId != null) {
+            friendIds = friendService.getAcceptedFriendIds(currentUserId).stream()
+                    .map(Object::toString)
+                    .collect(Collectors.toList());
+        }
+
+        String viewerId = currentUserId != null ? currentUserId.toString() : "";
+        List<Post> posts = postRepository.findProfilePosts(userId.toString(), viewerId, friendIds, page, size);
+        long total = postRepository.countProfilePosts(userId.toString(), viewerId, friendIds);
+
+        posts.forEach(this::sanitizeMediaKeys);
 
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        Page<Post> postsPage = postRepository.findByAuthorId(userId, pageable);
-
-        log.info("Found {} posts for user {} in this page", postsPage.getNumberOfElements(), userId);
-        postsPage.getContent().forEach(post -> {
-            sanitizeMediaKeys(post);
-            int mediaCount = post.getMedia() != null ? post.getMedia().size() : 0;
-            log.info("Post {}: {} media items", post.getId(), mediaCount);
-            if (post.getMedia() != null && !post.getMedia().isEmpty()) {
-                for (int i = 0; i < post.getMedia().size(); i++) {
-                    log.info("  Media {}: URL={}", i, post.getMedia().get(i).getUrl());
-                }
-            }
-        });
-        return postsPage;
+        return new PageImpl<>(posts, pageable, total);
     }
 
     @Override
-    public long countPostsByUserId(Long userId) {
-        log.info("Counting posts for user: {}", userId);
-        return postRepository.countByAuthorId(userId);
+    public long countPostsByUserId(Long userId, Long currentUserId) {
+        log.info("Counting posts for user {} viewed by {}", userId, currentUserId);
+        
+        List<String> friendIds = new ArrayList<>();
+        if (currentUserId != null) {
+            friendIds = friendService.getAcceptedFriendIds(currentUserId).stream()
+                    .map(Object::toString)
+                    .collect(Collectors.toList());
+        }
+
+        String viewerId = currentUserId != null ? currentUserId.toString() : "";
+        return postRepository.countProfilePosts(userId.toString(), viewerId, friendIds);
     }
 
     @Override

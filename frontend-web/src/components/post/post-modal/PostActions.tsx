@@ -153,7 +153,7 @@ const PostActions: React.FC<PostActionsProps> = ({
         {/* Reaction Count */}
         <div className="px-4 pb-2">
           <p className="font-semibold text-sm dark:text-white">
-            {reactCount} lượt thích
+            {reactCount} like{reactCount !== 1 ? "s" : ""}
           </p>
         </div>
       </div>

@@ -77,6 +77,8 @@ import type { Comment } from "../../../../services/commentService";
 import type { UserData } from "../../../../types/postType";
 import CommentItemNormalized from "../../post-comment/CommentItemNormalized";
 import CommentInput from "./CommentInput";
+import useRealtimeComments from "../../../../hooks/useRealtimeComments";
+import useRealtimeReactions from "../../../../hooks/useRealtimeReactions";
 
 interface PostCommentsProps {
   postId: string;
@@ -102,9 +104,34 @@ const PostComments: React.FC<PostCommentsProps> = ({ postId, viewerId }) => {
     deleteComment,
     getDirectChildren,
     resetComments,
+    handleCommentReactionUpdate,
   } = useCommentsNormalized({
     targetType: "POST",
     targetId: postId,
+  });
+
+  // ============ REALTIME COMMENTS ============
+  useRealtimeComments({
+    postId,
+    commentsById,
+    createReply,
+    deleteComment,
+    viewerId,
+  });
+
+  // ============ REALTIME REACTIONS ============
+  useRealtimeReactions({
+    postId,
+    onReactionUpdate: (event) => {
+      // Don't update for own actions
+      if (event.userId === viewerId) return;
+
+      if (event.targetType === "COMMENT") {
+        handleCommentReactionUpdate(event.targetId, event.action);
+      }
+      // Post reactions in modal? Currently handled by parent usually, 
+      // but if we want it here we'd need a setLikesCount prop
+    }
   });
 
   // ============ UI STATE ============

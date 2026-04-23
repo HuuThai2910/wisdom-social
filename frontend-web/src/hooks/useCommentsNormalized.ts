@@ -519,6 +519,23 @@ export const useCommentsNormalized = ({
         [commentsById, childrenByParentId, sortIdsByCreatedAt]
     );
 
+    /**
+     * Update reaction count for a comment in realtime
+     */
+    const handleCommentReactionUpdate = useCallback((commentId: string, action: "REACT" | "UNREACT") => {
+        setCommentsById(prev => {
+            const comment = prev[commentId];
+            if (!comment) return prev;
+            return {
+                ...prev,
+                [commentId]: {
+                    ...comment,
+                    reactCount: action === "REACT" ? (comment.reactCount || 0) + 1 : Math.max(0, (comment.reactCount || 0) - 1)
+                }
+            };
+        });
+    }, []);
+
     return {
         // Data
         commentsById,
@@ -545,6 +562,7 @@ export const useCommentsNormalized = ({
         deleteComment,
         getDirectChildren,
         resetComments,
+        handleCommentReactionUpdate,
     };
 };
 

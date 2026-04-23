@@ -134,28 +134,6 @@ const CommentInput: React.FC<CommentInputProps> = ({
         </div>
 
         <div className="relative flex-1">
-          {/* Mention Highlight Background (for styling mentions in blue) */}
-          <div className="absolute inset-0 text-sm pointer-events-none whitespace-pre-wrap wrap-break-word dark:text-white opacity-0">
-            {commentInput.split(/(@[a-zA-Z0-9_]+)/g).map((part, index) => {
-              if (part.match(/^@[a-zA-Z0-9_]+$/)) {
-                return (
-                  <span
-                    key={index}
-                    className="text-blue-500 font-semibold opacity-100"
-                  >
-                    {part}
-                  </span>
-                );
-              }
-              return (
-                <span key={index} className="opacity-100">
-                  {part}
-                </span>
-              );
-            })}
-          </div>
-
-          {/* Transparent Input (text shows through as transparent, background shows mentions) */}
           <input
             type="text"
             value={commentInput}
@@ -174,12 +152,7 @@ const CommentInput: React.FC<CommentInputProps> = ({
               }
             }}
             placeholder="Add a comment..."
-            className="relative w-full text-sm outline-none dark:bg-transparent bg-transparent caret-gray-900 dark:caret-white"
-            style={{
-              color: "transparent",
-              textShadow: "0 0 0 #000",
-              WebkitTextFillColor: "transparent",
-            }}
+            className="w-full text-sm outline-none dark:bg-transparent bg-transparent dark:text-white caret-gray-900 dark:caret-white"
             disabled={submittingComment}
           />
         </div>

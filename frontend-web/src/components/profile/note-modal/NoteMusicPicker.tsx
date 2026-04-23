@@ -12,6 +12,8 @@ interface NoteMusicPickerProps {
   onTogglePreview: (url: string) => void;
   onClearSelection: () => void;
   onSelectMusic: (music: MusicMetadata) => void;
+  onOpenSelector?: () => void;
+  onCloseSelector?: () => void;
 }
 
 export default function NoteMusicPicker({
@@ -20,10 +22,22 @@ export default function NoteMusicPicker({
   onTogglePreview,
   onClearSelection,
   onSelectMusic,
+  onOpenSelector,
+  onCloseSelector,
 }: NoteMusicPickerProps) {
   const [showMusicSelector, setShowMusicSelector] = useState(false);
   const selectedImageUrl = resolveMusicMediaUrl(selectedMusic?.imageUrl);
   const selectedAudioUrl = resolveMusicMediaUrl(selectedMusic?.audioUrl);
+
+  const handleOpenSelector = () => {
+    setShowMusicSelector(true);
+    onOpenSelector?.();
+  };
+
+  const handleCloseSelector = () => {
+    setShowMusicSelector(false);
+    onCloseSelector?.();
+  };
 
   return (
     <div className="space-y-2">
@@ -31,7 +45,7 @@ export default function NoteMusicPicker({
         <div className="flex items-center gap-3 px-3 py-2 border rounded-xl bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
           <button
             type="button"
-            onClick={() => setShowMusicSelector(true)}
+            onClick={handleOpenSelector}
             className="flex flex-1 min-w-0 items-center gap-3 text-left rounded-lg hover:bg-blue-100/60 dark:hover:bg-blue-800/30 transition-colors p-1 -m-1"
             title="Chọn lại nhạc"
           >
@@ -73,7 +87,7 @@ export default function NoteMusicPicker({
       ) : (
         <button
           type="button"
-          onClick={() => setShowMusicSelector(true)}
+          onClick={handleOpenSelector}
           className="w-full flex items-center gap-2 px-3 py-2 border dark:border-gray-700 rounded-xl dark:bg-gray-800 text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
         >
           <Music className="w-4 h-4 shrink-0" />
@@ -85,9 +99,9 @@ export default function NoteMusicPicker({
         <MusicSelector
           onSelect={(music) => {
             onSelectMusic(music);
-            setShowMusicSelector(false);
+            handleCloseSelector();
           }}
-          onClose={() => setShowMusicSelector(false)}
+          onClose={handleCloseSelector}
         />
       )}
     </div>
