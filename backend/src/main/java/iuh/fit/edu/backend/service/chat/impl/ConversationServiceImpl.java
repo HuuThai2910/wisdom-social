@@ -14,10 +14,15 @@ import iuh.fit.edu.backend.dto.response.conversation.ConversationResponse;
 import iuh.fit.edu.backend.dto.response.message.MessageSeenResponse;
 import iuh.fit.edu.backend.event.payload.ConversationCreatedEvent;
 import iuh.fit.edu.backend.event.payload.MessageSeenEvent;
+import iuh.fit.edu.backend.exception.ConversationAccessDeniedException;
+import iuh.fit.edu.backend.exception.ConversationMemberKickedException;
+import iuh.fit.edu.backend.exception.ConversationMemberLeftException;
 import iuh.fit.edu.backend.mapper.ConversationMapper;
+import iuh.fit.edu.backend.mapper.ConversationMemberMapper;
 import iuh.fit.edu.backend.repository.mysql.ConversationMemberRepository;
 import iuh.fit.edu.backend.repository.mysql.ConversationRepository;
 import iuh.fit.edu.backend.repository.mysql.UserRepository;
+import iuh.fit.edu.backend.service.chat.ConversationMemberCacheService;
 import iuh.fit.edu.backend.service.chat.ConversationMemberService;
 import iuh.fit.edu.backend.service.chat.InternalMessageService;
 import lombok.RequiredArgsConstructor;
@@ -48,8 +53,11 @@ public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat
     private final ConversationRepository conversationRepository;
     private final UserRepository userRepository;
     private final InternalMessageService internalMessageService;
+    private final ConversationMemberCacheService memberCacheService;
+    private final ConversationMemberMapper conversationMemberMapper;
 
 
+    @Transactional(rollbackFor = Exception.class)
     @Override
     public ConversationResponse createGroup(CreateGroupRequest request, Long creatorId) {
 
@@ -89,7 +97,12 @@ public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat
             return member;
         }).collect(Collectors.toList());
         conversationMemberRepository.saveAll(members);
+        Map<Long, ConversationMemberResponse> dbMap = members.stream()
+                .map(conversationMemberMapper::toConversationMemberResponse)
+                .collect(Collectors.toMap(ConversationMemberResponse::getUserId, m -> m));
         savedConversation.setMembers(members);
+        memberCacheService.saveMembersMap(savedConversation.getId(), dbMap);
+
         String targetIdsStr = "[" + targetMemberIds.stream()
                 .map(String::valueOf)
                 .collect(Collectors.joining(",")) + "]";
@@ -152,12 +165,19 @@ public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat
     @Override
     public ConversationResponse getConversationById(Long conversationId, Long userId) {
         log.info("Get conversation {} for user {}", conversationId, userId);
-        
-        // Kiểm tra user có phải là member của conversation không
+
         ConversationMember conversationMember = conversationMemberRepository
                 .findByConversation_IdAndUser_Id(conversationId, userId)
-                .orElseThrow(() -> new RuntimeException("Bạn không phải thành viên của cuộc trò chuyện này"));
-        
+                .orElseThrow(() -> new ConversationAccessDeniedException("Bạn không phải thành viên của cuộc trò chuyện này"));
+
+        if (conversationMember.getStatus() == ConversationMemberStatus.KICKED) {
+            throw new ConversationMemberKickedException("Bạn đã bị xóa khỏi nhóm");
+        }
+
+        if (conversationMember.getStatus() == ConversationMemberStatus.LEFT) {
+            throw new ConversationMemberLeftException("Bạn đã rời khỏi nhóm");
+        }
+
         Conversation conversation = conversationMember.getConversation();
         ConversationResponse response = conversationMapper.toConversationResponse(conversation, userId);
 
@@ -168,7 +188,7 @@ public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat
     @Transactional
     @Override
     public void deleteConversationForMe(Long conversationId, Long userId) {
-        ConversationMember member = conversationMemberRepository.findByConversation_IdAndUser_Id(conversationId, userId)
+        ConversationMember member = conversationMemberRepository.findByConversation_IdAndUser_IdAndStatus(conversationId, userId, ConversationMemberStatus.ACTIVE)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy thành viên trong cuộc trò chuyện"));
 
         member.setClearedAt(Instant.now().truncatedTo(ChronoUnit.MILLIS));
@@ -183,7 +203,7 @@ public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat
     @Transactional
     @Override
     public void markAsRead(Long conversationId, Long userId, String lastMessageId) {
-        ConversationMember member = conversationMemberRepository.findByConversation_IdAndUser_Id(conversationId, userId)
+        ConversationMember member = conversationMemberRepository.findByConversation_IdAndUser_IdAndStatus(conversationId, userId, ConversationMemberStatus.ACTIVE)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy thành viên trong cuộc trò chuyện"));
 
         // Kiểm tra xem có thực sự cần cập nhật không để tránh call DB vô ích

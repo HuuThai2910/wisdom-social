@@ -49,13 +49,30 @@ export function buildSystemCreateGroupMessage(params: {
     content: string;
     isOwn: boolean;
     senderName: string;
+    senderId?: number;
     currentUserId: number;
     membersById: Record<number, MemberLookup>;
 }): string {
-    const { content, isOwn, senderName, currentUserId, membersById } = params;
+    const {
+        content,
+        isOwn,
+        senderName,
+        senderId,
+        currentUserId,
+        membersById,
+    } = params;
 
     const memberIds = Array.from(new Set(safeParseMemberIds(content)));
-    const actorLabel = senderName?.trim() || "Người dùng";
+    const actorLabel = (() => {
+        const normalizedSenderName = senderName?.trim();
+        if (normalizedSenderName) return normalizedSenderName;
+
+        if (typeof senderId === "number" && Number.isFinite(senderId)) {
+            return resolveMemberLabel(senderId, membersById);
+        }
+
+        return "Người dùng";
+    })();
 
     if (isOwn) {
         const memberNames = memberIds.map((id) =>

@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import chatService, { type Conversation } from "../services/chatService";
 import websocketService, {
+    type ConversationSnapshot,
     type LastMessageUpdate,
 } from "../services/websocket";
 import { DEFAULT_AVATAR_URL, DEFAULT_GROUP_AVATAR_URL } from "../constants/ui";
 import { useAuth } from "../contexts/AuthContext";
+import { buildConversationDisplayInfo } from "../utils/conversationDisplayInfo";
 
 /**
  * parseOptionalInt
@@ -16,6 +18,20 @@ function parseOptionalInt(value: string | undefined): number | null {
     if (!value) return null;
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : null;
+}
+
+function sortConversationsByLastMessageAt(
+    conversationList: Conversation[],
+): Conversation[] {
+    return [...conversationList].sort((a, b) => {
+        const timeA = a.lastMessage?.lastMessageAt
+            ? new Date(a.lastMessage.lastMessageAt).getTime()
+            : 0;
+        const timeB = b.lastMessage?.lastMessageAt
+            ? new Date(b.lastMessage.lastMessageAt).getTime()
+            : 0;
+        return timeB - timeA;
+    });
 }
 
 /**
@@ -122,7 +138,11 @@ export function useMessagesController() {
     }, []);
 
     const handleConversationUpdate = useCallback(
-        (conversationId: number, lastMessage: LastMessageUpdate) => {
+        (
+            conversationId: number,
+            lastMessage: LastMessageUpdate,
+            conversationSnapshot?: ConversationSnapshot,
+        ) => {
             // Callback này chạy khi có event từ websocket:
             // - Update lastMessage
             // - Tính lại unreadCount
@@ -150,6 +170,41 @@ export function useMessagesController() {
                 // Nếu conversation KHÔNG tồn tại (đã bị xóa bởi delete-for-me)
                 // → Fetch lại từ API và thêm vào list
                 if (!conversationExists) {
+                    if (conversationSnapshot) {
+                        const snapshotWithLastMessage: Conversation = {
+                            ...conversationSnapshot,
+                            lastMessage:
+                                conversationSnapshot.lastMessage ?? {
+                                    lastMessageContent:
+                                        lastMessage.lastMessageContent,
+                                    lastMessageType: lastMessage.lastMessageType,
+                                    lastSenderId: lastMessage.lastSenderId,
+                                    lastSenderName: lastMessage.lastSenderName,
+                                    lastMessageAt: lastMessage.lastMessageAt,
+                                    read: lastMessage.read,
+                                },
+                        };
+
+                        const unreadCountFromSnapshot =
+                            snapshotWithLastMessage.unreadCount ?? 0;
+                        const nextUnreadCount =
+                            isRecallUpdate ||
+                                isMyMessage ||
+                                isViewingThisConversation
+                                ? unreadCountFromSnapshot
+                                : unreadCountFromSnapshot > 0
+                                    ? unreadCountFromSnapshot
+                                    : 1;
+
+                        return sortConversationsByLastMessageAt([
+                            {
+                                ...snapshotWithLastMessage,
+                                unreadCount: nextUnreadCount,
+                            },
+                            ...prevConversations,
+                        ]);
+                    }
+
                     chatService
                         .getConversation(conversationId, latestUserId)
                         .then((response) => {
@@ -165,22 +220,12 @@ export function useMessagesController() {
                                     ) {
                                         return prev;
                                     }
+
                                     // Thêm conversation vào đầu list và sort
-                                    return [newConv, ...prev].sort((a, b) => {
-                                        const timeA = a.lastMessage
-                                            ?.lastMessageAt
-                                            ? new Date(
-                                                  a.lastMessage.lastMessageAt,
-                                              ).getTime()
-                                            : 0;
-                                        const timeB = b.lastMessage
-                                            ?.lastMessageAt
-                                            ? new Date(
-                                                  b.lastMessage.lastMessageAt,
-                                              ).getTime()
-                                            : 0;
-                                        return timeB - timeA;
-                                    });
+                                    return sortConversationsByLastMessageAt([
+                                        newConv,
+                                        ...prev,
+                                    ]);
                                 });
                             }
                         })
@@ -235,19 +280,7 @@ export function useMessagesController() {
                     };
                 });
 
-                return updatedConversations.sort((a, b) => {
-                    // Giữ hội thoại có tin nhắn mới nhất ở trên cùng.
-                    const lastMessageAtA = a.lastMessage?.lastMessageAt;
-                    const lastMessageAtB = b.lastMessage?.lastMessageAt;
-
-                    const timeA = lastMessageAtA
-                        ? new Date(lastMessageAtA).getTime()
-                        : 0;
-                    const timeB = lastMessageAtB
-                        ? new Date(lastMessageAtB).getTime()
-                        : 0;
-                    return timeB - timeA;
-                });
+                return sortConversationsByLastMessageAt(updatedConversations);
             });
         },
         [],
@@ -297,11 +330,11 @@ export function useMessagesController() {
         const trimmed = searchQuery.trim().toLowerCase();
         if (!trimmed) return conversations;
         return conversations.filter((conv) => {
-            const displayName =
-                conv.type === "GROUP"
-                    ? conv.name
-                    : conv.members?.find((m) => m.userId !== currentUserId)
-                          ?.nickname;
+            const displayName = buildConversationDisplayInfo({
+                conversation: conv,
+                currentUserId,
+            }).name;
+
             return displayName?.toLowerCase().includes(trimmed);
         });
     }, [conversations, currentUserId, searchQuery]);
@@ -309,19 +342,25 @@ export function useMessagesController() {
     const getDisplayInfo = useCallback(
         (conv: Conversation) => {
             // Chuẩn hoá dữ liệu hiển thị (tên + avatar) để UI khỏi phải xử lý nhiều.
-            if (conv.type === "GROUP") {
-                return {
-                    name: conv.name || "Group Chat",
-                    avatar: conv.imageUrl || DEFAULT_GROUP_AVATAR_URL,
-                };
-            }
+            const displayInfo = buildConversationDisplayInfo({
+                conversation: conv,
+                currentUserId,
+            });
 
-            const otherMember = conv.members?.find(
-                (m) => m.userId !== currentUserId,
-            );
+            const fallbackAvatarUrl =
+                conv.type === "GROUP"
+                    ? DEFAULT_GROUP_AVATAR_URL
+                    : DEFAULT_AVATAR_URL;
+
             return {
-                name: otherMember?.nickname || "Unknown",
-                avatar: otherMember?.avatar || DEFAULT_AVATAR_URL,
+                name: displayInfo.name,
+                avatar: displayInfo.avatarUrl,
+                fallbackAvatar: fallbackAvatarUrl,
+                compositeAvatars: displayInfo.compositeAvatarUrls,
+                hasCompositeAvatar:
+                    conv.type === "GROUP" &&
+                    !displayInfo.avatarUrl &&
+                    displayInfo.compositeAvatarUrls.length > 0,
             };
         },
         [currentUserId],

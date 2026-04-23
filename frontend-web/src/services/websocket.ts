@@ -63,14 +63,14 @@ export interface PinUpdatedEvent {
         pinnedAt: string;
         originalSenderId?: number;
         type?:
-            | "TEXT"
-            | "IMAGE"
-            | "VIDEO"
-            | "FILE"
-            | "AUDIO"
-            | "CALL"
-            | "SYSTEM_PIN"
-            | "SYSTEM_UPIN";
+        | "TEXT"
+        | "IMAGE"
+        | "VIDEO"
+        | "FILE"
+        | "AUDIO"
+        | "CALL"
+        | "SYSTEM_PIN"
+        | "SYSTEM_UPIN";
         content?: string;
     }>;
 }
@@ -218,6 +218,8 @@ export interface ConversationCreatedEvent {
  * Để backward compatible với code hiện tại
  */
 export type LastMessageUpdate = ConversationUpdatedEvent["lastMessage"];
+
+export type ConversationSnapshot = Conversation;
 
 function toLastMessageUpdate(
     conversation: Conversation,
@@ -674,6 +676,7 @@ class WebSocketService {
         callback: (
             conversationId: number,
             lastMessage: LastMessageUpdate,
+            conversation?: ConversationSnapshot,
         ) => void,
     ) {
         // BƯỚC 1: Kiểm tra kết nối WebSocket
@@ -720,12 +723,20 @@ class WebSocketService {
                     if (createdConversation?.id) {
                         const lastMessageData =
                             toLastMessageUpdate(createdConversation);
+                        const resolvedLastMessage =
+                            lastMessageData ??
+                            buildFallbackLastMessageUpdate(createdConversation);
+                        const conversationSnapshot: ConversationSnapshot = {
+                            ...createdConversation,
+                            lastMessage:
+                                createdConversation.lastMessage ??
+                                resolvedLastMessage,
+                        };
+
                         callback(
                             createdConversation.id,
-                            lastMessageData ??
-                                buildFallbackLastMessageUpdate(
-                                    createdConversation,
-                                ),
+                            resolvedLastMessage,
+                            conversationSnapshot,
                         );
                         return;
                     }

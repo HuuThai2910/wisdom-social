@@ -44,9 +44,18 @@ public class GlobalExceptionHandler {
         return buildErrorResponse(HttpStatus.FORBIDDEN, ex.getMessage(), "CONVERSATION_ACCESS_DENIED");
     }
 
+    @ExceptionHandler(ConversationMemberKickedException.class)
+    public ResponseEntity<ApiResponse<Object>> handleConversationMemberKicked(ConversationMemberKickedException ex) {
+        return buildErrorResponse(HttpStatus.FORBIDDEN, ex.getMessage(), "CONVERSATION_MEMBER_KICKED");
+    }
+
     @ExceptionHandler(InvalidAIRequestException.class)
     public ResponseEntity<ApiResponse<Object>> handleInvalidAIRequest(InvalidAIRequestException ex) {
         return buildErrorResponse(HttpStatus.BAD_REQUEST, ex.getMessage(), "INVALID_AI_REQUEST");
+    }
+    @ExceptionHandler(ConversationMemberLeftException.class)
+    public ResponseEntity<ApiResponse<Object>> handleConversationMemberLeft(ConversationMemberLeftException ex) {
+        return buildErrorResponse(HttpStatus.FORBIDDEN, ex.getMessage(), "CONVERSATION_MEMBER_LEFT");
     }
 
     @ExceptionHandler(ExternalAIServiceException.class)

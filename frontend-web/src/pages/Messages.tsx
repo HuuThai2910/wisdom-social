@@ -30,10 +30,12 @@ import ChatWindow from "../components/message/ChatWindow";
 import CreateGroupModal from "../components/message/CreateGroupModal";
 import GroupConversationPanel from "../components/message/GroupConversationPanel";
 import SelectGroupMembersModal from "../components/message/SelectGroupMembersModal";
+import ConversationAvatar from "../components/message/ConversationAvatar";
 import { useMessagesController } from "../hooks/useMessagesController";
 import { useGroupManagement } from "../hooks/useGroupManagement";
 import chatService from "../services/chatService";
 import { useSidebarLayout } from "../hooks/useSidebarLayout";
+import { buildConversationLastMessagePreview } from "../utils/conversationLastMessagePreview";
 
 type DetailSectionKey = "chatInfo" | "customize" | "media" | "privacy";
 
@@ -238,11 +240,22 @@ export default function Messages() {
 
             <div className="flex-1 overflow-y-auto px-5 py-5">
                 <div className="flex flex-col items-center pb-4 text-center">
-                    <img
-                        src={selectedDisplayInfo?.avatar}
-                        alt={selectedDisplayInfo?.name}
-                        className="mb-3 h-20 w-20 rounded-full object-cover ring-1 ring-gray-200 dark:ring-[#242424]"
-                    />
+                    {selectedConversation && selectedDisplayInfo && (
+                        <ConversationAvatar
+                            name={selectedDisplayInfo.name}
+                            avatarUrl={selectedDisplayInfo.avatar}
+                            compositeAvatarUrls={
+                                selectedDisplayInfo.hasCompositeAvatar
+                                    ? selectedDisplayInfo.compositeAvatars
+                                    : undefined
+                            }
+                            fallbackAvatarUrl={
+                                selectedDisplayInfo.fallbackAvatar
+                            }
+                            sizeClassName="mb-3 h-20 w-20"
+                            ringClassName="ring-1 ring-gray-200 dark:ring-[#242424]"
+                        />
+                    )}
                     <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
                         {selectedDisplayInfo?.name || "Không xác định"}
                     </h3>
@@ -576,6 +589,11 @@ export default function Messages() {
                                 const isActive =
                                     selectedConversationId === conv.id;
                                 const isMenuOpen = openMenuConvId === conv.id;
+                                const messagePreview =
+                                    buildConversationLastMessagePreview({
+                                        conversation: conv,
+                                        currentUserId,
+                                    });
 
                                 return (
                                     <div
@@ -595,10 +613,21 @@ export default function Messages() {
                                             }`}
                                         >
                                             <div className="relative">
-                                                <img
-                                                    src={displayInfo.avatar}
-                                                    alt={displayInfo.name}
-                                                    className="h-14 w-14 rounded-full object-cover ring-1 ring-gray-200 dark:ring-[#2a2a2a]"
+                                                <ConversationAvatar
+                                                    name={displayInfo.name}
+                                                    avatarUrl={
+                                                        displayInfo.avatar
+                                                    }
+                                                    compositeAvatarUrls={
+                                                        displayInfo.hasCompositeAvatar
+                                                            ? displayInfo.compositeAvatars
+                                                            : undefined
+                                                    }
+                                                    fallbackAvatarUrl={
+                                                        displayInfo.fallbackAvatar
+                                                    }
+                                                    sizeClassName="h-14 w-14"
+                                                    ringClassName="ring-1 ring-gray-200 dark:ring-[#2a2a2a]"
                                                 />
                                             </div>
 
@@ -614,43 +643,24 @@ export default function Messages() {
                                                             : "text-gray-500 dark:text-gray-400"
                                                     }`}
                                                 >
-                                                    {conv.lastMessage
-                                                        ?.lastMessageContent ? (
+                                                    {messagePreview.showSenderPrefix && (
                                                         <>
-                                                            {(conv.type ===
-                                                                "GROUP" ||
-                                                                conv.lastMessage
-                                                                    .lastSenderId ===
-                                                                    currentUserId) && (
-                                                                <>
-                                                                    <span>
-                                                                        {conv
-                                                                            .lastMessage
-                                                                            .lastSenderId ===
-                                                                        currentUserId
-                                                                            ? "Bạn"
-                                                                            : conv
-                                                                                  .lastMessage
-                                                                                  .lastSenderName}
-                                                                    </span>
-                                                                    {" : "}
-                                                                </>
-                                                            )}
-                                                            {
-                                                                conv.lastMessage
-                                                                    .lastMessageContent
-                                                            }
+                                                            <span>
+                                                                {
+                                                                    messagePreview.senderLabel
+                                                                }
+                                                            </span>
+                                                            {" : "}
                                                         </>
-                                                    ) : (
-                                                        "Bắt đầu trò chuyện"
                                                     )}
+                                                    {messagePreview.text}
                                                 </p>
                                             </div>
 
                                             <div className="flex flex-col items-end gap-1.5">
                                                 <span className="text-[11px] text-gray-500 dark:text-gray-400">
                                                     {conv.lastMessage
-                                                        ?.lastMessageContent
+                                                        ?.lastMessageAt
                                                         ? formatTime(
                                                               conv.lastMessage
                                                                   .lastMessageAt,

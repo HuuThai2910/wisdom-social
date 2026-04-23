@@ -35,12 +35,14 @@ import { MessageBubble } from "./MessageBubble";
 import { useCall } from "../../hooks/useCall";
 import IncomingCallModal from "./IncomingCallModal";
 import CallScreen from "./CallScreen";
+import ConversationAvatar from "./ConversationAvatar";
 import { useChatAI } from "../../features/chat-ai/hooks/useChatAI";
 import AIConsentModal from "../../features/chat-ai/components/AIConsentModal";
 import AIActionPanel from "../../features/chat-ai/components/AIActionPanel";
 import AIResultPanel from "../../features/chat-ai/components/AIResultPanel";
 import type { MessagePreviewDTO } from "../../features/chat-ai/types/chatAI";
 import { buildPinnedBannerItemsFromSnapshot } from "../../utils/pinnedMessageSnapshot";
+import { DEFAULT_GROUP_AVATAR_URL } from "../../constants/ui";
 
 interface ChatWindowProps {
     conversationId: number;
@@ -81,6 +83,7 @@ export default function ChatWindow({
 
         displayName,
         displayAvatar,
+        displayCompositeAvatars,
 
         messageText,
         setMessageText,
@@ -824,10 +827,21 @@ export default function ChatWindow({
             {/* Header */}
             <div className="flex items-center justify-between border-b border-gray-200/80 dark:border-gray-700 px-5 py-3.5 bg-white dark:bg-black backdrop-blur-sm">
                 <div className="flex items-center gap-3">
-                    <img
-                        src={displayAvatar || defaultAvatarUrl}
-                        alt={displayName}
-                        className="h-10 w-10 rounded-full object-cover ring-1 ring-gray-200 dark:ring-gray-700"
+                    <ConversationAvatar
+                        name={displayName}
+                        avatarUrl={displayAvatar}
+                        compositeAvatarUrls={
+                            conversation?.type === "GROUP"
+                                ? displayCompositeAvatars
+                                : undefined
+                        }
+                        fallbackAvatarUrl={
+                            conversation?.type === "GROUP"
+                                ? DEFAULT_GROUP_AVATAR_URL
+                                : defaultAvatarUrl
+                        }
+                        sizeClassName="h-10 w-10"
+                        ringClassName="ring-1 ring-gray-200 dark:ring-gray-700"
                     />
                     <div>
                         <p className="text-sm font-semibold text-gray-900 dark:text-white">

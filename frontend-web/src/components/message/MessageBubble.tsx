@@ -1039,6 +1039,7 @@ export function MessageBubble({
             content: message.content,
             isOwn,
             senderName,
+            senderId: message.senderId,
             currentUserId,
             membersById,
         });

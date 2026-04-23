@@ -83,7 +83,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
             return cachedMember;
         }
 
-        ConversationMemberResponse response = conversationMemberRepository.findByConversation_IdAndUser_Id(conversationId, userId)
+        ConversationMemberResponse response = conversationMemberRepository.findByConversation_IdAndUser_IdAndStatus(conversationId, userId, ConversationMemberStatus.ACTIVE)
                 .map(conversationMemberMapper::toConversationMemberResponse)
                         .orElseThrow(() -> new RuntimeException("Không tim thấy thành viên cuộc trò chuyện"));
 
@@ -180,7 +180,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
     @Transactional
     @Override
     public void updateNickname(Long conversationId, Long targetUserId, String newNickname) {
-        ConversationMember member = conversationMemberRepository.findByConversation_IdAndUser_Id(conversationId, targetUserId)
+        ConversationMember member = conversationMemberRepository.findByConversation_IdAndUser_IdAndStatus(conversationId, targetUserId, ConversationMemberStatus.ACTIVE)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy thành viên trong phòng chat"));
 
         // Lưu vào MySQL
@@ -204,7 +204,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
      */
     @Override
     public Set<Long> getAllMemberId(Long conversationId){
-        return  this.conversationMemberRepository.findAllUserIdsByConversationId(conversationId);
+        return  this.conversationMemberRepository.findUserIdsByConversationIdAndStatus(conversationId, ConversationMemberStatus.ACTIVE);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -384,7 +384,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
     }
 
     private ConversationMember getActiveMember(Long convId, Long userId) {
-        ConversationMember member = conversationMemberRepository.findByConversation_IdAndUser_Id(convId, userId)
+        ConversationMember member = conversationMemberRepository.findByConversation_IdAndUser_IdAndStatus(convId, userId, ConversationMemberStatus.ACTIVE)
                 .orElseThrow(() -> new RuntimeException("Thành viên không tồn tại trong nhóm"));
         if (member.getStatus() != ConversationMemberStatus.ACTIVE) {
             throw new RuntimeException("Thành viên này không còn hoạt động trong nhóm");
@@ -446,8 +446,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
             throw new IllegalArgumentException("Chỉ có thể thêm thành viên vào nhóm");
         }
 
-        ConversationMember inviter = conversationMemberRepository
-                .findByConversation_IdAndUser_Id(conversationId, inviterId)
+        ConversationMember inviter = conversationMemberRepository.findByConversation_IdAndUser_IdAndStatus(conversationId, inviterId, ConversationMemberStatus.ACTIVE)
                 .orElseThrow(() -> new RuntimeException("Bạn không nằm trong nhóm này"));
 
         if (inviter.getStatus() != ConversationMemberStatus.ACTIVE) {

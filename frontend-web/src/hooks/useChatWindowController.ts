@@ -27,6 +27,7 @@ import chatRuntimeStore, {
 } from "../stores/chatRuntimeStore";
 import { useAuth } from "../contexts/AuthContext";
 import { isMessageDeletedForUser } from "../utils/chatMessageGuards";
+import { buildConversationDisplayInfo } from "../utils/conversationDisplayInfo";
 
 /**
  * Các hằng số điều khiển UX & paging.
@@ -66,25 +67,17 @@ function getConversationDisplayInfo(
     userId: number,
     membersById: MembersByUserId,
 ) {
-    const otherMemberFromStore = Object.values(membersById).find(
-        (m) => m.userId !== userId,
-    );
+    const displayInfo = buildConversationDisplayInfo({
+        conversation,
+        currentUserId: userId,
+        members: Object.values(membersById),
+    });
 
-    const displayName =
-        conversation.type === "GROUP"
-            ? conversation.name
-            : otherMemberFromStore?.nickname ||
-              conversation.members?.find((m) => m.userId !== userId)
-                  ?.nickname ||
-              "Unknown";
-
-    const displayAvatar =
-        conversation.type === "GROUP"
-            ? conversation.imageUrl
-            : otherMemberFromStore?.avatar ||
-              conversation.members?.find((m) => m.userId !== userId)?.avatar;
-
-    return { displayName, displayAvatar };
+    return {
+        displayName: displayInfo.name,
+        displayAvatar: displayInfo.avatarUrl,
+        displayCompositeAvatars: displayInfo.compositeAvatarUrls,
+    };
 }
 
 function toMembersByUserId(
@@ -894,9 +887,9 @@ export function useChatWindowController(args: {
             } catch (error) {
                 const isAbort =
                     (error as { code?: string; name?: string })?.code ===
-                        "ERR_CANCELED" ||
+                    "ERR_CANCELED" ||
                     (error as { code?: string; name?: string })?.name ===
-                        "CanceledError";
+                    "CanceledError";
                 if (isAbort) return;
                 setError("Không thể tải thêm tin nhắn cũ");
             } finally {
@@ -1117,8 +1110,8 @@ export function useChatWindowController(args: {
             const messageFromStore = messageFromState
                 ? null
                 : chatRuntimeStore
-                      .getMessages(conversationId)
-                      .find((message) => message.id === targetMessageId);
+                    .getMessages(conversationId)
+                    .find((message) => message.id === targetMessageId);
             const localMessage = messageFromState ?? messageFromStore;
 
             if (localMessage) {
@@ -2318,7 +2311,7 @@ export function useChatWindowController(args: {
                                         100,
                                         Math.round(
                                             (perFileLoaded[index] / safeTotal) *
-                                                100,
+                                            100,
                                         ),
                                     );
                                     setUploadProgressPercent(percent);
@@ -2488,8 +2481,8 @@ export function useChatWindowController(args: {
             const mimeType = MediaRecorder.isTypeSupported("audio/mp4")
                 ? "audio/mp4"
                 : MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-                  ? "audio/webm;codecs=opus"
-                  : "audio/webm";
+                    ? "audio/webm;codecs=opus"
+                    : "audio/webm";
 
             // Bước 3: Tạo MediaRecorder và reset mảng chunks
             const recorder = new MediaRecorder(stream, { mimeType });
@@ -2599,7 +2592,11 @@ export function useChatWindowController(args: {
 
     const displayInfo = useMemo(() => {
         if (!conversation) {
-            return { displayName: "", displayAvatar: null as string | null };
+            return {
+                displayName: "",
+                displayAvatar: null as string | null,
+                displayCompositeAvatars: [] as string[],
+            };
         }
         // Memo hoá để tránh tính lại tên/avatar mỗi render không cần thiết.
         return getConversationDisplayInfo(conversation, userId, membersById);
@@ -2628,6 +2625,7 @@ export function useChatWindowController(args: {
 
         displayName: displayInfo.displayName,
         displayAvatar: displayInfo.displayAvatar,
+        displayCompositeAvatars: displayInfo.displayCompositeAvatars,
 
         messageText,
         setMessageText,
