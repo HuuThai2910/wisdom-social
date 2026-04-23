@@ -4,6 +4,9 @@
  */
 package iuh.fit.edu.backend.dto.response.conversation;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import iuh.fit.edu.backend.constant.MemberRole;
+import iuh.fit.edu.backend.constant.MemberStatus;
 import lombok.*;
 
 import java.time.Instant;
@@ -23,4 +26,11 @@ public class ConversationMemberResponse {
     private int unreadCount;
     private Instant clearedAt;
     private String lastReadMessageId; // Mốc tin nhắn đã đọc (watermark)
+
+    private MemberRole role;
+    private MemberStatus status;
+    private Instant joinedAt;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Instant leftAt;
+
 }

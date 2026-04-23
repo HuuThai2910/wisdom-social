@@ -7,6 +7,7 @@ package iuh.fit.edu.backend.service.chat.impl;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import iuh.fit.edu.backend.constant.MemberStatus;
 import iuh.fit.edu.backend.constant.MessageType;
 import iuh.fit.edu.backend.constant.UploadModule;
 import iuh.fit.edu.backend.domain.entity.mysql.Conversation;
@@ -31,6 +32,7 @@ import iuh.fit.edu.backend.repository.mysql.ConversationRepository;
 import iuh.fit.edu.backend.repository.mysql.UserRepository;
 import iuh.fit.edu.backend.repository.nosql.MessageRepository;
 import iuh.fit.edu.backend.service.chat.ConversationMemberService;
+import iuh.fit.edu.backend.service.chat.InternalMessageService;
 import iuh.fit.edu.backend.service.chat.MessageCacheService;
 import iuh.fit.edu.backend.service.chat.MessageService;
 import iuh.fit.edu.backend.service.s3.S3Service;
@@ -61,7 +63,7 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @AllArgsConstructor
-public class MessageServiceImpl implements MessageService {
+public class MessageServiceImpl implements MessageService, InternalMessageService {
     private final MessageRepository messageRepository;
     private final UserRepository userRepository;
     private final ConversationMemberService conversationMemberService;
@@ -131,7 +133,7 @@ public class MessageServiceImpl implements MessageService {
 
         ConversationMemberResponse senderInfo = conversationMemberService
                 .getMemberInfo(conversationId, userId);
-        if (senderInfo == null) {
+        if (senderInfo == null || !senderInfo.getStatus().equals(MemberStatus.ACTIVE)) {
             throw new RuntimeException("Bạn không phải thành viên của cuộc trò chuyện");
         }
 
@@ -518,6 +520,23 @@ public class MessageServiceImpl implements MessageService {
                 .build();
     }
 
+    @Override
+    public void createSystemMessage(Long conversationId, Long actorId, MessageType type, String content) {
+        Message systemMsg = new Message();
+        systemMsg.setConversationId(conversationId);
+        systemMsg.setSenderId(actorId);
+        systemMsg.setMessageType(type);
+        systemMsg.setContent(content);
+        systemMsg.setCreatedAt(Instant.now().truncatedTo(ChronoUnit.MILLIS));
+        Message savedMsg = messageRepository.save(systemMsg);
+
+        // Map ra DTO và Bắn Socket KHUNG CHAT (Giống hệt hàm sendMessage bình thường)
+        MessageResponse msgResponse = messageMapper.toMessageResponse(savedMsg);
+        messageCacheService.cacheNewMessage(msgResponse);
+
+        this.eventPublisher.publishEvent(new MessageCreatedEvent(msgResponse));
+    }
+
 
     // Hàm dùng để lấy ra thông tin của những người đã rời khỏi cuộc trò chuyện
     private Map<Long, CursorResponse.UserReferenceDTO> buildReferenceUsers(
@@ -575,10 +594,10 @@ public class MessageServiceImpl implements MessageService {
         systemMsg.setReplyInfo(buildReplyInfo(targetMsgId));
         Message savedMsg = messageRepository.save(systemMsg);
 
-        // 2. Map sang Response
+        // Map sang Response
         MessageResponse resp = messageMapper.toMessageResponse(savedMsg);
 
-        // 3. Xử lý hệ quả (Sidebar, Redis, MySQL Unread)
+        // Xử lý hệ quả (Sidebar, Redis, MySQL Unread)
         LastMessageResponse sidebarResp = processPostMessageSideEffects(conversation, savedMsg, senderInfo, resp);
 
         // 4. Phát tán sự kiện (WebSocket)
@@ -775,6 +794,7 @@ public class MessageServiceImpl implements MessageService {
             throw new RuntimeException("Không thể tạo nội dung cuộc gọi", e);
         }
     }
+
 
 
 }

@@ -4,6 +4,9 @@
  */
 package iuh.fit.edu.backend.controller;
 
+import iuh.fit.edu.backend.constant.MemberRole;
+import iuh.fit.edu.backend.dto.request.convesation.AddMemberRequest;
+import iuh.fit.edu.backend.dto.request.convesation.CreateGroupRequest;
 import iuh.fit.edu.backend.dto.response.CursorResponse;
 import iuh.fit.edu.backend.dto.response.conversation.ConversationMemberResponse;
 import iuh.fit.edu.backend.dto.response.conversation.ConversationResponse;
@@ -12,7 +15,10 @@ import iuh.fit.edu.backend.service.chat.ConversationMemberService;
 import iuh.fit.edu.backend.service.chat.ConversationService;
 import iuh.fit.edu.backend.service.chat.MessageService;
 import iuh.fit.edu.backend.service.user.UserService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -110,6 +116,56 @@ public class ConversationController {
         return ResponseEntity.ok(membersMap);
     }
 
+    @PostMapping("/group")
+    public ResponseEntity<ConversationResponse> createConversation(@Valid @RequestBody CreateGroupRequest request){
+        Long userId = this.userService.getCurrentUser().getId();
+        ConversationResponse response = this.conversationService.createGroup(request, userId);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+    @PostMapping("/{conversationId}/members")
+    public ResponseEntity<ConversationResponse> addMembers(@PathVariable Long conversationId, @Valid @RequestBody AddMemberRequest request){
+        Long userId = this.userService.getCurrentUser().getId();
+        ConversationResponse response = this.memberService.addMembers(conversationId, request, userId);
+        return ResponseEntity.ok(response);
+    }
+    @DeleteMapping("/{conversationId}/leave")
+    public ResponseEntity<ConversationResponse> leaveGroup(
+            @PathVariable Long conversationId) {
+        Long userId = this.userService.getCurrentUser().getId();
+        ConversationResponse response = memberService.leaveGroup(conversationId, userId);
+        return ResponseEntity.ok(response);
+    }
+
+    // API 2: Đuổi thành viên khác
+    @DeleteMapping("/{conversationId}/members/{targetId}")
+    public ResponseEntity<ConversationResponse> kickMember(
+            @PathVariable Long conversationId,
+            @PathVariable Long targetId) {
+        Long requesterId = this.userService.getCurrentUser().getId();
+        ConversationResponse response = memberService.kickMember(conversationId, targetId, requesterId);
+        return ResponseEntity.ok(response);
+    }
+
+    @PatchMapping("/{conversationId}/members/{targetId}/role")
+    public ResponseEntity<ConversationResponse> updateMemberRole(
+            @PathVariable Long conversationId,
+            @PathVariable Long targetId,
+            MemberRole newRole) { // Phải là ID của OWNER
+        Long requesterId = this.userService.getCurrentUser().getId();
+        ConversationResponse response = memberService.updateMemberRole(
+                conversationId, targetId, requesterId, newRole
+        );
+        return ResponseEntity.ok(response);
+    }
+    @DeleteMapping("/{conversationId}/disband")
+    public ResponseEntity<Void> disbandGroup(
+            @PathVariable Long conversationId) {
+
+        Long userId = this.userService.getCurrentUser().getId();
+        memberService.disbandGroup(conversationId, userId);
+        return ResponseEntity.noContent().build();
+    }
+
     @PatchMapping("/{conversationId}/members/{targetUserId}/nickname")
     public ResponseEntity<String> updateNickname(
             @PathVariable Long conversationId,
@@ -118,4 +174,6 @@ public class ConversationController {
         memberService.updateNickname(conversationId, targetUserId, nickname);
         return ResponseEntity.ok("Cập nhật biệt danh thành công");
     }
+
+
 }

@@ -4,7 +4,7 @@
  */
 package iuh.fit.edu.backend.event.handler;
 
-import iuh.fit.edu.backend.event.payload.ConversationUpdatedEvent;
+import iuh.fit.edu.backend.event.payload.MemberAddedEvent;
 import iuh.fit.edu.backend.event.type.DomainEventType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,27 +22,25 @@ import java.util.Set;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class ConversationUpdatedEventHandler implements RedisEventHandler {
-
+public class MemberAddedEventHandler implements RedisEventHandler {
     private final SimpMessagingTemplate messagingTemplate;
 
     @Override
     public Class<?> getSupportedClass() {
-        return ConversationUpdatedEvent.class;
+        return MemberAddedEvent.class;
     }
 
     @Override
     public String getSupportedEventType() {
-        return DomainEventType.ROOM_UPDATED.toString();
+        return DomainEventType.MEMBER_ADDED.toString();
     }
 
     /**
-     * Cập nhật danh sách chat (Sidebar) cho TẤT CẢ thành viên.
-     * Gửi tin nhắn tóm tắt (LastMessageDTO) vào topic riêng của từng user.
+     * Hàm xử lý sự kiên bắn thông tin tạo phòng cho tất cả những người tham gia
      */
     @Override
     public void handle(Object eventPayload, Set<Long> targetMemberIds) {
-        ConversationUpdatedEvent event = (ConversationUpdatedEvent) eventPayload;
+        MemberAddedEvent event = (MemberAddedEvent) eventPayload;
 
         if (targetMemberIds == null || targetMemberIds.isEmpty())
             return;
@@ -50,6 +48,6 @@ public class ConversationUpdatedEventHandler implements RedisEventHandler {
             String destination = "/topic/user/" + memberId + "/conversations";
             messagingTemplate.convertAndSend(destination, event);
         }
-        log.info("Broadcast add member to {} members", event.getMemberIds());
+        log.info("Broadcast conversation update to {} members", event.getMemberIds());
     }
 }
