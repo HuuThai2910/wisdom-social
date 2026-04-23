@@ -320,6 +320,17 @@ export function useMessagesController() {
 
             setConversationReadOnlyNotices((prev) => {
                 const next = { ...prev };
+                const isUnlockingMessage =
+                    lastMessage.lastMessageType === "SYSTEM_ADD_MEMBER" &&
+                    safeParseMemberIds(lastMessage.lastMessageContent).some(
+                        (id) => Number(id) === Number(latestUserId),
+                    );
+
+                if (isUnlockingMessage) {
+                    delete next[conversationId];
+                    return next;
+                }
+
                 const resolvedNotice =
                     snapshotReadOnlyNotice ?? messageReadOnlyNotice;
 

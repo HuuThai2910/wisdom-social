@@ -484,6 +484,8 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
                     em.setStatus(ConversationMemberStatus.ACTIVE);
                     em.setJoinedAt(now);
                     em.setLeftAt(null); // Xóa mốc thời gian rời đi
+                    em.setClearedAt(null); // Reset lại mốc xóa để xem được toàn bộ tin nhắn
+                    em.setHidden(false); // Đảm bảo hiện lại hội thoại nếu trước đó đã ẩn/xóa
                     membersToSave.add(em);
                     actuallyAddedIds.add(tId);
                 }

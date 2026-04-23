@@ -89,14 +89,14 @@ public class GlobalExceptionHandler {
         return buildErrorResponse(HttpStatus.FORBIDDEN, ex.getMessage(), "ACCESS_DENIED");
     }
 
-    @ExceptionHandler(Exception.class)
-    public ResponseEntity<ApiResponse<Object>> handleException(Exception ex) {
-        LOGGER.error("Unhandled exception caught in GlobalExceptionHandler", ex);
-        return buildErrorResponse(
-                HttpStatus.INTERNAL_SERVER_ERROR,
-                "Đã xảy ra lỗi hệ thống, vui lòng thử lại sau",
-                "INTERNAL_SERVER_ERROR");
-    }
+//    @ExceptionHandler(Exception.class)
+//    public ResponseEntity<ApiResponse<Object>> handleException(Exception ex) {
+//        LOGGER.error("Unhandled exception caught in GlobalExceptionHandler", ex);
+//        return buildErrorResponse(
+//                HttpStatus.INTERNAL_SERVER_ERROR,
+//                "Đã xảy ra lỗi hệ thống, vui lòng thử lại sau",
+//                "INTERNAL_SERVER_ERROR");
+//    }
 
     private ResponseEntity<ApiResponse<Object>> buildErrorResponse(HttpStatus status, String message, String code) {
         AIErrorResponse errorResponse = AIErrorResponse.builder()

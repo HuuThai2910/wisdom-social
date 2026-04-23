@@ -50,6 +50,11 @@ interface ChatWindowProps {
     onToggleInfoPanel?: () => void;
     showInfoPanel?: boolean;
     forcedReadOnlyNotice?: string | null;
+    onForbidden?: () => void;
+    // Fallback props for Header when conversation fetch fails (e.g. disbanded/kicked)
+    name?: string;
+    avatarUrl?: string;
+    compositeAvatarUrls?: string[];
 }
 
 function createClientFileId(): string {
@@ -65,6 +70,10 @@ export default function ChatWindow({
     onToggleInfoPanel,
     showInfoPanel = true,
     forcedReadOnlyNotice = null,
+    onForbidden,
+    name,
+    avatarUrl,
+    compositeAvatarUrls,
 }: ChatWindowProps) {
     const [isAiPanelOpen, setIsAiPanelOpen] = useState(false);
 
@@ -135,6 +144,7 @@ export default function ChatWindow({
         conversationId,
         onMarkAsRead,
         forcedReadOnlyNotice,
+        onForbidden,
     });
 
     const isConversationReadOnly = Boolean(readOnlyNotice);
@@ -829,18 +839,76 @@ export default function ChatWindow({
 
     if (loading) {
         return (
-            <div className="flex items-center justify-center h-full">
-                <p className="text-gray-500">Đang tải...</p>
+            <div className="flex flex-col h-full w-full">
+                {/* Skeleton Header */}
+                <div className="flex items-center justify-between border-b border-gray-200/80 dark:border-gray-700 px-5 py-3.5 bg-white dark:bg-black">
+                    <div className="flex items-center gap-3">
+                        <div className="h-10 w-10 rounded-full bg-gray-200 dark:bg-gray-800 animate-pulse" />
+                        <div className="space-y-2">
+                            <div className="h-4 w-24 bg-gray-200 dark:bg-gray-800 animate-pulse rounded" />
+                            <div className="h-3 w-16 bg-gray-100 dark:bg-gray-900 animate-pulse rounded" />
+                        </div>
+                    </div>
+                </div>
+                {/* Loading Body */}
+                <div className="flex-1 flex items-center justify-center bg-gray-50 dark:bg-[#0f0f0f]">
+                    <div className="flex flex-col items-center gap-2">
+                        <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                            Đang tải hội thoại...
+                        </p>
+                    </div>
+                </div>
             </div>
         );
     }
 
-    if (!conversation) {
+    // Xác định xem có hiển thị giao diện báo lỗi (Red Cross) hay không.
+    // Hiển thị khi bị mất quyền truy cập (readOnlyNotice) hoặc không tải được hội thoại.
+    const isErrorState = !!readOnlyNotice || (!loading && !conversation);
+
+    if (isErrorState) {
+        const displayErrorName = conversation?.name || name || "Cuộc trò chuyện";
+        const displayErrorAvatar = conversation?.imageUrl || avatarUrl;
+        const displayErrorComposite =
+            conversation?.members && conversation.members.length > 0
+                ? conversation.members.slice(0, 4).map((m) => m.avatar || "")
+                : compositeAvatarUrls;
+
         return (
-            <div className="flex items-center justify-center h-full">
-                <p className="text-gray-500">
-                    {error || "Không tìm thấy cuộc trò chuyện"}
-                </p>
+            <div className="flex flex-col h-full w-full">
+                {/* Static Header for Locked/Error state */}
+                <div className="flex items-center justify-between border-b border-gray-200/80 dark:border-gray-700 px-5 py-3.5 bg-white dark:bg-black backdrop-blur-sm">
+                    <div className="flex items-center gap-3">
+                        <ConversationAvatar
+                            name={displayErrorName}
+                            avatarUrl={displayErrorAvatar}
+                            compositeAvatarUrls={displayErrorComposite}
+                            fallbackAvatarUrl={DEFAULT_GROUP_AVATAR_URL}
+                            sizeClassName="h-10 w-10"
+                        />
+                        <div>
+                            <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                                {displayErrorName}
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                                Không thể truy cập
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                {/* Error Body */}
+                <div className="flex-1 flex flex-col items-center justify-center p-6 text-center bg-gray-50 dark:bg-[#0f0f0f]">
+                    <div className="w-16 h-16 bg-red-50 dark:bg-red-950/20 rounded-full flex items-center justify-center mb-4">
+                        <X size={32} className="text-red-500" />
+                    </div>
+                    <p className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                        {error || readOnlyNotice || "Lỗi truy cập"}
+                    </p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm">
+                        Hội thoại này hiện không khả dụng. Bạn có thể đã bị xóa khỏi nhóm hoặc không có quyền xem nội dung này.
+                    </p>
+                </div>
             </div>
         );
     }

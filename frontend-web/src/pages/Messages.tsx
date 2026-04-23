@@ -29,6 +29,7 @@ import {
 import ChatWindow from "../components/message/ChatWindow";
 import CreateGroupModal from "../components/message/CreateGroupModal";
 import GroupConversationPanel from "../components/message/GroupConversationPanel";
+import ConfirmModal from "../components/message/ConfirmModal";
 import SelectGroupMembersModal from "../components/message/SelectGroupMembersModal";
 import ConversationAvatar from "../components/message/ConversationAvatar";
 import { useMessagesController } from "../hooks/useMessagesController";
@@ -113,6 +114,14 @@ export default function Messages() {
         leaveGroup,
         transferOwnershipAndLeave,
         disbandGroup,
+        isConfirmLeaveModalOpen,
+        setIsConfirmLeaveModalOpen,
+        isConfirmDisbandModalOpen,
+        setIsConfirmDisbandModalOpen,
+        isConfirmKickModalOpen,
+        kickTargetUserId,
+        openConfirmKick,
+        closeConfirmKick,
     } = useGroupManagement({
         currentUserId,
         selectedConversation,
@@ -324,6 +333,20 @@ export default function Messages() {
                             onDisbandGroup={disbandGroup}
                             onKickMember={kickMember}
                             onUpdateMemberRole={updateMemberRole}
+                            isConfirmLeaveModalOpen={isConfirmLeaveModalOpen}
+                            onSetConfirmLeaveModalOpen={
+                                setIsConfirmLeaveModalOpen
+                            }
+                            isConfirmDisbandModalOpen={
+                                isConfirmDisbandModalOpen
+                            }
+                            onSetConfirmDisbandModalOpen={
+                                setIsConfirmDisbandModalOpen
+                            }
+                            isConfirmKickModalOpen={isConfirmKickModalOpen}
+                            kickTargetUserId={kickTargetUserId}
+                            onOpenConfirmKick={openConfirmKick}
+                            onCloseConfirmKick={closeConfirmKick}
                         />
                         <div className="h-px bg-gray-200 dark:bg-[#262626]" />
                     </>
@@ -874,6 +897,14 @@ export default function Messages() {
                                     forcedReadOnlyNotice={
                                         selectedConversationReadOnlyNotice
                                     }
+                                    onForbidden={clearSelectedConversation}
+                                    name={selectedDisplayInfo?.name}
+                                    avatarUrl={selectedDisplayInfo?.avatar}
+                                    compositeAvatarUrls={
+                                        selectedDisplayInfo?.hasCompositeAvatar
+                                            ? selectedDisplayInfo.compositeAvatars
+                                            : undefined
+                                    }
                                 />
                             </div>
 
@@ -960,6 +991,57 @@ export default function Messages() {
                 error={actionError}
                 onClose={closeAddMembersModal}
                 onSubmit={addMembersToGroup}
+            />
+            <ConfirmModal
+                open={isConfirmLeaveModalOpen}
+                title="Rời khỏi nhóm?"
+                description={`Bạn có chắc chắn muốn rời khỏi nhóm "${selectedGroupConversation?.name || "này"}"? Hành động này không thể hoàn tác.`}
+                confirmLabel="Rời nhóm"
+                loading={isLeavingGroup}
+                isDanger={true}
+                onClose={() => setIsConfirmLeaveModalOpen(false)}
+                onConfirm={() => {
+                    void leaveGroup().then((success) => {
+                        if (success) setIsConfirmLeaveModalOpen(false);
+                    });
+                }}
+            />
+
+            <ConfirmModal
+                open={isConfirmDisbandModalOpen}
+                title="Giải tán nhóm?"
+                description={`Giải tán nhóm "${selectedGroupConversation?.name || "này"}" sẽ kết thúc cuộc trò chuyện cho tất cả thành viên. Mọi tin nhắn sẽ bị xóa đối với mọi người.`}
+                confirmLabel="Giải tán"
+                loading={isDisbandingGroup}
+                isDanger={true}
+                onClose={() => setIsConfirmDisbandModalOpen(false)}
+                onConfirm={() => {
+                    void disbandGroup().then((success) => {
+                        if (success) setIsConfirmDisbandModalOpen(false);
+                    });
+                }}
+            />
+
+            <ConfirmModal
+                open={isConfirmKickModalOpen}
+                title="Đuổi thành viên?"
+                description={`Bạn có chắc chắn muốn mời ${
+                    kickTargetUserId && selectedGroupConversation?.members
+                        ? selectedGroupConversation.members.find(
+                              (m) => m.userId === kickTargetUserId,
+                          )?.nickname || "thành viên này"
+                        : "thành viên"
+                } khỏi nhóm?`}
+                confirmLabel="Đuổi khỏi nhóm"
+                isDanger={true}
+                onClose={closeConfirmKick}
+                onConfirm={() => {
+                    if (kickTargetUserId) {
+                        void kickMember(kickTargetUserId).then((success) => {
+                            if (success) closeConfirmKick();
+                        });
+                    }
+                }}
             />
         </>
     );

@@ -178,6 +178,10 @@ public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat
             throw new ConversationMemberLeftException("Bạn đã rời khỏi nhóm");
         }
 
+        if (conversationMember.getStatus() == ConversationMemberStatus.GROUP_DISBANDED) {
+            throw new ConversationAccessDeniedException("Nhóm đã bị giải tán");
+        }
+
         Conversation conversation = conversationMember.getConversation();
         ConversationResponse response = conversationMapper.toConversationResponse(conversation, userId);
 

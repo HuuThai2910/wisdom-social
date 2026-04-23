@@ -70,6 +70,15 @@ export function useGroupManagement({
     const [pendingTransferOwnerUserId, setPendingTransferOwnerUserId] =
         useState<number | null>(null);
 
+    const [isConfirmLeaveModalOpen, setIsConfirmLeaveModalOpen] =
+        useState(false);
+    const [isConfirmDisbandModalOpen, setIsConfirmDisbandModalOpen] =
+        useState(false);
+    const [isConfirmKickModalOpen, setIsConfirmKickModalOpen] = useState(false);
+    const [kickTargetUserId, setKickTargetUserId] = useState<number | null>(
+        null,
+    );
+
     const [actionError, setActionError] = useState<string | null>(null);
 
     const selectedGroupConversation = useMemo(() => {
@@ -466,6 +475,16 @@ export function useGroupManagement({
         setActionError(null);
     }, []);
 
+    const openConfirmKick = useCallback((userId: number) => {
+        setKickTargetUserId(userId);
+        setIsConfirmKickModalOpen(true);
+    }, []);
+
+    const closeConfirmKick = useCallback(() => {
+        setKickTargetUserId(null);
+        setIsConfirmKickModalOpen(false);
+    }, []);
+
     return {
         selectedGroupConversation,
         groupMembers,
@@ -508,5 +527,14 @@ export function useGroupManagement({
         transferOwnershipAndLeave,
         disbandGroup,
         refreshFriends: loadFriends,
+
+        isConfirmLeaveModalOpen,
+        setIsConfirmLeaveModalOpen,
+        isConfirmDisbandModalOpen,
+        setIsConfirmDisbandModalOpen,
+        isConfirmKickModalOpen,
+        kickTargetUserId,
+        openConfirmKick,
+        closeConfirmKick,
     };
 }

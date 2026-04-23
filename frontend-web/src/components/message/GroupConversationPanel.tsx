@@ -39,6 +39,14 @@ interface GroupConversationPanelProps {
         targetUserId: number,
         nextRole: MemberRole,
     ) => Promise<boolean>;
+    isConfirmLeaveModalOpen: boolean;
+    onSetConfirmLeaveModalOpen: (open: boolean) => void;
+    isConfirmDisbandModalOpen: boolean;
+    onSetConfirmDisbandModalOpen: (open: boolean) => void;
+    isConfirmKickModalOpen: boolean;
+    kickTargetUserId: number | null;
+    onOpenConfirmKick: (userId: number) => void;
+    onCloseConfirmKick: () => void;
 }
 
 function roleLabel(role?: MemberRole): string {
@@ -97,6 +105,9 @@ export default function GroupConversationPanel({
     onDisbandGroup,
     onKickMember,
     onUpdateMemberRole,
+    onSetConfirmLeaveModalOpen,
+    onSetConfirmDisbandModalOpen,
+    onOpenConfirmKick,
 }: GroupConversationPanelProps) {
     const members = useMemo(
         () =>
@@ -110,16 +121,21 @@ export default function GroupConversationPanel({
 
     const memberCount = members.length;
 
-    const handleLeaveGroup = async () => {
-        await onLeaveGroup();
+    const handleLeaveGroup = () => {
+        const currentMember = members.find((m) => m.userId === currentUserId);
+        const isOwner = currentMember?.role === "OWNER";
+        const hasOtherMembers = members.length > 1;
+
+        // Nếu là trưởng nhóm và còn người khác, nhảy thẳng tới modal chọn trưởng nhóm mới
+        if (isOwner && hasOtherMembers) {
+            void onLeaveGroup();
+        } else {
+            onSetConfirmLeaveModalOpen(true);
+        }
     };
 
-    const handleDisbandGroup = async () => {
-        const accepted = window.confirm(
-            "Giải tán nhóm sẽ kết thúc cuộc trò chuyện cho tất cả thành viên. Tiếp tục?",
-        );
-        if (!accepted) return;
-        await onDisbandGroup();
+    const handleDisbandGroup = () => {
+        onSetConfirmDisbandModalOpen(true);
     };
 
     return (
@@ -261,12 +277,7 @@ export default function GroupConversationPanel({
                                                 <button
                                                     type="button"
                                                     onClick={() => {
-                                                        const accepted =
-                                                            window.confirm(
-                                                                `Đuổi ${member.nickname || "thành viên"} khỏi nhóm?`,
-                                                            );
-                                                        if (!accepted) return;
-                                                        void onKickMember(
+                                                        onOpenConfirmKick(
                                                             member.userId,
                                                         );
                                                     }}

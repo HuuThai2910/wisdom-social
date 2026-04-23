@@ -70,16 +70,30 @@ function resolveApiErrorMessage(error: unknown, fallback: string): string {
         const response = (
             error as {
                 response?: {
-                    data?: {
-                        message?: string;
-                    };
+                    status?: number;
+                    data?: any;
                 };
             }
         ).response;
 
-        const serverMessage = response?.data?.message;
-        if (serverMessage && serverMessage.trim()) {
-            return serverMessage;
+        const data = response?.data;
+        const status = response?.status;
+
+        if (data) {
+            // Khử lồng ApiResponse { message, data: { message } }
+            const directMessage = typeof data.message === "string" ? data.message : null;
+            const nestedMessage = (data.data && typeof data.data.message === "string") ? data.data.message : null;
+            const springMessage = typeof data.error === "string" ? data.error : null;
+
+            const finalServerMsg = directMessage || nestedMessage || springMessage;
+            if (finalServerMsg && finalServerMsg.trim()) {
+                return finalServerMsg;
+            }
+        }
+
+        // Nếu không có message từ server nhưng status là 403 -> Trả về lỗi quyền truy cập thay vì fallback
+        if (status === 403) {
+            return "Bạn không có quyền truy cập hội thoại này.";
         }
     }
 
@@ -106,6 +120,7 @@ function resolveReadOnlyReasonFromApiMessage(message: string): string | null {
 
     if (
         normalized.includes("xóa khỏi nhóm") ||
+        normalized.includes("bị đuổi") ||
         normalized.includes("bị kick") ||
         normalized.includes("kicked")
     ) {
@@ -121,6 +136,15 @@ function resolveReadOnlyReasonFromApiMessage(message: string): string | null {
 
     if (normalized.includes("giải tán")) {
         return "Nhóm đã bị giải tán.";
+    }
+
+    if (
+        normalized.includes("không phải thành viên") ||
+        normalized.includes("không có quyền") ||
+        normalized.includes("access denied") ||
+        normalized.includes("forbidden")
+    ) {
+        return "Bạn không có quyền truy cập hội thoại này.";
     }
 
     return null;
@@ -287,10 +311,16 @@ function normalizeMessagesForUi(messages: Message[]): Message[] {
  */
 export function useChatWindowController(args: {
     conversationId: number;
-    onMarkAsRead?: (conversationId: number) => void; // Callback để clear unreadCount ở sidebar
+    onMarkAsRead?: (conversationId: number) => void;
     forcedReadOnlyNotice?: string | null;
+    onForbidden?: () => void;
 }) {
-    const { conversationId, onMarkAsRead, forcedReadOnlyNotice } = args;
+    const {
+        conversationId,
+        onMarkAsRead,
+        forcedReadOnlyNotice,
+        onForbidden,
+    } = args;
 
     // userId: lấy từ AuthContext (security integration - không nhận qua prop nữa)
     const { currentUser } = useAuth();
@@ -317,7 +347,17 @@ export function useChatWindowController(args: {
     const [uploadFailedFileNames, setUploadFailedFileNames] = useState<
         string[]
     >([]);
-    const [readOnlyNotice, setReadOnlyNotice] = useState<string | null>(null);
+    const [localReadOnlyNotice, setReadOnlyNotice] = useState<string | null>(
+        null,
+    );
+    const readOnlyNotice = useMemo(() => {
+        if (forcedReadOnlyNotice) return forcedReadOnlyNotice;
+        return localReadOnlyNotice;
+    }, [forcedReadOnlyNotice, localReadOnlyNotice]);
+
+    const prevForcedNoticeRef = useRef<string | null | undefined>(
+        forcedReadOnlyNotice,
+    );
 
     // ====== Ghi âm tin nhắn thoại (Voice recording) ======
     // isRecording: true nếu đang ghi âm, dùng để hiện overlay ghi âm trong UI
@@ -930,15 +970,31 @@ export function useChatWindowController(args: {
                 }
             } catch (error) {
                 if (token !== loadTokenRef.current) return;
+
                 const apiMessage = resolveApiErrorMessage(
                     error,
                     "Không thể tải dữ liệu cuộc trò chuyện",
                 );
                 const readOnlyReason =
                     resolveReadOnlyReasonFromApiMessage(apiMessage);
+
+                // Dọn dẹp state để trigger giao diện báo lỗi (Red Cross)
+                setMessages([]);
+                setConversation(null);
+                setMembersById({});
+
                 if (readOnlyReason) {
                     setReadOnlyNotice(GROUP_READ_ONLY_COMPOSER_NOTICE);
                     setError(readOnlyReason);
+
+                    // Nếu là lỗi "không phải thành viên" (403), gọi callback để Messages page xử lý (vd: redirect)
+                    if (
+                        apiMessage.includes("không phải thành viên") ||
+                        apiMessage.includes("không có quyền")
+                    ) {
+                        onForbidden?.();
+                    }
+
                     websocketService.unsubscribeFromConversation(
                         conversationId,
                     );
@@ -948,13 +1004,9 @@ export function useChatWindowController(args: {
                     websocketService.unsubscribeFromConversationPins(
                         conversationId,
                     );
-                    return;
+                } else {
+                    setError(apiMessage);
                 }
-
-                setMessages([]);
-                setConversation(null);
-                setMembersById({});
-                setError(apiMessage);
             } finally {
                 if (token === loadTokenRef.current) {
                     returningToPresentRef.current = false;
@@ -1403,6 +1455,14 @@ export function useChatWindowController(args: {
             if (readOnlyReason) {
                 setReadOnlyNotice(GROUP_READ_ONLY_COMPOSER_NOTICE);
                 setError(readOnlyReason);
+
+                // Khi bị cấm quyền truy cập (giải tán/đuổi/rời), dọn dẹp state
+                // để UI chuyển sang 'Error View' ngay lập tức (giống như sau khi F5)
+                setMessages([]);
+                setConversation(null);
+                setMembersById({});
+
+                // Giải đăng ký socket của hội thoại cũ
                 websocketService.unsubscribeFromConversation(conversationId);
                 websocketService.unsubscribeFromConversationMembers(
                     conversationId,
@@ -2932,8 +2992,32 @@ export function useChatWindowController(args: {
         // typingUsers: Set<userId> - Danh sách user đang gõ tin nhắn (trừ user hiện tại)
         // FE dùng để hiển thị "dummy message bubble" nhấp nháy
         typingUsers,
-        // sendTypingSignal: Gửi signal đang gõ/ngừng gõ lên backend
-        // Gọi khi: onChange input (isTyping=true), onBlur/Enter/Empty (isTyping=false)
         sendTypingSignal,
     };
+
+    // ====== Effect đồng bộ trạng thái Read Only (Dành cho Group Kick/Leave) ======
+    useEffect(() => {
+        const prevForced = prevForcedNoticeRef.current;
+        prevForcedNoticeRef.current = forcedReadOnlyNotice;
+
+        if (!forcedReadOnlyNotice) {
+            // Chỉ mở khóa nếu prop thực sự vừa thay đổi từ 'có thông báo' sang 'không có'
+            if (prevForced && !forcedReadOnlyNotice) {
+                console.log("🔓 Unlocking chat because forced notice was cleared");
+                setReadOnlyNotice(null);
+                setError(null);
+                setMessages([]);
+                setConversation(null);
+                setMembersById({});
+                setLoading(true);
+
+                void loadInitialData();
+            }
+            return;
+        }
+
+        console.log("🔒 Locking chat due to forced notice:", forcedReadOnlyNotice);
+    }, [forcedReadOnlyNotice, loadInitialData]);
+
+    return controller;
 }
