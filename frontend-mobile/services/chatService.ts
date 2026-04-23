@@ -1,15 +1,19 @@
 import apiClient from "@/api/apiClient";
 import type {
+    AddGroupMembersRequest,
     ApiResponse,
     BulkPresignedRequest,
     Conversation,
     ConversationMember,
+    CreateGroupRequest,
     CursorResponse,
     LocalUploadFile,
+    MemberRole,
     Message,
     PinnedMessageDetail,
     PresignedUrlResponse,
     SendMessageRequest,
+    UpdateNicknameRequest,
 } from "@/types/chat";
 
 function normalizeMembersPayload(
@@ -42,6 +46,21 @@ function normalizeMessagePayload(payload: unknown): Message {
     }
 
     return raw as Message;
+}
+
+function unwrapApiData<T>(payload: ApiResponse<T> | T): T {
+    if (
+        payload &&
+        typeof payload === "object" &&
+        "data" in (payload as Record<string, unknown>)
+    ) {
+        const wrapped = payload as ApiResponse<T>;
+        if (wrapped.data != null) {
+            return wrapped.data;
+        }
+    }
+
+    return payload as T;
 }
 
 const chatService = {
@@ -177,6 +196,94 @@ const chatService = {
     ): Promise<void> {
         await apiClient.delete(
             `/conversations/${conversationId}/delete-for-me`,
+        );
+    },
+
+    async createGroupConversation(
+        request: CreateGroupRequest,
+    ): Promise<Conversation> {
+        const response = await apiClient.post(
+            "/conversations/group",
+            request,
+        );
+
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async addMembersToGroup(
+        conversationId: number,
+        request: AddGroupMembersRequest,
+    ): Promise<Conversation> {
+        const response = await apiClient.post(
+            `/conversations/${conversationId}/members`,
+            request,
+        );
+
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async leaveGroup(conversationId: number): Promise<Conversation> {
+        const response = await apiClient.delete(
+            `/conversations/${conversationId}/leave`,
+        );
+
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async kickGroupMember(
+        conversationId: number,
+        targetUserId: number,
+    ): Promise<Conversation> {
+        const response = await apiClient.delete(
+            `/conversations/${conversationId}/members/${targetUserId}`,
+        );
+
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async updateGroupMemberRole(
+        conversationId: number,
+        targetUserId: number,
+        newRole: MemberRole,
+    ): Promise<Conversation> {
+        const response = await apiClient.patch(
+            `/conversations/${conversationId}/members/${targetUserId}/role`,
+            null,
+            {
+                params: {
+                    newRole,
+                },
+            },
+        );
+
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async disbandGroup(conversationId: number): Promise<void> {
+        await apiClient.delete(`/conversations/${conversationId}/disband`);
+    },
+
+    async updateConversationMemberNickname(
+        request: UpdateNicknameRequest,
+    ): Promise<void> {
+        await apiClient.patch(
+            `/conversations/${request.conversationId}/members/${request.targetUserId}/nickname`,
+            request.nickname,
+            {
+                headers: {
+                    "Content-Type": "text/plain",
+                },
+            },
         );
     },
 

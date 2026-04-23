@@ -1,7 +1,12 @@
 import { Client, type IMessage } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
 import type {
+    Conversation,
+    ConversationCreatedEvent,
+    ConversationMembershipEvent,
     ConversationUpdatedEvent,
+    GroupDisbandedEvent,
+    LastMessage,
     MemberUpdatedEvent,
     Message,
     MessageCreatedEvent,
@@ -17,6 +22,88 @@ type ConversationEvent =
     | MessageRecalledEvent
     | MessageSeenEvent
     | TypingEvent;
+
+type ConversationSnapshot = Conversation;
+
+type UserConversationEvent =
+    | ConversationUpdatedEvent
+    | ConversationCreatedEvent
+    | ConversationMembershipEvent
+    | GroupDisbandedEvent;
+
+function toLastMessageUpdate(conversation: Conversation): LastMessage | null {
+    return conversation.lastMessage ?? null;
+}
+
+function buildFallbackLastMessageUpdate(conversation: Conversation): LastMessage {
+    return {
+        lastMessageContent: "",
+        lastMessageType: "SYSTEM_CREATE_GROUP",
+        lastSenderId: 0,
+        lastSenderName: "",
+        lastMessageAt: conversation.updatedAt,
+        read: false,
+    };
+}
+
+function buildSystemFallbackByDomainEvent(
+    domainEventType?: string,
+): LastMessage {
+    const now = new Date().toISOString();
+
+    if (domainEventType === "MEMBER_ADDED") {
+        return {
+            lastMessageContent: "",
+            lastMessageType: "SYSTEM_ADD_MEMBER",
+            lastSenderId: 0,
+            lastSenderName: "",
+            lastMessageAt: now,
+            read: false,
+        };
+    }
+
+    if (domainEventType === "MEMBER_ROLE_UPDATED") {
+        return {
+            lastMessageContent: "",
+            lastMessageType: "SYSTEM_UPDATE_ROLE",
+            lastSenderId: 0,
+            lastSenderName: "",
+            lastMessageAt: now,
+            read: false,
+        };
+    }
+
+    if (domainEventType === "MEMBER_KICKED") {
+        return {
+            lastMessageContent: "",
+            lastMessageType: "SYSTEM_KICK_MEMBER",
+            lastSenderId: 0,
+            lastSenderName: "",
+            lastMessageAt: now,
+            read: false,
+        };
+    }
+
+    if (domainEventType === "MEMBER_LEFT") {
+        return {
+            lastMessageContent: "",
+            lastMessageType: "SYSTEM_LEAVE_GROUP",
+            lastSenderId: 0,
+            lastSenderName: "",
+            lastMessageAt: now,
+            read: false,
+        };
+    }
+
+    return {
+        lastMessageContent: "",
+        lastMessageType: "SYSTEM_DISBAND_GROUP",
+        lastSenderId: 0,
+        lastSenderName: "",
+        lastMessageAt: now,
+        read: false,
+    };
+}
 
 function resolveWsBrokerUrl(): string {
     const baseUrl = apiClient.defaults.baseURL ?? "http://10.0.2.2:8080/api";
@@ -295,10 +382,10 @@ class ChatWebsocketService {
             | { mode: "sockjs"; sockJsUrl: string }
             | { mode: "raw"; brokerURL: string }
         )[] = [
-            { mode: "sockjs", sockJsUrl },
-            { mode: "raw", brokerURL: rawBrokerPrimary },
-            { mode: "raw", brokerURL: rawBrokerFallback },
-        ];
+                { mode: "sockjs", sockJsUrl },
+                { mode: "raw", brokerURL: rawBrokerPrimary },
+                { mode: "raw", brokerURL: rawBrokerFallback },
+            ];
 
         const candidateLabels = Array.from(
             new Set(
@@ -399,11 +486,11 @@ class ChatWebsocketService {
                     const raw = JSON.parse(message.body) as
                         | ConversationEvent
                         | {
-                              payload?: unknown;
-                              data?: unknown;
-                              domainEventType?: unknown;
-                              type?: unknown;
-                          };
+                            payload?: unknown;
+                            data?: unknown;
+                            domainEventType?: unknown;
+                            type?: unknown;
+                        };
 
                     const container =
                         (raw as { payload?: unknown }).payload ??
@@ -417,25 +504,25 @@ class ChatWebsocketService {
                                 type?: unknown;
                             }
                         ).domainEventType ??
-                            (
-                                container as {
-                                    domainEventType?: unknown;
-                                    type?: unknown;
-                                }
-                            ).type ??
-                            (
-                                raw as {
-                                    domainEventType?: unknown;
-                                    type?: unknown;
-                                }
-                            ).domainEventType ??
-                            (
-                                raw as {
-                                    domainEventType?: unknown;
-                                    type?: unknown;
-                                }
-                            ).type ??
-                            "",
+                        (
+                            container as {
+                                domainEventType?: unknown;
+                                type?: unknown;
+                            }
+                        ).type ??
+                        (
+                            raw as {
+                                domainEventType?: unknown;
+                                type?: unknown;
+                            }
+                        ).domainEventType ??
+                        (
+                            raw as {
+                                domainEventType?: unknown;
+                                type?: unknown;
+                            }
+                        ).type ??
+                        "",
                     );
 
                     if (domainType === "MESSAGE_CREATED") {
@@ -586,6 +673,7 @@ class ChatWebsocketService {
         onConversationUpdated: (
             conversationId: number,
             lastMessage: ConversationUpdatedEvent["lastMessage"],
+            conversation?: ConversationSnapshot,
         ) => void,
     ): void {
         const destination = `/topic/user/${userId}/conversations`;
@@ -597,46 +685,57 @@ class ChatWebsocketService {
 
             return client.subscribe(destination, (message: IMessage) => {
                 try {
-                    const raw = JSON.parse(message.body) as
-                        | ConversationUpdatedEvent
-                        | {
-                              payload?: ConversationUpdatedEvent;
-                              data?: ConversationUpdatedEvent;
-                              conversationId?: unknown;
-                              lastMessage?: unknown;
-                              lastMessageResponse?: unknown;
-                          };
-                    const container =
-                        (raw as { payload?: ConversationUpdatedEvent })
-                            .payload ??
-                        (raw as { data?: ConversationUpdatedEvent }).data ??
-                        raw;
+                    const payload = JSON.parse(message.body) as UserConversationEvent;
 
-                    const conversationIdRaw = (
-                        container as { conversationId?: unknown }
-                    ).conversationId;
-                    const parsedConversationId = Number(conversationIdRaw);
-                    if (!Number.isFinite(parsedConversationId)) {
+                    const createdConversation = (
+                        payload as { conversationResponse?: Conversation }
+                    ).conversationResponse;
+
+                    if (createdConversation?.id) {
+                        const lastMessageData =
+                            toLastMessageUpdate(createdConversation);
+                        const resolvedLastMessage =
+                            lastMessageData ??
+                            buildFallbackLastMessageUpdate(createdConversation);
+                        const conversationSnapshot: ConversationSnapshot = {
+                            ...createdConversation,
+                            lastMessage:
+                                createdConversation.lastMessage ??
+                                resolvedLastMessage,
+                        };
+
+                        onConversationUpdated(
+                            createdConversation.id,
+                            resolvedLastMessage,
+                            conversationSnapshot,
+                        );
                         return;
                     }
 
-                    const lastMessageRaw =
-                        (
-                            container as {
-                                lastMessage?: ConversationUpdatedEvent["lastMessage"];
-                            }
-                        ).lastMessage ??
-                        (
-                            container as {
-                                lastMessageResponse?: ConversationUpdatedEvent["lastMessage"];
-                            }
-                        ).lastMessageResponse;
-
-                    if (!lastMessageRaw) {
+                    const disbandPayload = payload as GroupDisbandedEvent;
+                    if (
+                        disbandPayload.domainEventType === "GROUP_DISBANDED" &&
+                        typeof disbandPayload.conversationId === "number"
+                    ) {
+                        onConversationUpdated(
+                            disbandPayload.conversationId,
+                            buildSystemFallbackByDomainEvent(
+                                disbandPayload.domainEventType,
+                            ),
+                        );
                         return;
                     }
 
-                    onConversationUpdated(parsedConversationId, lastMessageRaw);
+                    const updatedEvent = payload as ConversationUpdatedEvent;
+                    if (
+                        typeof updatedEvent.conversationId === "number" &&
+                        updatedEvent.lastMessage
+                    ) {
+                        onConversationUpdated(
+                            updatedEvent.conversationId,
+                            updatedEvent.lastMessage,
+                        );
+                    }
                 } catch {
                     // no-op
                 }

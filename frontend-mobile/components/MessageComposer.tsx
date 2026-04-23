@@ -6,9 +6,7 @@ import {
     TextInput,
     Modal,
     StyleSheet,
-    KeyboardAvoidingView,
     Platform,
-    Animated,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing } from "@/constants";
@@ -50,6 +48,7 @@ export interface MessageComposerProps {
     uploadProgressLabel: string;
     uploadProgressPercent: number | null;
     uploadFailedFileNames: string[];
+    readOnlyNotice?: string | null;
     error: string | null;
     onPickEmoji: (emoji: string) => void;
 }
@@ -104,14 +103,17 @@ export const MessageComposer = React.memo(
         uploadProgressLabel,
         uploadProgressPercent,
         uploadFailedFileNames,
+        readOnlyNotice,
         error,
         onPickEmoji,
     }: MessageComposerProps) => {
+        const isReadOnly = Boolean(readOnlyNotice);
+
         const handleCapturePhotoPress = React.useCallback(() => {
-            if (uploading || sending) return;
+            if (uploading || sending || isReadOnly) return;
 
             void onCapturePhotoAndSend();
-        }, [onCapturePhotoAndSend, sending, uploading]);
+        }, [isReadOnly, onCapturePhotoAndSend, sending, uploading]);
 
         return (
             <View style={{ flexShrink: 0 }}>
@@ -149,7 +151,9 @@ export const MessageComposer = React.memo(
                                     style={styles.recordingSideBtn}
                                     hitSlop={8}
                                     onPress={onCancelRecording}
-                                    disabled={uploading || sending}
+                                    disabled={
+                                        uploading || sending || isReadOnly
+                                    }
                                 >
                                     <Ionicons
                                         name="trash"
@@ -197,7 +201,9 @@ export const MessageComposer = React.memo(
                                     style={styles.recordingSideBtn}
                                     hitSlop={8}
                                     onPress={onStopRecordingAndSend}
-                                    disabled={uploading || sending}
+                                    disabled={
+                                        uploading || sending || isReadOnly
+                                    }
                                 >
                                     <Ionicons
                                         name="send"
@@ -236,15 +242,19 @@ export const MessageComposer = React.memo(
                                     }}
                                     selection={inputSelection}
                                     placeholder={
-                                        uploading
-                                            ? "Dang tai tep..."
-                                            : "Nhan tin..."
+                                        isReadOnly
+                                            ? "Ban khong the gui tin nhan"
+                                            : uploading
+                                              ? "Dang tai tep..."
+                                              : "Nhan tin..."
                                     }
                                     placeholderTextColor={colors.textMuted}
                                     style={styles.input}
                                     returnKeyType="send"
                                     onSubmitEditing={onSend}
-                                    editable={!uploading && !sending}
+                                    editable={
+                                        !uploading && !sending && !isReadOnly
+                                    }
                                 />
 
                                 <View style={styles.composerActions}>
@@ -254,7 +264,11 @@ export const MessageComposer = React.memo(
                                                 style={styles.composerActionBtn}
                                                 hitSlop={8}
                                                 onPress={onToggleEmojiPicker}
-                                                disabled={uploading || sending}
+                                                disabled={
+                                                    uploading ||
+                                                    sending ||
+                                                    isReadOnly
+                                                }
                                             >
                                                 <Ionicons
                                                     name={
@@ -270,7 +284,11 @@ export const MessageComposer = React.memo(
                                                 style={styles.sendArrowBtn}
                                                 hitSlop={8}
                                                 onPress={onSend}
-                                                disabled={uploading || sending}
+                                                disabled={
+                                                    uploading ||
+                                                    sending ||
+                                                    isReadOnly
+                                                }
                                             >
                                                 <Ionicons
                                                     name="send"
@@ -285,7 +303,11 @@ export const MessageComposer = React.memo(
                                                 style={styles.composerActionBtn}
                                                 hitSlop={8}
                                                 onPress={onStartRecording}
-                                                disabled={uploading || sending}
+                                                disabled={
+                                                    uploading ||
+                                                    sending ||
+                                                    isReadOnly
+                                                }
                                             >
                                                 <Ionicons
                                                     name="mic-outline"
@@ -297,7 +319,11 @@ export const MessageComposer = React.memo(
                                                 style={styles.composerActionBtn}
                                                 hitSlop={8}
                                                 onPress={onPickMediaAndSend}
-                                                disabled={uploading || sending}
+                                                disabled={
+                                                    uploading ||
+                                                    sending ||
+                                                    isReadOnly
+                                                }
                                             >
                                                 <Ionicons
                                                     name="image-outline"
@@ -309,7 +335,11 @@ export const MessageComposer = React.memo(
                                                 style={styles.composerActionBtn}
                                                 hitSlop={8}
                                                 onPress={onPickDocumentAndSend}
-                                                disabled={uploading || sending}
+                                                disabled={
+                                                    uploading ||
+                                                    sending ||
+                                                    isReadOnly
+                                                }
                                             >
                                                 <Ionicons
                                                     name="document-outline"
@@ -321,7 +351,11 @@ export const MessageComposer = React.memo(
                                                 style={styles.composerActionBtn}
                                                 hitSlop={8}
                                                 onPress={onToggleEmojiPicker}
-                                                disabled={uploading || sending}
+                                                disabled={
+                                                    uploading ||
+                                                    sending ||
+                                                    isReadOnly
+                                                }
                                             >
                                                 <Ionicons
                                                     name={
@@ -359,6 +393,9 @@ export const MessageComposer = React.memo(
                         <Text style={styles.errorText}>
                             Tai tep that bai: {uploadFailedFileNames.join(", ")}
                         </Text>
+                    ) : null}
+                    {readOnlyNotice ? (
+                        <Text style={styles.errorText}>{readOnlyNotice}</Text>
                     ) : null}
                     {error ? (
                         <Text style={styles.errorText}>{error}</Text>
@@ -415,6 +452,8 @@ export const MessageComposer = React.memo(
         );
     },
 );
+
+MessageComposer.displayName = "MessageComposer";
 
 const styles = StyleSheet.create({
     container: {

@@ -6,11 +6,15 @@ import { useMessageComposerMediaActions } from "@/hooks/useMessageComposerMediaA
 import { MediaViewerModal } from "@/components/MediaViewerModal";
 import { MessageContextMenu } from "@/components/MessageContextMenu";
 import { UserAvatar } from "@/components";
+import GroupConversationPanel from "@/components/GroupConversationPanel";
+import SelectGroupMembersModal from "@/components/SelectGroupMembersModal";
 import { colors, spacing } from "@/constants";
 import { useChatWindowController } from "@/hooks/useChatWindowController";
+import { useGroupManagement } from "@/hooks/useGroupManagement";
 import type { LocalUploadFile, Message } from "@/types/chat";
 import { formatRelativeTime } from "@/utils/format";
 import { focusComposerInput } from "@/utils/focusComposerInput";
+import { buildConversationDisplayInfo } from "@/utils/conversationDisplayInfo";
 import { Ionicons } from "@expo/vector-icons";
 import { Audio, type AVPlaybackStatus, ResizeMode, Video } from "expo-av";
 import * as Haptics from "expo-haptics";
@@ -109,6 +113,7 @@ export default function MessagesConversationScreen() {
         uploadProgressPercent,
         uploadProgressLabel,
         uploadFailedFileNames,
+        readOnlyNotice,
         error,
         jumpToast,
         handleSend,
@@ -148,9 +153,55 @@ export default function MessagesConversationScreen() {
     const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
     const [showRightScrollCue, setShowRightScrollCue] = useState(false);
     const [rightScrollCueBaseTop, setRightScrollCueBaseTop] = useState(0);
+    const [showGroupInfoModal, setShowGroupInfoModal] = useState(false);
     const [inputSelection, setInputSelection] = useState({
         start: 0,
         end: 0,
+    });
+
+    // Mapping web -> mobile:
+    // - useGroupManagement giu nguyen API/state flow cua web.
+    // - UI duoc hien thi trong modal thay cho side panel desktop.
+    const {
+        selectedGroupConversation,
+        canManageMembers,
+        canUpdateRole,
+        canDisbandGroup,
+        groupMemberIds,
+        availableFriends,
+        friendsLoading,
+        friendsError,
+        isAddMembersModalOpen,
+        isAddingMembers,
+        isLeavingGroup,
+        isDisbandingGroup,
+        isTransferOwnerModalOpen,
+        pendingKickUserId,
+        pendingRoleUserId,
+        pendingTransferOwnerUserId,
+        ownerTransferCandidates,
+        actionError,
+        openAddMembersModal,
+        closeAddMembersModal,
+        closeTransferOwnerModal,
+        addMembersToGroup,
+        updateMemberRole,
+        kickMember,
+        leaveGroup,
+        transferOwnershipAndLeave,
+        disbandGroup,
+    } = useGroupManagement({
+        currentUserId,
+        selectedConversation: conversation,
+        selectedConversationId: Number.isFinite(conversationId)
+            ? conversationId
+            : null,
+        reloadConversations: async () => {
+            await resetToPresent();
+        },
+        onClearSelection: () => {
+            router.back();
+        },
     });
 
     const listRef = useRef<FlatList<Message>>(null);
@@ -223,6 +274,22 @@ export default function MessagesConversationScreen() {
             null
         );
     }, [currentUserId, membersById]);
+
+    const conversationDisplayInfo = useMemo(() => {
+        if (!conversation) return null;
+
+        return buildConversationDisplayInfo({
+            conversation,
+            currentUserId,
+            members: Object.values(membersById),
+        });
+    }, [conversation, currentUserId, membersById]);
+
+    useEffect(() => {
+        if (conversation?.type !== "GROUP") {
+            setShowGroupInfoModal(false);
+        }
+    }, [conversation?.type]);
 
     const activityText = useMemo(() => {
         if (!conversation?.updatedAt) return "Dang hoat dong";
@@ -1232,14 +1299,23 @@ export default function MessagesConversationScreen() {
 
                     <View style={styles.headerIdentity}>
                         <UserAvatar
-                            uri={otherUser?.avatar}
-                            name={otherUser?.username ?? "?"}
+                            uri={
+                                conversationDisplayInfo?.avatarUrl ||
+                                otherUser?.avatar
+                            }
+                            name={
+                                conversationDisplayInfo?.name ||
+                                otherUser?.nickname ||
+                                otherUser?.username ||
+                                "Conversation"
+                            }
                             size={40}
                         />
                         <View style={styles.headerMeta}>
                             <Text style={styles.headerName} numberOfLines={1}>
-                                {otherUser?.nickname ??
-                                    otherUser?.username ??
+                                {conversationDisplayInfo?.name ||
+                                    otherUser?.nickname ||
+                                    otherUser?.username ||
                                     "Conversation"}
                             </Text>
                             <Text style={styles.headerStatus} numberOfLines={1}>
@@ -1270,10 +1346,21 @@ export default function MessagesConversationScreen() {
                                 color={colors.text}
                             />
                         </Pressable>
+                        {conversation?.type === "GROUP" ? (
+                            <Pressable
+                                style={styles.headerActionBtn}
+                                hitSlop={8}
+                                onPress={() => setShowGroupInfoModal(true)}
+                            >
+                                <Ionicons
+                                    name="information-circle-outline"
+                                    size={22}
+                                    color={colors.text}
+                                />
+                            </Pressable>
+                        ) : null}
                     </View>
                 </View>
-
-              
 
                 <PinnedBanner
                     pinnedBannerItems={pinnedBannerItems}
@@ -1284,7 +1371,7 @@ export default function MessagesConversationScreen() {
                     handleOpenPinnedMessage={handleOpenPinnedMessage}
                     handleUnpinMessage={handleUnpinMessage}
                 />
-                  {jumpToast ? (
+                {jumpToast ? (
                     <View style={styles.jumpToastWrap} pointerEvents="none">
                         <Text style={styles.jumpToastText}>{jumpToast}</Text>
                     </View>
@@ -1577,6 +1664,7 @@ export default function MessagesConversationScreen() {
                     uploadProgressLabel={uploadProgressLabel || ""}
                     uploadProgressPercent={uploadProgressPercent}
                     uploadFailedFileNames={uploadFailedFileNames}
+                    readOnlyNotice={readOnlyNotice}
                     error={error}
                     onPickEmoji={onPickEmoji}
                 />
@@ -1592,6 +1680,123 @@ export default function MessagesConversationScreen() {
                 mediaViewer={mediaViewer}
                 closeMediaViewer={closeMediaViewer}
             />
+
+            <Modal
+                visible={
+                    showGroupInfoModal && Boolean(selectedGroupConversation)
+                }
+                transparent
+                animationType="fade"
+                onRequestClose={() => setShowGroupInfoModal(false)}
+            >
+                <View style={groupModalStyles.overlay}>
+                    <Pressable
+                        style={groupModalStyles.backdrop}
+                        onPress={() => setShowGroupInfoModal(false)}
+                    />
+
+                    <View style={groupModalStyles.card}>
+                        <View style={groupModalStyles.header}>
+                            <Text style={groupModalStyles.title}>
+                                Chi tiet nhom
+                            </Text>
+                            <Pressable
+                                onPress={() => setShowGroupInfoModal(false)}
+                                style={groupModalStyles.closeBtn}
+                            >
+                                <Ionicons
+                                    name="close"
+                                    size={20}
+                                    color={colors.textMuted}
+                                />
+                            </Pressable>
+                        </View>
+
+                        {selectedGroupConversation ? (
+                            <GroupConversationPanel
+                                conversation={selectedGroupConversation}
+                                currentUserId={currentUserId}
+                                canManageMembers={canManageMembers}
+                                canUpdateRole={canUpdateRole}
+                                canDisbandGroup={canDisbandGroup}
+                                isLeavingGroup={isLeavingGroup}
+                                isDisbandingGroup={isDisbandingGroup}
+                                isTransferOwnerModalOpen={
+                                    isTransferOwnerModalOpen
+                                }
+                                pendingKickUserId={pendingKickUserId}
+                                pendingRoleUserId={pendingRoleUserId}
+                                pendingTransferOwnerUserId={
+                                    pendingTransferOwnerUserId
+                                }
+                                ownerTransferCandidates={
+                                    ownerTransferCandidates
+                                }
+                                actionError={actionError}
+                                onOpenAddMembersModal={openAddMembersModal}
+                                onLeaveGroup={leaveGroup}
+                                onCloseTransferOwnerModal={
+                                    closeTransferOwnerModal
+                                }
+                                onTransferOwnershipAndLeave={
+                                    transferOwnershipAndLeave
+                                }
+                                onDisbandGroup={disbandGroup}
+                                onKickMember={kickMember}
+                                onUpdateMemberRole={updateMemberRole}
+                            />
+                        ) : null}
+                    </View>
+                </View>
+            </Modal>
+
+            <SelectGroupMembersModal
+                open={isAddMembersModalOpen}
+                friends={availableFriends}
+                existingMemberIds={groupMemberIds}
+                loadingFriends={friendsLoading}
+                friendsError={friendsError}
+                submitting={isAddingMembers}
+                error={actionError}
+                onClose={closeAddMembersModal}
+                onSubmit={addMembersToGroup}
+            />
         </SafeAreaView>
     );
 }
+
+const groupModalStyles = StyleSheet.create({
+    overlay: {
+        flex: 1,
+        justifyContent: "center",
+        paddingHorizontal: spacing.lg,
+    },
+    backdrop: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: "rgba(0,0,0,0.35)",
+    },
+    card: {
+        maxHeight: "88%",
+        borderRadius: 16,
+        backgroundColor: colors.white,
+        padding: spacing.md,
+    },
+    header: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        marginBottom: spacing.sm,
+    },
+    title: {
+        fontSize: 18,
+        fontWeight: "700",
+        color: colors.text,
+    },
+    closeBtn: {
+        width: 30,
+        height: 30,
+        borderRadius: 15,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+});

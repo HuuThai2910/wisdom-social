@@ -32,6 +32,17 @@ const MAX_IMAGE_SIZE_BYTES = 25 * 1024 * 1024;
 const MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024;
 const JUMP_NOT_FOUND_TOAST = "Khong the tim thay tin nhan";
 const JUMP_TOAST_TIMEOUT_MS = 2400;
+const GROUP_READ_ONLY_COMPOSER_NOTICE =
+    "Ban khong the gui tin nhan vao nhom duoc nua";
+
+const GROUP_SYSTEM_MEMBER_SYNC_TYPES = new Set<Message["type"]>([
+    "SYSTEM_CREATE_GROUP",
+    "SYSTEM_ADD_MEMBER",
+    "SYSTEM_UPDATE_ROLE",
+    "SYSTEM_KICK_MEMBER",
+    "SYSTEM_LEAVE_GROUP",
+    "SYSTEM_DISBAND_GROUP",
+]);
 
 export interface ReadReceipt {
     userId: number;
@@ -142,6 +153,138 @@ function buildLastMessagePreview(message: Message): string {
     return message.content || "Tin nhan";
 }
 
+function safeParseMemberIds(content: string): number[] {
+    if (!content) return [];
+
+    try {
+        const parsed = JSON.parse(content);
+        if (!Array.isArray(parsed)) return [];
+
+        return parsed
+            .map((value) => Number(value))
+            .filter((value) => Number.isFinite(value));
+    } catch {
+        return [];
+    }
+}
+
+function resolveReadOnlyReasonFromApiMessage(message: string): string | null {
+    const normalized = message.toLowerCase();
+
+    if (
+        normalized.includes("xoa khoi nhom") ||
+        normalized.includes("bi duoi") ||
+        normalized.includes("bi kick") ||
+        normalized.includes("kicked")
+    ) {
+        return "Ban da bi xoa khoi nhom.";
+    }
+
+    if (normalized.includes("roi nhom") || normalized.includes("roi khoi nhom")) {
+        return "Ban da roi khoi nhom.";
+    }
+
+    if (normalized.includes("giai tan")) {
+        return "Nhom da bi giai tan.";
+    }
+
+    if (
+        normalized.includes("khong phai thanh vien") ||
+        normalized.includes("khong co quyen") ||
+        normalized.includes("access denied") ||
+        normalized.includes("forbidden")
+    ) {
+        return "Ban khong co quyen truy cap hoi thoai nay.";
+    }
+
+    return null;
+}
+
+function extractApiErrorMessage(error: unknown): string | null {
+    if (
+        error &&
+        typeof error === "object" &&
+        "response" in (error as Record<string, unknown>)
+    ) {
+        const response = (
+            error as {
+                response?: {
+                    data?: {
+                        message?: string;
+                        error?: string;
+                        data?: { message?: string };
+                    };
+                };
+            }
+        ).response;
+
+        const payload = response?.data;
+        const direct = payload?.message;
+        const nested = payload?.data?.message;
+        const spring = payload?.error;
+
+        const candidate = direct || nested || spring;
+        if (candidate && candidate.trim()) {
+            return candidate;
+        }
+    }
+
+    if (error instanceof Error && error.message.trim()) {
+        return error.message;
+    }
+
+    return null;
+}
+
+function resolveReadOnlyReasonFromConversation(
+    conversation: Conversation | null,
+    currentUserId: number,
+): string | null {
+    if (!conversation || conversation.type !== "GROUP") return null;
+
+    const currentMember = (conversation.members ?? []).find(
+        (member) => Number(member.userId) === Number(currentUserId),
+    );
+    if (!currentMember) return null;
+
+    if (currentMember.status === "KICKED") {
+        return "Ban da bi xoa khoi nhom.";
+    }
+    if (currentMember.status === "LEFT") {
+        return "Ban da roi khoi nhom.";
+    }
+    if (currentMember.status === "GROUP_DISBANDED") {
+        return "Nhom da bi giai tan.";
+    }
+
+    return null;
+}
+
+function resolveReadOnlyReasonFromSystemMessage(
+    message: Message,
+    currentUserId: number,
+): string | null {
+    if (message.type === "SYSTEM_DISBAND_GROUP") {
+        return "Nhom da bi giai tan.";
+    }
+
+    if (message.type === "SYSTEM_LEAVE_GROUP") {
+        if (Number(message.senderId) === Number(currentUserId)) {
+            return "Ban da roi khoi nhom.";
+        }
+        return null;
+    }
+
+    if (message.type === "SYSTEM_KICK_MEMBER") {
+        const targetIds = safeParseMemberIds(message.content);
+        if (targetIds.some((id) => Number(id) === Number(currentUserId))) {
+            return "Ban da bi xoa khoi nhom.";
+        }
+    }
+
+    return null;
+}
+
 export function useChatWindowController(args: {
     conversationId: number;
     onMarkAsRead?: (conversationId: number) => void;
@@ -187,6 +330,7 @@ export function useChatWindowController(args: {
     const [uploadFailedFileNames, setUploadFailedFileNames] = useState<
         string[]
     >([]);
+    const [readOnlyNotice, setReadOnlyNotice] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [jumpToast, setJumpToast] = useState<string | null>(null);
     const [olderCursor, setOlderCursor] = useState<string | null>(null);
@@ -224,9 +368,9 @@ export function useChatWindowController(args: {
         setConversation((prev) =>
             prev
                 ? {
-                      ...prev,
-                      unreadCount: 0,
-                  }
+                    ...prev,
+                    unreadCount: 0,
+                }
                 : prev,
         );
 
@@ -375,9 +519,9 @@ export function useChatWindowController(args: {
 
             if (!convResponse.success || !convResponse.data) {
                 setConversation(null);
-                setError(
-                    convResponse.message || "Khong the tai cuoc tro chuyen",
-                );
+                const apiMessage = convResponse.message || "Khong the tai cuoc tro chuyen";
+                setReadOnlyNotice(resolveReadOnlyReasonFromApiMessage(apiMessage));
+                setError(apiMessage);
                 return;
             }
 
@@ -398,6 +542,13 @@ export function useChatWindowController(args: {
                 ...convResponse.data,
                 members: Object.values(mergedMembers),
             };
+
+            setReadOnlyNotice(
+                resolveReadOnlyReasonFromConversation(
+                    normalizedConversation,
+                    currentUserId,
+                ),
+            );
 
             const initialPins = normalizedConversation.pinnedMessages ?? [];
 
@@ -568,6 +719,60 @@ export function useChatWindowController(args: {
                 chatRuntimeStore.setConversation(conversationId, next);
                 return next;
             });
+
+            if (normalizedIncoming.type === "SYSTEM_ADD_MEMBER") {
+                const addedMemberIds = safeParseMemberIds(normalizedIncoming.content);
+                if (
+                    addedMemberIds.some(
+                        (memberId) => Number(memberId) === Number(currentUserId),
+                    )
+                ) {
+                    setReadOnlyNotice(null);
+                }
+            }
+
+            const readOnlyReason = resolveReadOnlyReasonFromSystemMessage(
+                normalizedIncoming,
+                currentUserId,
+            );
+            if (readOnlyReason) {
+                setReadOnlyNotice(readOnlyReason);
+            }
+
+            if (GROUP_SYSTEM_MEMBER_SYNC_TYPES.has(normalizedIncoming.type)) {
+                void Promise.all([
+                    chatService.getConversation(conversationId, currentUserId),
+                    chatService.getConversationMembers(conversationId),
+                ])
+                    .then(([convResponse, membersResponse]) => {
+                        if (!convResponse.success || !convResponse.data) {
+                            return;
+                        }
+
+                        const normalizedMembers = toMembersByUserId(membersResponse);
+                        const nextConversation: Conversation = {
+                            ...convResponse.data,
+                            members: Object.values(normalizedMembers),
+                        };
+
+                        setMembersById(normalizedMembers);
+                        chatRuntimeStore.setMembers(conversationId, normalizedMembers);
+
+                        setConversation(nextConversation);
+                        chatRuntimeStore.setConversation(
+                            conversationId,
+                            nextConversation,
+                        );
+
+                        setReadOnlyNotice(
+                            resolveReadOnlyReasonFromConversation(
+                                nextConversation,
+                                currentUserId,
+                            ),
+                        );
+                    })
+                    .catch(() => undefined);
+            }
 
             if (normalizedIncoming.senderId !== currentUserId) {
                 markAsRead(normalizedIncoming.id);
@@ -804,6 +1009,11 @@ export function useChatWindowController(args: {
             const trimmed = messageText.trim();
             if (!trimmed) return false;
 
+            if (readOnlyNotice) {
+                setError(readOnlyNotice || GROUP_READ_ONLY_COMPOSER_NOTICE);
+                return false;
+            }
+
             try {
                 setSending(true);
                 setError(null);
@@ -835,14 +1045,30 @@ export function useChatWindowController(args: {
 
                 setMessageText("");
                 return true;
-            } catch {
-                setError("Khong the gui tin nhan");
+            } catch (error) {
+                const apiMessage = extractApiErrorMessage(error);
+                const readOnlyReason = apiMessage
+                    ? resolveReadOnlyReasonFromApiMessage(apiMessage)
+                    : null;
+
+                if (readOnlyReason) {
+                    setReadOnlyNotice(readOnlyReason);
+                    setError(readOnlyReason);
+                } else {
+                    setError(apiMessage || "Khong the gui tin nhan");
+                }
                 return false;
             } finally {
                 setSending(false);
             }
         },
-        [conversationId, currentUserId, handleNewMessage, messageText],
+        [
+            conversationId,
+            currentUserId,
+            handleNewMessage,
+            messageText,
+            readOnlyNotice,
+        ],
     );
 
     const handleRecall = useCallback(
@@ -864,6 +1090,11 @@ export function useChatWindowController(args: {
             replyToId?: string,
         ): Promise<boolean> => {
             if (files.length === 0) return false;
+
+            if (readOnlyNotice) {
+                setError(readOnlyNotice || GROUP_READ_ONLY_COMPOSER_NOTICE);
+                return false;
+            }
 
             const validationError = getValidationErrorForFiles(files);
             if (validationError) {
@@ -955,7 +1186,7 @@ export function useChatWindowController(args: {
                                         Math.round(
                                             (loadedBytes /
                                                 Math.max(totalBytes, 1)) *
-                                                100,
+                                            100,
                                         ),
                                     );
 
@@ -963,7 +1194,7 @@ export function useChatWindowController(args: {
                                         100,
                                         Math.round(
                                             (perFileLoaded[index] / safeTotal) *
-                                                100,
+                                            100,
                                         ),
                                     );
 
@@ -1140,13 +1371,22 @@ export function useChatWindowController(args: {
                 return true;
             } catch (error) {
                 const errMsg = error instanceof Error ? error.message : "";
+                const apiMessage = extractApiErrorMessage(error) || errMsg;
+                const readOnlyReason = apiMessage
+                    ? resolveReadOnlyReasonFromApiMessage(apiMessage)
+                    : null;
                 const failedName = errMsg.startsWith("UPLOAD_FAILED::")
                     ? errMsg.replace("UPLOAD_FAILED::", "")
                     : "";
                 if (failedName) {
                     setUploadFailedFileNames([failedName]);
                 }
-                setError("Khong the gui tep dinh kem");
+                if (readOnlyReason) {
+                    setReadOnlyNotice(readOnlyReason);
+                    setError(readOnlyReason);
+                } else {
+                    setError("Khong the gui tep dinh kem");
+                }
                 return false;
             } finally {
                 setUploading(false);
@@ -1155,7 +1395,13 @@ export function useChatWindowController(args: {
                 setUploadFileProgressMap({});
             }
         },
-        [conversationId, currentUserId, handleNewMessage, messageText],
+        [
+            conversationId,
+            currentUserId,
+            handleNewMessage,
+            messageText,
+            readOnlyNotice,
+        ],
     );
 
     const handleDeleteForMe = useCallback(
@@ -1529,8 +1775,8 @@ export function useChatWindowController(args: {
             const messageFromStore = messageFromState
                 ? null
                 : chatRuntimeStore
-                      .getMessages(conversationId)
-                      .find((message) => message.id === targetMessageId);
+                    .getMessages(conversationId)
+                    .find((message) => message.id === targetMessageId);
             const localMessage = messageFromState ?? messageFromStore;
 
             if (localMessage) {
@@ -1659,6 +1905,7 @@ export function useChatWindowController(args: {
         uploadProgressLabel,
         uploadFileProgressMap,
         uploadFailedFileNames,
+        readOnlyNotice,
         error,
         jumpToast,
         handleSend,

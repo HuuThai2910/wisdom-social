@@ -136,7 +136,11 @@ export function useMessagesController() {
     }, [loadConversations]);
 
     const handleConversationUpdate = useCallback(
-        (conversationId: number, lastMessage: Conversation["lastMessage"]) => {
+        (
+            conversationId: number,
+            lastMessage: Conversation["lastMessage"],
+            conversationSnapshot?: Conversation,
+        ) => {
             if (!lastMessage) return;
 
             const latestUserId = currentUserIdRef.current;
@@ -170,6 +174,35 @@ export function useMessagesController() {
             setConversations((prev) => {
                 const exists = prev.some((conv) => conv.id === conversationId);
                 if (!exists) {
+                    if (conversationSnapshot) {
+                        const unreadCountFromSnapshot =
+                            conversationSnapshot.unreadCount ?? 0;
+                        const nextUnreadCount =
+                            isReadUpdate || isMyMessage
+                                ? unreadCountFromSnapshot
+                                : unreadCountFromSnapshot > 0
+                                    ? unreadCountFromSnapshot
+                                    : 1;
+
+                        const snapshotWithLastMessage: Conversation = {
+                            ...conversationSnapshot,
+                            lastMessage:
+                                conversationSnapshot.lastMessage ??
+                                normalizedLastMessage,
+                            unreadCount: nextUnreadCount,
+                        };
+
+                        chatRuntimeStore.setConversation(
+                            conversationId,
+                            snapshotWithLastMessage,
+                        );
+
+                        return sortConversationsByLatest([
+                            snapshotWithLastMessage,
+                            ...prev,
+                        ]);
+                    }
+
                     void chatService
                         .getConversation(conversationId, latestUserId)
                         .then((response) => {
@@ -209,23 +242,29 @@ export function useMessagesController() {
                 const next = prev.map((conv) => {
                     if (conv.id !== conversationId) return conv;
 
+                    const baseConversation =
+                        conversationSnapshot &&
+                            conversationSnapshot.id === conversationId
+                            ? { ...conv, ...conversationSnapshot }
+                            : conv;
+
                     let newUnreadCount: number;
                     if (isReadUpdate) {
                         // Thu hồi tin nhắn: giữ nguyên unreadCount hiện tại.
-                        newUnreadCount = conv.unreadCount || 0;
+                        newUnreadCount = baseConversation.unreadCount || 0;
                     } else if (!isMyMessage) {
                         // Tin nhắn mới từ người khác:
                         // Đang xem conversation → reset 0; không xem → +1.
                         newUnreadCount = isViewingThisConversation
                             ? 0
-                            : (conv.unreadCount || 0) + 1;
+                            : (baseConversation.unreadCount || 0) + 1;
                     } else {
                         // Tin nhắn của chính mình: không thay đổi unreadCount.
-                        newUnreadCount = conv.unreadCount || 0;
+                        newUnreadCount = baseConversation.unreadCount || 0;
                     }
 
                     return {
-                        ...conv,
+                        ...baseConversation,
                         updatedAt: lastMessage.lastMessageAt,
                         lastMessage: normalizedLastMessage,
                         unreadCount: newUnreadCount,
