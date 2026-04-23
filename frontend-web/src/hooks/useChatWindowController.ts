@@ -49,6 +49,107 @@ const MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024;
 const RECALLED_REPLY_TEXT = "Tin nhắn đã được thu hồi";
 const JUMP_NOT_FOUND_TOAST = "Không thể tìm thấy tin nhắn.";
 const JUMP_TOAST_TIMEOUT_MS = 2400;
+const GROUP_READ_ONLY_COMPOSER_NOTICE =
+    "Bạn không thể gửi tin nhắn vào nhóm được nữa";
+
+const GROUP_SYSTEM_MEMBER_SYNC_TYPES = new Set<MessageType>([
+    "SYSTEM_CREATE_GROUP",
+    "SYSTEM_ADD_MEMBER",
+    "SYSTEM_UPDATE_ROLE",
+    "SYSTEM_KICK_MEMBER",
+    "SYSTEM_LEAVE_GROUP",
+    "SYSTEM_DISBAND_GROUP",
+]);
+
+function resolveApiErrorMessage(error: unknown, fallback: string): string {
+    if (
+        error &&
+        typeof error === "object" &&
+        "response" in (error as Record<string, unknown>)
+    ) {
+        const response = (
+            error as {
+                response?: {
+                    data?: {
+                        message?: string;
+                    };
+                };
+            }
+        ).response;
+
+        const serverMessage = response?.data?.message;
+        if (serverMessage && serverMessage.trim()) {
+            return serverMessage;
+        }
+    }
+
+    return fallback;
+}
+
+function safeParseMemberIds(content: string): number[] {
+    if (!content) return [];
+
+    try {
+        const parsed = JSON.parse(content);
+        if (!Array.isArray(parsed)) return [];
+
+        return parsed
+            .map((value) => Number(value))
+            .filter((value) => Number.isFinite(value));
+    } catch {
+        return [];
+    }
+}
+
+function resolveReadOnlyReasonFromApiMessage(message: string): string | null {
+    const normalized = message.toLowerCase();
+
+    if (
+        normalized.includes("xóa khỏi nhóm") ||
+        normalized.includes("bị kick") ||
+        normalized.includes("kicked")
+    ) {
+        return "Bạn đã bị xóa khỏi nhóm.";
+    }
+
+    if (
+        normalized.includes("rời nhóm") ||
+        normalized.includes("rời khỏi nhóm")
+    ) {
+        return "Bạn đã rời khỏi nhóm.";
+    }
+
+    if (normalized.includes("giải tán")) {
+        return "Nhóm đã bị giải tán.";
+    }
+
+    return null;
+}
+
+function resolveReadOnlyReasonFromSystemMessage(
+    message: Message,
+    currentUserId: number,
+): string | null {
+    if (message.type === "SYSTEM_DISBAND_GROUP") {
+        return "Nhóm đã bị giải tán.";
+    }
+
+    if (message.type === "SYSTEM_LEAVE_GROUP") {
+        if (Number(message.senderId) === Number(currentUserId)) {
+            return "Bạn đã rời khỏi nhóm.";
+        }
+        return null;
+    }
+
+    if (message.type === "SYSTEM_KICK_MEMBER") {
+        const targetIds = safeParseMemberIds(message.content);
+        if (targetIds.some((id) => Number(id) === Number(currentUserId))) {
+            return "Bạn đã bị xóa khỏi nhóm.";
+        }
+    }
+
+    return null;
+}
 
 type LoadOlderOptions = { keepAtBottom?: boolean };
 type VisibleAnchorSnapshot = { messageId: string; topOffset: number };
@@ -187,8 +288,9 @@ function normalizeMessagesForUi(messages: Message[]): Message[] {
 export function useChatWindowController(args: {
     conversationId: number;
     onMarkAsRead?: (conversationId: number) => void; // Callback để clear unreadCount ở sidebar
+    forcedReadOnlyNotice?: string | null;
 }) {
-    const { conversationId, onMarkAsRead } = args;
+    const { conversationId, onMarkAsRead, forcedReadOnlyNotice } = args;
 
     // userId: lấy từ AuthContext (security integration - không nhận qua prop nữa)
     const { currentUser } = useAuth();
@@ -215,6 +317,7 @@ export function useChatWindowController(args: {
     const [uploadFailedFileNames, setUploadFailedFileNames] = useState<
         string[]
     >([]);
+    const [readOnlyNotice, setReadOnlyNotice] = useState<string | null>(null);
 
     // ====== Ghi âm tin nhắn thoại (Voice recording) ======
     // isRecording: true nếu đang ghi âm, dùng để hiện overlay ghi âm trong UI
@@ -373,6 +476,7 @@ export function useChatWindowController(args: {
     const loadMoreRequestedRef = useRef(false);
     const olderMessagesAbortRef = useRef<AbortController | null>(null);
     const returningToPresentRef = useRef(false);
+    const membersSyncInFlightRef = useRef(false);
     const mediaLoadStabilizerRef = useRef<{
         activeUntil: number;
         lastScrollHeight: number;
@@ -627,6 +731,45 @@ export function useChatWindowController(args: {
         [],
     );
 
+    const syncConversationMembers = useCallback(async () => {
+        if (membersSyncInFlightRef.current) return;
+        membersSyncInFlightRef.current = true;
+
+        try {
+            const membersResponse =
+                await chatService.getConversationMembers(conversationId);
+            const normalizedMembers = toMembersByUserId(membersResponse);
+
+            setMembersById((prev) => {
+                const merged = {
+                    ...prev,
+                    ...normalizedMembers,
+                };
+
+                chatRuntimeStore.setMembers(conversationId, merged);
+                setConversation((previousConversation) => {
+                    if (!previousConversation) return previousConversation;
+
+                    const nextConversation = {
+                        ...previousConversation,
+                        members: Object.values(merged),
+                    };
+                    chatRuntimeStore.setConversation(
+                        conversationId,
+                        nextConversation,
+                    );
+                    return nextConversation;
+                });
+
+                return merged;
+            });
+        } catch {
+            // no-op
+        } finally {
+            membersSyncInFlightRef.current = false;
+        }
+    }, [conversationId]);
+
     const applyWindowForOlder = useCallback((nextMessages: Message[]) => {
         if (nextMessages.length <= MESSAGE_WINDOW_LIMIT) {
             return { messages: nextMessages, trimmedTail: false };
@@ -666,6 +809,7 @@ export function useChatWindowController(args: {
         ) => {
             try {
                 setError(null);
+                setReadOnlyNotice(null);
 
                 const [convResponse, membersResponse, messagesResponse] =
                     await Promise.all([
@@ -682,10 +826,27 @@ export function useChatWindowController(args: {
                 if (token !== loadTokenRef.current) return;
 
                 if (!convResponse.success || !convResponse.data) {
+                    const apiMessage =
+                        convResponse.message || "Không thể tải cuộc trò chuyện";
+                    const readOnlyReason =
+                        resolveReadOnlyReasonFromApiMessage(apiMessage);
+                    if (readOnlyReason) {
+                        setReadOnlyNotice(GROUP_READ_ONLY_COMPOSER_NOTICE);
+                        setError(readOnlyReason);
+                        websocketService.unsubscribeFromConversation(
+                            conversationId,
+                        );
+                        websocketService.unsubscribeFromConversationMembers(
+                            conversationId,
+                        );
+                        websocketService.unsubscribeFromConversationPins(
+                            conversationId,
+                        );
+                        return;
+                    }
+
                     setConversation(null);
-                    setError(
-                        convResponse.message || "Không thể tải cuộc trò chuyện",
-                    );
+                    setError(apiMessage);
                     return;
                 }
 
@@ -767,12 +928,33 @@ export function useChatWindowController(args: {
                 if (lastMessage && markAsReadFn) {
                     markAsReadFn(lastMessage.id);
                 }
-            } catch {
+            } catch (error) {
                 if (token !== loadTokenRef.current) return;
+                const apiMessage = resolveApiErrorMessage(
+                    error,
+                    "Không thể tải dữ liệu cuộc trò chuyện",
+                );
+                const readOnlyReason =
+                    resolveReadOnlyReasonFromApiMessage(apiMessage);
+                if (readOnlyReason) {
+                    setReadOnlyNotice(GROUP_READ_ONLY_COMPOSER_NOTICE);
+                    setError(readOnlyReason);
+                    websocketService.unsubscribeFromConversation(
+                        conversationId,
+                    );
+                    websocketService.unsubscribeFromConversationMembers(
+                        conversationId,
+                    );
+                    websocketService.unsubscribeFromConversationPins(
+                        conversationId,
+                    );
+                    return;
+                }
+
                 setMessages([]);
                 setConversation(null);
                 setMembersById({});
-                setError("Không thể tải dữ liệu cuộc trò chuyện");
+                setError(apiMessage);
             } finally {
                 if (token === loadTokenRef.current) {
                     returningToPresentRef.current = false;
@@ -782,6 +964,18 @@ export function useChatWindowController(args: {
         },
         [conversationId, mergeReferenceUsers, userId],
     );
+
+    useEffect(() => {
+        if (!forcedReadOnlyNotice) return;
+
+        setReadOnlyNotice(GROUP_READ_ONLY_COMPOSER_NOTICE);
+        setError(forcedReadOnlyNotice);
+        setSending(false);
+        setUploading(false);
+        websocketService.unsubscribeFromConversation(conversationId);
+        websocketService.unsubscribeFromConversationMembers(conversationId);
+        websocketService.unsubscribeFromConversationPins(conversationId);
+    }, [conversationId, forcedReadOnlyNotice]);
 
     const loadOlderMessages = useCallback(
         async (options?: LoadOlderOptions) => {
@@ -887,9 +1081,9 @@ export function useChatWindowController(args: {
             } catch (error) {
                 const isAbort =
                     (error as { code?: string; name?: string })?.code ===
-                    "ERR_CANCELED" ||
+                        "ERR_CANCELED" ||
                     (error as { code?: string; name?: string })?.name ===
-                    "CanceledError";
+                        "CanceledError";
                 if (isAbort) return;
                 setError("Không thể tải thêm tin nhắn cũ");
             } finally {
@@ -1110,8 +1304,8 @@ export function useChatWindowController(args: {
             const messageFromStore = messageFromState
                 ? null
                 : chatRuntimeStore
-                    .getMessages(conversationId)
-                    .find((message) => message.id === targetMessageId);
+                      .getMessages(conversationId)
+                      .find((message) => message.id === targetMessageId);
             const localMessage = messageFromState ?? messageFromStore;
 
             if (localMessage) {
@@ -1202,6 +1396,26 @@ export function useChatWindowController(args: {
             markAsReadFn?: (lastMessageId: string) => void,
         ) => {
             const normalizedIncoming = normalizeReplyPreviewContent(newMessage);
+            const readOnlyReason = resolveReadOnlyReasonFromSystemMessage(
+                normalizedIncoming,
+                userIdRef.current,
+            );
+            if (readOnlyReason) {
+                setReadOnlyNotice(GROUP_READ_ONLY_COMPOSER_NOTICE);
+                setError(readOnlyReason);
+                websocketService.unsubscribeFromConversation(conversationId);
+                websocketService.unsubscribeFromConversationMembers(
+                    conversationId,
+                );
+                websocketService.unsubscribeFromConversationPins(
+                    conversationId,
+                );
+            }
+
+            if (GROUP_SYSTEM_MEMBER_SYNC_TYPES.has(normalizedIncoming.type)) {
+                void syncConversationMembers();
+            }
+
             const isMyMessage =
                 Number(normalizedIncoming.senderId) ===
                 Number(userIdRef.current);
@@ -1262,7 +1476,12 @@ export function useChatWindowController(args: {
                 setPendingNewMessages((c) => c + 1);
             }
         },
-        [applyWindowForNewer, conversationId, isNearBottom],
+        [
+            applyWindowForNewer,
+            conversationId,
+            isNearBottom,
+            syncConversationMembers,
+        ],
     );
     // Nhận socket MESSAGE_RECALLED: set isRecalled=true cho tin nhắn đó
     const handleMessageRecalled = useCallback(
@@ -1720,6 +1939,7 @@ export function useChatWindowController(args: {
 
         setLoading(true);
         setError(null);
+        setReadOnlyNotice(null);
         setSending(false);
         setMessageText("");
         setMessages([]);
@@ -2074,6 +2294,11 @@ export function useChatWindowController(args: {
 
     const handleSend = useCallback(
         async (textOverride?: string, replyToId?: string) => {
+            if (readOnlyNotice) {
+                setError((prev) => prev ?? "Bạn không thể gửi tin nhắn");
+                return;
+            }
+
             const trimmed = (textOverride ?? messageText).trim();
             if (!trimmed) return;
 
@@ -2103,7 +2328,7 @@ export function useChatWindowController(args: {
                 setSending(false);
             }
         },
-        [conversationId, messageText, userId],
+        [conversationId, messageText, readOnlyNotice, userId],
     );
 
     const handlePinMessage = useCallback(
@@ -2141,6 +2366,11 @@ export function useChatWindowController(args: {
     // Upload file/image/video/audio: presign → S3 PUT → sendMessage với objectKey
     const handleFileUpload = useCallback(
         async (file: File) => {
+            if (readOnlyNotice) {
+                setError((prev) => prev ?? "Bạn không thể gửi tin nhắn");
+                return;
+            }
+
             // Tự động xác định loại từ MIME type của file
             let type: MessageType;
             if (file.type.startsWith("image/")) type = "IMAGE";
@@ -2203,11 +2433,16 @@ export function useChatWindowController(args: {
                 setUploadFileProgressMap({});
             }
         },
-        [conversationId, userId],
+        [conversationId, readOnlyNotice, userId],
     );
 
     const handleSendMixedMedia = useCallback(
         async (files: File[], textOverride?: string, replyToId?: string) => {
+            if (readOnlyNotice) {
+                setError((prev) => prev ?? "Bạn không thể gửi tin nhắn");
+                return false;
+            }
+
             if (files.length === 0) return false;
 
             const validationError = getValidationErrorForFiles(files);
@@ -2311,7 +2546,7 @@ export function useChatWindowController(args: {
                                         100,
                                         Math.round(
                                             (perFileLoaded[index] / safeTotal) *
-                                            100,
+                                                100,
                                         ),
                                     );
                                     setUploadProgressPercent(percent);
@@ -2450,6 +2685,7 @@ export function useChatWindowController(args: {
         [
             conversationId,
             messageText,
+            readOnlyNotice,
             setMessageText,
             shouldForceAutoScroll,
             userId,
@@ -2469,6 +2705,11 @@ export function useChatWindowController(args: {
      * 7. Nếu lỗi microphone → hiện toast cảnh báo
      */
     const startRecording = useCallback(async () => {
+        if (readOnlyNotice) {
+            setError((prev) => prev ?? "Bạn không thể gửi tin nhắn");
+            return;
+        }
+
         if (isRecording) return; // Đang ghi rồi thì bỏ qua
         try {
             // Bước 1: Yêu cầu quyền truy cập microphone
@@ -2481,8 +2722,8 @@ export function useChatWindowController(args: {
             const mimeType = MediaRecorder.isTypeSupported("audio/mp4")
                 ? "audio/mp4"
                 : MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-                    ? "audio/webm;codecs=opus"
-                    : "audio/webm";
+                  ? "audio/webm;codecs=opus"
+                  : "audio/webm";
 
             // Bước 3: Tạo MediaRecorder và reset mảng chunks
             const recorder = new MediaRecorder(stream, { mimeType });
@@ -2526,7 +2767,7 @@ export function useChatWindowController(args: {
             // Bước 7: Báo lỗi nếu không truy cập được microphone (user từ chối hoặc thiết bị không có mic)
             setRecallToast("Không thể truy cập microphone");
         }
-    }, [isRecording, handleFileUpload]);
+    }, [isRecording, handleFileUpload, readOnlyNotice]);
 
     /**
      * stopRecording - Dừng ghi âm và GỬI tin nhắn
@@ -2619,6 +2860,7 @@ export function useChatWindowController(args: {
         uploadFileProgressMap,
         uploadFailedFileNames,
         error,
+        readOnlyNotice,
 
         // userId được expose để component dùng lại (lấy từ useAuth() bên trong hook)
         userId,

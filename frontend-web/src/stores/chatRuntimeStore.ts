@@ -2,6 +2,7 @@ import type {
     Conversation,
     ConversationMember,
     Message,
+    MessageType,
 } from "../services/chatService";
 
 export interface PinnedMessageDetail {
@@ -9,15 +10,7 @@ export interface PinnedMessageDetail {
     pinnerId: number;
     pinnedAt: string;
     originalSenderId?: number;
-    type?:
-        | "TEXT"
-        | "IMAGE"
-        | "VIDEO"
-        | "FILE"
-        | "AUDIO"
-        | "CALL"
-        | "SYSTEM_PIN"
-        | "SYSTEM_UPIN";
+    type?: MessageType;
     content?: string;
 }
 

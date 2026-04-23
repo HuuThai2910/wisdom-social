@@ -1,5 +1,5 @@
 import type { Conversation } from "../services/chatService";
-import { buildSystemCreateGroupMessage } from "./systemCreateGroupMessage";
+import { buildSystemGroupMessage } from "./systemCreateGroupMessage";
 
 interface ConversationLastMessagePreviewParams {
     conversation: Conversation;
@@ -18,6 +18,15 @@ export interface ConversationLastMessagePreview {
 }
 
 const DEFAULT_PREVIEW_TEXT = "Bắt đầu trò chuyện";
+
+const GROUP_SYSTEM_PREVIEW_TYPES = new Set([
+    "SYSTEM_CREATE_GROUP",
+    "SYSTEM_ADD_MEMBER",
+    "SYSTEM_UPDATE_ROLE",
+    "SYSTEM_KICK_MEMBER",
+    "SYSTEM_LEAVE_GROUP",
+    "SYSTEM_DISBAND_GROUP",
+]);
 
 function buildConversationMembersLookup(
     conversation: Conversation,
@@ -45,7 +54,7 @@ export function buildConversationLastMessagePreview({
         };
     }
 
-    if (lastMessage.lastMessageType === "SYSTEM_CREATE_GROUP") {
+    if (GROUP_SYSTEM_PREVIEW_TYPES.has(lastMessage.lastMessageType)) {
         const isFallbackMessage =
             !lastMessage.lastMessageContent?.trim() &&
             !lastMessage.lastSenderName?.trim() &&
@@ -60,7 +69,8 @@ export function buildConversationLastMessagePreview({
         }
 
         return {
-            text: buildSystemCreateGroupMessage({
+            text: buildSystemGroupMessage({
+                type: lastMessage.lastMessageType,
                 content: lastMessage.lastMessageContent,
                 isOwn: lastMessage.lastSenderId === currentUserId,
                 senderName: lastMessage.lastSenderName,

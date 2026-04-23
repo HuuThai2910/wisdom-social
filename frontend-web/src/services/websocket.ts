@@ -48,8 +48,10 @@ export type DomainEventType =
     | "ROOM_UPDATED" // Phòng chat được cập nhật
     | "ROOM_DELETED" // Phòng chat bị xóa
     | "MEMBER_ADDED" // Thành viên mới tham gia
-    | "MEMBER_REMOVED" // Thành viên rời khỏi
-    | "MEMBER_ROLE_CHANGED" // Thay đổi vai trò thành viên
+    | "MEMBER_ROLE_UPDATED"
+    | "MEMBER_LEFT"
+    | "MEMBER_KICKED"
+    | "GROUP_DISBANDED"
     | "PIN_MESSAGE"
     | "UPIN_MESSAGE"
     | "MEMBER_UPDATED";
@@ -63,14 +65,14 @@ export interface PinUpdatedEvent {
         pinnedAt: string;
         originalSenderId?: number;
         type?:
-        | "TEXT"
-        | "IMAGE"
-        | "VIDEO"
-        | "FILE"
-        | "AUDIO"
-        | "CALL"
-        | "SYSTEM_PIN"
-        | "SYSTEM_UPIN";
+            | "TEXT"
+            | "IMAGE"
+            | "VIDEO"
+            | "FILE"
+            | "AUDIO"
+            | "CALL"
+            | "SYSTEM_PIN"
+            | "SYSTEM_UPIN";
         content?: string;
     }>;
 }
@@ -213,6 +215,20 @@ export interface ConversationCreatedEvent {
     conversationResponse?: Conversation;
 }
 
+export interface ConversationMembershipEvent {
+    domainEventType?:
+        | "MEMBER_ADDED"
+        | "MEMBER_ROLE_UPDATED"
+        | "MEMBER_LEFT"
+        | "MEMBER_KICKED";
+    conversationResponse?: Conversation;
+}
+
+export interface GroupDisbandedEvent {
+    domainEventType?: "GROUP_DISBANDED";
+    conversationId?: number;
+}
+
 /**
  * Type alias cho dữ liệu cập nhật conversation
  * Để backward compatible với code hiện tại
@@ -246,6 +262,65 @@ function buildFallbackLastMessageUpdate(
         lastSenderId: 0,
         lastSenderName: "",
         lastMessageAt: conversation.updatedAt,
+        read: false,
+    };
+}
+
+function buildSystemFallbackByDomainEvent(
+    domainEventType?: DomainEventType,
+): LastMessageUpdate {
+    const now = new Date().toISOString();
+
+    if (domainEventType === "MEMBER_ADDED") {
+        return {
+            lastMessageContent: "",
+            lastMessageType: "SYSTEM_ADD_MEMBER",
+            lastSenderId: 0,
+            lastSenderName: "",
+            lastMessageAt: now,
+            read: false,
+        };
+    }
+
+    if (domainEventType === "MEMBER_ROLE_UPDATED") {
+        return {
+            lastMessageContent: "",
+            lastMessageType: "SYSTEM_UPDATE_ROLE",
+            lastSenderId: 0,
+            lastSenderName: "",
+            lastMessageAt: now,
+            read: false,
+        };
+    }
+
+    if (domainEventType === "MEMBER_KICKED") {
+        return {
+            lastMessageContent: "",
+            lastMessageType: "SYSTEM_KICK_MEMBER",
+            lastSenderId: 0,
+            lastSenderName: "",
+            lastMessageAt: now,
+            read: false,
+        };
+    }
+
+    if (domainEventType === "MEMBER_LEFT") {
+        return {
+            lastMessageContent: "",
+            lastMessageType: "SYSTEM_LEAVE_GROUP",
+            lastSenderId: 0,
+            lastSenderName: "",
+            lastMessageAt: now,
+            read: false,
+        };
+    }
+
+    return {
+        lastMessageContent: "",
+        lastMessageType: "SYSTEM_DISBAND_GROUP",
+        lastSenderId: 0,
+        lastSenderName: "",
+        lastMessageAt: now,
         read: false,
     };
 }
@@ -715,10 +790,14 @@ class WebSocketService {
                 try {
                     const payload = JSON.parse(message.body) as
                         | ConversationUpdatedEvent
-                        | ConversationCreatedEvent;
+                        | ConversationCreatedEvent
+                        | ConversationMembershipEvent
+                        | GroupDisbandedEvent;
 
                     const createdConversation = (
-                        payload as ConversationCreatedEvent
+                        payload as {
+                            conversationResponse?: Conversation;
+                        }
                     ).conversationResponse;
                     if (createdConversation?.id) {
                         const lastMessageData =
@@ -737,6 +816,20 @@ class WebSocketService {
                             createdConversation.id,
                             resolvedLastMessage,
                             conversationSnapshot,
+                        );
+                        return;
+                    }
+
+                    const disbandPayload = payload as GroupDisbandedEvent;
+                    if (
+                        disbandPayload.domainEventType === "GROUP_DISBANDED" &&
+                        typeof disbandPayload.conversationId === "number"
+                    ) {
+                        callback(
+                            disbandPayload.conversationId,
+                            buildSystemFallbackByDomainEvent(
+                                disbandPayload.domainEventType,
+                            ),
                         );
                         return;
                     }

@@ -13,6 +13,7 @@ import type {
     MemberRole,
 } from "../../services/chatService";
 import { DEFAULT_AVATAR_URL } from "../../constants/ui";
+import TransferOwnershipModal from "./TransferOwnershipModal";
 
 interface GroupConversationPanelProps {
     conversation: Conversation;
@@ -22,11 +23,16 @@ interface GroupConversationPanelProps {
     canDisbandGroup: boolean;
     isLeavingGroup: boolean;
     isDisbandingGroup: boolean;
+    isTransferOwnerModalOpen: boolean;
     pendingKickUserId: number | null;
     pendingRoleUserId: number | null;
+    pendingTransferOwnerUserId: number | null;
+    ownerTransferCandidates: ConversationMember[];
     actionError: string | null;
     onOpenAddMembersModal: () => void;
     onLeaveGroup: () => Promise<boolean>;
+    onCloseTransferOwnerModal: () => void;
+    onTransferOwnershipAndLeave: (newOwnerUserId: number) => Promise<boolean>;
     onDisbandGroup: () => Promise<boolean>;
     onKickMember: (targetUserId: number) => Promise<boolean>;
     onUpdateMemberRole: (
@@ -78,25 +84,33 @@ export default function GroupConversationPanel({
     canDisbandGroup,
     isLeavingGroup,
     isDisbandingGroup,
+    isTransferOwnerModalOpen,
     pendingKickUserId,
     pendingRoleUserId,
+    pendingTransferOwnerUserId,
+    ownerTransferCandidates,
     actionError,
     onOpenAddMembersModal,
     onLeaveGroup,
+    onCloseTransferOwnerModal,
+    onTransferOwnershipAndLeave,
     onDisbandGroup,
     onKickMember,
     onUpdateMemberRole,
 }: GroupConversationPanelProps) {
     const members = useMemo(
-        () => sortMembers(conversation.members ?? []),
+        () =>
+            sortMembers(
+                (conversation.members ?? []).filter(
+                    (member) => !member.status || member.status === "ACTIVE",
+                ),
+            ),
         [conversation.members],
     );
 
     const memberCount = members.length;
 
     const handleLeaveGroup = async () => {
-        const accepted = window.confirm("Bạn có chắc muốn rời nhóm này?");
-        if (!accepted) return;
         await onLeaveGroup();
     };
 
@@ -238,6 +252,9 @@ export default function GroupConversationPanel({
                                                     <option value="DEPUTY">
                                                         Phó nhóm
                                                     </option>
+                                                    <option value="OWNER">
+                                                        Trưởng nhóm
+                                                    </option>
                                                 </select>
                                             )}
                                             {canManageMembers && !isOwner && (
@@ -268,6 +285,16 @@ export default function GroupConversationPanel({
                     })}
                 </div>
             </div>
+
+            <TransferOwnershipModal
+                open={isTransferOwnerModalOpen}
+                members={ownerTransferCandidates}
+                submitting={isLeavingGroup}
+                pendingUserId={pendingTransferOwnerUserId}
+                error={actionError}
+                onClose={onCloseTransferOwnerModal}
+                onSubmit={onTransferOwnershipAndLeave}
+            />
         </section>
     );
 }

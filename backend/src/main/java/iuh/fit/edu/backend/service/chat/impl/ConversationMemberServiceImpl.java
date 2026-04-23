@@ -108,7 +108,10 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
             return conversationMapper.toConversationResponse(conv, inviterId);
         }
 
-        conversationMemberRepository.saveAll(membersToSave);
+        List<ConversationMember> conversationMembers = conversationMemberRepository.saveAll(membersToSave);
+        for (ConversationMember member : conversationMembers){
+            this.conversationMemberCacheService.saveMemberInfo(conversationId, member.getUser().getId(), conversationMemberMapper.toConversationMemberResponse(member));
+        }
 
         // Cập nhật thông tin cho redis
         for (ConversationMember m : membersToSave) {

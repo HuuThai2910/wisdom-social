@@ -53,6 +53,8 @@ export function useGroupManagement({
 
     const [isCreateGroupModalOpen, setIsCreateGroupModalOpen] = useState(false);
     const [isAddMembersModalOpen, setIsAddMembersModalOpen] = useState(false);
+    const [isTransferOwnerModalOpen, setIsTransferOwnerModalOpen] =
+        useState(false);
 
     const [isCreatingGroup, setIsCreatingGroup] = useState(false);
     const [isAddingMembers, setIsAddingMembers] = useState(false);
@@ -65,6 +67,8 @@ export function useGroupManagement({
     const [pendingRoleUserId, setPendingRoleUserId] = useState<number | null>(
         null,
     );
+    const [pendingTransferOwnerUserId, setPendingTransferOwnerUserId] =
+        useState<number | null>(null);
 
     const [actionError, setActionError] = useState<string | null>(null);
 
@@ -76,7 +80,10 @@ export function useGroupManagement({
     }, [selectedConversation]);
 
     const groupMembers = useMemo(
-        () => selectedGroupConversation?.members ?? [],
+        () =>
+            (selectedGroupConversation?.members ?? []).filter(
+                (member) => !member.status || member.status === "ACTIVE",
+            ),
         [selectedGroupConversation],
     );
 
@@ -95,6 +102,16 @@ export function useGroupManagement({
     const groupMemberIds = useMemo(
         () => new Set(groupMembers.map((member) => member.userId)),
         [groupMembers],
+    );
+
+    const ownerTransferCandidates = useMemo(
+        () =>
+            groupMembers.filter(
+                (member) =>
+                    member.userId !== currentUserId &&
+                    (!member.status || member.status === "ACTIVE"),
+            ),
+        [currentUserId, groupMembers],
     );
 
     const availableFriends = useMemo(
@@ -159,6 +176,11 @@ export function useGroupManagement({
     const closeAddMembersModal = useCallback(() => {
         setIsAddMembersModalOpen(false);
     }, []);
+
+    const closeTransferOwnerModal = useCallback(() => {
+        if (isLeavingGroup) return;
+        setIsTransferOwnerModalOpen(false);
+    }, [isLeavingGroup]);
 
     const createGroup = useCallback(
         async (payload: CreateGroupPayload) => {
@@ -305,7 +327,7 @@ export function useGroupManagement({
         [canManageMembers, reloadConversations, selectedConversationId],
     );
 
-    const leaveGroup = useCallback(async () => {
+    const leaveGroupDirectly = useCallback(async () => {
         if (!selectedConversationId || !selectedGroupConversation) {
             return false;
         }
@@ -329,6 +351,89 @@ export function useGroupManagement({
         selectedConversationId,
         selectedGroupConversation,
     ]);
+
+    const leaveGroup = useCallback(async () => {
+        if (!selectedConversationId || !selectedGroupConversation) {
+            return false;
+        }
+
+        const shouldTransferOwnerFirst =
+            currentMemberRole === "OWNER" && ownerTransferCandidates.length > 0;
+
+        if (shouldTransferOwnerFirst) {
+            setActionError(null);
+            setIsTransferOwnerModalOpen(true);
+            return false;
+        }
+
+        return leaveGroupDirectly();
+    }, [
+        currentMemberRole,
+        leaveGroupDirectly,
+        ownerTransferCandidates.length,
+        selectedConversationId,
+        selectedGroupConversation,
+    ]);
+
+    const transferOwnershipAndLeave = useCallback(
+        async (newOwnerUserId: number) => {
+            if (!selectedConversationId || !selectedGroupConversation) {
+                return false;
+            }
+
+            if (currentMemberRole !== "OWNER") {
+                return leaveGroupDirectly();
+            }
+
+            if (
+                !ownerTransferCandidates.some(
+                    (candidate) =>
+                        Number(candidate.userId) === Number(newOwnerUserId),
+                )
+            ) {
+                setActionError("Vui lòng chọn trưởng nhóm mới hợp lệ.");
+                return false;
+            }
+
+            try {
+                setIsLeavingGroup(true);
+                setPendingTransferOwnerUserId(newOwnerUserId);
+                setActionError(null);
+
+                await chatService.updateGroupMemberRole(
+                    selectedConversationId,
+                    newOwnerUserId,
+                    "OWNER",
+                );
+                await chatService.leaveGroup(selectedConversationId);
+
+                await reloadConversations();
+                setIsTransferOwnerModalOpen(false);
+                onClearSelection();
+                return true;
+            } catch (error) {
+                setActionError(
+                    normalizeErrorMessage(
+                        error,
+                        "Không thể chuyển trưởng nhóm và rời nhóm.",
+                    ),
+                );
+                return false;
+            } finally {
+                setIsLeavingGroup(false);
+                setPendingTransferOwnerUserId(null);
+            }
+        },
+        [
+            currentMemberRole,
+            leaveGroupDirectly,
+            onClearSelection,
+            ownerTransferCandidates,
+            reloadConversations,
+            selectedConversationId,
+            selectedGroupConversation,
+        ],
+    );
 
     const disbandGroup = useCallback(async () => {
         if (!selectedConversationId || !canDisbandGroup) {
@@ -376,12 +481,15 @@ export function useGroupManagement({
 
         isCreateGroupModalOpen,
         isAddMembersModalOpen,
+        isTransferOwnerModalOpen,
         isCreatingGroup,
         isAddingMembers,
         isLeavingGroup,
         isDisbandingGroup,
         pendingKickUserId,
         pendingRoleUserId,
+        pendingTransferOwnerUserId,
+        ownerTransferCandidates,
 
         actionError,
         clearGroupActionError,
@@ -390,12 +498,14 @@ export function useGroupManagement({
         closeCreateGroupModal,
         openAddMembersModal,
         closeAddMembersModal,
+        closeTransferOwnerModal,
 
         createGroup,
         addMembersToGroup,
         updateMemberRole,
         kickMember,
         leaveGroup,
+        transferOwnershipAndLeave,
         disbandGroup,
         refreshFriends: loadFriends,
     };

@@ -35,7 +35,7 @@ import type {
     MessageAttachment,
     MessageType,
 } from "../../services/chatService";
-import { buildSystemCreateGroupMessage } from "../../utils/systemCreateGroupMessage";
+import { buildSystemGroupMessage } from "../../utils/systemCreateGroupMessage";
 
 /**
  * Kiểm tra xem một chuỗi có chỉ chứa emoji (không có text khác) hay không
@@ -111,6 +111,27 @@ const PPT_MIME_TYPES = new Set([
     "application/vnd.ms-powerpoint",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 ]);
+
+const GROUP_SYSTEM_MESSAGE_TYPES = new Set<MessageType>([
+    "SYSTEM_CREATE_GROUP",
+    "SYSTEM_ADD_MEMBER",
+    "SYSTEM_UPDATE_ROLE",
+    "SYSTEM_KICK_MEMBER",
+    "SYSTEM_LEAVE_GROUP",
+    "SYSTEM_DISBAND_GROUP",
+]);
+
+function isGroupSystemType(
+    type: MessageType,
+): type is
+    | "SYSTEM_CREATE_GROUP"
+    | "SYSTEM_ADD_MEMBER"
+    | "SYSTEM_UPDATE_ROLE"
+    | "SYSTEM_KICK_MEMBER"
+    | "SYSTEM_LEAVE_GROUP"
+    | "SYSTEM_DISBAND_GROUP" {
+    return GROUP_SYSTEM_MESSAGE_TYPES.has(type);
+}
 
 interface ReplyMediaPayload {
     type?: MessageType;
@@ -669,7 +690,7 @@ export function MessageBubble({
     // Các tin này sẽ render ở giữa đoạn chat (không lệch trái/phải như bubble thường).
     const isPinSystemMessage =
         message.type === "SYSTEM_PIN" || message.type === "SYSTEM_UPIN";
-    const isCreateGroupSystemMessage = message.type === "SYSTEM_CREATE_GROUP";
+    const isGroupSystemMessage = isGroupSystemType(message.type);
 
     const messageDate = new Date(message.createdAt);
     const validMessageDate = Number.isFinite(messageDate.getTime());
@@ -1034,8 +1055,15 @@ export function MessageBubble({
         );
     }
 
-    if (isCreateGroupSystemMessage) {
-        const content = buildSystemCreateGroupMessage({
+    if (isGroupSystemMessage) {
+        const content = buildSystemGroupMessage({
+            type: message.type as
+                | "SYSTEM_CREATE_GROUP"
+                | "SYSTEM_ADD_MEMBER"
+                | "SYSTEM_UPDATE_ROLE"
+                | "SYSTEM_KICK_MEMBER"
+                | "SYSTEM_LEAVE_GROUP"
+                | "SYSTEM_DISBAND_GROUP",
             content: message.content,
             isOwn,
             senderName,

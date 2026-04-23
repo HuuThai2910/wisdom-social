@@ -49,6 +49,7 @@ interface ChatWindowProps {
     onMarkAsRead?: (conversationId: number) => void;
     onToggleInfoPanel?: () => void;
     showInfoPanel?: boolean;
+    forcedReadOnlyNotice?: string | null;
 }
 
 function createClientFileId(): string {
@@ -63,6 +64,7 @@ export default function ChatWindow({
     onMarkAsRead,
     onToggleInfoPanel,
     showInfoPanel = true,
+    forcedReadOnlyNotice = null,
 }: ChatWindowProps) {
     const [isAiPanelOpen, setIsAiPanelOpen] = useState(false);
 
@@ -80,6 +82,7 @@ export default function ChatWindow({
         uploadFileProgressMap,
         uploadFailedFileNames,
         error,
+        readOnlyNotice,
 
         displayName,
         displayAvatar,
@@ -128,7 +131,13 @@ export default function ChatWindow({
         typingUsers,
         sendTypingSignal,
         userId,
-    } = useChatWindowController({ conversationId, onMarkAsRead });
+    } = useChatWindowController({
+        conversationId,
+        onMarkAsRead,
+        forcedReadOnlyNotice,
+    });
+
+    const isConversationReadOnly = Boolean(readOnlyNotice);
 
     const otherMember = useMemo(
         () => Object.values(membersById).find((m) => m.userId !== userId),
@@ -396,6 +405,15 @@ export default function ChatWindow({
         };
     }, []);
 
+    useEffect(() => {
+        if (!isConversationReadOnly) return;
+
+        setPlusMenuOpen(false);
+        setEmojiPickerOpen(false);
+        setReplyToMessage(null);
+        setSelectedFiles([]);
+    }, [isConversationReadOnly]);
+
     const getMessagePreviewText = useCallback(
         (message: (typeof messages)[number]) => {
             if (message.type === "IMAGE") return "[Hình ảnh]";
@@ -545,7 +563,12 @@ export default function ChatWindow({
         const isPinSystemMessageType = (type?: string) =>
             type === "SYSTEM_PIN" ||
             type === "SYSTEM_UPIN" ||
-            type === "SYSTEM_CREATE_GROUP";
+            type === "SYSTEM_CREATE_GROUP" ||
+            type === "SYSTEM_ADD_MEMBER" ||
+            type === "SYSTEM_UPDATE_ROLE" ||
+            type === "SYSTEM_KICK_MEMBER" ||
+            type === "SYSTEM_LEAVE_GROUP" ||
+            type === "SYSTEM_DISBAND_GROUP";
 
         for (let idx = 0; idx < messages.length; idx++) {
             const message = messages[idx];
@@ -856,7 +879,7 @@ export default function ChatWindow({
                     <button
                         className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white disabled:opacity-40"
                         onClick={() => void startCall("audio")}
-                        disabled={!otherMember}
+                        disabled={!otherMember || isConversationReadOnly}
                         title="Gọi thoại"
                     >
                         <Phone size={18} />
@@ -864,7 +887,7 @@ export default function ChatWindow({
                     <button
                         className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white disabled:opacity-40"
                         onClick={() => void startCall("video")}
-                        disabled={!otherMember}
+                        disabled={!otherMember || isConversationReadOnly}
                         title="Gọi video"
                     >
                         <Video size={18} />
@@ -872,7 +895,7 @@ export default function ChatWindow({
                     <button
                         type="button"
                         onClick={onToggleInfoPanel}
-                        className={`inline-flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
+                        className={`inline-flex h-9 w-9 items-center justify-center rounded-lg transition-colors disabled:opacity-40 ${
                             showInfoPanel
                                 ? "bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950/40 dark:text-blue-300 dark:hover:bg-blue-900/40"
                                 : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white"
@@ -880,6 +903,7 @@ export default function ChatWindow({
                         title={
                             showInfoPanel ? "Ẩn thông tin" : "Hiện thông tin"
                         }
+                         disabled={!otherMember || isConversationReadOnly}
                     >
                         <Info size={18} />
                     </button>
@@ -1174,7 +1198,7 @@ export default function ChatWindow({
                 <AIActionPanel
                     isOpen={isAiPanelOpen}
                     onToggle={() => setIsAiPanelOpen((prev) => !prev)}
-                    disabled={uploading || sending}
+                    disabled={uploading || sending || isConversationReadOnly}
                     isSummarizing={isSummarizing}
                     isSuggesting={isSuggesting}
                     onSummarize={() => {
@@ -1382,7 +1406,9 @@ export default function ChatWindow({
                                 <button
                                     type="button"
                                     onClick={() => setPlusMenuOpen((v) => !v)}
-                                    disabled={uploading}
+                                    disabled={
+                                        uploading || isConversationReadOnly
+                                    }
                                     className="rounded-full p-1.5 text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800 disabled:opacity-50"
                                 >
                                     {plusMenuOpen ? (
@@ -1469,6 +1495,7 @@ export default function ChatWindow({
                                     type="text"
                                     value={messageText}
                                     onChange={(e) => {
+                                        if (isConversationReadOnly) return;
                                         setMessageText(e.target.value);
                                         // Gửi typing signal
                                         if (e.target.value.trim()) {
@@ -1481,7 +1508,8 @@ export default function ChatWindow({
                                         if (
                                             e.key === "Enter" &&
                                             !sending &&
-                                            !uploading
+                                            !uploading &&
+                                            !isConversationReadOnly
                                         ) {
                                             sendTypingSignal(false); // Ngừng typing khi gửi
                                             if (selectedFiles.length > 0) {
@@ -1508,11 +1536,17 @@ export default function ChatWindow({
                                     }}
                                     onBlur={() => sendTypingSignal(false)} // Ngừng typing khi blur
                                     placeholder={
-                                        uploading
-                                            ? "Đang tải file lên..."
-                                            : "Nhập tin nhắn..."
+                                        isConversationReadOnly
+                                            ? "Bạn không còn quyền gửi tin nhắn trong nhóm này"
+                                            : uploading
+                                              ? "Đang tải file lên..."
+                                              : "Nhập tin nhắn..."
                                     }
-                                    disabled={sending || uploading}
+                                    disabled={
+                                        sending ||
+                                        uploading ||
+                                        isConversationReadOnly
+                                    }
                                     className="min-w-0 flex-1 bg-transparent px-2.5 py-1.5 text-sm text-gray-900 placeholder:text-gray-500 focus:outline-none dark:text-white dark:placeholder-gray-400 disabled:opacity-50"
                                 />
 
@@ -1534,6 +1568,7 @@ export default function ChatWindow({
                                                     !emojiPickerOpen,
                                                 )
                                             }
+                                            disabled={isConversationReadOnly}
                                             className={`shrink-0 rounded-full p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 ${
                                                 emojiPickerOpen
                                                     ? "text-blue-500"
@@ -1605,7 +1640,9 @@ export default function ChatWindow({
                                                 setReplyToMessage(null),
                                             );
                                         }}
-                                        disabled={sending}
+                                        disabled={
+                                            sending || isConversationReadOnly
+                                        }
                                         className="shrink-0 rounded-full p-1.5 text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800 disabled:opacity-50"
                                     >
                                         <Send size={22} />
@@ -1621,7 +1658,9 @@ export default function ChatWindow({
                                                 setReplyToMessage(null),
                                             )
                                         }
-                                        disabled={sending}
+                                        disabled={
+                                            sending || isConversationReadOnly
+                                        }
                                         className="shrink-0 rounded-full p-0.5 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
                                     >
                                         <Emoji
@@ -1633,6 +1672,12 @@ export default function ChatWindow({
                                 ))}
                         </div>
                     </div>
+                )}
+
+                {readOnlyNotice && (
+                    <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">
+                        {readOnlyNotice}
+                    </p>
                 )}
             </div>
 

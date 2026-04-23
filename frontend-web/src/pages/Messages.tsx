@@ -57,6 +57,7 @@ export default function Messages() {
         getDisplayInfo,
         formatTime,
         clearUnreadCount,
+        selectedConversationReadOnlyNotice,
         reload,
     } = useMessagesController();
 
@@ -94,18 +95,23 @@ export default function Messages() {
         isAddingMembers,
         isLeavingGroup,
         isDisbandingGroup,
+        isTransferOwnerModalOpen,
         pendingKickUserId,
         pendingRoleUserId,
+        pendingTransferOwnerUserId,
+        ownerTransferCandidates,
         actionError,
         openCreateGroupModal,
         closeCreateGroupModal,
         openAddMembersModal,
         closeAddMembersModal,
+        closeTransferOwnerModal,
         createGroup,
         addMembersToGroup,
         updateMemberRole,
         kickMember,
         leaveGroup,
+        transferOwnershipAndLeave,
         disbandGroup,
     } = useGroupManagement({
         currentUserId,
@@ -301,11 +307,20 @@ export default function Messages() {
                             canDisbandGroup={canDisbandGroup}
                             isLeavingGroup={isLeavingGroup}
                             isDisbandingGroup={isDisbandingGroup}
+                            isTransferOwnerModalOpen={isTransferOwnerModalOpen}
                             pendingKickUserId={pendingKickUserId}
                             pendingRoleUserId={pendingRoleUserId}
+                            pendingTransferOwnerUserId={
+                                pendingTransferOwnerUserId
+                            }
+                            ownerTransferCandidates={ownerTransferCandidates}
                             actionError={actionError}
                             onOpenAddMembersModal={openAddMembersModal}
                             onLeaveGroup={leaveGroup}
+                            onCloseTransferOwnerModal={closeTransferOwnerModal}
+                            onTransferOwnershipAndLeave={
+                                transferOwnershipAndLeave
+                            }
                             onDisbandGroup={disbandGroup}
                             onKickMember={kickMember}
                             onUpdateMemberRole={updateMemberRole}
@@ -856,6 +871,9 @@ export default function Messages() {
                                     onMarkAsRead={clearUnreadCount}
                                     onToggleInfoPanel={handleToggleInfoPanel}
                                     showInfoPanel={showInfoPanel}
+                                    forcedReadOnlyNotice={
+                                        selectedConversationReadOnlyNotice
+                                    }
                                 />
                             </div>
 
