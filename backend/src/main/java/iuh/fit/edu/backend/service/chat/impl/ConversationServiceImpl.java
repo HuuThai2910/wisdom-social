@@ -4,10 +4,7 @@
  */
 package iuh.fit.edu.backend.service.chat.impl;
 
-import iuh.fit.edu.backend.constant.ConversationType;
-import iuh.fit.edu.backend.constant.MemberRole;
-import iuh.fit.edu.backend.constant.MemberStatus;
-import iuh.fit.edu.backend.constant.MessageType;
+import iuh.fit.edu.backend.constant.*;
 import iuh.fit.edu.backend.domain.entity.mysql.Conversation;
 import iuh.fit.edu.backend.domain.entity.mysql.ConversationMember;
 import iuh.fit.edu.backend.dto.request.convesation.AddMemberRequest;
@@ -53,7 +50,6 @@ public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat
     private final InternalMessageService internalMessageService;
 
 
-    @Transactional(rollbackFor = Exception.class)
     @Override
     public ConversationResponse createGroup(CreateGroupRequest request, Long creatorId) {
 
@@ -77,12 +73,13 @@ public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat
         conversation.setLastMessageAt(now);
         Conversation savedConversation = conversationRepository.save(conversation);
 
+
         // 3. LƯU BẢNG CONVERSATION MEMBER (MySQL - BATCH INSERT)
         List<ConversationMember> members = allMemberIds.stream().map(userId -> {
             ConversationMember member = new ConversationMember();
             member.setConversation(savedConversation);
             member.setUser(userRepository.getReferenceById(userId));
-            member.setStatus(MemberStatus.ACTIVE);
+            member.setStatus(ConversationMemberStatus.ACTIVE);
             member.setJoinedAt(now);
             if (userId.equals(creatorId)) {
                 member.setRole(MemberRole.OWNER); // Người tạo là Trưởng nhóm
@@ -92,7 +89,7 @@ public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat
             return member;
         }).collect(Collectors.toList());
         conversationMemberRepository.saveAll(members);
-
+        savedConversation.setMembers(members);
         String targetIdsStr = "[" + targetMemberIds.stream()
                 .map(String::valueOf)
                 .collect(Collectors.joining(",")) + "]";

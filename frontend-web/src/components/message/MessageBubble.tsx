@@ -27,12 +27,15 @@ import {
     Presentation,
     CheckCircle2,
     Image as ImageIcon,
+    Users,
 } from "lucide-react";
 import type {
+    ConversationMember,
     Message,
     MessageAttachment,
     MessageType,
 } from "../../services/chatService";
+import { buildSystemCreateGroupMessage } from "../../utils/systemCreateGroupMessage";
 
 /**
  * Kiểm tra xem một chuỗi có chỉ chứa emoji (không có text khác) hay không
@@ -565,6 +568,7 @@ export interface MessageBubbleProps {
     isLastInGroup?: boolean;
     isHighlighted?: boolean;
     currentUserId: number;
+    membersById?: Record<number, ConversationMember>;
 }
 
 export function MessageBubble({
@@ -588,6 +592,7 @@ export function MessageBubble({
     isLastInGroup = true,
     isHighlighted = false,
     currentUserId,
+    membersById = {},
 }: MessageBubbleProps) {
     const [menuOpen, setMenuOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
@@ -664,6 +669,7 @@ export function MessageBubble({
     // Các tin này sẽ render ở giữa đoạn chat (không lệch trái/phải như bubble thường).
     const isPinSystemMessage =
         message.type === "SYSTEM_PIN" || message.type === "SYSTEM_UPIN";
+    const isCreateGroupSystemMessage = message.type === "SYSTEM_CREATE_GROUP";
 
     const messageDate = new Date(message.createdAt);
     const validMessageDate = Number.isFinite(messageDate.getTime());
@@ -1023,6 +1029,25 @@ export function MessageBubble({
                                 Xem
                             </button>
                         )}
+                </div>
+            </div>
+        );
+    }
+
+    if (isCreateGroupSystemMessage) {
+        const content = buildSystemCreateGroupMessage({
+            content: message.content,
+            isOwn,
+            senderName,
+            currentUserId,
+            membersById,
+        });
+
+        return (
+            <div className="w-full flex justify-center">
+                <div className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-gray-100 dark:bg-gray-800 px-3 py-1.5 text-xs text-gray-700 dark:text-gray-200">
+                    <Users size={12} className="shrink-0" />
+                    <span className="truncate">{content}</span>
                 </div>
             </div>
         );

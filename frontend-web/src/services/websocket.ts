@@ -6,7 +6,7 @@
  */
 import { Client, type IMessage } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
-import type { Message } from "./chatService";
+import type { Conversation, Message, MessageType } from "./chatService";
 
 export type CallStatus =
     | "calling"
@@ -188,8 +188,9 @@ export interface TypingEvent {
  * 5. Cập nhật sidebar với lastMessage mới
  */
 export interface ConversationUpdatedEvent {
-    // Loại event - luôn là "ROOM_UPDATED"
-    type: "ROOM_UPDATED";
+    // Loại event từ backend
+    domainEventType?: "ROOM_UPDATED";
+    type?: "ROOM_UPDATED";
 
     // ID của conversation được cập nhật - nằm trong event, KHÔNG nằm trong lastMessage
     conversationId: number;
@@ -198,7 +199,7 @@ export interface ConversationUpdatedEvent {
     // LƯU Ý: Backend không gửi conversationId trong lastMessage
     lastMessage: {
         lastMessageContent: string; // Nội dung tin nhắn
-        lastMessageType: "TEXT" | "IMAGE" | "FILE" | "VIDEO" | "AUDIO" | "CALL"; // Loại tin nhắn
+        lastMessageType: MessageType; // Loại tin nhắn
         lastSenderId: number; // ID người gửi
         lastSenderName: string; // Tên người gửi
         lastMessageAt: string; // Thời điểm gửi (ISO string)
@@ -206,11 +207,46 @@ export interface ConversationUpdatedEvent {
     };
 }
 
+export interface ConversationCreatedEvent {
+    domainEventType?: "ROOM_CREATED";
+    type?: "ROOM_CREATED";
+    conversationResponse?: Conversation;
+}
+
 /**
  * Type alias cho dữ liệu cập nhật conversation
  * Để backward compatible với code hiện tại
  */
 export type LastMessageUpdate = ConversationUpdatedEvent["lastMessage"];
+
+function toLastMessageUpdate(
+    conversation: Conversation,
+): LastMessageUpdate | null {
+    const lastMessage = conversation.lastMessage;
+    if (!lastMessage) return null;
+
+    return {
+        lastMessageContent: lastMessage.lastMessageContent,
+        lastMessageType: lastMessage.lastMessageType,
+        lastSenderId: lastMessage.lastSenderId,
+        lastSenderName: lastMessage.lastSenderName,
+        lastMessageAt: lastMessage.lastMessageAt,
+        read: lastMessage.read,
+    };
+}
+
+function buildFallbackLastMessageUpdate(
+    conversation: Conversation,
+): LastMessageUpdate {
+    return {
+        lastMessageContent: "",
+        lastMessageType: "SYSTEM_CREATE_GROUP",
+        lastSenderId: 0,
+        lastSenderName: "",
+        lastMessageAt: conversation.updatedAt,
+        read: false,
+    };
+}
 /**
  * WebSocketService - Singleton service quản lý kết nối WebSocket real-time
  *
@@ -674,24 +710,36 @@ class WebSocketService {
             destination,
             (message: IMessage) => {
                 try {
-                    // Parse JSON body thành ConversationUpdatedEvent
-                    // Backend gửi: { type: "ROOM_UPDATED", conversationId: 123, lastMessage: {...} }
-                    const event: ConversationUpdatedEvent = JSON.parse(
-                        message.body,
-                    );
+                    const payload = JSON.parse(message.body) as
+                        | ConversationUpdatedEvent
+                        | ConversationCreatedEvent;
 
-                    // Trích xuất conversationId từ event (KHÔNG nằm trong lastMessage)
-                    const conversationId = event.conversationId;
+                    const createdConversation = (
+                        payload as ConversationCreatedEvent
+                    ).conversationResponse;
+                    if (createdConversation?.id) {
+                        const lastMessageData =
+                            toLastMessageUpdate(createdConversation);
+                        callback(
+                            createdConversation.id,
+                            lastMessageData ??
+                                buildFallbackLastMessageUpdate(
+                                    createdConversation,
+                                ),
+                        );
+                        return;
+                    }
 
-                    // Trích xuất lastMessage từ event
-                    // lastMessage KHÔNG chứa conversationId, chỉ chứa: lastMessageContent, lastSenderName, etc.
-                    const lastMessageData: LastMessageUpdate =
-                        event.lastMessage;
-
-                    // Gọi callback với 2 tham số riêng biệt
-                    // - conversationId: Để biết cập nhật conversation nào
-                    // - lastMessageData: Thông tin tin nhắn mới nhất
-                    callback(conversationId, lastMessageData);
+                    const updatedEvent = payload as ConversationUpdatedEvent;
+                    if (
+                        typeof updatedEvent.conversationId === "number" &&
+                        updatedEvent.lastMessage
+                    ) {
+                        callback(
+                            updatedEvent.conversationId,
+                            updatedEvent.lastMessage,
+                        );
+                    }
                 } catch (error) {
                     console.error("Error parsing conversation update:", error);
                 }

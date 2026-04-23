@@ -22,6 +22,10 @@ public interface ConversationMemberMapper {
     @Mapping(target = "userId", source = "user.id")
     @Mapping(target = "avatar", source = "user.avatarUrl")
     @Mapping(target = "lastReadMessageId", source = "lastReadMessageId")
+    @Mapping(
+            target = "nickname",
+            expression = "java(conversationMember.getNickname() != null ? conversationMember.getNickname() : conversationMember.getUser().getName())"
+    )
     ConversationMemberResponse toConversationMemberResponse(ConversationMember conversationMember);
 
     List<ConversationMember> toListConversationMemberResponse(List<ConversationMember> conversationMembers);

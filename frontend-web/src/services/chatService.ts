@@ -9,7 +9,17 @@ export type MessageType =
     | "AUDIO"
     | "CALL"
     | "SYSTEM_PIN"
-    | "SYSTEM_UPIN";
+    | "SYSTEM_UPIN"
+    | "SYSTEM_CREATE_GROUP"
+    | "SYSTEM_ADD_MEMBER"
+    | "SYSTEM_LEAVE_GROUP"
+    | "SYSTEM_KICK_MEMBER"
+    | "SYSTEM_UPDATE_ROLE"
+    | "SYSTEM_DISBAND_GROUP";
+
+export type MemberRole = "OWNER" | "DEPUTY" | "MEMBER";
+
+export type MemberStatus = "ACTIVE" | "LEFT" | "KICKED" | "GROUP_DISBANDED";
 
 export interface ReplyInfo {
     messageId: string;
@@ -86,11 +96,18 @@ export interface Conversation {
 }
 
 export interface ConversationMember {
+    id?: number;
     userId: number;
-    username: string;
+    username?: string;
     nickname: string;
     avatar?: string;
+    unreadCount?: number;
+    clearedAt?: string;
     lastReadMessageId?: string; // Mốc tin nhắn đã đọc (watermark)
+    role?: MemberRole;
+    status?: MemberStatus;
+    joinedAt?: string;
+    leftAt?: string;
 }
 
 export interface SendMessageRequest {
@@ -142,6 +159,16 @@ export interface UpdateNicknameRequest {
     nickname: string;
 }
 
+export interface CreateGroupRequest {
+    name?: string;
+    imageUrl?: string;
+    memberIds: number[];
+}
+
+export interface AddGroupMembersRequest {
+    newMemberIds: number[];
+}
+
 function normalizeMembersPayload(
     payload: unknown,
 ): Record<string, ConversationMember> {
@@ -162,6 +189,20 @@ function normalizeMembersPayload(
 
     // Case 2: raw map format { "1": {...}, "2": {...} }
     return payload as Record<string, ConversationMember>;
+}
+
+function unwrapApiData<T>(payload: ApiResponse<T> | T): T {
+    if (
+        payload &&
+        typeof payload === "object" &&
+        "data" in (payload as Record<string, unknown>)
+    ) {
+        const wrapped = payload as ApiResponse<T>;
+        if (wrapped.data != null) {
+            return wrapped.data;
+        }
+    }
+    return payload as T;
 }
 
 const chatService = {
@@ -263,6 +304,75 @@ const chatService = {
         // Trả ra đúng map members theo userId để controller dùng join dữ liệu
         // senderId <-> nickname/avatar một cách ổn định.
         return normalizeMembersPayload(response.data);
+    },
+
+    async createGroupConversation(
+        request: CreateGroupRequest,
+    ): Promise<Conversation> {
+        const response = await axiosClient.post(
+            "/conversations/group",
+            request,
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async addMembersToGroup(
+        conversationId: number,
+        request: AddGroupMembersRequest,
+    ): Promise<Conversation> {
+        const response = await axiosClient.post(
+            `/conversations/${conversationId}/members`,
+            request,
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async leaveGroup(conversationId: number): Promise<Conversation> {
+        const response = await axiosClient.delete(
+            `/conversations/${conversationId}/leave`,
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async kickGroupMember(
+        conversationId: number,
+        targetUserId: number,
+    ): Promise<Conversation> {
+        const response = await axiosClient.delete(
+            `/conversations/${conversationId}/members/${targetUserId}`,
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async updateGroupMemberRole(
+        conversationId: number,
+        targetUserId: number,
+        newRole: MemberRole,
+    ): Promise<Conversation> {
+        const response = await axiosClient.patch(
+            `/conversations/${conversationId}/members/${targetUserId}/role`,
+            null,
+            {
+                params: {
+                    newRole,
+                },
+            },
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async disbandGroup(conversationId: number): Promise<void> {
+        await axiosClient.delete(`/conversations/${conversationId}/disband`);
     },
 
     async updateConversationMemberNickname(

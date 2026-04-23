@@ -4,10 +4,7 @@
  */
 package iuh.fit.edu.backend.service.chat.impl;
 
-import iuh.fit.edu.backend.constant.ConversationType;
-import iuh.fit.edu.backend.constant.MemberRole;
-import iuh.fit.edu.backend.constant.MemberStatus;
-import iuh.fit.edu.backend.constant.MessageType;
+import iuh.fit.edu.backend.constant.*;
 import iuh.fit.edu.backend.domain.entity.mysql.Conversation;
 import iuh.fit.edu.backend.domain.entity.mysql.ConversationMember;
 import iuh.fit.edu.backend.dto.request.convesation.AddMemberRequest;
@@ -82,7 +79,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
     @Override
     public ConversationMemberResponse getMemberInfo(Long conversationId, Long userId) {
         ConversationMemberResponse cachedMember = cacheService.getMemberInfo(conversationId, userId);
-        if (cachedMember != null) {
+        if (cachedMember != null && cachedMember.getStatus().equals(ConversationMemberStatus.ACTIVE)) {
             return cachedMember;
         }
 
@@ -138,7 +135,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
 
         // Bắn sự kiện (Lấy tất cả member ACTIVE hiện tại để bắn)
         Set<Long> allActiveMemberIds = conversationMemberRepository
-                .findUserIdsByConversationIdAndStatus(conversationId, MemberStatus.ACTIVE);
+                .findUserIdsByConversationIdAndStatus(conversationId, ConversationMemberStatus.ACTIVE);
 
         eventPublisher.publishEvent(new MemberAddedEvent(response, allActiveMemberIds));
 
@@ -153,7 +150,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
 
         // 2. Gọi hàm lõi dùng chung
         return processMemberRemoval(conv, userId, userId,
-                MemberStatus.LEFT, MessageType.SYSTEM_LEAVE_GROUP, "[]", DomainEventType.MEMBER_LEFT);
+                ConversationMemberStatus.LEFT, MessageType.SYSTEM_LEAVE_GROUP, "[]", DomainEventType.MEMBER_LEFT);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -164,7 +161,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
 
         // Gọi hàm lõi dùng chung
         return processMemberRemoval(conv, targetId, requesterId,
-                MemberStatus.KICKED, MessageType.SYSTEM_KICK_MEMBER, "[" + targetId + "]", DomainEventType.MEMBER_KICKED);
+                ConversationMemberStatus.KICKED, MessageType.SYSTEM_KICK_MEMBER, "[" + targetId + "]", DomainEventType.MEMBER_KICKED);
     }
 
     /**
@@ -252,7 +249,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
 
         // Gom ID người nhận Socket
         Set<Long> allNotifyIds = conversationMemberRepository
-                .findUserIdsByConversationIdAndStatus(conversationId, MemberStatus.ACTIVE);
+                .findUserIdsByConversationIdAndStatus(conversationId, ConversationMemberStatus.ACTIVE);
 
         // 6. Lưu Mongo & Bắn Socket Khung Chat qua Facade
         internalMessageService.createSystemMessage(
@@ -289,14 +286,14 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
 
         // 2. Lấy danh sách tất cả thành viên đang ACTIVE để xử lý
         List<ConversationMember> activeMembers = conversationMemberRepository
-                .findByConversationIdAndStatus(conversationId, MemberStatus.ACTIVE);
+                .findByConversationIdAndStatus(conversationId, ConversationMemberStatus.ACTIVE);
 
         Set<Long> allNotifyIds = activeMembers.stream()
                 .map(m -> m.getUser().getId()).collect(Collectors.toSet());
 
         // Cập nhật trạng thái hàng loạt trong MySQL
         for (ConversationMember member : activeMembers) {
-            member.setStatus(MemberStatus.GROUP_DISBANDED);
+            member.setStatus(ConversationMemberStatus.GROUP_DISBANDED);
             member.setLeftAt(now);
         }
         conversationMemberRepository.saveAll(activeMembers);
@@ -305,7 +302,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
         for (Long uid : allNotifyIds) {
             ConversationMemberResponse dto = conversationMemberCacheService.getMemberInfo(conversationId, uid);
             if (dto != null) {
-                dto.setStatus(MemberStatus.GROUP_DISBANDED);
+                dto.setStatus(ConversationMemberStatus.GROUP_DISBANDED);
                 conversationMemberCacheService.saveMemberInfo(conversationId, uid, dto);
             }
         }
@@ -355,7 +352,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
 
         // Trưởng nhóm không được tự ý bỏ đi nếu nhóm còn người khác
         if (member.getRole() == MemberRole.OWNER) {
-            long activeCount = conversationMemberRepository.countByConversationIdAndStatus(convId, MemberStatus.ACTIVE);
+            long activeCount = conversationMemberRepository.countByConversationIdAndStatus(convId, ConversationMemberStatus.ACTIVE);
             if (activeCount > 1) {
                 throw new RuntimeException("Bạn là Trưởng nhóm. Hãy chuyển quyền cho người khác trước khi rời đi.");
             }
@@ -389,7 +386,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
     private ConversationMember getActiveMember(Long convId, Long userId) {
         ConversationMember member = conversationMemberRepository.findByConversation_IdAndUser_Id(convId, userId)
                 .orElseThrow(() -> new RuntimeException("Thành viên không tồn tại trong nhóm"));
-        if (member.getStatus() != MemberStatus.ACTIVE) {
+        if (member.getStatus() != ConversationMemberStatus.ACTIVE) {
             throw new RuntimeException("Thành viên này không còn hoạt động trong nhóm");
         }
         return member;
@@ -397,7 +394,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
 
     private ConversationResponse processMemberRemoval(
             Conversation conv, Long targetId, Long requesterId,
-            MemberStatus newStatus, MessageType sysMsgType, String sysMsgContent, DomainEventType eventType) {
+            ConversationMemberStatus newStatus, MessageType sysMsgType, String sysMsgContent, DomainEventType eventType) {
 
         Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
         Long convId = conv.getId();
@@ -414,7 +411,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
 
         // Gom ID để bắn Socket (Bao gồm cả người vừa out để họ biết đường khóa ô chat)
         Set<Long> allNotifyIds = conversationMemberRepository
-                .findUserIdsByConversationIdAndStatus(convId, MemberStatus.ACTIVE);
+                .findUserIdsByConversationIdAndStatus(convId, ConversationMemberStatus.ACTIVE);
         allNotifyIds.add(targetId);
 
         //  Giao việc lưu Mongo & Bắn Socket khung chat chon internal messsage serivce
@@ -453,7 +450,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
                 .findByConversation_IdAndUser_Id(conversationId, inviterId)
                 .orElseThrow(() -> new RuntimeException("Bạn không nằm trong nhóm này"));
 
-        if (inviter.getStatus() != MemberStatus.ACTIVE) {
+        if (inviter.getStatus() != ConversationMemberStatus.ACTIVE) {
             throw new RuntimeException("Bạn không có quyền thực hiện hành động này");
         }
         return conv;
@@ -481,8 +478,8 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
             if (existingMap.containsKey(tId)) {
                 // Trường hợp 1: Người cũ (Đã Left/Kicked)
                 ConversationMember em = existingMap.get(tId);
-                if (em.getStatus() != MemberStatus.ACTIVE) {
-                    em.setStatus(MemberStatus.ACTIVE);
+                if (em.getStatus() != ConversationMemberStatus.ACTIVE) {
+                    em.setStatus(ConversationMemberStatus.ACTIVE);
                     em.setJoinedAt(now);
                     em.setLeftAt(null); // Xóa mốc thời gian rời đi
                     membersToSave.add(em);
@@ -494,7 +491,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
                 nm.setConversation(conv);
                 nm.setUser(userRepository.getReferenceById(tId));
                 nm.setRole(MemberRole.MEMBER);
-                nm.setStatus(MemberStatus.ACTIVE);
+                nm.setStatus(ConversationMemberStatus.ACTIVE);
                 nm.setJoinedAt(now);
                 membersToSave.add(nm);
                 actuallyAddedIds.add(tId);

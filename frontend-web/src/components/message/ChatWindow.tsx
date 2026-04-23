@@ -540,7 +540,9 @@ export default function ChatWindow({
 
         let previousDayKey: string | null = null;
         const isPinSystemMessageType = (type?: string) =>
-            type === "SYSTEM_PIN" || type === "SYSTEM_UPIN";
+            type === "SYSTEM_PIN" ||
+            type === "SYSTEM_UPIN" ||
+            type === "SYSTEM_CREATE_GROUP";
 
         for (let idx = 0; idx < messages.length; idx++) {
             const message = messages[idx];
@@ -688,6 +690,7 @@ export default function ChatWindow({
                         senderAvatar={senderAvatar}
                         replyPreview={replyPreview}
                         currentUserId={userId}
+                        membersById={membersById}
                         conversationType={conversation?.type}
                         defaultAvatarSmallUrl={defaultAvatarSmallUrl}
                         isPinned={isPinned}

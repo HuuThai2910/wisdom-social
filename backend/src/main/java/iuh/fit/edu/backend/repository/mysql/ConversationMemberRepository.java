@@ -4,7 +4,7 @@
  */
 package iuh.fit.edu.backend.repository.mysql;
 
-import iuh.fit.edu.backend.constant.MemberStatus;
+import iuh.fit.edu.backend.constant.ConversationMemberStatus;
 import iuh.fit.edu.backend.domain.entity.mysql.Conversation;
 import iuh.fit.edu.backend.domain.entity.mysql.ConversationMember;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -71,9 +71,9 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
             "WHERE cm.conversation.id = :conversationId AND cm.isHidden = true")
     void unhideConversationForAllMembers(@Param("conversationId") Long conversationId);
 
-    Set<Long> findUserIdsByConversationIdAndStatus(Long conversationId, MemberStatus memberStatus);
+    Set<Long> findUserIdsByConversationIdAndStatus(Long conversationId, ConversationMemberStatus ConversationMemberStatus);
 
-    long countByConversationIdAndStatus(Long convId, MemberStatus memberStatus);
+    long countByConversationIdAndStatus(Long convId, ConversationMemberStatus ConversationMemberStatus);
 
-    List<ConversationMember> findByConversationIdAndStatus(Long conversationId, MemberStatus memberStatus);
+    List<ConversationMember> findByConversationIdAndStatus(Long conversationId, ConversationMemberStatus ConversationMemberStatus);
 }

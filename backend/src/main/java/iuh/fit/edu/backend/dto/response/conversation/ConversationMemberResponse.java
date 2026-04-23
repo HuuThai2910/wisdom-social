@@ -5,6 +5,7 @@
 package iuh.fit.edu.backend.dto.response.conversation;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import iuh.fit.edu.backend.constant.ConversationMemberStatus;
 import iuh.fit.edu.backend.constant.MemberRole;
 import iuh.fit.edu.backend.constant.MemberStatus;
 import lombok.*;
@@ -28,7 +29,7 @@ public class ConversationMemberResponse {
     private String lastReadMessageId; // Mốc tin nhắn đã đọc (watermark)
 
     private MemberRole role;
-    private MemberStatus status;
+    private ConversationMemberStatus status;
     private Instant joinedAt;
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private Instant leftAt;

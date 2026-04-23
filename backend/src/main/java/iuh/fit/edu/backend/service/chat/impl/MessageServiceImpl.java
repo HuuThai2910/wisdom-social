@@ -63,7 +63,7 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @AllArgsConstructor
-public class MessageServiceImpl implements MessageService, InternalMessageService {
+public class MessageServiceImpl implements MessageService{
     private final MessageRepository messageRepository;
     private final UserRepository userRepository;
     private final ConversationMemberService conversationMemberService;
@@ -133,7 +133,7 @@ public class MessageServiceImpl implements MessageService, InternalMessageServic
 
         ConversationMemberResponse senderInfo = conversationMemberService
                 .getMemberInfo(conversationId, userId);
-        if (senderInfo == null || !senderInfo.getStatus().equals(MemberStatus.ACTIVE)) {
+        if (senderInfo == null) {
             throw new RuntimeException("Bạn không phải thành viên của cuộc trò chuyện");
         }
 
@@ -520,22 +520,7 @@ public class MessageServiceImpl implements MessageService, InternalMessageServic
                 .build();
     }
 
-    @Override
-    public void createSystemMessage(Long conversationId, Long actorId, MessageType type, String content) {
-        Message systemMsg = new Message();
-        systemMsg.setConversationId(conversationId);
-        systemMsg.setSenderId(actorId);
-        systemMsg.setMessageType(type);
-        systemMsg.setContent(content);
-        systemMsg.setCreatedAt(Instant.now().truncatedTo(ChronoUnit.MILLIS));
-        Message savedMsg = messageRepository.save(systemMsg);
 
-        // Map ra DTO và Bắn Socket KHUNG CHAT (Giống hệt hàm sendMessage bình thường)
-        MessageResponse msgResponse = messageMapper.toMessageResponse(savedMsg);
-        messageCacheService.cacheNewMessage(msgResponse);
-
-        this.eventPublisher.publishEvent(new MessageCreatedEvent(msgResponse));
-    }
 
 
     // Hàm dùng để lấy ra thông tin của những người đã rời khỏi cuộc trò chuyện

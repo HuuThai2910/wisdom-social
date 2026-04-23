@@ -4,6 +4,7 @@
  */
 package iuh.fit.edu.backend.domain.entity.mysql;
 
+import iuh.fit.edu.backend.constant.ConversationMemberStatus;
 import iuh.fit.edu.backend.constant.MemberRole;
 import iuh.fit.edu.backend.constant.MemberStatus;
 import jakarta.persistence.*;
@@ -46,7 +47,7 @@ public class ConversationMember {
     private MemberRole role;       // <--- TRƯỜNG MỚI
 
     @Enumerated(EnumType.STRING)
-    private MemberStatus status;
+    private ConversationMemberStatus status;
 
     @Column(name = "joined_at")
     private Instant joinedAt;

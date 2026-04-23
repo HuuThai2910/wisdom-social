@@ -288,6 +288,10 @@ export function useMessagesController() {
         [navigate],
     );
 
+    const clearSelectedConversation = useCallback(() => {
+        navigate(`/messages`);
+    }, [navigate]);
+
     const filteredConversations = useMemo(() => {
         // Filter theo searchQuery trên displayName.
         const trimmed = searchQuery.trim().toLowerCase();
@@ -385,6 +389,7 @@ export function useMessagesController() {
 
         filteredConversations,
         handleSelectConversation,
+        clearSelectedConversation,
         handleDeleteConversationForMe,
         getDisplayInfo,
         formatTime,

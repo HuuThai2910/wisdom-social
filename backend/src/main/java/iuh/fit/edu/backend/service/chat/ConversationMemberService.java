@@ -9,17 +9,15 @@ package iuh.fit.edu.backend.service.chat;/*
  * @version: 1.0
  */
 
+import java.util.Map;
+import java.util.Set;
+
 import iuh.fit.edu.backend.constant.MemberRole;
 import iuh.fit.edu.backend.domain.entity.mysql.ConversationMember;
 import iuh.fit.edu.backend.dto.request.convesation.AddMemberRequest;
 import iuh.fit.edu.backend.dto.response.conversation.ConversationMemberResponse;
 import iuh.fit.edu.backend.dto.response.conversation.ConversationResponse;
 import jakarta.transaction.Transactional;
-import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.Cacheable;
-
-import java.util.Map;
-import java.util.Set;
 
 public interface ConversationMemberService {
     Map<Long, ConversationMemberResponse> getMembersMap(Long conversationId);
