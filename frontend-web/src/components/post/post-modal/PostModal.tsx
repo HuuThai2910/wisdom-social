@@ -58,6 +58,7 @@ import PostActions from "./PostActions";
 import PostComments from "./post-comment/PostComments";
 import { useAuth } from "../../../contexts/AuthContext";
 import * as postApi from "../../../services/postService";
+import toast from "react-hot-toast";
 import type {
   PostData,
   UserData,
@@ -365,6 +366,21 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
     }
   };
 
+  const handleShare = async () => {
+    if (!viewerId) {
+      toast.error("Vui lòng đăng nhập để chia sẻ bài viết");
+      return;
+    }
+
+    try {
+      await postApi.sharePost(postId);
+      toast.success("Đã chia sẻ bài viết thành công!");
+    } catch (error) {
+      console.error("Error sharing post:", error);
+      toast.error("Không thể chia sẻ bài viết");
+    }
+  };
+
   // ============ LOADING STATE ============
   if (loading) {
     return (
@@ -443,6 +459,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
             onChangePrivacy={handleChangePrivacy}
             onDelete={handleDelete}
             onCopyLink={handleCopyLink}
+            taggedUsers={taggedUsers}
           />
 
           {/* Comments */}
@@ -457,6 +474,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
             setShowReactions={setShowReactions}
             onReaction={handleReaction}
             onSave={handleSave}
+            onShare={handleShare}
             reactionsTimeoutRef={reactionsTimeoutRef}
           />
         </div>

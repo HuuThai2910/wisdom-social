@@ -39,8 +39,7 @@ export default function CreatePost() {
   const [location, setLocation] = useState("");
   const [showLocationInput, setShowLocationInput] = useState(false);
   const [taggedUsers, setTaggedUsers] = useState<string[]>([]);
-  const [showTagInput, setShowTagInput] = useState(false);
-  const [tagInput, setTagInput] = useState("");
+  const [showTagModal, setShowTagModal] = useState(false);
   const [privacy, setPrivacy] = useState<PrivacyType>("PUBLIC");
   const [showPrivacyMenu, setShowPrivacyMenu] = useState(false);
   const [allowComments, setAllowComments] = useState(true);
@@ -135,22 +134,6 @@ export default function CreatePost() {
     setSelectedImages(selectedImages.filter((_, i) => i !== index));
     setImagePreviewUrls(imagePreviewUrls.filter((_, i) => i !== index));
   };
-
-  const handleAddTag = (username?: string) => {
-    const userToAdd = username || tagInput.trim();
-    if (userToAdd && !taggedUsers.includes(userToAdd)) {
-      setTaggedUsers([...taggedUsers, userToAdd]);
-      setTagInput("");
-    }
-  };
-
-  const filteredFriends = friends.filter(
-    (user) =>
-      user.username !== currentUser?.username &&
-      !taggedUsers.includes(user.username) &&
-      (user.username.toLowerCase().includes(tagInput.toLowerCase()) ||
-        user.fullName.toLowerCase().includes(tagInput.toLowerCase()))
-  );
 
   const handleRemoveTag = (tag: string) => {
     setTaggedUsers(taggedUsers.filter((t) => t !== tag));
@@ -487,70 +470,31 @@ export default function CreatePost() {
                     Tag people
                   </span>
                   <button
-                    onClick={() => setShowTagInput(!showTagInput)}
-                    className="p-1 hover:bg-gray-100 dark:hover:bg-[#363636] rounded"
+                    onClick={() => setShowTagModal(true)}
+                    className="p-1 hover:bg-gray-100 dark:hover:bg-[#363636] rounded text-blue-500 hover:text-blue-600 flex items-center gap-1"
                   >
-                    <Users
-                      size={20}
-                      className="text-gray-600 dark:text-gray-400"
-                    />
+                    <Users size={18} />
+                    <span className="text-xs font-semibold">
+                      {taggedUsers.length > 0 ? `Tagged ${taggedUsers.length}` : "Tag"}
+                    </span>
                   </button>
                 </div>
-                {showTagInput && (
-                  <div className="space-y-2">
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={tagInput}
-                        onChange={(e) => setTagInput(e.target.value)}
-                        placeholder="Search friends..."
-                        className="w-full px-3 py-2 text-sm border border-gray-200 dark:border-[#363636] rounded-lg outline-none focus:border-gray-400 dark:focus:border-gray-500 dark:bg-black dark:text-white"
-                      />
-                      {/* Friends List Dropdown - Show 10 friends by default */}
-                      {filteredFriends.length > 0 && (
-                        <div className="absolute top-full mt-1 w-full bg-white dark:bg-[#262626] border border-gray-200 dark:border-[#363636] rounded-lg shadow-lg max-h-60 overflow-y-auto z-10">
-                          {filteredFriends.slice(0, 10).map((friend) => (
-                            <button
-                              key={friend.id}
-                              onClick={() => handleAddTag(friend.username)}
-                              className="w-full flex items-center gap-3 px-3 py-2 hover:bg-gray-100 dark:hover:bg-[#363636] transition-colors"
-                            >
-                              <img
-                                src={friend.avatar}
-                                alt={friend.username}
-                                className="w-10 h-10 rounded-full"
-                              />
-                              <div className="flex-1 text-left">
-                                <p className="text-sm font-semibold dark:text-white">
-                                  {friend.username}
-                                </p>
-                                <p className="text-xs text-gray-500 dark:text-gray-400">
-                                  {friend.fullName}
-                                </p>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    {taggedUsers.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mt-3">
-                        {taggedUsers.map((tag) => (
-                          <div
-                            key={tag}
-                            className="flex items-center gap-1 px-3 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full text-sm"
-                          >
-                            <span>@{tag}</span>
-                            <button
-                              onClick={() => handleRemoveTag(tag)}
-                              className="hover:text-blue-800 dark:hover:text-blue-200"
-                            >
-                              <X size={14} />
-                            </button>
-                          </div>
-                        ))}
+                {taggedUsers.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {taggedUsers.map((tag) => (
+                      <div
+                        key={tag}
+                        className="flex items-center gap-1 px-3 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full text-sm"
+                      >
+                        <span>@{tag}</span>
+                        <button
+                          onClick={() => handleRemoveTag(tag)}
+                          className="hover:text-blue-800 dark:hover:text-blue-200"
+                        >
+                          <X size={14} />
+                        </button>
                       </div>
-                    )}
+                    ))}
                   </div>
                 )}
               </div>
@@ -715,6 +659,15 @@ export default function CreatePost() {
         title="Hide from"
         description="Selected friends won't be able to see this post"
         initialSelected={excludedUsers}
+      />
+
+      <FriendSelectorModal
+        isOpen={showTagModal}
+        onClose={() => setShowTagModal(false)}
+        onConfirm={(selected) => setTaggedUsers(selected)}
+        title="Tag friends"
+        description="Search for friends to tag in your post"
+        initialSelected={taggedUsers}
       />
     </div>
   );

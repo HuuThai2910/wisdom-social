@@ -1,13 +1,15 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import useRealtimePosts from "./useRealtimePosts";
 import {
     getSavedPostsWithDetails,
     getTaggedPostsWithDetails,
+    getSharedPostsWithDetails,
     getUserPostsWithDetails,
     getUserByUsername,
     getPostWithTaggedUsers,
-    fetchFriends,
+    transformMediaToS3Urls,
 } from "../services/postService";
-import { buildS3Url } from "../utils/s3";
+import { friendService } from "../services/friendService";
 import type { User } from "../types";
 
 /**
@@ -80,6 +82,48 @@ export const useProfileMyPosts = (user: User | null) => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
+    const transformPost = useCallback((post: any) => {
+        if (!user) return post;
+        // Robust fallback for authorId
+        const authorId = post.authorId || user.id.toString();
+        const rawMedia = post.media || post.mediaList || [];
+        const images = transformMediaToS3Urls(rawMedia, authorId);
+
+        // Transform the media array itself to contain full URLs
+        const transformedMedia = rawMedia.map((m: any, index: number) => ({
+            ...m,
+            url: images[index] || m.url,
+            type: (m.type || "image").toLowerCase()
+        }));
+
+        return {
+            ...post,
+            imageUrl: images && images.length > 0 ? images[0] : null,
+            images: images,
+            media: transformedMedia,
+            user: {
+                id: user.id,
+                username: user.username,
+                fullName: user.fullName,
+                avatar: user.avatarUrl,
+            },
+        };
+    }, [user]);
+
+    // Realtime updates
+    useRealtimePosts({
+        topic: user ? `/topic/user/${user.id}/posts` : undefined,
+        onPostCreated: (newPost) => {
+            setPosts(prev => [transformPost(newPost), ...prev]);
+        },
+        onPostUpdated: (updatedPost) => {
+            setPosts(prev => prev.map(p => p.id === updatedPost.id ? transformPost(updatedPost) : p));
+        },
+        onPostDeleted: (postId) => {
+            setPosts(prev => prev.filter(p => p.id !== postId));
+        }
+    });
+
     useEffect(() => {
         const fetchPosts = async () => {
             if (!user) return;
@@ -90,25 +134,43 @@ export const useProfileMyPosts = (user: User | null) => {
                 let postsData = await getUserPostsWithDetails(user.id);
 
                 // Build S3 URLs if needed
-                postsData = postsData.map((post: any) => {
-                    return {
-                        ...post,
-                        imageUrl: post.imageUrl || null,
-                        // post.images already has full S3 URLs from getUserPostsWithDetails()
-                        images: post.images || [],
-                        user: {
-                            id: user.id,
-                            username: user.username,
-                            fullName: user.fullName,
-                            avatar: user.avatarUrl,
-                        },
-                    };
-                });
+                postsData = postsData.map((post: any) => transformPost(post));
 
                 setPosts(postsData);
             } catch (err: any) {
                 console.error("Error fetching user posts:", err);
                 setError(err.message || "Failed to load posts");
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchPosts();
+    }, [user, transformPost]);
+
+    return { posts, loading, error };
+};
+
+/**
+ * Hook for fetching shared posts
+ */
+export const useProfileSharedPosts = (user: User | null) => {
+    const [posts, setPosts] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        const fetchPosts = async () => {
+            if (!user) return;
+
+            try {
+                setLoading(true);
+                setError(null);
+                const sharedPosts = await getSharedPostsWithDetails(user.id);
+                setPosts(sharedPosts);
+            } catch (err: any) {
+                console.error("Error fetching shared posts:", err);
+                setError(err.message || "Failed to load shared posts");
             } finally {
                 setLoading(false);
             }
@@ -210,7 +272,7 @@ export const useUserFriends = (userId: string | number | undefined) => {
             try {
                 setLoading(true);
                 setError(null);
-                const friendsList = await fetchFriends(userId);
+                const friendsList = await friendService.getFriends(userId);
                 setFriends(friendsList);
             } catch (err: any) {
                 console.error("Error fetching friends:", err);
@@ -226,34 +288,4 @@ export const useUserFriends = (userId: string | number | undefined) => {
     return { friends, loading, error };
 };
 
-/**
- * Hook for fetching shared posts
- */
-export const useProfileSharedPosts = (user: User | null) => {
-    const [posts, setPosts] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
 
-    useEffect(() => {
-        const fetchPosts = async () => {
-            if (!user) return;
-
-            try {
-                setLoading(true);
-                setError(null);
-                // TODO: Implement backend endpoint for shared posts
-                // For now, return empty array
-                setPosts([]);
-            } catch (err: any) {
-                console.error("Error fetching shared posts:", err);
-                setError(err.message || "Failed to load shared posts");
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        fetchPosts();
-    }, [user]);
-
-    return { posts, loading, error };
-};

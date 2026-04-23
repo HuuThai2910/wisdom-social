@@ -14,6 +14,8 @@ import iuh.fit.edu.backend.domain.entity.nosql.Stats;
 import iuh.fit.edu.backend.domain.entity.nosql.embeddable.Location;
 import iuh.fit.edu.backend.dto.request.post.CreatePostRequest;
 import iuh.fit.edu.backend.dto.request.post.MediaUploadMetadataRequest;
+import iuh.fit.edu.backend.event.post.CommentRealtimeEvent;
+import iuh.fit.edu.backend.event.post.PostRealtimeEvent;
 import iuh.fit.edu.backend.repository.mysql.UserRepository;
 import iuh.fit.edu.backend.repository.nosql.CommentRepository;
 import iuh.fit.edu.backend.repository.nosql.PostRepository;
@@ -178,6 +180,14 @@ public class PostServiceImpl implements PostService {
         } else {
             log.info("No image URLs provided");
         }
+        
+        // Broadcast CREATE event
+        eventPublisher.publishEvent(PostRealtimeEvent.builder()
+                .action("CREATE")
+                .post(savedPost)
+                .postId(savedPost.getId())
+                .authorId(savedPost.getAuthorId())
+                .build());
     
         return savedPost;
     }
@@ -308,6 +318,13 @@ public class PostServiceImpl implements PostService {
         // Delete the post
         postRepository.delete(post);
         log.info("Post {} deleted successfully", postId);
+
+        // Broadcast DELETE event
+        eventPublisher.publishEvent(PostRealtimeEvent.builder()
+                .action("DELETE")
+                .postId(postId)
+                .authorId(post.getAuthorId())
+                .build());
     }
 
     @Override
@@ -485,6 +502,14 @@ public class PostServiceImpl implements PostService {
         Post updated = postRepository.save(post);
         log.info("✅ Post {} updated successfully with {} media items", postId, updated.getMedia().size());
         
+        // Broadcast UPDATE event
+        eventPublisher.publishEvent(PostRealtimeEvent.builder()
+                .action("UPDATE")
+                .post(updated)
+                .postId(updated.getId())
+                .authorId(updated.getAuthorId())
+                .build());
+
         return updated;
     }
 

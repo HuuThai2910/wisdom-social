@@ -9,6 +9,7 @@ interface UseRealtimeCommentsProps {
   deleteComment: (commentId: string, parentId?: string) => void;
   viewerId: string;
   onCommentReceived?: (comment: Comment) => void;
+  onCommentDeleted?: (commentId: string, parentId?: string) => void;
 }
 
 interface RealtimeCommentEvent {
@@ -23,7 +24,8 @@ export function useRealtimeComments({
   createReply,
   deleteComment,
   viewerId,
-  onCommentReceived
+  onCommentReceived,
+  onCommentDeleted
 }: UseRealtimeCommentsProps) {
 
   // Use a ref for commentsById to prevent re-subscribing on every comment change
@@ -46,8 +48,11 @@ export function useRealtimeComments({
       const newComment = (event as RealtimeCommentEvent).payload || (event as Comment);
 
       if (action === "DELETE") {
-        if (commentsByIdRef.current[newComment.id]) {
-          deleteComment(newComment.id, newComment.parentId || undefined);
+        // We trigger delete even if not in commentsById map to clean up rootIds/recentIds
+        deleteComment(newComment.id, newComment.parentId || undefined);
+        
+        if (onCommentDeleted) {
+          onCommentDeleted(newComment.id, newComment.parentId || undefined);
         }
         return;
       }

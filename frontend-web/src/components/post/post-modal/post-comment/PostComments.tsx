@@ -72,13 +72,13 @@ import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useLocation } from "react-router-dom";
 import useCommentsNormalized from "../../../../hooks/useCommentsNormalized";
 import { commentService } from "../../../../services/commentService";
-import * as postApi from "../../../../services/postService";
 import type { Comment } from "../../../../services/commentService";
 import type { UserData } from "../../../../types/postType";
 import CommentItemNormalized from "../../post-comment/CommentItemNormalized";
 import CommentInput from "./CommentInput";
 import useRealtimeComments from "../../../../hooks/useRealtimeComments";
 import useRealtimeReactions from "../../../../hooks/useRealtimeReactions";
+import useMentions from "../../../../hooks/useMentions";
 
 interface PostCommentsProps {
   postId: string;
@@ -87,6 +87,19 @@ interface PostCommentsProps {
 
 const PostComments: React.FC<PostCommentsProps> = ({ postId, viewerId }) => {
   const location = useLocation();
+  const commentInputRef = useRef<HTMLInputElement>(null);
+
+  // ============ MENTIONS HOOK ============
+  const {
+    mentionUsers,
+    showMentionDropdown,
+    handleTextChange: handleMentionChange,
+    selectUser,
+    getFinalMentions,
+    mentionLoading,
+    mentionHasMore,
+    loadMoreMentions,
+  } = useMentions(viewerId);
 
   // ============ COMMENT STATE ============
   const {
@@ -142,8 +155,6 @@ const PostComments: React.FC<PostCommentsProps> = ({ postId, viewerId }) => {
   // ============ COMMENT INPUT STATE ============
   const [commentInput, setCommentInput] = useState("");
   const [submittingComment, setSubmittingComment] = useState(false);
-  const [showMentionDropdown, setShowMentionDropdown] = useState(false);
-  const [mentionUsers, setMentionUsers] = useState<UserData[]>([]);
   const [mentionCursorPos, setMentionCursorPos] = useState(0);
 
   // ============ EFFECT: Update pending expand ID on navigation ============
@@ -309,47 +320,24 @@ const PostComments: React.FC<PostCommentsProps> = ({ postId, viewerId }) => {
     const cursorPos = e.target.selectionStart || 0;
     setCommentInput(value);
     setMentionCursorPos(cursorPos);
-
-    const textBeforeCursor = value.substring(0, cursorPos);
-    const atIndex = textBeforeCursor.lastIndexOf("@");
-
-    if (atIndex !== -1) {
-      const afterAt = textBeforeCursor.substring(atIndex + 1);
-      if (!afterAt.includes(" ")) {
-        setShowMentionDropdown(true);
-
-        if (afterAt.length > 0) {
-          try {
-            const users = await postApi.searchUsers(viewerId, afterAt);
-            setMentionUsers(users);
-          } catch (error) {
-            console.error("Error searching users:", error);
-          }
-        } else {
-          setMentionUsers([]);
-        }
-      } else {
-        setShowMentionDropdown(false);
-      }
-    } else {
-      setShowMentionDropdown(false);
-    }
+    
+    handleMentionChange(value, cursorPos);
   };
 
   // ============ Comment Input: Handle mention selection ============
   const handleSelectMention = (user: UserData) => {
-    const textBeforeCursor = commentInput.substring(0, mentionCursorPos);
-    const textAfterCursor = commentInput.substring(mentionCursorPos);
-    const atIndex = textBeforeCursor.lastIndexOf("@");
-
-    const newValue =
-      commentInput.substring(0, atIndex) +
-      `@${user.username} ` +
-      textAfterCursor;
+    const { newValue, newCursorPos } = selectUser(commentInput, user);
 
     setCommentInput(newValue);
-    setShowMentionDropdown(false);
-    setMentionUsers([]);
+    setMentionCursorPos(newCursorPos);
+    
+    // Refocus and set cursor
+    setTimeout(() => {
+      if (commentInputRef.current) {
+        commentInputRef.current.focus();
+        commentInputRef.current.setSelectionRange(newCursorPos, newCursorPos);
+      }
+    }, 0);
   };
 
   const handleCommentCursorChange = (cursorPos: number) => {
@@ -381,11 +369,14 @@ const PostComments: React.FC<PostCommentsProps> = ({ postId, viewerId }) => {
         return;
       }
 
+      const finalMentions = getFinalMentions(commentInput);
       const newComment = await commentService.createComment(
         "POST",
         postId,
         commentInput,
-        Number(viewerId)
+        Number(viewerId),
+        undefined,
+        finalMentions
       );
 
       createReply(null, newComment);
@@ -475,10 +466,14 @@ const PostComments: React.FC<PostCommentsProps> = ({ postId, viewerId }) => {
 
       {/* Comment Input Section */}
       <CommentInput
+        inputRef={commentInputRef}
         commentInput={commentInput}
         submittingComment={submittingComment}
         showMentionDropdown={showMentionDropdown}
         mentionUsers={mentionUsers}
+        mentionLoading={mentionLoading}
+        mentionHasMore={mentionHasMore}
+        onLoadMoreMentions={loadMoreMentions}
         onCommentChange={handleCommentInputChange}
         onCursorChange={handleCommentCursorChange}
         onInsertEmoji={handleInsertEmoji}

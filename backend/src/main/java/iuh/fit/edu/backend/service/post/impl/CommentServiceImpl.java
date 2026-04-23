@@ -8,6 +8,7 @@ import iuh.fit.edu.backend.dto.response.post.CommentResponse;
 import iuh.fit.edu.backend.dto.response.post.PaginatedCommentsResponse;
 import iuh.fit.edu.backend.repository.nosql.CommentRepository;
 import iuh.fit.edu.backend.repository.nosql.PostRepository;
+import iuh.fit.edu.backend.repository.mysql.UserRepository;
 import iuh.fit.edu.backend.service.post.CommentService;
 import iuh.fit.edu.backend.service.notification.NotificationService;
 import iuh.fit.edu.backend.event.notification.NotificationEvent;
@@ -47,6 +48,7 @@ public class CommentServiceImpl implements CommentService {
 
     private final CommentRepository commentRepository;
     private final PostRepository postRepository;
+    private final UserRepository userRepository;
     private final NotificationService notificationService;
     private final ApplicationEventPublisher eventPublisher;
     private static final int INITIAL_REPLY_LIMIT = 3;
@@ -56,8 +58,8 @@ public class CommentServiceImpl implements CommentService {
     public Comment createComment(CreateCommentRequest request, Long userId) {
         log.info("Creating comment for user: {} on target: {}", userId, request.getTargetId());
 
-        // Extract mentions from content
-        List<String> mentions = extractMentions(request.getContent());
+        // Process structured mentions
+        List<Comment.Mention> mentions = processMentions(request);
 
         Comment comment = Comment.builder()
                 .userId(userId.toString())
@@ -123,6 +125,22 @@ public class CommentServiceImpl implements CommentService {
                                 .build());
                     }
                 });
+            }
+            
+            // MENTION_IN_COMMENT notifications
+            if (mentions != null && !mentions.isEmpty()) {
+                for (Comment.Mention mention : mentions) {
+                    if (!mention.getUserId().equals(userId.toString())) {
+                        notificationService.createNotification(NotificationEvent.builder()
+                                .recipientId(mention.getUserId())
+                                .actorIds(List.of(userId.toString()))
+                                .type(NotificationType.COMMENT_MENTION)
+                                .targetType(TargetType.COMMENT)
+                                .targetId(savedComment.getId())
+                                .content("đã nhắc đến bạn trong một bình luận: " + savedComment.getContent())
+                                .build());
+                    }
+                }
             }
         } catch (Exception e) {
             log.error("Failed to send notification for comment", e);
@@ -300,7 +318,11 @@ public class CommentServiceImpl implements CommentService {
                 .targetId(comment.getTargetId())
                 .parentId(comment.getParentId())
                 .content(comment.getContent())
-                .mentions(comment.getMentions())
+                .mentions(comment.getMentions() != null 
+                    ? comment.getMentions().stream()
+                        .map(m -> new CommentResponse.MentionResponse(m.getUserId(), m.getUsername()))
+                        .collect(Collectors.toList())
+                    : Collections.emptyList())
                 .reactCount(comment.getReactCount())
                 .replyCount(comment.getReplyCount())
                 .status(comment.getStatus())
@@ -414,7 +436,45 @@ public class CommentServiceImpl implements CommentService {
         return descendants;
     }
 
+    private List<Comment.Mention> processMentions(CreateCommentRequest request) {
+        List<Comment.Mention> mentions = new ArrayList<>();
+        
+        // 1. If FE provided structured mentions, use them
+        if (request.getMentions() != null && !request.getMentions().isEmpty()) {
+            for (var mReq : request.getMentions()) {
+                if (mReq.getUserId() != null && !mReq.getUserId().isBlank()) {
+                    mentions.add(new Comment.Mention(mReq.getUserId(), mReq.getUsername()));
+                } else if (mReq.getUsername() != null && !mReq.getUsername().isBlank()) {
+                    // Fallback to lookup if userId missing
+                    userRepository.findByUsername(mReq.getUsername()).ifPresent(u -> 
+                        mentions.add(new Comment.Mention(u.getId().toString(), u.getUsername()))
+                    );
+                }
+            }
+        } else {
+            // 2. Fallback to regex extraction if not provided
+            List<String> usernames = extractMentions(request.getContent());
+            for (String username : usernames) {
+                userRepository.findByUsername(username).ifPresent(u -> 
+                    mentions.add(new Comment.Mention(u.getId().toString(), u.getUsername()))
+                );
+            }
+        }
+        
+        // Deduplicate by userId
+        return mentions.stream()
+                .collect(Collectors.toMap(
+                    Comment.Mention::getUserId, 
+                    m -> m, 
+                    (existing, replacement) -> existing
+                ))
+                .values()
+                .stream()
+                .collect(Collectors.toList());
+    }
+
     private List<String> extractMentions(String content) {
+        if (content == null) return Collections.emptyList();
         List<String> mentions = new ArrayList<>();
         Pattern pattern = Pattern.compile("@(\\w+)");
         Matcher matcher = pattern.matcher(content);

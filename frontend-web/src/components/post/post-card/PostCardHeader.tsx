@@ -26,6 +26,7 @@ interface PostCardHeaderProps {
   onDelete: () => void;
   onCopyLink: () => void;
   onChangePrivacy: (privacy: string) => void;
+  taggedUsers?: any[];
 }
 
 export default function PostCardHeader({
@@ -43,22 +44,46 @@ export default function PostCardHeader({
   onDelete,
   onCopyLink,
   onChangePrivacy,
+  taggedUsers = [],
 }: PostCardHeaderProps) {
   return (
     <div className="flex items-center justify-between px-4 py-3.5">
-      <Link
-        to={`/profile/${post.user.username}`}
-        className="flex items-center gap-3"
-      >
-        <img
-          src={authorAvatarUrl}
-          alt={post.user.username}
-          className="w-8 h-8 rounded-full object-cover"
-        />
+      <div className="flex items-center gap-3">
+        <Link to={`/profile/${post.user.username}`}>
+          <img
+            src={authorAvatarUrl}
+            alt={post.user.username}
+            className="w-8 h-8 rounded-full object-cover"
+          />
+        </Link>
         <div>
-          <p className="text-sm font-semibold dark:text-white">
-            {post.user.username}
-          </p>
+          <div className="flex flex-wrap items-center gap-x-1">
+            <Link
+              to={`/profile/${post.user.username}`}
+              className="text-sm font-semibold dark:text-white hover:underline"
+            >
+              {post.user.username}
+            </Link>
+
+            {taggedUsers.length > 0 && (
+              <>
+                <span className="text-sm text-gray-500 dark:text-gray-400">
+                  is with
+                </span>
+                <Link
+                  to={`/profile/${taggedUsers[0].username}`}
+                  className="text-sm font-semibold dark:text-white hover:underline"
+                >
+                  {taggedUsers[0].username}
+                </Link>
+                {taggedUsers.length > 1 && (
+                  <span className="text-sm text-gray-500 dark:text-gray-400">
+                    and {taggedUsers.length - 1} others
+                  </span>
+                )}
+              </>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1">
               <privacyDisplay.icon
@@ -94,7 +119,7 @@ export default function PostCardHeader({
             )}
           </div>
         </div>
-      </Link>
+      </div>
 
       <div className="relative">
         <button

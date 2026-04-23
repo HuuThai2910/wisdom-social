@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Share2, Loader2, AlertCircle } from "lucide-react";
 import PostGrid from "./PostGrid";
+import { useProfileSharedPosts } from "../../hooks/useProfileHooks";
 import type { User } from "../../types";
 
 interface ProfileSharedPostsProps {
@@ -11,35 +12,9 @@ interface ProfileSharedPostsProps {
 export default function ProfileSharedPosts({
   userId,
   isOwnProfile,
-}: ProfileSharedPostsProps) {
-  const [posts, setPosts] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    if (!isOwnProfile) {
-      setLoading(false);
-      return;
-    }
-
-    const loadSharedPosts = async () => {
-      setLoading(true);
-      setError("");
-      try {
-        // TODO: Implement backend endpoint to fetch shared posts
-        // const sharedPost = await postService.getSharedPosts(userId);
-        // setPosts(sharedPosts || []);
-        setPosts([]);
-      } catch (err) {
-        console.error("Error loading shared posts:", err);
-        setError("Không thể tải danh sách bài viết đã chia sẽ");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadSharedPosts();
-  }, [userId, isOwnProfile]);
+  user,
+}: ProfileSharedPostsProps & { user: User | null }) {
+  const { posts, loading, error } = useProfileSharedPosts(user);
 
   if (!isOwnProfile) {
     return (
@@ -93,5 +68,5 @@ export default function ProfileSharedPosts({
     );
   }
 
-  return <PostGrid posts={posts} isOwnProfile={isOwnProfile} />;
+  return <PostGrid posts={posts} isOwnProfile={false} />;
 }

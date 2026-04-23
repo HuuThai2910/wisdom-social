@@ -32,7 +32,7 @@ public class CommentResponse {
     private String targetId;
     private String parentId;
     private String content;
-    private List<String> mentions;
+    private List<MentionResponse> mentions;
     private long reactCount;
     private long replyCount;
     private StatusType status;
@@ -49,4 +49,13 @@ public class CommentResponse {
     
     // Dùng cho cursor-based pagination
     private String nextCursor;
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class MentionResponse {
+        private String userId;
+        private String username;
+    }
 }

@@ -170,11 +170,9 @@ export const transformMediaToS3Urls = (
                 return buildS3Url(normalizedKey) || "";
             }
 
-            // Legacy filename-only format.
             const s3Path = `posts/${authorId}/images/${normalizedKey}`;
             return buildS3Url(s3Path) || "";
-        })
-        .filter(Boolean);
+        });
 };
 
 /**
@@ -509,46 +507,60 @@ export const searchUsers = async (
     userId: string,
     query: string
 ): Promise<UserData[]> => {
-    console.log(`🔍 Searching users with query: ${query}`);
-    const response = await axiosClient.get(`/auth/user/search`, {
-        params: { userId, query },
-    });
-    console.log("✅ Search results:", response.data);
-    return response.data.data || [];
-};
-
-/**
- * Fetch friends list for a user
- */
-export const fetchFriends = async (userId: string | number): Promise<UserData[]> => {
     try {
-        console.log(`📥 Fetching friends for user: ${userId}`);
-        const response = await axiosClient.get(`/friends/${userId}`);
-        console.log("Friends response:", response.data);
+        console.log(`🔍 Searching users with query: ${query}`);
+        // Endpoint in UserController.java: @GetMapping("/users/username/{keyword}")
+        const response = await axiosClient.get(`/auth/users/username/${query}`);
 
-        // Parse response if needed
-        let friendsData = response.data;
-        if (typeof friendsData === "string") {
-            friendsData = JSON.parse(friendsData);
-        }
+        // The backend returns List<User> directly in the response body (response.data)
+        const users = Array.isArray(response.data) ? response.data : (response.data?.data || []);
 
-        // Map friends data to expected format
-        const mappedFriends = (friendsData.data || friendsData || []).map(
-            (friend: any) => ({
-                id: friend.userId?.toString() || friend.id?.toString(),
-                username: friend.username,
-                name: friend.name || friend.fullName,
-                avatarUrl:
-                    friend.avatarUrl || friend.avatar || "https://i.pravatar.cc/150?img=5",
-            })
-        );
-
-        return mappedFriends;
-    } catch (error: any) {
-        console.error(`❌ Error fetching friends for user ${userId}:`, error);
+        return users.map((user: any) => ({
+            id: user.id.toString(),
+            username: user.username,
+            name: user.name || user.username,
+            avatarUrl: user.avatarUrl || "https://i.pravatar.cc/150?img=5",
+        }));
+    } catch (error) {
+        console.error("❌ Error searching users:", error);
         return [];
     }
 };
+
+/**
+ * Search mention suggestions (friends only) with pagination
+ */
+export const searchMentionUsers = async (
+    viewerId: string,
+    query: string,
+    page: number = 0,
+    size: number = 10
+): Promise<{ data: UserData[], hasMore: boolean }> => {
+    try {
+        console.log(`🔍 Searching mention users for ${viewerId}, query: ${query}, page: ${page}`);
+        const response = await axiosClient.get(`/auth/users/mentions`, {
+            params: { viewerId, query, page, size },
+        });
+
+        const paginatedData = response.data.data;
+        const users = (paginatedData.data || []).map((user: any) => ({
+            id: user.id.toString(),
+            username: user.username,
+            name: user.name || user.username,
+            avatarUrl: user.avatarUrl || "https://i.pravatar.cc/150?img=5",
+        }));
+
+        return {
+            data: users,
+            hasMore: paginatedData.hasMore,
+        };
+    } catch (error) {
+        console.error("❌ Error searching mention users:", error);
+        return { data: [], hasMore: false };
+    }
+};
+
+
 
 /**
  * Create a new post with optional images
@@ -708,17 +720,19 @@ export const getTaggedPostsWithDetails = async (userId: string | number): Promis
                 const authorResponse = await axiosClient.get(`/auth/user/${post.authorId}`);
                 const authorData = authorResponse.data.data;
 
-                const images = transformMediaToS3Urls(post.media, post.authorId);
-                const imageUrl = images && images.length > 0 ? images[0] : null;
-                const media = (post.media || []).map((m: any, index: number) => ({
-                    url: images[index] || "",
+                const rawMedia = post.media || post.mediaList || [];
+                const images = transformMediaToS3Urls(rawMedia, post.authorId);
+                const firstImage = images && images.length > 0 ? images[0] : null;
+                const media = rawMedia.map((m: any, index: number) => ({
+                    ...m,
+                    url: images[index] || (m?.url || ""),
                     type: (m?.type || "image").toLowerCase(),
                     duration: typeof m?.duration === "number" ? m.duration : undefined,
                 }));
 
                 return {
                     id: post.id,
-                    imageUrl: imageUrl,
+                    imageUrl: firstImage,
                     likes: post.stats?.reactCount || 0,
                     comments: post.stats?.commentCount || 0,
                     caption: post.content,
@@ -728,13 +742,29 @@ export const getTaggedPostsWithDetails = async (userId: string | number): Promis
                     user: {
                         id: authorData.id.toString(),
                         username: authorData.username,
-                        fullName: authorData.name || authorData.username,
+                        fullName: authorData.fullName || authorData.name || authorData.username,
                         avatar: authorData.avatarUrl || "https://i.pravatar.cc/150?img=5",
                     },
                 };
             } catch (error) {
-                console.error(`❌ Error fetching author for post:`, error);
-                return null;
+                console.error(`❌ Error fetching author for tagged post ${post.id}:`, error);
+                
+                const rawMedia = post.media || post.mediaList || [];
+                const images = transformMediaToS3Urls(rawMedia, post.authorId);
+                return {
+                    id: post.id,
+                    imageUrl: images && images.length > 0 ? images[0] : null,
+                    likes: post.stats?.reactCount || 0,
+                    comments: post.stats?.commentCount || 0,
+                    caption: post.content,
+                    privacy: post.privacy,
+                    images: images,
+                    media: rawMedia.map((m: any, index: number) => ({
+                        ...m,
+                        url: images[index] || (m?.url || ""),
+                        type: (m?.type || "image").toLowerCase()
+                    })),
+                };
             }
         });
 
@@ -746,6 +776,96 @@ export const getTaggedPostsWithDetails = async (userId: string | number): Promis
     } catch (error) {
         console.error("❌ Error fetching tagged posts:", error);
         throw error;
+    }
+};
+
+/**
+ * Share a post
+ */
+export const sharePost = async (postId: string, content?: string): Promise<any> => {
+    try {
+        const response = await axiosClient.post("/post-shares", {}, {
+            params: {
+                postId,
+                content: content || ""
+            }
+        });
+        return response.data.data;
+    } catch (error) {
+        console.error("❌ Error sharing post:", error);
+        throw error;
+    }
+};
+
+/**
+ * Get shared posts for a user
+ */
+export const getSharedPostsWithDetails = async (userId: string | number): Promise<any[]> => {
+    try {
+        console.log(`📥 Fetching shared posts for user: ${userId}`);
+        const response = await axiosClient.get(`/post-shares/user/${userId}`);
+        
+        if (!response.data.success) {
+            return [];
+        }
+
+        const sharesData = response.data.data || [];
+        
+        // Fetch full post details for each shared post
+        const transformedPostsPromises = sharesData.map(async (share: any) => {
+            try {
+                // We use the originalPostId to get the actual post content
+                const postResponse = await axiosClient.get(`/posts/${share.originalPostId}`);
+                const post = postResponse.data.data;
+                
+                if (!post) return null;
+
+                // Fetch author data for the original post
+                const authorResponse = await axiosClient.get(`/auth/user/${post.authorId}`);
+                const authorData = authorResponse.data.data;
+
+                const rawMedia = post.media || post.mediaList || [];
+                const images = transformMediaToS3Urls(rawMedia, post.authorId);
+                const firstImage = images && images.length > 0 ? images[0] : null;
+                const media = rawMedia.map((m: any, index: number) => ({
+                    ...m,
+                    url: images[index] || (m?.url || ""),
+                    type: (m?.type || "image").toLowerCase(),
+                }));
+
+                return {
+                    id: post.id,
+                    shareId: share.id, // Keep track of the share ID
+                    shareContent: share.content, // The caption added when sharing
+                    imageUrl: firstImage,
+                    likes: post.stats?.reactCount || 0,
+                    comments: post.stats?.commentCount || 0,
+                    caption: post.content,
+                    privacy: post.privacy,
+                    images: images,
+                    media,
+                    user: {
+                        id: authorData.id.toString(),
+                        username: authorData.username,
+                        fullName: authorData.fullName || authorData.name || authorData.username,
+                        avatar: authorData.avatarUrl || "https://i.pravatar.cc/150?img=5",
+                    },
+                };
+            } catch (err) {
+                console.error(`Error fetching original post for share ${share.id}:`, err);
+                return null;
+            }
+        });
+
+        const transformedPosts = (await Promise.all(transformedPostsPromises)).filter(
+            (post) => post !== null
+        );
+        
+        console.log(`✅ Shared posts fetched: ${transformedPosts.length}`);
+        return transformedPosts;
+    } catch (error) {
+        console.error("❌ Error fetching shared posts:", error);
+        return [];
     }
 };
 
@@ -764,10 +884,13 @@ export const getUserPostsWithDetails = async (userId: string | number): Promise<
                 : [];
 
         const transformedPosts = postsData.map((post: any) => {
-            const images = transformMediaToS3Urls(post.media, post.authorId);
+            const authorId = post.authorId || userId.toString();
+            const rawMedia = post.media || post.mediaList || [];
+            const images = transformMediaToS3Urls(rawMedia, authorId);
             const firstImage = images && images.length > 0 ? images[0] : null;
-            const media = (post.media || []).map((m: any, index: number) => ({
-                url: images[index] || "",
+            const media = rawMedia.map((m: any, index: number) => ({
+                ...m,
+                url: images[index] || (m?.url || ""),
                 type: (m?.type || "image").toLowerCase(),
                 duration: typeof m?.duration === "number" ? m.duration : undefined,
             }));

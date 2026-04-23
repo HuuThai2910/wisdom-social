@@ -18,6 +18,7 @@ interface FeedPostData {
     }>;
     stats?: { reactCount: number; commentCount: number; shareCount: number };
     createdAt: string;
+    taggedUserIds?: string[];
 }
 
 export interface FeedCursor {
@@ -54,6 +55,45 @@ const extractFeedSliceMeta = (payload: any) => {
         nextCursorCreatedAt: rawData?.nextCursorCreatedAt ?? null,
         nextCursorPostId: rawData?.nextCursorPostId ?? null,
     };
+};
+
+export const normalizePost = (post: any, userData: any): Post => {
+    // Determine the media array (handle multiple possible property names)
+    const rawMedia = post.media || post.mediaList || [];
+
+    // Determine authorId (from post or from userData)
+    const authorId = post.authorId || userData?.id?.toString();
+
+    const transformedImages = transformMediaToS3Urls(rawMedia, authorId);
+    const transformedMedia = rawMedia.map((m: any, mediaIndex: number) => ({
+        url: transformedImages[mediaIndex] || "",
+        type: (m.type || "image").toLowerCase(),
+        duration: typeof m.duration === "number" ? m.duration : undefined,
+    }));
+
+    return {
+        id: post.id,
+        user: {
+            id: userData.id,
+            username: userData.username,
+            // Handle both raw user (name) and normalized user (fullName)
+            fullName: userData.fullName || userData.name || userData.username,
+            avatarUrl:
+                userData.avatarUrl && userData.avatarUrl.startsWith("http")
+                    ? userData.avatarUrl
+                    : (buildS3Url(userData.avatarUrl) || userData.avatarUrl || "https://i.pravatar.cc/150?img=5"),
+        },
+        images: transformedImages.filter(Boolean), // UI-friendly array (no empty strings)
+        media: transformedMedia,
+        caption: post.content || post.caption || "",
+        privacy: (post.privacy as any) || "PUBLIC",
+        likes: post.stats?.reactCount || 0,
+        comments: [],
+        createdAt: post.createdAt ? new Date(post.createdAt).toLocaleString("vi-VN") : "Vừa xong",
+        isLiked: false,
+        isSaved: false,
+        taggedUserIds: post.taggedUserIds || [],
+    } as Post;
 };
 
 export const fetchHomeFeedPosts = async (
@@ -101,34 +141,7 @@ export const fetchHomeFeedPosts = async (
                 return null;
             }
 
-            const transformedImages = transformMediaToS3Urls(post.media, post.authorId);
-            const transformedMedia = (post.media || []).map((m, mediaIndex) => ({
-                url: transformedImages[mediaIndex] || "",
-                type: (m.type || "image").toLowerCase(),
-                duration: typeof m.duration === "number" ? m.duration : undefined,
-            }));
-
-            return {
-                id: post.id,
-                user: {
-                    id: userData.id,
-                    username: userData.username,
-                    fullName: userData.name || userData.username,
-                    avatarUrl:
-                        buildS3Url(userData.avatarUrl) ||
-                        userData.avatarUrl ||
-                        "https://i.pravatar.cc/150?img=5",
-                },
-                images: transformedImages,
-                media: transformedMedia,
-                caption: post.content,
-                privacy: post.privacy as any,
-                likes: post.stats?.reactCount || 0,
-                comments: [],
-                createdAt: new Date(post.createdAt).toLocaleString("vi-VN"),
-                isLiked: false,
-                isSaved: false,
-            } as Post;
+            return normalizePost(post, userData);
         })
         .filter(Boolean) as Post[];
 

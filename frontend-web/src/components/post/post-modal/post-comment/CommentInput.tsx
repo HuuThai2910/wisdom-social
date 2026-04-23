@@ -40,6 +40,7 @@ import { Smile } from "lucide-react";
 import { Theme } from "emoji-picker-react";
 import IconModal from "../../../icon-modal/IconModal";
 import type { UserData } from "../../../../types/postType";
+import { getAvatarUrl } from "../../../../utils/s3";
 
 interface CommentInputProps {
   commentInput: string;
@@ -51,9 +52,12 @@ interface CommentInputProps {
   onInsertEmoji: (emoji: string) => void;
   onSelectMention: (user: UserData) => void;
   onSubmitComment: () => void;
+  mentionLoading?: boolean;
+  mentionHasMore?: boolean;
+  onLoadMoreMentions?: () => void;
 }
 
-const CommentInput: React.FC<CommentInputProps> = ({
+const CommentInput: React.FC<CommentInputProps & { inputRef?: React.RefObject<HTMLInputElement | null> }> = ({
   commentInput,
   submittingComment,
   showMentionDropdown,
@@ -63,6 +67,10 @@ const CommentInput: React.FC<CommentInputProps> = ({
   onInsertEmoji,
   onSelectMention,
   onSubmitComment,
+  inputRef,
+  mentionLoading,
+  mentionHasMore,
+  onLoadMoreMentions,
 }) => {
   const [showEmojiPicker, setShowEmojiPicker] = React.useState(false);
   const emojiButtonRef = React.useRef<HTMLButtonElement | null>(null);
@@ -75,29 +83,59 @@ const CommentInput: React.FC<CommentInputProps> = ({
   return (
     <div className="p-4 border-t dark:border-gray-800 relative">
       {/* Mention Dropdown Suggestions */}
-      {showMentionDropdown && mentionUsers.length > 0 && (
-        <div className="absolute bottom-full left-4 mb-2 bg-white dark:bg-gray-800 rounded-lg shadow-xl border dark:border-gray-700 max-h-60 overflow-y-auto z-50 w-64">
-          {mentionUsers.map((user) => (
-            <button
-              key={user.id}
-              onClick={() => onSelectMention(user)}
-              className="w-full px-4 py-2 flex items-center gap-3 hover:bg-gray-100 dark:hover:bg-gray-700 text-left"
-            >
-              <img
-                src={user.avatarUrl || "https://i.pravatar.cc/150?img=5"}
-                alt={user.username}
-                className="w-8 h-8 rounded-full"
-              />
-              <div>
-                <p className="text-sm font-semibold dark:text-white">
-                  {user.name}
-                </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  @{user.username}
-                </p>
+      {showMentionDropdown && (
+        <div 
+          className="absolute bottom-full left-4 mb-2 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border dark:border-gray-700 max-h-60 overflow-y-auto z-50 w-72 overflow-x-hidden animate-in fade-in slide-in-from-bottom-2 duration-200"
+          onScroll={(e) => {
+            const target = e.currentTarget;
+            if (target.scrollTop + target.clientHeight >= target.scrollHeight - 20) {
+              onLoadMoreMentions?.();
+            }
+          }}
+        >
+          <div className="p-2 border-b dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/50 sticky top-0 z-10 backdrop-blur-sm">
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-2">Gợi ý bạn bè</p>
+          </div>
+          
+          <div className="py-1">
+            {mentionUsers.map((user) => (
+              <button
+                key={user.id}
+                onClick={() => onSelectMention(user)}
+                className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-left transition-colors group border-b last:border-none dark:border-gray-700"
+              >
+                <div className="relative">
+                  <img
+                    src={getAvatarUrl(user.avatarUrl) || "https://i.pravatar.cc/150?img=5"}
+                    alt={user.username}
+                    className="w-9 h-9 rounded-full object-cover border dark:border-gray-700 group-hover:scale-105 transition-transform"
+                  />
+                  <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 border-2 border-white dark:border-gray-800 rounded-full"></div>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold dark:text-white truncate group-hover:text-blue-500">
+                    {user.name}
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                    @{user.username}
+                  </p>
+                </div>
+              </button>
+            ))}
+
+            {mentionLoading && (
+              <div className="p-4 flex justify-center items-center gap-2">
+                <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                <span className="text-[10px] text-gray-500">Đang tải...</span>
               </div>
-            </button>
-          ))}
+            )}
+
+            {!mentionLoading && mentionUsers.length === 0 && (
+              <div className="p-8 text-center">
+                <p className="text-xs text-gray-500 dark:text-gray-400">Không tìm thấy bạn bè nào</p>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -108,11 +146,11 @@ const CommentInput: React.FC<CommentInputProps> = ({
             ref={emojiButtonRef}
             type="button"
             onClick={() => setShowEmojiPicker((prev) => !prev)}
-            className="p-2 hover:bg-gray-100 dark:hover:bg-[#363636] rounded-full"
+            className="p-2 hover:bg-gray-100 dark:hover:bg-[#363636] rounded-full transition-colors"
             aria-label="Insert emoji"
             title="Insert emoji"
           >
-            <Smile size={20} className="text-gray-500 dark:text-gray-400" />
+            <Smile size={22} className="text-gray-500 dark:text-gray-400" />
           </button>
 
           <IconModal
@@ -133,8 +171,9 @@ const CommentInput: React.FC<CommentInputProps> = ({
           />
         </div>
 
-        <div className="relative flex-1">
+        <div className="relative flex-1 bg-gray-50 dark:bg-gray-900/50 rounded-2xl px-4 py-2 border border-transparent focus-within:border-blue-500 transition-all">
           <input
+            ref={inputRef}
             type="text"
             value={commentInput}
             onChange={onCommentChange}
@@ -151,8 +190,8 @@ const CommentInput: React.FC<CommentInputProps> = ({
                 onSubmitComment();
               }
             }}
-            placeholder="Add a comment..."
-            className="w-full text-sm outline-none dark:bg-transparent bg-transparent dark:text-white caret-gray-900 dark:caret-white"
+            placeholder="Write a comment..."
+            className="w-full text-sm outline-none bg-transparent dark:text-white caret-blue-500"
             disabled={submittingComment}
           />
         </div>

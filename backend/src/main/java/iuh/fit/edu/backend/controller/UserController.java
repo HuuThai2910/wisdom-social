@@ -185,6 +185,17 @@ public class UserController {
         return ResponseEntity.ok(userService.searchUserByUsername(keyword));
     }
 
+    @GetMapping("/users/mentions")
+    @ApiMessage("Get mention suggestions (friends only)")
+    public ResponseEntity<ApiResponse<PaginatedUserResponse>> getMentionSuggestions(
+            @RequestParam long viewerId,
+            @RequestParam String query,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        PaginatedUserResponse response = userService.searchMentionUsers(viewerId, query, page, size);
+        return ResponseEntity.ok(ApiResponse.success(200, "Mention suggestions fetched", response));
+    }
+
     @GetMapping("/users/blocked/{id}")
     @ApiMessage("Get all User")
     public ResponseEntity<List<User>> getBlockUser(@PathVariable long id){

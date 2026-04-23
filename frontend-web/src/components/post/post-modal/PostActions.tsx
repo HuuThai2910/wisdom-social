@@ -42,6 +42,7 @@ interface PostActionsProps {
   setShowReactions: (show: boolean) => void;
   onReaction: (type: string) => void;
   onSave: () => void;
+  onShare?: () => void;
   reactionsTimeoutRef: React.MutableRefObject<ReturnType<
     typeof setTimeout
   > | null>;
@@ -66,6 +67,7 @@ const PostActions: React.FC<PostActionsProps> = ({
   setShowReactions,
   onReaction,
   onSave,
+  onShare,
   reactionsTimeoutRef,
 }) => {
   const handleMouseEnter = () => {
@@ -133,7 +135,10 @@ const PostActions: React.FC<PostActionsProps> = ({
             </div>
 
             {/* Send/Share Button */}
-            <button className="hover:opacity-70 transition-opacity">
+            <button 
+              onClick={onShare}
+              className="hover:opacity-70 transition-opacity"
+            >
               <Send className="w-6 h-6 dark:text-white" />
             </button>
           </div>

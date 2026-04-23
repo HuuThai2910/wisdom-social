@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { Link } from "react-router-dom";
 import { Smile } from "lucide-react";
+import useMentions from "../../../hooks/useMentions";
 import { Theme } from "emoji-picker-react";
 import { useAuth } from "../../../contexts/AuthContext";
 import * as postApi from "../../../services/postService";
@@ -7,6 +9,7 @@ import { commentService } from "../../../services/commentService";
 import type { Comment } from "../../../services/commentService";
 import type { UserData } from "../../../types/postType";
 import IconModal from "../../icon-modal/IconModal";
+import { getAvatarUrl } from "../../../utils/s3";
 
 interface CommentItemNormalizedProps {
   commentId: string;
@@ -64,6 +67,18 @@ export default function CommentItemNormalized({
   const replyInputRef = useRef<HTMLInputElement | null>(null);
   const replyEmojiButtonRef = useRef<HTMLButtonElement | null>(null);
 
+  // ============ MENTIONS HOOK ============
+  const {
+    mentionUsers,
+    showMentionDropdown,
+    handleTextChange: handleMentionChange,
+    selectUser,
+    getFinalMentions,
+    mentionLoading,
+    loadMoreMentions,
+    setActiveMentions,
+  } = useMentions(activeUserId);
+
   const [currentReaction, setCurrentReaction] = useState<string | null>(null);
   const [reactionSummary, setReactionSummary] = useState<{
     totalCount: number;
@@ -117,6 +132,41 @@ export default function CommentItemNormalized({
     fetchUser();
   }, [comment.userId]);
 
+  const handleReplyClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (onReplyClick) {
+      onReplyClick(commentId, e);
+      return;
+    }
+
+    if (!showReplyInput) {
+      setShowReplyInput(true);
+      // Auto-tag the user
+      if (commentUser) {
+        const tag = `@${commentUser.username} `;
+        setReplyContent(tag);
+        setReplyCursorPos(tag.length);
+        
+        // Track the mention
+        setActiveMentions([{
+          userId: commentUser.id.toString(),
+          username: commentUser.username
+        }]);
+      }
+      
+      // Focus the input
+      setTimeout(() => {
+        if (replyInputRef.current) {
+          replyInputRef.current.focus();
+          const length = replyInputRef.current.value.length;
+          replyInputRef.current.setSelectionRange(length, length);
+        }
+      }, 0);
+    } else {
+      setShowReplyInput(false);
+    }
+  };
+
   // Fetch user's reaction
   useEffect(() => {
     const fetchUserReaction = async () => {
@@ -161,18 +211,46 @@ export default function CommentItemNormalized({
     };
   }, [showReplyEmojiPicker]);
 
-  const renderCommentContent = (content: string) => {
-    const parts = content.split(/(@[a-zA-Z0-9_]+)/g);
-    return parts.map((part, index) => {
-      if (part.match(/^@[a-zA-Z0-9_]+$/)) {
-        return (
-          <span key={index} className="text-blue-500 font-semibold">
-            {part}
-          </span>
-        );
-      }
-      return part;
+  const renderCommentContent = (content: string, mentions: { userId: string; username: string }[] = []) => {
+    if (!mentions || mentions.length === 0) {
+        return [content];
+    }
+
+    // Production-ready rendering using mentions list
+    // Sort mentions by username length descending to avoid partial matches
+    const sortedMentions = [...mentions].sort((a, b) => b.username.length - a.username.length);
+    
+    let parts: (string | React.ReactNode)[] = [content];
+    
+    sortedMentions.forEach(mention => {
+        const mentionText = `@${mention.username}`;
+        const newParts: (string | React.ReactNode)[] = [];
+        
+        parts.forEach(part => {
+            if (typeof part === 'string') {
+                const subParts = part.split(mentionText);
+                subParts.forEach((subPart, i) => {
+                    newParts.push(subPart);
+                    if (i < subParts.length - 1) {
+                        newParts.push(
+                            <Link 
+                                key={`${mention.userId}-${i}`} 
+                                to={`/profile/${mention.username}`} 
+                                className="text-blue-600 dark:text-blue-400 font-bold hover:underline"
+                            >
+                                {mentionText}
+                            </Link>
+                        );
+                    }
+                });
+            } else {
+                newParts.push(part);
+            }
+        });
+        parts = newParts;
     });
+    
+    return parts;
   };
 
   const handleSubmitReply = async () => {
@@ -180,12 +258,14 @@ export default function CommentItemNormalized({
 
     setSubmittingReply(true);
     try {
+      const finalMentions = getFinalMentions(replyContent);
       const newComment = await commentService.createComment(
         "POST",
         postId,
         replyContent,
         Number(activeUserId),
-        comment.id
+        comment.id,
+        finalMentions
       );
 
       setReplyContent("");
@@ -325,22 +405,6 @@ export default function CommentItemNormalized({
   // FIX: When collapsed, show NO children (not preview). When expanded, show all.
   const visibleChildren = expanded ? directChildren : [];
 
-  // DEBUG - More detailed logging
-  if (comment.replyCount > 0) {
-    console.log(
-      `🔍 Comment ${commentId} [L${level}]: replyCount=${comment.replyCount}, hasMoreReplies=${comment.hasMoreReplies}`,
-      {
-        expanded,
-        directChildrenCount: directChildren.length,
-        visibleChildrenCount: visibleChildren.length,
-        expandedMapValue: expandedMap[commentId],
-        loadingMapValue: loadingMap[commentId],
-        hasMoreRepliesValue: hasMoreReplies?.[commentId],
-        directChildIds: directChildren.map((c) => c.id),
-      }
-    );
-  }
-
   // FIX: Hidden count should be all children minus visible ones
   const hiddenChildrenCount = Math.max(
     0,
@@ -358,7 +422,7 @@ export default function CommentItemNormalized({
         <img
           src={commentUser.avatarUrl || "https://i.pravatar.cc/150?img=5"}
           alt={commentUser.username}
-          className="w-8 h-8 rounded-full shrink-0"
+          className="w-8 h-8 rounded-full shrink-0 object-cover"
         />
         <div className="flex-1">
           <div className="bg-gray-100 dark:bg-gray-800 rounded-2xl px-3 py-2">
@@ -366,7 +430,7 @@ export default function CommentItemNormalized({
               {commentUser.username}
             </p>
             <p className="text-sm dark:text-white">
-              {renderCommentContent(comment.content)}
+              {renderCommentContent(comment.content, comment.mentions)}
             </p>
           </div>
 
@@ -412,16 +476,8 @@ export default function CommentItemNormalized({
               )}
             </div>
 
-            {/* Reply Button */}
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                if (onReplyClick) {
-                  onReplyClick(commentId, e);
-                } else {
-                  setShowReplyInput(!showReplyInput);
-                }
-              }}
+              onClick={handleReplyClick}
               className="text-xs text-gray-500 dark:text-gray-400 font-semibold hover:underline"
             >
               Reply
@@ -561,18 +617,27 @@ export default function CommentItemNormalized({
                 ref={replyInputRef}
                 type="text"
                 value={replyContent}
-                onChange={(e) => setReplyContent(e.target.value)}
-                onClick={(e) =>
-                  setReplyCursorPos(e.currentTarget.selectionStart || 0)
-                }
-                onKeyUp={(e) =>
-                  setReplyCursorPos(e.currentTarget.selectionStart || 0)
-                }
-                onSelect={(e) =>
-                  setReplyCursorPos(
-                    e.currentTarget.selectionStart || replyContent.length
-                  )
-                }
+                onChange={(e) => {
+                  const value = e.target.value;
+                  const cursorPos = e.target.selectionStart || 0;
+                  setReplyContent(value);
+                  setReplyCursorPos(cursorPos);
+                  handleMentionChange(value, cursorPos);
+                }}
+                onClick={(e) => {
+                  const pos = e.currentTarget.selectionStart || 0;
+                  setReplyCursorPos(pos);
+                  handleMentionChange(replyContent, pos);
+                }}
+                onKeyUp={(e) => {
+                  const pos = e.currentTarget.selectionStart || 0;
+                  setReplyCursorPos(pos);
+                  handleMentionChange(replyContent, pos);
+                }}
+                onSelect={(e) => {
+                  const pos = e.currentTarget.selectionStart || replyContent.length;
+                  setReplyCursorPos(pos);
+                }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
@@ -580,9 +645,76 @@ export default function CommentItemNormalized({
                   }
                 }}
                 placeholder={`Reply to ${commentUser.username}...`}
-                className="flex-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-full bg-gray-50 dark:bg-gray-900 dark:text-white outline-none focus:border-blue-500"
+                className="flex-1 px-4 py-2 text-sm border-none dark:border-gray-600 rounded-2xl bg-gray-100 dark:bg-gray-800 dark:text-white outline-none focus:ring-1 focus:ring-blue-500 transition-all shadow-inner"
                 disabled={submittingReply}
               />
+
+              {/* Mention Dropdown for Reply */}
+              {showMentionDropdown && (
+                <div 
+                  className="absolute bottom-full left-0 mb-2 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border dark:border-gray-700 max-h-60 overflow-y-auto z-[100] w-72 overflow-x-hidden animate-in fade-in slide-in-from-bottom-2 duration-200"
+                  onScroll={(e) => {
+                    const target = e.currentTarget;
+                    if (target.scrollTop + target.clientHeight >= target.scrollHeight - 20) {
+                      loadMoreMentions?.();
+                    }
+                  }}
+                >
+                  <div className="p-2 border-b dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/50 sticky top-0 z-10 backdrop-blur-sm">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-2">Gợi ý bạn bè</p>
+                  </div>
+                  
+                  <div className="py-1">
+                    {mentionUsers.map((user) => (
+                      <button
+                        key={user.id}
+                        onClick={() => {
+                          const { newValue, newCursorPos } = selectUser(replyContent, user);
+                          setReplyContent(newValue);
+                          setReplyCursorPos(newCursorPos);
+                          setTimeout(() => {
+                            if (replyInputRef.current) {
+                              replyInputRef.current.focus();
+                              replyInputRef.current.setSelectionRange(newCursorPos, newCursorPos);
+                            }
+                          }, 0);
+                        }}
+                        className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-left transition-colors border-b last:border-none dark:border-gray-700 group"
+                      >
+                        <div className="relative">
+                          <img
+                            src={getAvatarUrl(user.avatarUrl) || "https://i.pravatar.cc/150?img=5"}
+                            alt={user.username}
+                            className="w-9 h-9 rounded-full object-cover border dark:border-gray-700 group-hover:scale-105 transition-transform"
+                          />
+                          <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 border-2 border-white dark:border-gray-800 rounded-full"></div>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold dark:text-white truncate group-hover:text-blue-500">
+                            {user.name}
+                          </p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                            @{user.username}
+                          </p>
+                        </div>
+                      </button>
+                    ))}
+
+                    {mentionLoading && (
+                      <div className="p-4 flex justify-center items-center gap-2">
+                        <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                        <span className="text-[10px] text-gray-500">Đang tải...</span>
+                      </div>
+                    )}
+
+                    {!mentionLoading && mentionUsers.length === 0 && (
+                      <div className="p-8 text-center">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Không tìm thấy bạn bè nào</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <button
                 onClick={handleSubmitReply}

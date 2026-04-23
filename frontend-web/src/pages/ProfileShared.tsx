@@ -10,5 +10,5 @@ interface OutletContext {
 export default function ProfileShared() {
   const { user, isOwnProfile } = useOutletContext<OutletContext>();
 
-  return <ProfileSharedPosts userId={user.id} isOwnProfile={isOwnProfile} />;
+  return <ProfileSharedPosts userId={user.id} isOwnProfile={isOwnProfile} user={user} />;
 }

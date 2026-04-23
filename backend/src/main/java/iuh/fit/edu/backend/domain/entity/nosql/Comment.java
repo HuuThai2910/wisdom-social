@@ -62,7 +62,8 @@ public class Comment {
     private String content;
     
     // Mentions trong comment
-    private List<String> mentions;
+    @Indexed
+    private List<Mention> mentions;
 
     // Media trong comment (ảnh, GIF, sticker)
     private CommentMedia media;
@@ -79,6 +80,15 @@ public class Comment {
     // Timestamps
     private Instant createdAt;
     private Instant updatedAt;
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class Mention {
+        private String userId;
+        private String username;
+    }
 }
 
 @Data

@@ -9,7 +9,7 @@ interface Comment {
     targetId: string;
     parentId: string | null;
     content: string;
-    mentions: string[];
+    mentions: { userId: string; username: string }[];
     reactCount: number;
     replyCount: number;
     status: string;
@@ -94,7 +94,8 @@ export const commentService = {
         targetId: string,
         content: string,
         userId: number,
-        parentId?: string
+        parentId: string | null = null,
+        mentions: { userId: string; username: string }[] = []
     ): Promise<Comment> => {
         const response = await axiosClient.post(
             COMMENTS_BASE,
@@ -103,6 +104,7 @@ export const commentService = {
                 targetId,
                 content,
                 parentId: parentId || null,
+                mentions,
             },
             {
                 params: { userId },

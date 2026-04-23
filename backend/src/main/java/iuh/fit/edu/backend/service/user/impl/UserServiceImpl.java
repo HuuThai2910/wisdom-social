@@ -4,6 +4,7 @@
  */
 package iuh.fit.edu.backend.service.user.impl;
 
+import iuh.fit.edu.backend.constant.FriendStatus;
 import iuh.fit.edu.backend.domain.entity.mysql.*;
 import iuh.fit.edu.backend.dto.request.friend.FriendRequest;
 import iuh.fit.edu.backend.dto.request.user.*;
@@ -12,11 +13,14 @@ import iuh.fit.edu.backend.config.filter.JwtAuthFilter;
 import iuh.fit.edu.backend.mapper.UserMapper;
 import iuh.fit.edu.backend.repository.mysql.BlackListUserRepository;
 import iuh.fit.edu.backend.repository.mysql.DeviceRepository;
+import iuh.fit.edu.backend.repository.mysql.FriendRepository;
 import iuh.fit.edu.backend.repository.mysql.UserRepository;
 import iuh.fit.edu.backend.service.user.BlockUserService;
 import iuh.fit.edu.backend.service.user.UserService;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -51,13 +55,15 @@ public class UserServiceImpl implements UserService {
     CognitoIdentityProviderClient cognitoClient;
     SimpMessagingTemplate simpMessagingTemplate;
     DeviceRepository deviceRepository;
+    FriendRepository friendRepository;
 
 
     public UserServiceImpl(BlackListUserRepository blackListUserRepository,
                            BlockUserService blockUserService, CognitoIdentityProviderClient cognitoClient,
                            UserMapper userMapper, UserRepository userRepository,
                            SimpMessagingTemplate simpMessagingTemplate,
-                           DeviceRepository deviceRepository) {
+                           DeviceRepository deviceRepository,
+                           FriendRepository friendRepository) {
         this.blackListUserRepository = blackListUserRepository;
         this.blockUserService = blockUserService;
         this.cognitoClient = cognitoClient;
@@ -65,6 +71,7 @@ public class UserServiceImpl implements UserService {
         this.userRepository = userRepository;
         this.simpMessagingTemplate = simpMessagingTemplate;
         this.deviceRepository = deviceRepository;
+        this.friendRepository = friendRepository;
     }
 
     /*Đăng kí tài khoản bằng aws cognito
@@ -543,5 +550,29 @@ public class UserServiceImpl implements UserService {
         } catch (UserNotFoundException e) {
             return false;
         }
+    }
+    @Override
+    public PaginatedUserResponse searchMentionUsers(long viewerId, String keyword, int page, int size) {
+        List<Long> friendIds = friendRepository.findAcceptedFriendIds(viewerId, FriendStatus.ACCEPTED.ordinal());
+        
+        if (friendIds == null || friendIds.isEmpty()) {
+            return PaginatedUserResponse.builder()
+                    .data(Collections.emptyList())
+                    .page(page)
+                    .hasMore(false)
+                    .build();
+        }
+
+        Page<User> userPage = userRepository.findByIdInAndUsernameContainingIgnoreCase(
+                friendIds, 
+                keyword, 
+                PageRequest.of(page, size)
+        );
+
+        return PaginatedUserResponse.builder()
+                .data(userPage.getContent())
+                .page(page)
+                .hasMore(userPage.hasNext())
+                .build();
     }
 }

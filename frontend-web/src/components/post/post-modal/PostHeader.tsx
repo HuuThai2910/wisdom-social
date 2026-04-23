@@ -36,6 +36,7 @@
  */
 
 import React from "react";
+import { Link } from "react-router-dom";
 import { MapPin, Users, Globe } from "lucide-react";
 import type { PostData, UserData } from "../../../types/postType";
 import PostHeaderMenu from "../PostHeaderMenu";
@@ -53,6 +54,7 @@ interface PostHeaderProps {
   onChangePrivacy: (newPrivacy: string) => void;
   onDelete: () => void;
   onCopyLink: () => void;
+  taggedUsers?: UserData[];
 }
 
 const PostHeader: React.FC<PostHeaderProps> = ({
@@ -67,6 +69,7 @@ const PostHeader: React.FC<PostHeaderProps> = ({
   onChangePrivacy,
   onDelete,
   onCopyLink,
+  taggedUsers = [],
 }) => {
   const authorDisplay = {
     id: author?.id ?? Number(post.authorId || 0),
@@ -77,15 +80,41 @@ const PostHeader: React.FC<PostHeaderProps> = ({
   return (
     <div className="p-4 border-b dark:border-gray-800 flex items-center justify-between">
       <div className="flex items-center gap-3">
-        <img
-          src={authorDisplay.avatarUrl}
-          alt={authorDisplay.username}
-          className="w-10 h-10 rounded-full"
-        />
+        <Link to={`/profile/${authorDisplay.username}`}>
+          <img
+            src={authorDisplay.avatarUrl}
+            alt={authorDisplay.username}
+            className="w-10 h-10 rounded-full object-cover"
+          />
+        </Link>
         <div>
-          <p className="font-semibold text-sm dark:text-white">
-            {authorDisplay.username}
-          </p>
+          <div className="flex flex-wrap items-center gap-x-1">
+            <Link
+              to={`/profile/${authorDisplay.username}`}
+              className="font-semibold text-sm dark:text-white hover:underline"
+            >
+              {authorDisplay.username}
+            </Link>
+
+            {taggedUsers.length > 0 && (
+              <>
+                <span className="text-sm text-gray-500 dark:text-gray-400">
+                  is with
+                </span>
+                <Link
+                  to={`/profile/${taggedUsers[0].username}`}
+                  className="text-sm font-semibold dark:text-white hover:underline"
+                >
+                  {taggedUsers[0].username}
+                </Link>
+                {taggedUsers.length > 1 && (
+                  <span className="text-sm text-gray-500 dark:text-gray-400">
+                    and {taggedUsers.length - 1} others
+                  </span>
+                )}
+              </>
+            )}
+          </div>
 
           {/* Privacy Badge */}
           {post.privacy &&

@@ -1,10 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { mockStories } from "../api/mockData";
 import StoriesBar from "../components/story/StoriesBar";
 import PostCard from "../components/post/post-card/PostCard";
 import { useCurrentUser } from "../hooks/useCurrentUser";
-import { fetchHomeFeedPosts } from "../services/homeFeedService";
+import { fetchHomeFeedPosts, normalizePost } from "../services/homeFeedService";
+import useRealtimePosts from "../hooks/useRealtimePosts";
+import * as postApi from "../services/postService";
 import type { Post } from "../types";
 
 export default function Home() {
@@ -14,6 +16,43 @@ export default function Home() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const handlePostCreated = useCallback(async (newPost: any) => {
+    try {
+      const authorData = await postApi.fetchUserById(newPost.authorId);
+      const normalized = normalizePost(newPost, authorData);
+      setPosts((prev) => {
+        if (prev.some((p) => p.id === normalized.id)) return prev;
+        return [normalized, ...prev];
+      });
+    } catch (err) {
+      console.error("Error normalizing created post:", err);
+    }
+  }, []);
+
+  const handlePostUpdated = useCallback((updatedPost: any) => {
+    setPosts((prev) =>
+      prev.map((p) => {
+        if (p.id === updatedPost.id) {
+          // Re-normalize using existing user data
+          return normalizePost(updatedPost, p.user);
+        }
+        return p;
+      })
+    );
+  }, []);
+
+  const handlePostDeleted = useCallback((postId: string) => {
+    setPosts((prev) => prev.filter((p) => p.id !== postId));
+  }, []);
+
+  // Listen to global post events
+  useRealtimePosts({
+    topic: "/topic/posts",
+    onPostCreated: handlePostCreated,
+    onPostUpdated: handlePostUpdated,
+    onPostDeleted: handlePostDeleted,
+  });
 
   useEffect(() => {
     let isMounted = true;

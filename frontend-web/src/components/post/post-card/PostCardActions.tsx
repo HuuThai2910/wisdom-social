@@ -12,6 +12,7 @@ interface PostCardActionsProps {
   onReaction: (reactionType: string, e: React.MouseEvent) => void;
   onReactionMouseEnter: () => void;
   onReactionMouseLeave: () => void;
+  onShare?: (e: React.MouseEvent) => void;
 }
 
 const REACTIONS = [
@@ -35,6 +36,7 @@ export default function PostCardActions({
   onReaction,
   onReactionMouseEnter,
   onReactionMouseLeave,
+  onShare,
 }: PostCardActionsProps) {
   return (
     <>
@@ -91,7 +93,10 @@ export default function PostCardActions({
           >
             <MessageCircle size={27} strokeWidth={1.8} />
           </button>
-          <button className="hover:opacity-50 transition-opacity">
+          <button 
+            onClick={onShare}
+            className="hover:opacity-50 transition-opacity"
+          >
             <svg
               width="27"
               height="27"

@@ -15,6 +15,7 @@ import {
 import * as postApi from "../../services/postService";
 import { useAuth } from "../../contexts/AuthContext";
 import { buildS3Url } from "../../utils/s3";
+import FriendSelectorModal from "./FriendSelectorModal";
 
 interface MediaItem {
   url: string;
@@ -105,9 +106,7 @@ export default function EditPostModal({
   const [editTaggedUsers, setEditTaggedUsers] = useState<UserData[]>(
     initialTaggedUsers || []
   );
-  const [tagSearchQuery, setTagSearchQuery] = useState("");
-  const [tagSearchResults, setTagSearchResults] = useState<UserData[]>([]);
-  const [showTagSearch, setShowTagSearch] = useState(false);
+  const [showTagModal, setShowTagModal] = useState(false);
   const [showPrivacyMenu, setShowPrivacyMenu] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
@@ -584,7 +583,7 @@ export default function EditPostModal({
             {/* Tag people */}
             <div className="space-y-2">
               <button
-                onClick={() => setShowTagSearch((p) => !p)}
+                onClick={() => setShowTagModal(true)}
                 className="flex items-center gap-2 text-sm text-blue-500 hover:text-blue-600"
               >
                 <Users className="w-4 h-4" />
@@ -615,67 +614,6 @@ export default function EditPostModal({
                       </button>
                     </span>
                   ))}
-                </div>
-              )}
-
-              {/* Tag search */}
-              {showTagSearch && (
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={tagSearchQuery}
-                    onChange={async (e) => {
-                      setTagSearchQuery(e.target.value);
-                      if (e.target.value.trim()) {
-                        try {
-                          const results = await postApi.searchUsers(
-                            currentUser?.id.toString() || "",
-                            e.target.value
-                          );
-                          setTagSearchResults(results);
-                        } catch {
-                          setTagSearchResults([]);
-                        }
-                      } else {
-                        setTagSearchResults([]);
-                      }
-                    }}
-                    placeholder="Search friends..."
-                    className="w-full px-3 py-2 text-sm border dark:border-gray-700 rounded-lg dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  />
-                  {tagSearchResults.length > 0 && (
-                    <div className="absolute z-10 w-full mt-1 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-lg shadow-lg max-h-40 overflow-y-auto">
-                      {tagSearchResults.map((user) => (
-                        <button
-                          key={user.id}
-                          onClick={() => {
-                            if (
-                              !editTaggedUsers.find((u) => u.id === user.id)
-                            ) {
-                              setEditTaggedUsers((prev) => [...prev, user]);
-                            }
-                            setTagSearchQuery("");
-                            setTagSearchResults([]);
-                          }}
-                          className="w-full px-3 py-2 flex items-center gap-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-left"
-                        >
-                          <img
-                            src={user.avatarUrl || "https://i.pravatar.cc/150"}
-                            alt={user.username}
-                            className="w-7 h-7 rounded-full"
-                          />
-                          <div>
-                            <p className="text-sm font-medium dark:text-white">
-                              {user.name || user.username}
-                            </p>
-                            <p className="text-xs text-gray-500">
-                              @{user.username}
-                            </p>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
                 </div>
               )}
             </div>
@@ -717,6 +655,25 @@ export default function EditPostModal({
           </div>
         </div>
       )}
+
+      {/* Friend Selector Modal for Tagging */}
+      <FriendSelectorModal
+        isOpen={showTagModal}
+        onClose={() => setShowTagModal(false)}
+        onConfirm={(_usernames, selectedFriends) => {
+          // Convert Friend[] back to UserData[] for EditPostModal state
+          const convertedUsers: UserData[] = selectedFriends.map(f => ({
+            id: Number(f.id),
+            username: f.username,
+            name: f.fullName,
+            avatarUrl: f.avatar
+          }));
+          setEditTaggedUsers(convertedUsers);
+        }}
+        title="Tag friends"
+        description="Search for friends to tag in your post"
+        initialSelected={editTaggedUsers.map(u => u.username)}
+      />
     </div>
   );
 }

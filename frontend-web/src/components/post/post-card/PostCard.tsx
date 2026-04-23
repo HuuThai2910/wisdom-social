@@ -8,6 +8,7 @@ import useCommentsNormalized from "../../../hooks/useCommentsNormalized";
 import useRealtimeComments from "../../../hooks/useRealtimeComments";
 import useRealtimeReactions from "../../../hooks/useRealtimeReactions";
 import { commentService } from "../../../services/commentService";
+import toast from "react-hot-toast";
 import EditPostModal from "../EditPostModal";
 import type { PostData } from "../../../types/postType";
 import { getPrivacyDisplay } from "./privacy";
@@ -63,7 +64,6 @@ export default function PostCard({ post }: PostCardProps) {
 
   useEffect(() => {
     if (
-      isEditing &&
       (post as any).taggedUserIds &&
       (post as any).taggedUserIds.length > 0
     ) {
@@ -120,7 +120,10 @@ export default function PostCard({ post }: PostCardProps) {
           setRecentCommentIds([]);
         }, 5000);
       }
-    }
+    },
+    onCommentDeleted: (commentId) => {
+      setRecentCommentIds((prev) => prev.filter((id) => id !== commentId));
+    },
   });
 
   useRealtimeReactions({
@@ -325,6 +328,24 @@ export default function PostCard({ post }: PostCardProps) {
     navigate(`/post/${post.id}`, { state: { from: location.pathname } });
   };
 
+  const handleShare = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!currentUser?.id) {
+      toast.error("Vui lòng đăng nhập để chia sẻ bài viết");
+      return;
+    }
+
+    try {
+      await postApi.sharePost(post.id);
+      toast.success("Đã chia sẻ bài viết thành công!");
+    } catch (error) {
+      console.error("Error sharing post:", error);
+      toast.error("Không thể chia sẻ bài viết");
+    }
+  };
+
   const handleCopyLink = () => {
     const postUrl = `${window.location.origin}/post/${post.id}`;
     navigator.clipboard.writeText(postUrl);
@@ -396,7 +417,7 @@ export default function PostCard({ post }: PostCardProps) {
     setCurrentImageIndex(index);
   };
 
-  const handleSubmitComment = async () => {
+  const handleSubmitComment = async (mentions: any[] = []) => {
     if (!commentInput.trim() || !currentUser?.id) return;
 
     setSubmittingComment(true);
@@ -405,7 +426,9 @@ export default function PostCard({ post }: PostCardProps) {
         "POST",
         post.id,
         commentInput,
-        currentUser.id
+        currentUser.id,
+        undefined,
+        mentions
       );
 
       createReply(null, newComment);
@@ -480,6 +503,7 @@ export default function PostCard({ post }: PostCardProps) {
         onDelete={handleDelete}
         onCopyLink={handleCopyLink}
         onChangePrivacy={handleChangePrivacy}
+        taggedUsers={taggedUsers}
       />
 
       {displayPost.caption || (displayPost as any).content ? (
@@ -529,6 +553,7 @@ export default function PostCard({ post }: PostCardProps) {
           }}
           onReactionMouseEnter={handleMouseEnter}
           onReactionMouseLeave={handleMouseLeave}
+          onShare={handleShare}
         />
 
         <PostCardCommentsPreview
@@ -552,6 +577,7 @@ export default function PostCard({ post }: PostCardProps) {
           submittingComment={submittingComment}
           onChangeCommentInput={setCommentInput}
           onSubmitComment={handleSubmitComment}
+          currentUserId={currentUser?.id?.toString()}
         />
 
         <p className="text-[10px] text-gray-500 uppercase tracking-wide mt-3">
