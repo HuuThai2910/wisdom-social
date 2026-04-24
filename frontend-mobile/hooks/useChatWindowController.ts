@@ -175,26 +175,28 @@ function resolveReadOnlyReasonFromApiMessage(message: string): string | null {
         normalized.includes("xoa khoi nhom") ||
         normalized.includes("bi duoi") ||
         normalized.includes("bi kick") ||
-        normalized.includes("kicked")
+        normalized.includes("kicked") ||
+        normalized.includes("xóa khỏi nhóm")
     ) {
-        return "Ban da bi xoa khoi nhom.";
+        return "Bạn đã bị xóa khỏi nhóm.";
     }
 
-    if (normalized.includes("roi nhom") || normalized.includes("roi khoi nhom")) {
-        return "Ban da roi khoi nhom.";
+    if (normalized.includes("roi nhom") || normalized.includes("roi khoi nhom") || normalized.includes("rời khỏi nhóm")) {
+        return "Bạn đã rời khỏi nhóm.";
     }
 
-    if (normalized.includes("giai tan")) {
-        return "Nhom da bi giai tan.";
+    if (normalized.includes("giai tan") || normalized.includes("giải tán")) {
+        return "Nhóm đã bị giải tán.";
     }
 
     if (
         normalized.includes("khong phai thanh vien") ||
         normalized.includes("khong co quyen") ||
         normalized.includes("access denied") ||
-        normalized.includes("forbidden")
+        normalized.includes("forbidden") ||
+        normalized.includes("không có quyền")
     ) {
-        return "Ban khong co quyen truy cap hoi thoai nay.";
+        return "Bạn không có quyền truy cập hội thoại này.";
     }
 
     return null;
@@ -209,6 +211,7 @@ function extractApiErrorMessage(error: unknown): string | null {
         const response = (
             error as {
                 response?: {
+                    status?: number;
                     data?: {
                         message?: string;
                         error?: string;
@@ -218,6 +221,7 @@ function extractApiErrorMessage(error: unknown): string | null {
             }
         ).response;
 
+        const status = response?.status;
         const payload = response?.data;
         const direct = payload?.message;
         const nested = payload?.data?.message;
@@ -226,6 +230,10 @@ function extractApiErrorMessage(error: unknown): string | null {
         const candidate = direct || nested || spring;
         if (candidate && candidate.trim()) {
             return candidate;
+        }
+
+        if (status === 403) {
+            return "Bạn không có quyền truy cập hội thoại này.";
         }
     }
 
@@ -248,13 +256,13 @@ function resolveReadOnlyReasonFromConversation(
     if (!currentMember) return null;
 
     if (currentMember.status === "KICKED") {
-        return "Ban da bi xoa khoi nhom.";
+        return "Bạn đã bị xóa khỏi nhóm.";
     }
     if (currentMember.status === "LEFT") {
-        return "Ban da roi khoi nhom.";
+        return "Bạn đã rời khỏi nhóm.";
     }
     if (currentMember.status === "GROUP_DISBANDED") {
-        return "Nhom da bi giai tan.";
+        return "Nhóm đã bị giải tán.";
     }
 
     return null;
@@ -293,7 +301,9 @@ export function useChatWindowController(args: {
 
     const { currentUser } = useAppContext();
     const currentUserId = Number(currentUser?.id ?? 0);
+    const isScreenFocusedRef = useRef(false);
     const isScreenFocused = useIsFocused();
+    isScreenFocusedRef.current = isScreenFocused;
 
     // Thông báo cho useMessagesController biết conversation nào đang mở.
     // Điều này cho phép sidebar không tăng unreadCount khi user đang xem conversation.
@@ -350,6 +360,9 @@ export function useChatWindowController(args: {
     const realtimePollLockRef = useRef(false);
     const isTypingSentRef = useRef(false);
     const loadInitialDataRunCountRef = useRef(0);
+    const loadTokenRef = useRef<number>(0);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const loadInitialDataRef = useRef<(token: number) => Promise<void>>(null as any);
     const jumpToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
         null,
     );
@@ -474,20 +487,21 @@ export function useChatWindowController(args: {
         [],
     );
 
-    const loadInitialData = useCallback(async () => {
+    const loadInitialData = useCallback(async (token: number) => {
         loadInitialDataRunCountRef.current += 1;
         console.log("[JUMP_DEBUG][controller] loadInitialData:start", {
             conversationId,
             run: loadInitialDataRunCountRef.current,
-            isScreenFocused,
+            isScreenFocused: isScreenFocusedRef.current,
         });
 
         try {
             setLoading(true);
             setError(null);
+            setReadOnlyNotice(null);
 
             // Align with web UX: entering a conversation should clear unread immediately.
-            if (isScreenFocused) {
+            if (isScreenFocusedRef.current) {
                 clearUnreadLocally();
                 void executeMarkAsRead(undefined, { force: true });
             }
@@ -503,6 +517,11 @@ export function useChatWindowController(args: {
                 setMembersById(cachedMembers);
                 setMessages(cachedMessages);
                 setPinnedMessages(cachedPins);
+            } else {
+                setConversation(null);
+                setMembersById({});
+                setMessages([]);
+                setPinnedMessages([]);
             }
 
             const [convResponse, membersResponse, messagesResponse] =
@@ -516,6 +535,9 @@ export function useChatWindowController(args: {
                         CHAT_PAGE_SIZE,
                     ),
                 ]);
+
+            // Nếu người dùng đã chuyển sang conversation khác thì bỏ qua kết quả này.
+            if (token !== loadTokenRef.current) return;
 
             if (!convResponse.success || !convResponse.data) {
                 setConversation(null);
@@ -589,7 +611,7 @@ export function useChatWindowController(args: {
             setOlderCursor(cursorData?.nextCursor ?? null);
 
             const lastMessage = normalizedMessages.at(-1);
-            if (lastMessage && isScreenFocused) {
+            if (lastMessage && isScreenFocusedRef.current) {
                 void executeMarkAsRead(lastMessage.id, { force: true });
             }
 
@@ -600,26 +622,56 @@ export function useChatWindowController(args: {
                 hasMoreOlder: Boolean(cursorData?.hasMoreOlder),
                 hasMoreNewer: Boolean(cursorData?.hasMoreNewer),
             });
-        } catch {
-            setError("Khong the tai du lieu chat");
+        } catch (err) {
+            // Nếu người dùng đã chuyển sang conversation khác thì bỏ qua lỗi này.
+            if (token !== loadTokenRef.current) return;
+
+            const apiMessage = extractApiErrorMessage(err);
+            const fallbackReason = resolveReadOnlyReasonFromApiMessage(apiMessage || "");
+
+            // Nếu lỗi là 403 hoặc thông báo lỗi liên quan đến quyền truy cập/kick:
+            if (fallbackReason) {
+                setReadOnlyNotice(fallbackReason);
+                setConversation(null);
+            } else {
+                setError(apiMessage || "Khong the tai du lieu chat");
+            }
         } finally {
-            setLoading(false);
+            if (token === loadTokenRef.current) {
+                setLoading(false);
+            }
         }
     }, [
         clearUnreadLocally,
         conversationId,
         currentUserId,
         executeMarkAsRead,
-        isScreenFocused,
         mergeReferenceUsers,
     ]);
 
+    // Giữ ref luôn trỏ đến phiên bản mới nhất của loadInitialData
+    // để useEffect chỉ cần phụ thuộc vào conversationId, tránh double-fire.
+    loadInitialDataRef.current = loadInitialData;
+
     useEffect(() => {
+        // RESET STATE TỨC THÌ KHI ĐỔI CONVERSATION
+        setConversation(null);
+        setMembersById({});
+        setMessages([]);
+        setPinnedMessages([]);
+        setReadOnlyNotice(null);
+        setError(null);
+
+        const token = Date.now();
+        loadTokenRef.current = token;
+
         console.log("[JUMP_DEBUG][controller] effect->loadInitialData", {
             conversationId,
+            token,
         });
-        void loadInitialData();
-    }, [conversationId, loadInitialData]);
+        void loadInitialDataRef.current(token);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [conversationId]);
 
     useEffect(() => {
         if (!jumpToast) return;
@@ -1891,7 +1943,9 @@ export function useChatWindowController(args: {
         console.log("[JUMP_DEBUG][controller] resetToPresent:start", {
             conversationId,
         });
-        await loadInitialData();
+        const token = Date.now();
+        loadTokenRef.current = token;
+        await loadInitialData(token);
         console.log("[JUMP_DEBUG][controller] resetToPresent:done", {
             conversationId,
         });

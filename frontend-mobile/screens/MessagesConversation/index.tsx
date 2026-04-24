@@ -23,6 +23,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Alert,
     Animated,
+    ActivityIndicator,
     Dimensions,
     Easing,
     FlatList,
@@ -1278,6 +1279,15 @@ export default function MessagesConversationScreen() {
             }
         };
     }, []);
+
+    // Giống web: hiện loading nếu đang tải dữ liệu lần đầu
+    if (loading && !conversation) {
+        return (
+            <SafeAreaView style={[styles.container, { justifyContent: "center", alignItems: "center" }]}>
+                <ActivityIndicator size="large" color={colors.primary} />
+            </SafeAreaView>
+        );
+    }
 
     // Giống web: hiện màn hình báo lỗi khi readOnlyNotice được set
     // (bị đuổi, rời nhóm, nhóm bị giải tán) hoặc khi không tải được conversation.
