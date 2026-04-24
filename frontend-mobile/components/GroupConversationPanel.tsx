@@ -21,6 +21,7 @@ interface GroupConversationPanelProps {
     conversation: Conversation;
     currentUserId: number;
     canManageMembers: boolean;
+    canAddMembers: boolean;
     canUpdateRole: boolean;
     canDisbandGroup: boolean;
     isLeavingGroup: boolean;
@@ -72,6 +73,7 @@ export default function GroupConversationPanel({
     conversation,
     currentUserId,
     canManageMembers,
+    canAddMembers,
     canUpdateRole,
     canDisbandGroup,
     isLeavingGroup,
@@ -160,7 +162,7 @@ export default function GroupConversationPanel({
                     </Text>
                 </View>
 
-                {canManageMembers ? (
+                {canAddMembers ? (
                     <Pressable
                         style={styles.addBtn}
                         onPress={onOpenAddMembersModal}

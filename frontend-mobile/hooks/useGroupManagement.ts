@@ -48,6 +48,7 @@ export function useGroupManagement({
     const [friendsLoading, setFriendsLoading] = useState(false);
     const [friendsError, setFriendsError] = useState<string | null>(null);
     const hasLoadedFriendsRef = useRef(false);
+    const friendsLoadingRef = useRef(false);
 
     const [isCreateGroupModalOpen, setIsCreateGroupModalOpen] = useState(false);
     const [isAddMembersModalOpen, setIsAddMembersModalOpen] = useState(false);
@@ -96,6 +97,9 @@ export function useGroupManagement({
 
     const canManageMembers =
         currentMemberRole === "OWNER" || currentMemberRole === "DEPUTY";
+    const canAddMembers = groupMembers.some(
+        (member) => Number(member.userId) === Number(currentUserId),
+    );
     const canUpdateRole = currentMemberRole === "OWNER";
     const canDisbandGroup = currentMemberRole === "OWNER";
 
@@ -121,7 +125,8 @@ export function useGroupManagement({
 
     const loadFriends = useCallback(
         async (forceRefresh = false) => {
-            if (!forceRefresh && (friendsLoading || hasLoadedFriendsRef.current)) {
+            // Dùng ref thay vì state để tránh stale closure trong dependency array
+            if (!forceRefresh && (friendsLoadingRef.current || hasLoadedFriendsRef.current)) {
                 return;
             }
 
@@ -130,6 +135,7 @@ export function useGroupManagement({
             }
 
             try {
+                friendsLoadingRef.current = true;
                 setFriendsLoading(true);
                 setFriendsError(null);
 
@@ -141,10 +147,11 @@ export function useGroupManagement({
                     normalizeErrorMessage(error, "Khong the tai danh sach ban be."),
                 );
             } finally {
+                friendsLoadingRef.current = false;
                 setFriendsLoading(false);
             }
         },
-        [currentUserId, friendsLoading],
+        [currentUserId], // Bỏ friendsLoading khỏi deps – dùng ref để guard thay thế
     );
 
     const openCreateGroupModal = useCallback(() => {
@@ -158,12 +165,12 @@ export function useGroupManagement({
     }, []);
 
     const openAddMembersModal = useCallback(() => {
-        if (!selectedGroupConversation || !canManageMembers) return;
+        if (!selectedGroupConversation || !canAddMembers) return;
 
         setActionError(null);
         setIsAddMembersModalOpen(true);
         void loadFriends();
-    }, [canManageMembers, loadFriends, selectedGroupConversation]);
+    }, [canAddMembers, loadFriends, selectedGroupConversation]);
 
     const closeAddMembersModal = useCallback(() => {
         setIsAddMembersModalOpen(false);
@@ -460,6 +467,7 @@ export function useGroupManagement({
         groupMembers,
         currentMemberRole,
         canManageMembers,
+        canAddMembers,
         canUpdateRole,
         canDisbandGroup,
         groupMemberIds,

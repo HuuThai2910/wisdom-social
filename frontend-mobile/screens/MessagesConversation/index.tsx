@@ -165,6 +165,7 @@ export default function MessagesConversationScreen() {
     const {
         selectedGroupConversation,
         canManageMembers,
+        canAddMembers,
         canUpdateRole,
         canDisbandGroup,
         groupMemberIds,
@@ -1278,6 +1279,74 @@ export default function MessagesConversationScreen() {
         };
     }, []);
 
+    // Giống web: hiện màn hình báo lỗi khi readOnlyNotice được set
+    // (bị đuổi, rời nhóm, nhóm bị giải tán) hoặc khi không tải được conversation.
+    const isErrorState = Boolean(readOnlyNotice) || (!loading && !conversation);
+
+    if (isErrorState) {
+        const displayName =
+            conversationDisplayInfo?.name ||
+            otherUser?.nickname ||
+            otherUser?.username ||
+            "Cuộc trò chuyện";
+
+        // Xác định tiêu đề lỗi cụ thể
+        const isDisbanded =
+            readOnlyNotice?.toLowerCase().includes("giải tán") ||
+            readOnlyNotice?.toLowerCase().includes("giai tan");
+
+        const errorTitle = isDisbanded
+            ? "Nhóm đã bị giải tán."
+            : readOnlyNotice || "Không thể truy cập";
+
+        return (
+            <SafeAreaView style={styles.container}>
+                {/* Header tĩnh cho trạng thái lỗi */}
+                <View style={styles.header}>
+                    <Pressable
+                        style={styles.headerBackBtn}
+                        onPress={() => router.back()}
+                        hitSlop={8}
+                    >
+                        <Ionicons
+                            name="arrow-back"
+                            size={24}
+                            color={colors.text}
+                        />
+                    </Pressable>
+                    <View style={styles.headerIdentity}>
+                        <UserAvatar
+                            uri={conversationDisplayInfo?.avatarUrl || otherUser?.avatar}
+                            name={displayName}
+                            size={40}
+                        />
+                        <View style={styles.headerMeta}>
+                            <Text style={styles.headerName} numberOfLines={1}>
+                                {displayName}
+                            </Text>
+                            <Text style={styles.headerStatus} numberOfLines={1}>
+                                Không thể truy cập
+                            </Text>
+                        </View>
+                    </View>
+                    <View style={styles.headerActions} />
+                </View>
+
+                {/* Nội dung lỗi giống web */}
+                <View style={disbandedStyles.body}>
+                    <View style={disbandedStyles.iconWrap}>
+                        <Ionicons name="close" size={32} color="#EF4444" />
+                    </View>
+                    <Text style={disbandedStyles.title}>{errorTitle}</Text>
+                    <Text style={disbandedStyles.subtitle}>
+                        Hội thoại này hiện không khả dụng. Bạn có thể đã bị xóa khỏi
+                        nhóm hoặc không có quyền xem nội dung này.
+                    </Text>
+                </View>
+            </SafeAreaView>
+        );
+    }
+
     return (
         <SafeAreaView style={styles.container}>
             <KeyboardAvoidingView
@@ -1717,6 +1786,7 @@ export default function MessagesConversationScreen() {
                                 conversation={selectedGroupConversation}
                                 currentUserId={currentUserId}
                                 canManageMembers={canManageMembers}
+                                canAddMembers={canAddMembers}
                                 canUpdateRole={canUpdateRole}
                                 canDisbandGroup={canDisbandGroup}
                                 isLeavingGroup={isLeavingGroup}
@@ -1733,7 +1803,14 @@ export default function MessagesConversationScreen() {
                                     ownerTransferCandidates
                                 }
                                 actionError={actionError}
-                                onOpenAddMembersModal={openAddMembersModal}
+                                onOpenAddMembersModal={() => {
+                                    // Đóng GroupInfoModal trước để tránh block touch event
+                                    // lên SelectGroupMembersModal (render ngoài Modal stack)
+                                    setShowGroupInfoModal(false);
+                                    setTimeout(() => {
+                                        openAddMembersModal();
+                                    }, 250);
+                                }}
                                 onLeaveGroup={leaveGroup}
                                 onCloseTransferOwnerModal={
                                     closeTransferOwnerModal
@@ -1798,5 +1875,37 @@ const groupModalStyles = StyleSheet.create({
         borderRadius: 15,
         alignItems: "center",
         justifyContent: "center",
+    },
+});
+
+const disbandedStyles = StyleSheet.create({
+    body: {
+        flex: 1,
+        alignItems: "center",
+        justifyContent: "center",
+        paddingHorizontal: 32,
+        backgroundColor: "#F9FAFB",
+    },
+    iconWrap: {
+        width: 64,
+        height: 64,
+        borderRadius: 32,
+        backgroundColor: "#FEF2F2",
+        alignItems: "center",
+        justifyContent: "center",
+        marginBottom: 16,
+    },
+    title: {
+        fontSize: 18,
+        fontWeight: "700",
+        color: "#111827",
+        textAlign: "center",
+        marginBottom: 8,
+    },
+    subtitle: {
+        fontSize: 13,
+        color: "#6B7280",
+        textAlign: "center",
+        lineHeight: 20,
     },
 });

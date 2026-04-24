@@ -675,6 +675,7 @@ class ChatWebsocketService {
             lastMessage: ConversationUpdatedEvent["lastMessage"],
             conversation?: ConversationSnapshot,
         ) => void,
+        onDisbanded?: (conversationId: number) => void,
     ): void {
         const destination = `/topic/user/${userId}/conversations`;
         this.registerSubscription(destination, () => {
@@ -717,6 +718,10 @@ class ChatWebsocketService {
                         disbandPayload.domainEventType === "GROUP_DISBANDED" &&
                         typeof disbandPayload.conversationId === "number"
                     ) {
+                        // Gọi callback chuyên biệt nếu có (dùng trong useChatWindowController)
+                        onDisbanded?.(disbandPayload.conversationId);
+
+                        // Vẫn gọi onConversationUpdated để cập nhật sidebar list
                         onConversationUpdated(
                             disbandPayload.conversationId,
                             buildSystemFallbackByDomainEvent(
@@ -742,6 +747,68 @@ class ChatWebsocketService {
             });
         });
     }
+
+
+    /**
+     * Subscribe to GROUP_DISBANDED events for a specific conversation.
+     * Uses a unique internal key so it doesn't overwrite the generic
+     * subscribeToUserConversations subscription used by the sidebar.
+     */
+    subscribeToGroupDisbanded(
+        userId: number,
+        conversationId: number,
+        onDisbanded: () => void,
+    ): void {
+        const destination = `/topic/user/${userId}/conversations`;
+        const key = `${destination}::disband-watch::${conversationId}`;
+
+        this.subscriptionFactories.set(key, () => {
+            const client = this.client;
+            if (!client?.connected) {
+                throw new Error("WebSocket not connected");
+            }
+
+            // Không subscribe STOMP mới — chỉ forward từ topic gốc.
+            // Thay vào đó ta tạo một subscriber độc lập lên cùng topic.
+            return client.subscribe(destination, (message: IMessage) => {
+                try {
+                    const payload = JSON.parse(message.body) as {
+                        domainEventType?: string;
+                        conversationId?: number;
+                    };
+                    const disbandCid =
+                        payload.domainEventType === "GROUP_DISBANDED"
+                            ? payload.conversationId
+                            : undefined;
+                    if (disbandCid === conversationId) {
+                        onDisbanded();
+                    }
+                } catch {
+                    // no-op
+                }
+            });
+        });
+
+        // Kích hoạt ngay nếu đã kết nối
+        if (this.client?.connected && !this.subscriptions.has(key)) {
+            try {
+                const sub = this.subscriptionFactories.get(key)!();
+                this.subscriptions.set(key, sub);
+            } catch {
+                // retry sẽ được thực hiện ở syncSubscriptions()
+            }
+        }
+    }
+
+    unsubscribeFromGroupDisbanded(
+        userId: number,
+        conversationId: number,
+    ): void {
+        const destination = `/topic/user/${userId}/conversations`;
+        const key = `${destination}::disband-watch::${conversationId}`;
+        this.removeSubscription(key);
+    }
+
 
     unsubscribeFromUserConversations(userId: number): void {
         const destination = `/topic/user/${userId}/conversations`;

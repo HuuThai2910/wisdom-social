@@ -925,6 +925,16 @@ export function useChatWindowController(args: {
                     },
                 );
 
+                // Lắng nghe GROUP_DISBANDED để cập nhật UI ngay khi trưởng nhóm
+                // giải tán nhóm mà không cần reload.
+                chatWebsocketService.subscribeToGroupDisbanded(
+                    currentUserId,
+                    conversationId,
+                    () => {
+                        setReadOnlyNotice("Nhóm đã bị giải tán.");
+                    },
+                );
+
                 console.log(
                     "[RECALL_DEBUG][mobile][useChatWindowController] ws setup subscribed",
                     { conversationId },
@@ -990,6 +1000,10 @@ export function useChatWindowController(args: {
                 conversationId,
             );
             chatWebsocketService.unsubscribeFromConversationMembers(
+                conversationId,
+            );
+            chatWebsocketService.unsubscribeFromGroupDisbanded(
+                currentUserId,
                 conversationId,
             );
         };
