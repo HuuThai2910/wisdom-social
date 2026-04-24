@@ -16,5 +16,6 @@ import java.util.List;
 public interface NotificationRepository extends MongoRepository<Notification, String> {
     Page<Notification> findByRecipientIdOrderByCreatedAtDesc(String recipientId, Pageable pageable);
     long countByRecipientIdAndIsReadFalse(String recipientId);
+    List<Notification> findByRecipientIdAndIsReadFalse(String recipientId);
 }
 

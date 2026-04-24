@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { useCurrentUser } from "../hooks/useCurrentUser";
-import { getNotifications, getUnreadCount, markAsRead as apiMarkAsRead } from "../services/notificationService";
+import { getNotifications, getUnreadCount, markAsRead as apiMarkAsRead, markAllAsRead as apiMarkAllAsRead } from "../services/notificationService";
 import websocketService from "../services/websocket";
 import type { Notification } from "../types";
 
@@ -9,6 +9,7 @@ interface NotificationContextType {
   unreadCount: number;
   loading: boolean;
   markAsRead: (id: string) => Promise<void>;
+  markAllAsRead: () => Promise<void>;
   clearUnreadCount: () => void;
   fetchNotifications: () => Promise<void>;
 }
@@ -102,6 +103,16 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     }
   };
 
+  const markAllAsRead = async () => {
+    const success = await apiMarkAllAsRead();
+    if (success) {
+      setNotifications((prev) =>
+        prev.map((n) => ({ ...n, isRead: true }))
+      );
+      setUnreadCount(0);
+    }
+  };
+
   const clearUnreadCount = () => {
     setUnreadCount(0);
   };
@@ -113,6 +124,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         unreadCount,
         loading,
         markAsRead,
+        markAllAsRead,
         clearUnreadCount,
         fetchNotifications: fetchInitialData
       }}

@@ -47,3 +47,12 @@ export const markAsRead = async (notificationId: string): Promise<boolean> => {
     return false;
   }
 };
+export const markAllAsRead = async (): Promise<boolean> => {
+  try {
+    const response = await axiosClient.put<ApiResponse<void>>(`${API_PATH}/read-all`);
+    return response.data.success;
+  } catch (error) {
+    console.error("notificationService: Error marking all notifications as read:", error);
+    return false;
+  }
+};

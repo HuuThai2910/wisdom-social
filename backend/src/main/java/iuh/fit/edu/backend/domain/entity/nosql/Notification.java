@@ -66,6 +66,7 @@ public class Notification {
     private NotificationMetadata metadata;
 
     // Trạng thái
+    @com.fasterxml.jackson.annotation.JsonProperty("isRead")
     private boolean isRead;
     private Instant readAt;
 

@@ -1,5 +1,6 @@
 import NotificationItem from "../components/notification/NotificationItem";
 import { useNotificationContext } from "../contexts/NotificationContext";
+import { markAllAsRead } from "../services/notificationService";
 
 export default function Notifications() {
     const { notifications, loading, markAsRead, unreadCount } = useNotificationContext();
@@ -12,16 +13,24 @@ export default function Notifications() {
                         Notifications
                     </h1>
                     {unreadCount > 0 && (
-                        <span className="bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full">
-                            {unreadCount} mới
-                        </span>
+                        <div className="flex items-center gap-4">
+                            <button 
+                                onClick={() => markAllAsRead()}
+                                className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                            >
+                                Mark all as read
+                            </button>
+                            <span className="bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full">
+                                {unreadCount} new
+                            </span>
+                        </div>
                     )}
                 </div>
                 
                 {loading && notifications.length === 0 ? (
-                    <div className="text-center text-gray-500 py-4">Đang tải thông báo...</div>
+                    <div className="text-center text-gray-500 py-4">Loading notifications...</div>
                 ) : notifications.length === 0 ? (
-                    <div className="text-center text-gray-500 py-4">Chưa có thông báo nào.</div>
+                    <div className="text-center text-gray-500 py-4">No notifications.</div>
                 ) : (
                     <div className="space-y-1">
                         {notifications.map((notification) => (

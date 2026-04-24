@@ -122,29 +122,34 @@ public class NotificationServiceImpl implements NotificationService {
                 stringRedisTemplate.opsForValue().set(countKey, "0");
             }
 
-            // Update Redis ZSET safely (only update the specific item)
+            // Clear recent notifications cache to ensure consistency
             String zsetKey = String.format(RECENT_NOTIFICATIONS_KEY, userId);
-            Set<String> recentData = stringRedisTemplate.opsForZSet().range(zsetKey, 0, -1);
-            if (recentData != null) {
-                for (String json : recentData) {
-                    if (json.contains("\"id\":\"" + notificationId + "\"") || json.contains("\"id\": \"" + notificationId + "\"")) {
-                        Double score = stringRedisTemplate.opsForZSet().score(zsetKey, json);
-                        if (score != null) {
-                            stringRedisTemplate.opsForZSet().remove(zsetKey, json);
-                            try {
-                                Notification cachedNotif = objectMapper.readValue(json, Notification.class);
-                                cachedNotif.setRead(true);
-                                cachedNotif.setReadAt(notification.getReadAt());
-                                stringRedisTemplate.opsForZSet().add(zsetKey, objectMapper.writeValueAsString(cachedNotif), score);
-                            } catch (Exception e) {
-                                log.error("Failed to update notification in Redis ZSET", e);
-                            }
-                        }
-                        break;
-                    }
-                }
-            }
+            stringRedisTemplate.delete(zsetKey);
         }
+    }
+
+    @Override
+    public void markAllAsRead(String userId) {
+        // 1. Update in MongoDB
+        List<Notification> unreadNotifications = notificationRepository.findByRecipientIdAndIsReadFalse(userId);
+        if (!unreadNotifications.isEmpty()) {
+            Instant now = Instant.now();
+            unreadNotifications.forEach(n -> {
+                n.setRead(true);
+                n.setReadAt(now);
+            });
+            notificationRepository.saveAll(unreadNotifications);
+        }
+
+        // 2. Reset Redis Count
+        String countKey = String.format(UNREAD_COUNT_KEY, userId);
+        stringRedisTemplate.opsForValue().set(countKey, "0");
+
+        // 3. Clear Recent Notifications Cache
+        String zsetKey = String.format(RECENT_NOTIFICATIONS_KEY, userId);
+        stringRedisTemplate.delete(zsetKey);
+
+        log.info("Marked all notifications as read for user: {}", userId);
     }
 
     @Override

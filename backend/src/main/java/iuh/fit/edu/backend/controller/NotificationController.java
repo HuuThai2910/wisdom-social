@@ -88,6 +88,27 @@ public class NotificationController {
     }
 
     /**
+     * Đánh dấu tất cả thông báo là đã đọc
+     */
+    @PutMapping("/read-all")
+    public ResponseEntity<ApiResponse<Void>> markAllAsRead() {
+        try {
+            var currentUser = userService.getCurrentUser();
+            if (currentUser == null) {
+                return ResponseEntity.status(401)
+                        .body(ApiResponse.error(401, "Bạn cần đăng nhập", null));
+            }
+
+            notificationService.markAllAsRead(String.valueOf(currentUser.getId()));
+            return ResponseEntity.ok(ApiResponse.success(200, "Đánh dấu tất cả đã đọc thành công", null));
+        } catch (Exception e) {
+            log.error("Error marking all notifications as read", e);
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error(400, "Lỗi: " + e.getMessage(), null));
+        }
+    }
+
+    /**
      * Xóa cache thông báo của user hiện tại
      */
     @DeleteMapping("/clear-cache")
