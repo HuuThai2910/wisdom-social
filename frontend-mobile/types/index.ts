@@ -7,6 +7,8 @@ export type User = {
     followers: number;
     following: number;
     website?: string;
+    birthday?: string;
+    gender?: "MALE" | "FEMALE" | "HIDDEN";
 };
 
 export type Story = {

@@ -1,10 +1,8 @@
 import React, { useMemo, useState } from "react";
 import {
-    Pressable,
     SafeAreaView,
     ScrollView,
     StyleSheet,
-    Text,
     View,
 } from "react-native";
 import { useRouter } from "expo-router";
@@ -15,7 +13,7 @@ import {
     ProfileHeader,
     ProfileTabSwitcher,
 } from "@/components";
-import { colors, spacing } from "@/constants";
+import { colors } from "@/constants";
 import { useAppContext } from "@/context/AppContext";
 
 export default function InstagramProfileScreen() {
@@ -48,17 +46,13 @@ export default function InstagramProfileScreen() {
                 title={currentUser.username}
                 rightActions={[
                     {
-                        icon: "settings-outline",
-                        onPress: () => router.push("/(stack)/profile/settings"),
-                    },
-                    {
                         icon: "menu-outline",
                         onPress: () => router.push("/(stack)/profile/menu"),
                     },
                 ]}
             />
 
-            <ScrollView>
+            <ScrollView showsVerticalScrollIndicator={false}>
                 <ProfileHeader
                     user={currentUser}
                     stats={{
@@ -67,61 +61,14 @@ export default function InstagramProfileScreen() {
                         following: currentUser.following,
                     }}
                     onEditProfile={() => router.push("/(stack)/profile/edit")}
-                    onOpenMenu={() => router.push("/(stack)/profile/menu")}
                 />
-
-                <View style={styles.quickActions}>
-                    <Pressable
-                        style={styles.quickBtn}
-                        onPress={() => router.push("/(stack)/profile/my-posts")}
-                    >
-                        <Text style={styles.quickBtnText}>My Posts</Text>
-                    </Pressable>
-                    <Pressable
-                        style={styles.quickBtn}
-                        onPress={() =>
-                            router.push("/(stack)/profile/saved-posts")
-                        }
-                    >
-                        <Text style={styles.quickBtnText}>Saved</Text>
-                    </Pressable>
-                    <Pressable
-                        style={styles.quickBtn}
-                        onPress={() =>
-                            router.push("/(stack)/profile/following")
-                        }
-                    >
-                        <Text style={styles.quickBtnText}>Following</Text>
-                    </Pressable>
-                </View>
-
-                <View style={styles.quickActions}>
-                    <Pressable
-                        style={styles.quickBtn}
-                        onPress={() => router.push("/(stack)/friends-list")}
-                    >
-                        <Text style={styles.quickBtnText}>Friends</Text>
-                    </Pressable>
-                    <Pressable
-                        style={styles.quickBtn}
-                        onPress={() => router.push("/(stack)/pages")}
-                    >
-                        <Text style={styles.quickBtnText}>Pages</Text>
-                    </Pressable>
-                    <Pressable
-                        style={styles.quickBtn}
-                        onPress={() => router.push("/(stack)/qr-scanner")}
-                    >
-                        <Text style={styles.quickBtnText}>QR Login</Text>
-                    </Pressable>
-                </View>
 
                 <ProfileTabSwitcher value={tab} onChange={setTab} />
 
                 {gridData.length === 0 ? (
                     <EmptyState
                         title="Chưa có nội dung"
-                        description="Hãy đăng bài hoặc lưu bài viết."
+                        description={tab === "posts" ? "Hãy đăng bài đầu tiên" : "Hãy lưu bài viết"}
                     />
                 ) : (
                     <PostGrid posts={gridData} />
@@ -132,24 +79,8 @@ export default function InstagramProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.white },
-    quickActions: {
-        flexDirection: "row",
-        gap: spacing.sm,
-        paddingHorizontal: spacing.md,
-        paddingBottom: spacing.sm,
-    },
-    quickBtn: {
+    container: {
         flex: 1,
-        borderWidth: 1,
-        borderColor: colors.border,
-        borderRadius: 8,
-        alignItems: "center",
-        paddingVertical: spacing.sm,
-    },
-    quickBtnText: {
-        color: colors.text,
-        fontWeight: "600",
-        fontSize: 13,
+        backgroundColor: colors.white,
     },
 });
