@@ -14,6 +14,8 @@ class FriendService {
 
     private localRequests: FriendUser[] = [...mockFeatureRequests];
 
+    private localSentRequests: FriendUser[] = [];
+
     async getFriends(userId: number): Promise<FriendUser[]> {
         try {
             const response = await apiClient.get(`/friends/${userId}`);
@@ -24,6 +26,16 @@ class FriendService {
             return this.localFriends;
         } catch {
             return this.localFriends;
+        }
+    }
+
+    async getSentRequests(userId: number): Promise<FriendUser[]> {
+        try {
+            const response = await apiClient.get(`/friends/sent-requests/${userId}`);
+            const data = response.data?.data ?? [];
+            return Array.isArray(data) ? data : this.localSentRequests;
+        } catch {
+            return this.localSentRequests;
         }
     }
 
@@ -96,11 +108,11 @@ class FriendService {
 
     async getFriendStatus(myId: number, targetId: number): Promise<"NONE" | "SENT" | "RECEIVED" | "FRIEND" | "BLOCKED"> {
         try {
-            const [blockedList, myFriends, receivedRequests, theirRequests] = await Promise.all([
+            const [blockedList, myFriends, receivedRequests, sentRequests] = await Promise.all([
                 apiClient.get(`/auth/users/blocked/${myId}`).then((r) => r.data?.data ?? []).catch(() => []),
                 apiClient.get(`/friends/${myId}`).then((r) => r.data?.data ?? []).catch(() => []),
                 apiClient.get(`/friends/requests/${myId}`).then((r) => r.data?.data ?? []).catch(() => []),
-                apiClient.get(`/friends/requests/${targetId}`).then((r) => r.data?.data ?? []).catch(() => []),
+                apiClient.get(`/friends/sent-requests/${myId}`).then((r) => r.data?.data ?? []).catch(() => []),
             ]);
 
             const hasId = (list: Array<{ id?: number }>, id: number) => list.some((u) => Number(u.id) === id);
@@ -108,7 +120,7 @@ class FriendService {
             if (hasId(blockedList, targetId)) return "BLOCKED";
             if (hasId(myFriends, targetId)) return "FRIEND";
             if (hasId(receivedRequests, targetId)) return "RECEIVED";
-            if (hasId(theirRequests, myId)) return "SENT";
+            if (hasId(sentRequests, targetId)) return "SENT";
             return "NONE";
         } catch {
             if (this.localFriends.some((u) => u.id === targetId)) return "FRIEND";

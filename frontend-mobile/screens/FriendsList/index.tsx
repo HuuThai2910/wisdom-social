@@ -6,8 +6,9 @@ import { colors, spacing } from "@/constants";
 import { useAppContext } from "@/context/AppContext";
 import blockService from "@/services/blockService";
 import friendService, { FriendUser } from "@/services/friendService";
+import { useFriendNotifications } from "@/hooks/useFriendNotifications";
 
-type TabType = "friends" | "requests" | "blocked";
+type TabType = "friends" | "requests" | "sent" | "blocked";
 
 export default function FriendsListScreen() {
     const router = useRouter();
@@ -15,7 +16,7 @@ export default function FriendsListScreen() {
     const params = useLocalSearchParams<{ userId?: string; tab?: string }>();
 
     const [tab, setTab] = useState<TabType>(
-        params.tab === "requests" || params.tab === "blocked"
+        params.tab === "requests" || params.tab === "sent" || params.tab === "blocked"
             ? params.tab
             : "friends",
     );
@@ -36,15 +37,37 @@ export default function FriendsListScreen() {
             setList(await friendService.getFriends(actingUserId));
         } else if (tab === "requests") {
             setList(await friendService.getFriendRequests(actingUserId));
+        } else if (tab === "sent") {
+            setList(await friendService.getSentRequests(actingUserId));
         } else {
             setList(await blockService.getBlockedUsers(actingUserId));
         }
         setLoading(false);
     };
 
+    const handleAccept = async (senderId: number) => {
+        const myId = numericUserId ?? 0;
+        await friendService.acceptFriendRequest(senderId, myId);
+        setList((prev) => prev.filter((u) => u.id !== senderId));
+    };
+
+    const handleReject = async (senderId: number) => {
+        const myId = numericUserId ?? 0;
+        await friendService.rejectFriendRequest(senderId, myId);
+        setList((prev) => prev.filter((u) => u.id !== senderId));
+    };
+
+    const handleCancel = async (targetId: number) => {
+        const myId = numericUserId ?? 0;
+        await friendService.cancelFriendRequest(myId, targetId);
+        setList((prev) => prev.filter((u) => u.id !== targetId));
+    };
+
+    const refreshTrigger = useFriendNotifications();
+
     useEffect(() => {
         void loadData();
-    }, [numericUserId, tab]);
+    }, [numericUserId, tab, refreshTrigger]);
 
     return (
         <SafeAreaView style={styles.container}>
@@ -67,6 +90,12 @@ export default function FriendsListScreen() {
                     title="Requests"
                     variant={tab === "requests" ? "primary" : "outline"}
                     onPress={() => setTab("requests")}
+                    style={styles.tabBtn}
+                />
+                <CustomButton
+                    title="Sent"
+                    variant={tab === "sent" ? "primary" : "outline"}
+                    onPress={() => setTab("sent")}
                     style={styles.tabBtn}
                 />
                 <CustomButton
@@ -104,18 +133,58 @@ export default function FriendsListScreen() {
                             )}
                         </View>
 
-                        {tab !== "blocked" ? (
-                            <CustomButton
-                                title="View"
-                                variant="outline"
-                                onPress={() =>
-                                    router.push({
-                                        pathname: "/(stack)/user-profile",
-                                        params: { userId: String(item.id) },
-                                    })
-                                }
-                            />
-                        ) : null}
+                        {tab === "friends" && (
+                            <View style={styles.actionRow}>
+                                <CustomButton
+                                    title="View"
+                                    variant="outline"
+                                    onPress={() =>
+                                        router.push({
+                                            pathname: "/user-profile",
+                                            params: { userId: String(item.id) },
+                                        })
+                                    }
+                                />
+                                <CustomButton
+                                    title="Unfriend"
+                                    variant="outline"
+                                    onPress={() => handleCancel(item.id)}
+                                />
+                            </View>
+                        )}
+                        {tab === "requests" && (
+                            <View style={styles.actionRow}>
+                                <CustomButton
+                                    title="Accept"
+                                    variant="primary"
+                                    onPress={() => handleAccept(item.id)}
+                                />
+                                <CustomButton
+                                    title="Reject"
+                                    variant="outline"
+                                    onPress={() => handleReject(item.id)}
+                                />
+                            </View>
+                        )}
+                        {tab === "sent" && (
+                            <View style={styles.actionRow}>
+                                <CustomButton
+                                    title="View"
+                                    variant="outline"
+                                    onPress={() =>
+                                        router.push({
+                                            pathname: "/user-profile",
+                                            params: { userId: String(item.id) },
+                                        })
+                                    }
+                                />
+                                <CustomButton
+                                    title="Cancel"
+                                    variant="outline"
+                                    onPress={() => handleCancel(item.id)}
+                                />
+                            </View>
+                        )}
                     </View>
                 )}
             />
@@ -165,5 +234,9 @@ const styles = StyleSheet.create({
     emptyText: {
         color: colors.textMuted,
         textAlign: "center",
+    },
+    actionRow: {
+        flexDirection: "row",
+        gap: spacing.xs,
     },
 });
