@@ -673,6 +673,24 @@ class ChatWebsocketService {
         });
     }
 
+    // Generic topic subscription — used by pageWebsocketService and others
+    subscribeToTopic(
+        destination: string,
+        onMessage: (body: string) => void,
+    ): void {
+        this.registerSubscription(destination, () => {
+            const client = this.client;
+            if (!client?.connected) throw new Error("WebSocket not connected");
+            return client.subscribe(destination, (msg: IMessage) => {
+                onMessage(msg.body);
+            });
+        });
+    }
+
+    unsubscribeFromTopic(destination: string): void {
+        this.removeSubscription(destination);
+    }
+
     sendTypingSignal(
         conversationId: number,
         userId: number,

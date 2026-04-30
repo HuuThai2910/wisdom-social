@@ -11,6 +11,7 @@ import iuh.fit.edu.backend.dto.request.page.PageJoinRequest;
 import iuh.fit.edu.backend.dto.request.page.UserRequestMemberPage;
 import iuh.fit.edu.backend.repository.mysql.BlockUserRepository;
 import iuh.fit.edu.backend.repository.mysql.PageMemberRepository;
+import iuh.fit.edu.backend.service.page.PageEventPublisher;
 import iuh.fit.edu.backend.service.page.PageMemberService;
 import iuh.fit.edu.backend.service.page.PageService;
 import iuh.fit.edu.backend.service.user.BlockUserService;
@@ -29,14 +30,17 @@ public class PageMemberServiceImpl implements PageMemberService {
     UserService userService;
     BlockUserService blockUserService;
     BlockUserRepository blockUserRepository;
+    PageEventPublisher pageEventPublisher;
 
     public PageMemberServiceImpl(BlockUserService blockUserService, PageMemberRepository pageMemberRepository,
-                                  UserService userService, PageService pageService, BlockUserRepository blockUserRepository) {
+                                  UserService userService, PageService pageService,
+                                  BlockUserRepository blockUserRepository, PageEventPublisher pageEventPublisher) {
         this.blockUserService = blockUserService;
         this.pageMemberRepository = pageMemberRepository;
         this.blockUserRepository = blockUserRepository;
         this.pageService = pageService;
         this.userService = userService;
+        this.pageEventPublisher = pageEventPublisher;
     }
 
     @Override
@@ -53,6 +57,7 @@ public class PageMemberServiceImpl implements PageMemberService {
             pageMember.setJoinedAt(OffsetDateTime.now());
             pageMember.setRole(userRequestMemberPage.getPageRole());
             pageMemberRepository.save(pageMember);
+            pageEventPublisher.publishMemberJoined(userRequestMemberPage.getPageId(), userRequestMemberPage.getUserId());
             return true;
         }
         return false;
@@ -67,6 +72,7 @@ public class PageMemberServiceImpl implements PageMemberService {
         if (pageMember!=null){
             page.getPageMembers().remove(pageMember);
             pageMemberRepository.delete(pageMember);
+            pageEventPublisher.publishMemberLeft(pageId, userId);
             return true;
         }
         return false;
@@ -82,6 +88,7 @@ public class PageMemberServiceImpl implements PageMemberService {
             blockedUser.setBlockerPage(page);
             blockedUser.setBlocked(user);
             blockUserService.blockUser(blockedUser);
+            pageEventPublisher.publishMemberBlocked(pageId, userId);
             return true;
 
         }
@@ -94,6 +101,7 @@ public class PageMemberServiceImpl implements PageMemberService {
         BlockedUser blockedUser=blockUserRepository.findBlockedUserByBlockerPage_IdAndBlocked_Id(pageId,userId);
         if(blockedUser!=null){
             blockUserService.cancelBlockUser(blockedUser);
+            pageEventPublisher.publishMemberUnblocked(pageId, userId);
             return true;
         }
 
@@ -106,6 +114,7 @@ public class PageMemberServiceImpl implements PageMemberService {
         if (pageMember!=null){
             pageMember.setRole(role);
             pageMemberRepository.save(pageMember);
+            pageEventPublisher.publishMemberRoleChanged(pageId, userId, role.name());
         }
     }
 
@@ -136,6 +145,7 @@ public class PageMemberServiceImpl implements PageMemberService {
             member.setStatus(MemberStatus.ACTIVE);
             member.setJoinedAt(OffsetDateTime.now());
             pageMemberRepository.save(member);
+            pageEventPublisher.publishMemberJoined(request.getPageId(), request.getUserId());
             return true;
         }
 
@@ -159,6 +169,7 @@ public class PageMemberServiceImpl implements PageMemberService {
         member.setStatus(MemberStatus.PENDING);
         member.setJoinedAt(OffsetDateTime.now());
         pageMemberRepository.save(member);
+        pageEventPublisher.publishJoinRequested(request.getPageId(), request.getUserId());
 
         return true;
     }
@@ -178,6 +189,7 @@ public class PageMemberServiceImpl implements PageMemberService {
             member.setStatus(MemberStatus.ACTIVE);
             member.setJoinedAt(OffsetDateTime.now());
             pageMemberRepository.save(member);
+            pageEventPublisher.publishJoinApproved(pageId, userId);
             return true;
         }
 
@@ -197,7 +209,8 @@ public class PageMemberServiceImpl implements PageMemberService {
 
         if (member!=null){
             member.setStatus(MemberStatus.REJECTED);
-            pageMemberRepository.save(member);
+            pageMemberRepository.deleteById(member.getId());
+            pageEventPublisher.publishJoinRejected(pageId, userId);
             return true;
         }
 
@@ -213,6 +226,7 @@ public class PageMemberServiceImpl implements PageMemberService {
 
         if (member != null) {
             pageMemberRepository.delete(member);
+            pageEventPublisher.publishJoinCancelled(pageId, userId);
             return true;
         }
 

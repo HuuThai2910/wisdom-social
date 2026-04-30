@@ -86,8 +86,8 @@ export default function PagesScreen() {
     };
 
     const onRequestJoin = async (page: PageItem) => {
-        const actingUserId = numericUserId ?? 0;
-        await pageService.requestJoinPage(actingUserId, page.id);
+        if (!numericUserId || !page.id) return;
+        await pageService.requestJoinPage(numericUserId, page.id);
         await loadPages();
     };
 
@@ -155,12 +155,13 @@ export default function PagesScreen() {
                 renderItem={({ item }) => (
                     <Pressable
                         style={styles.card}
-                        onPress={() =>
+                        onPress={() => {
+                            if (!item.id) return;
                             router.push({
                                 pathname: "/(stack)/page-detail",
                                 params: { pageId: String(item.id) },
-                            })
-                        }
+                            });
+                        }}
                     >
                         <Text style={styles.pageName}>{item.name}</Text>
                         {!!item.description && (
