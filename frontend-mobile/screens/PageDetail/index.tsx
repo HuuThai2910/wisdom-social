@@ -1,35 +1,36 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useState, useCallback, useMemo, useEffect } from "react";
 import {
+    View,
+    Text,
+    StyleSheet,
+    ScrollView,
     ActivityIndicator,
+    RefreshControl,
     Alert,
     Image,
     Pressable,
-    RefreshControl,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
 } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { AppHeader } from "@/components";
+import { useRouter, useLocalSearchParams } from "expo-router";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { colors, spacing } from "@/constants";
 import { useAppContext } from "@/context/AppContext";
-import pageService, {
-    type MemberStatus,
-    type PageData,
-    type PageInteractionStatus,
-    type PageRole,
-} from "@/services/pageService";
+import pageService from "@/services/pageService";
 import { usePageEvents } from "@/hooks/usePageEvents";
+import AppHeader from "@/components/AppHeader";
+import type {
+    PageData,
+    PageRole,
+    PageInteractionStatus,
+    MemberStatus,
+} from "@/services/pageService";
 
-type AdminAction = {
+interface AdminAction {
     label: string;
     icon: keyof typeof Ionicons.glyphMap;
     onPress: () => void;
     danger?: boolean;
-};
+}
 
 export default function PageDetailScreen() {
     const router = useRouter();
