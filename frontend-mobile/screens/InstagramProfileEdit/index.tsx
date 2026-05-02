@@ -20,7 +20,7 @@ import {
     validateFullName,
     validateBirthday,
     validateGender,
-} from "@/utils/validation";
+} from "@/utils/validators";
 import userService from "@/services/userService";
 
 type FormState = {
@@ -42,7 +42,7 @@ type FormErrors = {
 
 export default function InstagramProfileEditScreen() {
     const router = useRouter();
-    const { currentUser } = useAppContext();
+    const { currentUser, refreshCurrentUser } = useAppContext();
     const fileInputRef = useRef<any>(null);
 
     const [formData, setFormData] = useState<FormState>({
@@ -121,7 +121,12 @@ export default function InstagramProfileEditScreen() {
 
         try {
             const users = await userService.searchUserByUsername(value);
-            if (users && users.length > 0) {
+            const conflicted = (users ?? []).some(
+                (user) =>
+                    String(user.id) !== String(currentUser?.id) &&
+                    user.username?.toLowerCase() === value.toLowerCase(),
+            );
+            if (conflicted) {
                 setFormErrors((prev) => ({ ...prev, username: "Tên người dùng này đã tồn tại" }));
                 return false;
             }
@@ -168,6 +173,7 @@ export default function InstagramProfileEditScreen() {
             };
 
             await userService.updateUser(currentUser.id, updateData);
+            await refreshCurrentUser();
 
             setMessage({ type: "success", text: "Cập nhật hồ sơ thành công!" });
 

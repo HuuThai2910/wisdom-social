@@ -8,6 +8,14 @@ import { Client, type IMessage } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
 import type { Message } from "./chatService";
 
+const resolveSockJsUrl = (): string => {
+    const envUrl = import.meta.env.VITE_WS_URL;
+    if (typeof envUrl === "string" && envUrl.trim()) {
+        return envUrl.trim();
+    }
+    return "/ws";
+};
+
 export type CallStatus =
     | "calling"
     | "ringing"
@@ -222,6 +230,10 @@ class WebSocketService {
      * Value: subscription object để unsubscribe sau này
      */
     private subscriptions: Map<string, any> = new Map();
+    private profileUpdateListeners: Map<
+        string,
+        Set<(updatedUser: any) => void>
+    > = new Map();
 
     private callEventListeners: Map<
         number,
@@ -277,11 +289,12 @@ class WebSocketService {
                 /**
                  * webSocketFactory: Hàm tạo WebSocket connection
                  * Sử dụng SockJS làm fallback cho các browser không hỗ trợ WebSocket
-                 * Endpoint: http://localhost:8080/ws (backend Spring Boot)
+                 * Endpoint: /ws (proxy hoặc cùng origin)
                  */
                 webSocketFactory: () => {
-                    console.log("🟡 Creating SockJS connection to http://localhost:8080/ws");
-                    return new SockJS("http://localhost:8080/ws");
+                    const sockJsUrl = resolveSockJsUrl();
+                    console.log(`🟡 Creating SockJS connection to ${sockJsUrl}`);
+                    return new SockJS(sockJsUrl);
                 },
 
                 /**
@@ -381,6 +394,7 @@ class WebSocketService {
                 subscription.unsubscribe();
             });
             this.subscriptions.clear();
+            this.profileUpdateListeners.clear();
 
             // Deactivate client (gửi DISCONNECT, đóng WebSocket)
             this.client.deactivate();
@@ -933,6 +947,13 @@ class WebSocketService {
         console.log("🔵 subscribeToProfileUpdates called with phone:", phone);
         console.log("🔵 WebSocket client connected?", this.client?.connected);
 
+        const destination = `/topic/user/${phone}/profile-update`;
+        const listeners =
+            this.profileUpdateListeners.get(destination) ??
+            new Set<(updatedUser: any) => void>();
+        listeners.add(callback);
+        this.profileUpdateListeners.set(destination, listeners);
+
         if (!this.client?.connected) {
             console.error(
                 "🔴 WebSocket not connected, cannot subscribe to profile updates",
@@ -940,7 +961,6 @@ class WebSocketService {
             return;
         }
 
-        const destination = `/topic/user/${phone}/profile-update`;
         console.log("🟡 Destination:", destination);
 
         const existingSubscription = this.subscriptions.get(destination);
@@ -963,8 +983,13 @@ class WebSocketService {
                 try {
                     const updatedUser = JSON.parse(message.body);
                     console.log("✅ Successfully parsed:", updatedUser);
-                    console.log("✅ Calling callback with:", updatedUser);
-                    callback(updatedUser);
+                    console.log("✅ Calling callbacks with:", updatedUser);
+                    const currentListeners =
+                        this.profileUpdateListeners.get(destination);
+                    if (!currentListeners) return;
+                    currentListeners.forEach((listener) => {
+                        listener(updatedUser);
+                    });
                 } catch (error) {
                     console.error(`🔴 Error parsing profile update:`, error);
                     console.error("🔴 Failed to parse body:", message.body);
@@ -981,10 +1006,28 @@ class WebSocketService {
      *
      * @param phone - User's phone number (international format)
      */
-    unsubscribeFromProfileUpdates(phone: string) {
+    unsubscribeFromProfileUpdates(
+        phone: string,
+        callback?: (updatedUser: any) => void,
+    ) {
         const destination = `/topic/user/${phone}/profile-update`;
-        const subscription = this.subscriptions.get(destination);
+        const listeners = this.profileUpdateListeners.get(destination);
 
+        if (listeners) {
+            if (callback) {
+                listeners.delete(callback);
+            } else {
+                listeners.clear();
+            }
+
+            if (listeners.size > 0) {
+                return;
+            }
+        }
+
+        this.profileUpdateListeners.delete(destination);
+
+        const subscription = this.subscriptions.get(destination);
         if (subscription) {
             subscription.unsubscribe();
             this.subscriptions.delete(destination);

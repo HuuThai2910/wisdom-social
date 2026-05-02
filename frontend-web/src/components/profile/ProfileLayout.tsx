@@ -6,6 +6,8 @@ import type { User } from "../../types";
 import { getCurrentUser } from "../../utils/auth";
 import userService from "../../services/userService";
 import friendService from "../../services/friendService";
+import websocketService from "../../services/websocket";
+import { convertPhoneToInternational } from "../../hooks/useCurrentUser";
 
 export default function ProfileLayout() {
   const { username } = useParams();
@@ -77,6 +79,42 @@ export default function ProfileLayout() {
 
     loadUserProfile();
   }, [username]);
+
+  // Subscribe to real-time profile updates via WebSocket
+  useEffect(() => {
+    if (!user?.phone) return;
+
+    const phone = convertPhoneToInternational(user.phone);
+    if (!phone) return;
+
+    const handleProfileUpdate = (updatedData: any) => {
+      setUser((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          ...(updatedData.username != null && { username: updatedData.username }),
+          ...(updatedData.name != null && { fullName: updatedData.name }),
+          ...(updatedData.avatarUrl != null && { avatarUrl: updatedData.avatarUrl }),
+          ...(updatedData.bio != null && { bio: updatedData.bio }),
+          ...(updatedData.birthday != null && { birthday: updatedData.birthday }),
+          ...(updatedData.gender != null && { gender: updatedData.gender }),
+        };
+      });
+    };
+
+    const setup = async () => {
+      if (!websocketService.isConnected()) {
+        await websocketService.connect();
+      }
+      websocketService.subscribeToProfileUpdates(phone, handleProfileUpdate);
+    };
+
+    setup();
+
+    return () => {
+      websocketService.unsubscribeFromProfileUpdates(phone, handleProfileUpdate);
+    };
+  }, [user?.phone]);
 
   if (loading) {
     return (

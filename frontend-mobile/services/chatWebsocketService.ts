@@ -673,6 +673,32 @@ class ChatWebsocketService {
         });
     }
 
+    subscribeToProfileUpdates(
+        phone: string,
+        onProfileUpdated: (payload: Record<string, unknown>) => void,
+    ): void {
+        const destination = `/topic/user/${phone}/profile-update`;
+        this.registerSubscription(destination, () => {
+            const client = this.client;
+            if (!client?.connected) {
+                throw new Error("WebSocket not connected");
+            }
+
+            return client.subscribe(destination, (msg: IMessage) => {
+                try {
+                    const raw = JSON.parse(msg.body) as Record<string, unknown>;
+                    onProfileUpdated(raw);
+                } catch {
+                    // no-op
+                }
+            });
+        });
+    }
+
+    unsubscribeFromProfileUpdates(phone: string): void {
+        this.removeSubscription(`/topic/user/${phone}/profile-update`);
+    }
+
     // Generic topic subscription — used by pageWebsocketService and others
     subscribeToTopic(
         destination: string,

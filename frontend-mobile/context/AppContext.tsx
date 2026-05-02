@@ -13,11 +13,13 @@ import {
     ApiAuthUser,
     confirmRegisterOtp,
     forgotPassword,
+    getCurrentUser,
     loginWithPhone,
     logoutApi,
     registerWithPhone,
     resetPassword,
 } from "@/services/authService";
+import chatWebsocketService from "@/services/chatWebsocketService";
 import deviceSettingService from "@/services/deviceSettingService";
 import { fakeSendMessage } from "@/services/messageService";
 import { fakeCreatePost } from "@/services/postService";
@@ -32,10 +34,11 @@ import {
     User,
 } from "@/types";
 import { getDeviceInfo } from "@/utils/deviceInfo";
-import { getSettings, saveSettings } from "@/utils/storage";
+import { getSettings, saveSettings, saveUser } from "@/utils/storage";
 import {
     createContext,
     PropsWithChildren,
+    useCallback,
     useContext,
     useEffect,
     useMemo,
@@ -116,6 +119,7 @@ type AppContextValue = {
     addComment: (postId: string, content: string) => void;
     addPost: (caption: string, imageUrl: string) => Promise<AuthResult>;
     updateProfile: (payload: UpdateProfilePayload) => void;
+    refreshCurrentUser: () => Promise<void>;
     sendMessage: (
         conversationId: string,
         content: string,
@@ -149,18 +153,42 @@ const toPublicImageUrl = (url?: string | null): string | undefined => {
     return `https://cnmt-hk1-amz.s3.ap-southeast-1.amazonaws.com/${url}`;
 };
 
+const normalizeGender = (
+    gender?: string | null,
+): User["gender"] | undefined => {
+    if (!gender) return undefined;
+    if (gender === "MALE" || gender === "FEMALE" || gender === "HIDDEN") {
+        return gender;
+    }
+    return undefined;
+};
+
+const toInternationalPhone = (phone?: string | null): string => {
+    if (!phone) return "";
+    if (phone.startsWith("+84")) return phone;
+    if (phone.startsWith("0")) return `+84${phone.substring(1)}`;
+    if (/^\d{9,10}$/.test(phone)) return `+84${phone}`;
+    return phone;
+};
+
 const mapApiUserToAppUser = (apiUser: ApiAuthUser): User => {
     const normalizedUsername =
         apiUser.username?.trim().toLowerCase() || `user${apiUser.id}`;
+    const avatarUrl =
+        toPublicImageUrl(apiUser.avatarUrl) ||
+        "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=300&q=80";
 
     return {
         id: String(apiUser.id),
         username: normalizedUsername,
         fullName: apiUser.name?.trim() || normalizedUsername,
+        name: apiUser.name?.trim() || normalizedUsername,
         bio: apiUser.bio?.trim() || "Welcome to Wisdom Social",
-        avatar:
-            toPublicImageUrl(apiUser.avatarUrl) ||
-            "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=300&q=80",
+        avatar: avatarUrl,
+        avatarUrl,
+        birthday: apiUser.birthday ?? undefined,
+        gender: normalizeGender(apiUser.gender),
+        phone: apiUser.phone,
         followers: 0,
         following: 0,
     };
@@ -193,6 +221,27 @@ export function AppProvider({ children }: PropsWithChildren) {
 
     const loggedIn = !!currentUser;
 
+    const upsertMappedUser = useCallback((mappedUser: User) => {
+        setUsers((prev) => {
+            const exists = prev.some((u) => u.id === mappedUser.id);
+            if (exists) {
+                return prev.map((u) =>
+                    u.id === mappedUser.id ? { ...u, ...mappedUser } : u,
+                );
+            }
+            return [mappedUser, ...prev];
+        });
+        setCurrentUserId(mappedUser.id);
+    }, []);
+
+    const syncCurrentUserFromServer = useCallback(async () => {
+        const latestUser = await getCurrentUser();
+        if (!latestUser) return;
+
+        await saveUser(latestUser);
+        upsertMappedUser(mapApiUserToAppUser(latestUser));
+    }, [upsertMappedUser]);
+
     useEffect(() => {
         const bootstrapSettings = async () => {
             const saved = await getSettings<StoredAppSettings>();
@@ -209,6 +258,39 @@ export function AppProvider({ children }: PropsWithChildren) {
 
         void bootstrapSettings();
     }, []);
+
+    useEffect(() => {
+        if (!loggedIn || !currentUser?.phone) return;
+
+        const internationalPhone = toInternationalPhone(currentUser.phone);
+        if (!internationalPhone) return;
+
+        let cancelled = false;
+
+        const setupRealtimeProfileSync = async () => {
+            try {
+                await chatWebsocketService.connect();
+            } catch {
+                // ignore connection bootstrap errors; subscriptions will be synced on reconnect
+            }
+
+            if (cancelled) return;
+
+            chatWebsocketService.subscribeToProfileUpdates(
+                internationalPhone,
+                () => {
+                    void syncCurrentUserFromServer();
+                },
+            );
+        };
+
+        void setupRealtimeProfileSync();
+
+        return () => {
+            cancelled = true;
+            chatWebsocketService.unsubscribeFromProfileUpdates(internationalPhone);
+        };
+    }, [loggedIn, currentUser?.phone, syncCurrentUserFromServer]);
 
     useEffect(() => {
         const loadRemoteDeviceSettings = async () => {
@@ -278,17 +360,7 @@ export function AppProvider({ children }: PropsWithChildren) {
         });
 
         if (apiResult.success && apiResult.user) {
-            const mappedUser = mapApiUserToAppUser(apiResult.user);
-            setUsers((prev) => {
-                const exists = prev.some((u) => u.id === mappedUser.id);
-                if (exists) {
-                    return prev.map((u) =>
-                        u.id === mappedUser.id ? { ...u, ...mappedUser } : u,
-                    );
-                }
-                return [mappedUser, ...prev];
-            });
-            setCurrentUserId(mappedUser.id);
+            upsertMappedUser(mapApiUserToAppUser(apiResult.user));
             setLoadingAuth(false);
             return { success: true };
         }
@@ -481,6 +553,10 @@ export function AppProvider({ children }: PropsWithChildren) {
         );
     };
 
+    const refreshCurrentUser = async () => {
+        await syncCurrentUserFromServer();
+    };
+
     const sendMessage = async (
         conversationId: string,
         content: string,
@@ -586,6 +662,7 @@ export function AppProvider({ children }: PropsWithChildren) {
             addComment,
             addPost,
             updateProfile,
+            refreshCurrentUser,
             sendMessage,
             markNotificationsRead,
             getUserById,
@@ -607,6 +684,7 @@ export function AppProvider({ children }: PropsWithChildren) {
             igtvVideos,
             themeMode,
             notificationSettings,
+            refreshCurrentUser,
         ],
     );
 

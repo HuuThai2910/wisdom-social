@@ -2,8 +2,11 @@ export type User = {
     id: string;
     username: string;
     fullName: string;
+    name?: string;
     bio: string;
     avatar: string;
+    avatarUrl?: string;
+    phone?: string;
     followers: number;
     following: number;
     website?: string;

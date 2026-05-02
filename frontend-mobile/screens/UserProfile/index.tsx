@@ -1,16 +1,19 @@
-import React, { useMemo } from "react";
-import { SafeAreaView, StyleSheet, Text, View } from "react-native";
+import React, { useEffect, useMemo, useState } from "react";
+import { ActivityIndicator, SafeAreaView, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { AppHeader, CustomButton } from "@/components";
 import { colors, spacing } from "@/constants";
 import { useAppContext } from "@/context/AppContext";
+import userService, { User } from "@/services/userService";
 
 export default function UserProfileScreen() {
     const router = useRouter();
     const { users, currentUser } = useAppContext();
     const { userId } = useLocalSearchParams<{ userId?: string }>();
+    const [profileUser, setProfileUser] = useState<User | null>(null);
+    const [loading, setLoading] = useState(false);
 
-    const user = useMemo(() => {
+    const fallbackUser = useMemo(() => {
         if (!userId) return currentUser;
         const matched = users.find(
             (u) => u.id === userId || Number(u.id) === Number(userId),
@@ -36,6 +39,34 @@ export default function UserProfileScreen() {
         return null;
     }, [userId, users, currentUser]);
 
+    useEffect(() => {
+        const normalizedId = Number(userId);
+        if (!userId || !Number.isFinite(normalizedId)) {
+            setProfileUser((currentUser as User | null) ?? null);
+            setLoading(false);
+            return;
+        }
+
+        let cancelled = false;
+
+        const loadUserProfile = async () => {
+            setLoading(true);
+            const remoteUser = await userService.getUserProfile(normalizedId);
+            if (cancelled) return;
+
+            setProfileUser(remoteUser);
+            setLoading(false);
+        };
+
+        void loadUserProfile();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [userId, currentUser]);
+
+    const user = profileUser ?? (fallbackUser as User | null);
+
     return (
         <SafeAreaView style={styles.container}>
             <AppHeader
@@ -47,6 +78,9 @@ export default function UserProfileScreen() {
             />
 
             <View style={styles.content}>
+                {loading ? (
+                    <ActivityIndicator color={colors.primary} />
+                ) : null}
                 <Text style={styles.name}>
                     {user?.fullName ?? "Unknown user"}
                 </Text>
