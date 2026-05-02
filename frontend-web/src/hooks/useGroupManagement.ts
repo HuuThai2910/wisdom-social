@@ -103,8 +103,7 @@ export function useGroupManagement({
         return currentMember?.role ?? null;
     }, [currentUserId, groupMembers]);
 
-    const canManageMembers =
-        currentMemberRole === "OWNER" || currentMemberRole === "DEPUTY";
+    const canManageMembers = currentMemberRole !== null;
     const canUpdateRole = currentMemberRole === "OWNER";
     const canDisbandGroup = currentMemberRole === "OWNER";
 

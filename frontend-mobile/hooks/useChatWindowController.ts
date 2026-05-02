@@ -181,7 +181,11 @@ function resolveReadOnlyReasonFromApiMessage(message: string): string | null {
         return "Bạn đã bị xóa khỏi nhóm.";
     }
 
-    if (normalized.includes("roi nhom") || normalized.includes("roi khoi nhom") || normalized.includes("rời khỏi nhóm")) {
+    if (
+        normalized.includes("roi nhom") ||
+        normalized.includes("roi khoi nhom") ||
+        normalized.includes("rời khỏi nhóm")
+    ) {
         return "Bạn đã rời khỏi nhóm.";
     }
 
@@ -362,7 +366,9 @@ export function useChatWindowController(args: {
     const loadInitialDataRunCountRef = useRef(0);
     const loadTokenRef = useRef<number>(0);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const loadInitialDataRef = useRef<(token: number) => Promise<void>>(null as any);
+    const loadInitialDataRef = useRef<(token: number) => Promise<void>>(
+        null as any,
+    );
     const jumpToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
         null,
     );
@@ -381,9 +387,9 @@ export function useChatWindowController(args: {
         setConversation((prev) =>
             prev
                 ? {
-                    ...prev,
-                    unreadCount: 0,
-                }
+                      ...prev,
+                      unreadCount: 0,
+                  }
                 : prev,
         );
 
@@ -487,167 +493,196 @@ export function useChatWindowController(args: {
         [],
     );
 
-    const loadInitialData = useCallback(async (token: number) => {
-        loadInitialDataRunCountRef.current += 1;
-        console.log("[JUMP_DEBUG][controller] loadInitialData:start", {
-            conversationId,
-            run: loadInitialDataRunCountRef.current,
-            isScreenFocused: isScreenFocusedRef.current,
-        });
-
-        try {
-            setLoading(true);
-            setError(null);
-            setReadOnlyNotice(null);
-
-            // Align with web UX: entering a conversation should clear unread immediately.
-            if (isScreenFocusedRef.current) {
-                clearUnreadLocally();
-                void executeMarkAsRead(undefined, { force: true });
-            }
-
-            const cachedConversation =
-                chatRuntimeStore.getConversation(conversationId);
-            const cachedMembers = chatRuntimeStore.getMembers(conversationId);
-            const cachedMessages = chatRuntimeStore.getMessages(conversationId);
-            const cachedPins = chatRuntimeStore.getPins(conversationId);
-
-            if (cachedConversation) {
-                setConversation(cachedConversation);
-                setMembersById(cachedMembers);
-                setMessages(cachedMessages);
-                setPinnedMessages(cachedPins);
-            } else {
-                setConversation(null);
-                setMembersById({});
-                setMessages([]);
-                setPinnedMessages([]);
-            }
-
-            const [convResponse, membersResponse, messagesResponse] =
-                await Promise.all([
-                    chatService.getConversation(conversationId, currentUserId),
-                    chatService.getConversationMembers(conversationId),
-                    chatService.getMessages(
-                        conversationId,
-                        currentUserId,
-                        null,
-                        CHAT_PAGE_SIZE,
-                    ),
-                ]);
-
-            // Nếu người dùng đã chuyển sang conversation khác thì bỏ qua kết quả này.
-            if (token !== loadTokenRef.current) return;
-
-            if (!convResponse.success || !convResponse.data) {
-                setConversation(null);
-                const apiMessage = convResponse.message || "Khong the tai cuoc tro chuyen";
-                setReadOnlyNotice(resolveReadOnlyReasonFromApiMessage(apiMessage));
-                setError(apiMessage);
-                return;
-            }
-
-            const cursorData = messagesResponse.success
-                ? messagesResponse.data
-                : null;
-            const normalizedMessages = Array.isArray(cursorData?.data)
-                ? normalizeMessagesForUi(cursorData.data)
-                : [];
-
-            const membersFromApi = toMembersByUserId(membersResponse);
-            const mergedMembers = mergeReferenceUsers(
-                membersFromApi,
-                cursorData?.referenceUsers ?? {},
-            );
-
-            const normalizedConversation: Conversation = {
-                ...convResponse.data,
-                members: Object.values(mergedMembers),
-            };
-
-            setReadOnlyNotice(
-                resolveReadOnlyReasonFromConversation(
-                    normalizedConversation,
-                    currentUserId,
-                ),
-            );
-
-            const initialPins = normalizedConversation.pinnedMessages ?? [];
-
-            chatRuntimeStore.setConversation(
-                conversationId,
-                normalizedConversation,
-            );
-            chatRuntimeStore.setMembers(conversationId, mergedMembers);
-            chatRuntimeStore.setMessages(conversationId, normalizedMessages);
-            chatRuntimeStore.setPins(conversationId, initialPins);
-            chatRuntimeStore.setPaging(conversationId, {
-                hasMoreOlder: Boolean(cursorData?.hasMoreOlder),
-                hasMoreNewer: Boolean(cursorData?.hasMoreNewer),
-                isHistoricalMode: false,
-                olderCursor: cursorData?.nextCursor ?? null,
-            });
-
-            setConversation(normalizedConversation);
-            setMembersById(mergedMembers);
-            setMessages(normalizedMessages);
-            setPinnedMessages(initialPins);
-            setReadReceipts(
-                Object.values(mergedMembers)
-                    .filter(
-                        (member) =>
-                            member.userId !== currentUserId &&
-                            Boolean(member.lastReadMessageId),
-                    )
-                    .map((member) => ({
-                        userId: member.userId,
-                        lastMessageId: member.lastReadMessageId!,
-                        seenAt: new Date().toISOString(),
-                    })),
-            );
-            setHasMoreOlder(Boolean(cursorData?.hasMoreOlder));
-            setHasMoreNewer(Boolean(cursorData?.hasMoreNewer));
-            setIsHistoricalMode(false);
-            setOlderCursor(cursorData?.nextCursor ?? null);
-
-            const lastMessage = normalizedMessages.at(-1);
-            if (lastMessage && isScreenFocusedRef.current) {
-                void executeMarkAsRead(lastMessage.id, { force: true });
-            }
-
-            console.log("[JUMP_DEBUG][controller] loadInitialData:done", {
+    const loadInitialData = useCallback(
+        async (token: number) => {
+            loadInitialDataRunCountRef.current += 1;
+            console.log("[JUMP_DEBUG][controller] loadInitialData:start", {
                 conversationId,
                 run: loadInitialDataRunCountRef.current,
-                messageCount: normalizedMessages.length,
-                hasMoreOlder: Boolean(cursorData?.hasMoreOlder),
-                hasMoreNewer: Boolean(cursorData?.hasMoreNewer),
+                isScreenFocused: isScreenFocusedRef.current,
             });
-        } catch (err) {
-            // Nếu người dùng đã chuyển sang conversation khác thì bỏ qua lỗi này.
-            if (token !== loadTokenRef.current) return;
 
-            const apiMessage = extractApiErrorMessage(err);
-            const fallbackReason = resolveReadOnlyReasonFromApiMessage(apiMessage || "");
+            try {
+                setLoading(true);
+                setError(null);
+                setReadOnlyNotice(null);
 
-            // Nếu lỗi là 403 hoặc thông báo lỗi liên quan đến quyền truy cập/kick:
-            if (fallbackReason) {
-                setReadOnlyNotice(fallbackReason);
-                setConversation(null);
-            } else {
-                setError(apiMessage || "Khong the tai du lieu chat");
+                // Align with web UX: entering a conversation should clear unread immediately.
+                if (isScreenFocusedRef.current) {
+                    clearUnreadLocally();
+                    void executeMarkAsRead(undefined, { force: true });
+                }
+
+                const cachedConversation =
+                    chatRuntimeStore.getConversation(conversationId);
+                const cachedMembers =
+                    chatRuntimeStore.getMembers(conversationId);
+                const cachedMessages =
+                    chatRuntimeStore.getMessages(conversationId);
+                const cachedPins = chatRuntimeStore.getPins(conversationId);
+
+                if (cachedConversation) {
+                    setConversation(cachedConversation);
+                    setMembersById(cachedMembers);
+                    setMessages(cachedMessages);
+                    setPinnedMessages(cachedPins);
+                } else {
+                    setConversation(null);
+                    setMembersById({});
+                    setMessages([]);
+                    setPinnedMessages([]);
+                }
+
+                const convResponse = await chatService.getConversation(
+                    conversationId,
+                    currentUserId,
+                );
+
+                // Nếu người dùng đã chuyển sang conversation khác thì bỏ qua kết quả này.
+                if (token !== loadTokenRef.current) return;
+
+                if (!convResponse.success || !convResponse.data) {
+                    setConversation(null);
+                    const apiMessage =
+                        convResponse.message || "Khong the tai cuoc tro chuyen";
+                    setReadOnlyNotice(
+                        resolveReadOnlyReasonFromApiMessage(apiMessage),
+                    );
+                    setError(apiMessage);
+                    return;
+                }
+
+                const [membersResult, messagesResult] =
+                    await Promise.allSettled([
+                        chatService.getConversationMembers(conversationId),
+                        chatService.getMessages(
+                            conversationId,
+                            currentUserId,
+                            null,
+                            CHAT_PAGE_SIZE,
+                        ),
+                    ]);
+
+                // Nếu người dùng đã chuyển sang conversation khác thì bỏ qua kết quả này.
+                if (token !== loadTokenRef.current) return;
+
+                const membersResponse =
+                    membersResult.status === "fulfilled"
+                        ? membersResult.value
+                        : null;
+                const messagesResponse =
+                    messagesResult.status === "fulfilled"
+                        ? messagesResult.value
+                        : null;
+
+                const cursorData = messagesResponse?.success
+                    ? messagesResponse.data
+                    : null;
+                const normalizedMessages = Array.isArray(cursorData?.data)
+                    ? normalizeMessagesForUi(cursorData.data)
+                    : [];
+
+                const membersFromApi = toMembersByUserId(membersResponse);
+                const mergedMembers = mergeReferenceUsers(
+                    membersFromApi,
+                    cursorData?.referenceUsers ?? {},
+                );
+
+                const normalizedConversation: Conversation = {
+                    ...convResponse.data,
+                    members: Object.values(mergedMembers),
+                };
+
+                setReadOnlyNotice(
+                    resolveReadOnlyReasonFromConversation(
+                        normalizedConversation,
+                        currentUserId,
+                    ),
+                );
+
+                const initialPins = normalizedConversation.pinnedMessages ?? [];
+
+                chatRuntimeStore.setConversation(
+                    conversationId,
+                    normalizedConversation,
+                );
+                chatRuntimeStore.setMembers(conversationId, mergedMembers);
+                chatRuntimeStore.setMessages(
+                    conversationId,
+                    normalizedMessages,
+                );
+                chatRuntimeStore.setPins(conversationId, initialPins);
+                chatRuntimeStore.setPaging(conversationId, {
+                    hasMoreOlder: Boolean(cursorData?.hasMoreOlder),
+                    hasMoreNewer: Boolean(cursorData?.hasMoreNewer),
+                    isHistoricalMode: false,
+                    olderCursor: cursorData?.nextCursor ?? null,
+                });
+
+                setConversation(normalizedConversation);
+                setMembersById(mergedMembers);
+                setMessages(normalizedMessages);
+                setPinnedMessages(initialPins);
+                setReadReceipts(
+                    Object.values(mergedMembers)
+                        .filter(
+                            (member) =>
+                                member.userId !== currentUserId &&
+                                Boolean(member.lastReadMessageId),
+                        )
+                        .map((member) => ({
+                            userId: member.userId,
+                            lastMessageId: member.lastReadMessageId!,
+                            seenAt: new Date().toISOString(),
+                        })),
+                );
+                setHasMoreOlder(Boolean(cursorData?.hasMoreOlder));
+                setHasMoreNewer(Boolean(cursorData?.hasMoreNewer));
+                setIsHistoricalMode(false);
+                setOlderCursor(cursorData?.nextCursor ?? null);
+
+                const lastMessage = normalizedMessages.at(-1);
+                if (lastMessage && isScreenFocusedRef.current) {
+                    void executeMarkAsRead(lastMessage.id, { force: true });
+                }
+
+                console.log("[JUMP_DEBUG][controller] loadInitialData:done", {
+                    conversationId,
+                    run: loadInitialDataRunCountRef.current,
+                    messageCount: normalizedMessages.length,
+                    hasMoreOlder: Boolean(cursorData?.hasMoreOlder),
+                    hasMoreNewer: Boolean(cursorData?.hasMoreNewer),
+                });
+            } catch (err) {
+                // Nếu người dùng đã chuyển sang conversation khác thì bỏ qua lỗi này.
+                if (token !== loadTokenRef.current) return;
+
+                const apiMessage = extractApiErrorMessage(err);
+                const fallbackReason = resolveReadOnlyReasonFromApiMessage(
+                    apiMessage || "",
+                );
+
+                // Nếu lỗi là 403 hoặc thông báo lỗi liên quan đến quyền truy cập/kick:
+                if (fallbackReason) {
+                    setReadOnlyNotice(fallbackReason);
+                    setConversation(null);
+                } else {
+                    setError(apiMessage || "Khong the tai du lieu chat");
+                }
+            } finally {
+                if (token === loadTokenRef.current) {
+                    setLoading(false);
+                }
             }
-        } finally {
-            if (token === loadTokenRef.current) {
-                setLoading(false);
-            }
-        }
-    }, [
-        clearUnreadLocally,
-        conversationId,
-        currentUserId,
-        executeMarkAsRead,
-        mergeReferenceUsers,
-    ]);
+        },
+        [
+            clearUnreadLocally,
+            conversationId,
+            currentUserId,
+            executeMarkAsRead,
+            mergeReferenceUsers,
+        ],
+    );
 
     // Giữ ref luôn trỏ đến phiên bản mới nhất của loadInitialData
     // để useEffect chỉ cần phụ thuộc vào conversationId, tránh double-fire.
@@ -670,7 +705,7 @@ export function useChatWindowController(args: {
             token,
         });
         void loadInitialDataRef.current(token);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [conversationId]);
 
     useEffect(() => {
@@ -773,10 +808,13 @@ export function useChatWindowController(args: {
             });
 
             if (normalizedIncoming.type === "SYSTEM_ADD_MEMBER") {
-                const addedMemberIds = safeParseMemberIds(normalizedIncoming.content);
+                const addedMemberIds = safeParseMemberIds(
+                    normalizedIncoming.content,
+                );
                 if (
                     addedMemberIds.some(
-                        (memberId) => Number(memberId) === Number(currentUserId),
+                        (memberId) =>
+                            Number(memberId) === Number(currentUserId),
                     )
                 ) {
                     setReadOnlyNotice(null);
@@ -801,14 +839,18 @@ export function useChatWindowController(args: {
                             return;
                         }
 
-                        const normalizedMembers = toMembersByUserId(membersResponse);
+                        const normalizedMembers =
+                            toMembersByUserId(membersResponse);
                         const nextConversation: Conversation = {
                             ...convResponse.data,
                             members: Object.values(normalizedMembers),
                         };
 
                         setMembersById(normalizedMembers);
-                        chatRuntimeStore.setMembers(conversationId, normalizedMembers);
+                        chatRuntimeStore.setMembers(
+                            conversationId,
+                            normalizedMembers,
+                        );
 
                         setConversation(nextConversation);
                         chatRuntimeStore.setConversation(
@@ -1252,7 +1294,7 @@ export function useChatWindowController(args: {
                                         Math.round(
                                             (loadedBytes /
                                                 Math.max(totalBytes, 1)) *
-                                            100,
+                                                100,
                                         ),
                                     );
 
@@ -1260,7 +1302,7 @@ export function useChatWindowController(args: {
                                         100,
                                         Math.round(
                                             (perFileLoaded[index] / safeTotal) *
-                                            100,
+                                                100,
                                         ),
                                     );
 
@@ -1841,8 +1883,8 @@ export function useChatWindowController(args: {
             const messageFromStore = messageFromState
                 ? null
                 : chatRuntimeStore
-                    .getMessages(conversationId)
-                    .find((message) => message.id === targetMessageId);
+                      .getMessages(conversationId)
+                      .find((message) => message.id === targetMessageId);
             const localMessage = messageFromState ?? messageFromStore;
 
             if (localMessage) {

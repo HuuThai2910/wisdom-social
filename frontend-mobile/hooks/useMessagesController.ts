@@ -3,7 +3,7 @@ import { DEFAULT_CHAT_USER_ID } from "@/constants/chat";
 import chatService from "@/services/chatService";
 import chatWebsocketService from "@/services/chatWebsocketService";
 import chatRuntimeStore from "@/stores/chatRuntimeStore";
-import type { Conversation } from "@/types/chat";
+import type { Conversation, ConversationSidebar } from "@/types/chat";
 import { useAppContext } from "@/context/AppContext";
 
 // Module-level ref: track which conversation is currently open on screen.
@@ -77,6 +77,12 @@ function mergeConversationsByFreshness(
     return sortConversationsByLatest(Array.from(byId.values()));
 }
 
+function toConversationFromSidebar(
+    conversation: ConversationSidebar,
+): Conversation {
+    return { ...conversation };
+}
+
 export function useMessagesController() {
     const [searchQuery, setSearchQuery] = useState("");
     const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -106,8 +112,11 @@ export function useMessagesController() {
 
             const response = await chatService.getConversations(currentUserId);
             if (response.success && response.data) {
+                const sidebarConversations = response.data.map(
+                    toConversationFromSidebar,
+                );
                 const merged = mergeConversationsByFreshness([
-                    response.data,
+                    sidebarConversations,
                     chatRuntimeStore.getAllConversations(),
                 ]);
 
@@ -181,8 +190,8 @@ export function useMessagesController() {
                             isReadUpdate || isMyMessage
                                 ? unreadCountFromSnapshot
                                 : unreadCountFromSnapshot > 0
-                                    ? unreadCountFromSnapshot
-                                    : 1;
+                                  ? unreadCountFromSnapshot
+                                  : 1;
 
                         const snapshotWithLastMessage: Conversation = {
                             ...conversationSnapshot,
@@ -244,7 +253,7 @@ export function useMessagesController() {
 
                     const baseConversation =
                         conversationSnapshot &&
-                            conversationSnapshot.id === conversationId
+                        conversationSnapshot.id === conversationId
                             ? { ...conv, ...conversationSnapshot }
                             : conv;
 
@@ -286,9 +295,6 @@ export function useMessagesController() {
         },
         [],
     );
-
-
-
 
     useEffect(() => {
         let disposed = false;
@@ -341,14 +347,8 @@ export function useMessagesController() {
         if (!query) return conversations;
 
         return conversations.filter((conversation) => {
-            const otherMember = conversation.members?.find(
-                (member) => member.userId !== currentUserId,
-            );
-
             const candidate = [
                 conversation.name,
-                otherMember?.nickname,
-                otherMember?.username,
                 conversation.lastMessage?.lastMessageContent,
             ]
                 .filter(Boolean)
@@ -357,7 +357,7 @@ export function useMessagesController() {
 
             return candidate.includes(query);
         });
-    }, [conversations, currentUserId, searchQuery]);
+    }, [conversations, searchQuery]);
 
     const clearUnreadCount = useCallback((conversationId: number) => {
         setConversations((prev) =>

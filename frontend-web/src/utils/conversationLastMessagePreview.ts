@@ -6,20 +6,23 @@ interface ConversationLastMessagePreviewParams {
     currentUserId: number;
 }
 
-interface MemberLookup {
-    nickname?: string;
-    username?: string;
-}
-
 export interface ConversationLastMessagePreview {
     text: string;
     showSenderPrefix: boolean;
     senderLabel: string;
 }
 
+type GroupSystemPreviewType =
+    | "SYSTEM_CREATE_GROUP"
+    | "SYSTEM_ADD_MEMBER"
+    | "SYSTEM_UPDATE_ROLE"
+    | "SYSTEM_KICK_MEMBER"
+    | "SYSTEM_LEAVE_GROUP"
+    | "SYSTEM_DISBAND_GROUP";
+
 const DEFAULT_PREVIEW_TEXT = "Bắt đầu trò chuyện";
 
-const GROUP_SYSTEM_PREVIEW_TYPES = new Set([
+const GROUP_SYSTEM_PREVIEW_TYPES = new Set<GroupSystemPreviewType>([
     "SYSTEM_CREATE_GROUP",
     "SYSTEM_ADD_MEMBER",
     "SYSTEM_UPDATE_ROLE",
@@ -28,17 +31,14 @@ const GROUP_SYSTEM_PREVIEW_TYPES = new Set([
     "SYSTEM_DISBAND_GROUP",
 ]);
 
-function buildConversationMembersLookup(
-    conversation: Conversation,
-): Record<number, MemberLookup> {
-    const members = conversation.members ?? [];
-    return members.reduce<Record<number, MemberLookup>>((acc, member) => {
-        acc[member.userId] = {
-            nickname: member.nickname,
-            username: member.username,
-        };
-        return acc;
-    }, {});
+function isGroupSystemPreviewType(
+    type: Conversation["lastMessage"] extends infer T
+        ? T extends { lastMessageType: infer M }
+            ? M
+            : never
+        : never,
+): type is GroupSystemPreviewType {
+    return GROUP_SYSTEM_PREVIEW_TYPES.has(type as GroupSystemPreviewType);
 }
 
 export function buildConversationLastMessagePreview({
@@ -54,7 +54,7 @@ export function buildConversationLastMessagePreview({
         };
     }
 
-    if (GROUP_SYSTEM_PREVIEW_TYPES.has(lastMessage.lastMessageType)) {
+    if (isGroupSystemPreviewType(lastMessage.lastMessageType)) {
         const isFallbackMessage =
             !lastMessage.lastMessageContent?.trim() &&
             !lastMessage.lastSenderName?.trim() &&
@@ -76,7 +76,7 @@ export function buildConversationLastMessagePreview({
                 senderName: lastMessage.lastSenderName,
                 senderId: lastMessage.lastSenderId,
                 currentUserId,
-                membersById: buildConversationMembersLookup(conversation),
+                membersById: {},
             }),
             showSenderPrefix: false,
             senderLabel: "",

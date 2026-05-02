@@ -10,7 +10,6 @@ import websocketService, {
 } from "../services/websocket";
 import { DEFAULT_AVATAR_URL, DEFAULT_GROUP_AVATAR_URL } from "../constants/ui";
 import { useAuth } from "../contexts/AuthContext";
-import { buildConversationDisplayInfo } from "../utils/conversationDisplayInfo";
 import chatRuntimeStore from "../stores/chatRuntimeStore";
 
 /**
@@ -30,10 +29,14 @@ function sortConversationsByLastMessageAt(
     return [...conversationList].sort((a, b) => {
         const timeA = a.lastMessage?.lastMessageAt
             ? new Date(a.lastMessage.lastMessageAt).getTime()
-            : 0;
+            : a.updatedAt
+              ? new Date(a.updatedAt).getTime()
+              : 0;
         const timeB = b.lastMessage?.lastMessageAt
             ? new Date(b.lastMessage.lastMessageAt).getTime()
-            : 0;
+            : b.updatedAt
+              ? new Date(b.updatedAt).getTime()
+              : 0;
         return timeB - timeA;
     });
 }
@@ -168,12 +171,15 @@ export function useMessagesController() {
             setError(null);
 
             const convs = await chatService.getConversations(currentUserId);
-            if (convs.success && convs.data) {
+            if (convs.success) {
+                const conversationData = Array.isArray(convs.data)
+                    ? convs.data
+                    : [];
                 // API trả về ok: set list hội thoại.
-                setConversations(convs.data);
+                setConversations(conversationData);
                 setConversationReadOnlyNotices(() => {
                     const next: Record<number, string> = {};
-                    for (const conv of convs.data) {
+                    for (const conv of conversationData) {
                         const notice = resolveReadOnlyNoticeFromConversation(
                             conv,
                             currentUserId,
@@ -225,6 +231,76 @@ export function useMessagesController() {
         );
     }, [selectedConversationId]);
 
+    // Hydrate chi tiết hội thoại sau khi chọn item từ sidebar response mới
+    // (GET /conversations đã tối ưu và không còn members/pinnedMessages).
+    useEffect(() => {
+        const convId = selectedConversationId;
+        if (convId == null || !currentUserId) return;
+
+        const selectedConv = conversations.find((conv) => conv.id === convId);
+        if (selectedConv?.members && selectedConv.members.length > 0) {
+            return;
+        }
+
+        let isCancelled = false;
+
+        chatService
+            .getConversation(convId, currentUserId)
+            .then((response) => {
+                if (isCancelled || !response.success || !response.data) return;
+
+                const detailConversation = response.data;
+
+                setConversations((prev) =>
+                    sortConversationsByLastMessageAt(
+                        prev.map((conv) =>
+                            conv.id === convId
+                                ? {
+                                      ...conv,
+                                      ...detailConversation,
+                                      lastMessage:
+                                          detailConversation.lastMessage ??
+                                          conv.lastMessage,
+                                      unreadCount:
+                                          conv.unreadCount ??
+                                          detailConversation.unreadCount,
+                                  }
+                                : conv,
+                        ),
+                    ),
+                );
+
+                chatRuntimeStore.setConversation(convId, detailConversation);
+
+                const detailNotice = resolveReadOnlyNoticeFromConversation(
+                    detailConversation,
+                    currentUserId,
+                );
+
+                setConversationReadOnlyNotices((prev) => {
+                    const next = { ...prev };
+
+                    if (detailNotice) {
+                        next[convId] = detailNotice;
+                        return next;
+                    }
+
+                    if (convId in next) {
+                        delete next[convId];
+                    }
+
+                    return next;
+                });
+            })
+            .catch(() => {
+                // Ignore: ChatWindow vẫn có thể tự load chi tiết hội thoại.
+            });
+
+        return () => {
+            isCancelled = true;
+        };
+    }, [conversations, currentUserId, selectedConversationId]);
+
     /**
      * clearUnreadCount - Callback để ChatWindow gọi khi đánh dấu đã đọc
      * Dùng để clear unreadCount trên sidebar sau khi API markAsRead thành công
@@ -266,6 +342,9 @@ export function useMessagesController() {
                                     ? {
                                           ...conv,
                                           ...responseData,
+                                          lastMessage:
+                                              responseData.lastMessage ??
+                                              conv.lastMessage,
                                           unreadCount:
                                               conv.unreadCount ??
                                               responseData.unreadCount,
@@ -546,41 +625,33 @@ export function useMessagesController() {
         const trimmed = searchQuery.trim().toLowerCase();
         if (!trimmed) return conversations;
         return conversations.filter((conv) => {
-            const displayName = buildConversationDisplayInfo({
-                conversation: conv,
-                currentUserId,
-            }).name;
+            const displayName =
+                conv.name?.trim() ||
+                (conv.type === "GROUP" ? "Nhóm chat" : "Người dùng");
 
             return displayName?.toLowerCase().includes(trimmed);
         });
-    }, [conversations, currentUserId, searchQuery]);
+    }, [conversations, searchQuery]);
 
-    const getDisplayInfo = useCallback(
-        (conv: Conversation) => {
-            // Chuẩn hoá dữ liệu hiển thị (tên + avatar) để UI khỏi phải xử lý nhiều.
-            const displayInfo = buildConversationDisplayInfo({
-                conversation: conv,
-                currentUserId,
-            });
+    const getDisplayInfo = useCallback((conv: Conversation) => {
+        const resolvedName =
+            conv.name?.trim() ||
+            (conv.type === "GROUP" ? "Nhóm chat" : "Người dùng");
+        const resolvedAvatar = conv.imageUrl?.trim() || null;
 
-            const fallbackAvatarUrl =
-                conv.type === "GROUP"
-                    ? DEFAULT_GROUP_AVATAR_URL
-                    : DEFAULT_AVATAR_URL;
+        const fallbackAvatarUrl =
+            conv.type === "GROUP"
+                ? DEFAULT_GROUP_AVATAR_URL
+                : DEFAULT_AVATAR_URL;
 
-            return {
-                name: displayInfo.name,
-                avatar: displayInfo.avatarUrl,
-                fallbackAvatar: fallbackAvatarUrl,
-                compositeAvatars: displayInfo.compositeAvatarUrls,
-                hasCompositeAvatar:
-                    conv.type === "GROUP" &&
-                    !displayInfo.avatarUrl &&
-                    displayInfo.compositeAvatarUrls.length > 0,
-            };
-        },
-        [currentUserId],
-    );
+        return {
+            name: resolvedName,
+            avatar: resolvedAvatar,
+            fallbackAvatar: fallbackAvatarUrl,
+            compositeAvatars: [],
+            hasCompositeAvatar: false,
+        };
+    }, []);
 
     const formatTime = useCallback((dateString: string) => {
         // Format thời gian kiểu "now / 5m / 2h / 3d / 27 thg 1".

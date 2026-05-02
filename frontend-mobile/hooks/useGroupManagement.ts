@@ -95,8 +95,7 @@ export function useGroupManagement({
         return currentMember?.role ?? null;
     }, [currentUserId, groupMembers]);
 
-    const canManageMembers =
-        currentMemberRole === "OWNER" || currentMemberRole === "DEPUTY";
+    const canManageMembers = currentMemberRole !== null;
     const canAddMembers = groupMembers.some(
         (member) => Number(member.userId) === Number(currentUserId),
     );
@@ -119,14 +118,20 @@ export function useGroupManagement({
     );
 
     const availableFriends = useMemo(
-        () => friends.filter((friend) => Number(friend.id) !== Number(currentUserId)),
+        () =>
+            friends.filter(
+                (friend) => Number(friend.id) !== Number(currentUserId),
+            ),
         [currentUserId, friends],
     );
 
     const loadFriends = useCallback(
         async (forceRefresh = false) => {
             // Dùng ref thay vì state để tránh stale closure trong dependency array
-            if (!forceRefresh && (friendsLoadingRef.current || hasLoadedFriendsRef.current)) {
+            if (
+                !forceRefresh &&
+                (friendsLoadingRef.current || hasLoadedFriendsRef.current)
+            ) {
                 return;
             }
 
@@ -139,12 +144,16 @@ export function useGroupManagement({
                 setFriendsLoading(true);
                 setFriendsError(null);
 
-                const friendList = await friendService.getFriends(currentUserId);
+                const friendList =
+                    await friendService.getFriends(currentUserId);
                 setFriends(Array.isArray(friendList) ? friendList : []);
                 hasLoadedFriendsRef.current = true;
             } catch (error) {
                 setFriendsError(
-                    normalizeErrorMessage(error, "Khong the tai danh sach ban be."),
+                    normalizeErrorMessage(
+                        error,
+                        "Khong the tai danh sach ban be.",
+                    ),
                 );
             } finally {
                 friendsLoadingRef.current = false;
@@ -185,7 +194,9 @@ export function useGroupManagement({
         async (payload: CreateGroupPayload) => {
             const memberIds = Array.from(new Set(payload.memberIds));
             if (memberIds.length < 2) {
-                setActionError("Vui long chon it nhat 2 thanh vien de tao nhom.");
+                setActionError(
+                    "Vui long chon it nhat 2 thanh vien de tao nhom.",
+                );
                 return false;
             }
 
@@ -205,7 +216,9 @@ export function useGroupManagement({
                 setIsCreateGroupModalOpen(false);
                 return true;
             } catch (error) {
-                setActionError(normalizeErrorMessage(error, "Khong the tao nhom."));
+                setActionError(
+                    normalizeErrorMessage(error, "Khong the tao nhom."),
+                );
                 return false;
             } finally {
                 setIsCreatingGroup(false);
@@ -385,7 +398,8 @@ export function useGroupManagement({
 
             if (
                 !ownerTransferCandidates.some(
-                    (candidate) => Number(candidate.userId) === Number(newOwnerUserId),
+                    (candidate) =>
+                        Number(candidate.userId) === Number(newOwnerUserId),
                 )
             ) {
                 setActionError("Vui long chon truong nhom moi hop le.");
@@ -446,7 +460,9 @@ export function useGroupManagement({
             onClearSelection?.();
             return true;
         } catch (error) {
-            setActionError(normalizeErrorMessage(error, "Khong the giai tan nhom."));
+            setActionError(
+                normalizeErrorMessage(error, "Khong the giai tan nhom."),
+            );
             return false;
         } finally {
             setIsDisbandingGroup(false);

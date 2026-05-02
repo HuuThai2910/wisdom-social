@@ -218,7 +218,10 @@ export default function ChatWindow({
             .filter((member) => callMemberIds.has(member.userId))
             .map((member) => ({
                 userId: member.userId,
-                name: member.nickname || member.username,
+                name:
+                    member.nickname?.trim() ||
+                    member.username?.trim() ||
+                    "Người dùng",
                 avatar: member.avatar,
             }));
     }, [activeCall, conversation?.type, membersById, userId]);
@@ -868,7 +871,8 @@ export default function ChatWindow({
     const isErrorState = !!readOnlyNotice || (!loading && !conversation);
 
     if (isErrorState) {
-        const displayErrorName = conversation?.name || name || "Cuộc trò chuyện";
+        const displayErrorName =
+            conversation?.name || name || "Cuộc trò chuyện";
         const displayErrorAvatar = conversation?.imageUrl || avatarUrl;
         const displayErrorComposite =
             conversation?.members && conversation.members.length > 0
@@ -906,7 +910,8 @@ export default function ChatWindow({
                         {error || readOnlyNotice || "Lỗi truy cập"}
                     </p>
                     <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm">
-                        Hội thoại này hiện không khả dụng. Bạn có thể đã bị xóa khỏi nhóm hoặc không có quyền xem nội dung này.
+                        Hội thoại này hiện không khả dụng. Bạn có thể đã bị xóa
+                        khỏi nhóm hoặc không có quyền xem nội dung này.
                     </p>
                 </div>
             </div>
@@ -971,7 +976,7 @@ export default function ChatWindow({
                         title={
                             showInfoPanel ? "Ẩn thông tin" : "Hiện thông tin"
                         }
-                         disabled={!otherMember || isConversationReadOnly}
+                        disabled={!otherMember || isConversationReadOnly}
                     >
                         <Info size={18} />
                     </button>

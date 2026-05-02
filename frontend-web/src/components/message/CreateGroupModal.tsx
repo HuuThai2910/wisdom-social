@@ -75,13 +75,26 @@ export default function CreateGroupModal({
 
     const handleSubmit = async () => {
         if (!canSubmit) return;
+
+        // 👉 nếu không nhập tên → tự generate
+        let finalName = groupName.trim();
+
+        if (!finalName) {
+            const selectedFriends = friends.filter((f) =>
+                selectedIds.includes(f.id),
+            );
+
+            finalName = selectedFriends
+                .map((f) => getFriendDisplayName(f))
+                .join(", ");
+        }
+
         await onSubmit({
-            name: groupName,
+            name: finalName,
             imageUrl: groupImageUrl,
             memberIds: selectedIds,
         });
     };
-
     if (!open) {
         return null;
     }

@@ -104,15 +104,18 @@ export interface ConversationMember {
     leftAt?: string;
 }
 
-export interface Conversation {
+export interface ConversationSidebar {
     id: number;
     name?: string;
     type: "DIRECT" | "GROUP";
     imageUrl?: string;
     updatedAt: string;
     lastMessage?: LastMessage;
-    members?: ConversationMember[];
     unreadCount?: number;
+}
+
+export interface Conversation extends ConversationSidebar {
+    members?: ConversationMember[];
     pinnedMessages?: PinnedMessageDetail[];
 }
 
@@ -225,16 +228,16 @@ export interface ConversationUpdatedEvent {
 export interface ConversationCreatedEvent {
     domainEventType?: "ROOM_CREATED";
     type?: "ROOM_CREATED";
-    conversationResponse?: Conversation;
+    conversationResponse?: Conversation | ConversationSidebar;
 }
 
 export interface ConversationMembershipEvent {
     domainEventType?:
-    | "MEMBER_ADDED"
-    | "MEMBER_ROLE_UPDATED"
-    | "MEMBER_LEFT"
-    | "MEMBER_KICKED";
-    conversationResponse?: Conversation;
+        | "MEMBER_ADDED"
+        | "MEMBER_ROLE_UPDATED"
+        | "MEMBER_LEFT"
+        | "MEMBER_KICKED";
+    conversationResponse?: Conversation | ConversationSidebar;
 }
 
 export interface GroupDisbandedEvent {

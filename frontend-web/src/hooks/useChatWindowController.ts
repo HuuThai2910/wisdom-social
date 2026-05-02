@@ -81,11 +81,17 @@ function resolveApiErrorMessage(error: unknown, fallback: string): string {
 
         if (data) {
             // Khử lồng ApiResponse { message, data: { message } }
-            const directMessage = typeof data.message === "string" ? data.message : null;
-            const nestedMessage = (data.data && typeof data.data.message === "string") ? data.data.message : null;
-            const springMessage = typeof data.error === "string" ? data.error : null;
+            const directMessage =
+                typeof data.message === "string" ? data.message : null;
+            const nestedMessage =
+                data.data && typeof data.data.message === "string"
+                    ? data.data.message
+                    : null;
+            const springMessage =
+                typeof data.error === "string" ? data.error : null;
 
-            const finalServerMsg = directMessage || nestedMessage || springMessage;
+            const finalServerMsg =
+                directMessage || nestedMessage || springMessage;
             if (finalServerMsg && finalServerMsg.trim()) {
                 return finalServerMsg;
             }
@@ -315,12 +321,9 @@ export function useChatWindowController(args: {
     forcedReadOnlyNotice?: string | null;
     onForbidden?: () => void;
 }) {
-    const {
-        conversationId,
-        onMarkAsRead,
-        forcedReadOnlyNotice,
-        onForbidden,
-    } = args;
+    const { conversationId, onMarkAsRead, forcedReadOnlyNotice, onForbidden } =
+        args;
+    void onForbidden;
 
     // userId: lấy từ AuthContext (security integration - không nhận qua prop nữa)
     const { currentUser } = useAuth();
@@ -851,17 +854,10 @@ export function useChatWindowController(args: {
                 setError(null);
                 setReadOnlyNotice(null);
 
-                const [convResponse, membersResponse, messagesResponse] =
-                    await Promise.all([
-                        chatService.getConversation(conversationId, userId),
-                        chatService.getConversationMembers(conversationId),
-                        chatService.getMessages(
-                            conversationId,
-                            userId,
-                            null,
-                            PAGE_SIZE,
-                        ),
-                    ]);
+                const convResponse = await chatService.getConversation(
+                    conversationId,
+                    userId,
+                );
 
                 if (token !== loadTokenRef.current) return;
 
@@ -889,6 +885,28 @@ export function useChatWindowController(args: {
                     setError(apiMessage);
                     return;
                 }
+
+                const [membersResult, messagesResult] =
+                    await Promise.allSettled([
+                        chatService.getConversationMembers(conversationId),
+                        chatService.getMessages(
+                            conversationId,
+                            userId,
+                            null,
+                            PAGE_SIZE,
+                        ),
+                    ]);
+
+                if (token !== loadTokenRef.current) return;
+
+                const membersResponse =
+                    membersResult.status === "fulfilled"
+                        ? membersResult.value
+                        : null;
+                const messagesResponse =
+                    messagesResult.status === "fulfilled"
+                        ? messagesResult.value
+                        : null;
 
                 const cursorData = messagesResponse?.success
                     ? messagesResponse.data
@@ -986,14 +1004,6 @@ export function useChatWindowController(args: {
                 if (readOnlyReason) {
                     setReadOnlyNotice(GROUP_READ_ONLY_COMPOSER_NOTICE);
                     setError(readOnlyReason);
-
-                    // Nếu là lỗi "không phải thành viên" (403), gọi callback để Messages page xử lý (vd: redirect)
-                    if (
-                        apiMessage.includes("không phải thành viên") ||
-                        apiMessage.includes("không có quyền")
-                    ) {
-                        onForbidden?.();
-                    }
 
                     websocketService.unsubscribeFromConversation(
                         conversationId,
@@ -2903,6 +2913,37 @@ export function useChatWindowController(args: {
         return getConversationDisplayInfo(conversation, userId, membersById);
     }, [conversation, membersById, userId]);
 
+    // ====== Effect đồng bộ trạng thái Read Only (Dành cho Group Kick/Leave) ======
+    useEffect(() => {
+        const prevForced = prevForcedNoticeRef.current;
+        prevForcedNoticeRef.current = forcedReadOnlyNotice;
+
+        if (!forcedReadOnlyNotice) {
+            // Chỉ mở khóa nếu prop thực sự vừa thay đổi từ 'có thông báo' sang 'không có'
+            if (prevForced && !forcedReadOnlyNotice) {
+                console.log(
+                    "🔓 Unlocking chat because forced notice was cleared",
+                );
+                setReadOnlyNotice(null);
+                setError(null);
+                setMessages([]);
+                setConversation(null);
+                setMembersById({});
+                setLoading(true);
+
+                loadTokenRef.current += 1;
+                const token = loadTokenRef.current;
+                void loadInitialData(token, markAsRead);
+            }
+            return;
+        }
+
+        console.log(
+            "🔒 Locking chat due to forced notice:",
+            forcedReadOnlyNotice,
+        );
+    }, [forcedReadOnlyNotice, loadInitialData, markAsRead]);
+
     return {
         conversation,
         membersById,
@@ -2994,30 +3035,4 @@ export function useChatWindowController(args: {
         typingUsers,
         sendTypingSignal,
     };
-
-    // ====== Effect đồng bộ trạng thái Read Only (Dành cho Group Kick/Leave) ======
-    useEffect(() => {
-        const prevForced = prevForcedNoticeRef.current;
-        prevForcedNoticeRef.current = forcedReadOnlyNotice;
-
-        if (!forcedReadOnlyNotice) {
-            // Chỉ mở khóa nếu prop thực sự vừa thay đổi từ 'có thông báo' sang 'không có'
-            if (prevForced && !forcedReadOnlyNotice) {
-                console.log("🔓 Unlocking chat because forced notice was cleared");
-                setReadOnlyNotice(null);
-                setError(null);
-                setMessages([]);
-                setConversation(null);
-                setMembersById({});
-                setLoading(true);
-
-                void loadInitialData();
-            }
-            return;
-        }
-
-        console.log("🔒 Locking chat due to forced notice:", forcedReadOnlyNotice);
-    }, [forcedReadOnlyNotice, loadInitialData]);
-
-    return controller;
 }

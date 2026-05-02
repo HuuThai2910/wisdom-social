@@ -4,6 +4,7 @@ import type {
     ApiResponse,
     BulkPresignedRequest,
     Conversation,
+    ConversationSidebar,
     ConversationMember,
     CreateGroupRequest,
     CursorResponse,
@@ -66,7 +67,7 @@ function unwrapApiData<T>(payload: ApiResponse<T> | T): T {
 const chatService = {
     async getConversations(
         userId: number,
-    ): Promise<ApiResponse<Conversation[]>> {
+    ): Promise<ApiResponse<ConversationSidebar[]>> {
         const response = await apiClient.get(`/conversations`);
         return response.data;
     },
@@ -147,10 +148,7 @@ const chatService = {
         request: SendMessageRequest,
         userId: number,
     ): Promise<Message> {
-        const response = await apiClient.post(
-            `/messages/send`,
-            request,
-        );
+        const response = await apiClient.post(`/messages/send`, request);
         return normalizeMessagePayload(response.data);
     },
 
@@ -171,9 +169,7 @@ const chatService = {
     },
 
     async recallMessage(messageId: string, userId: number): Promise<void> {
-        await apiClient.delete(
-            `/messages/${messageId}/recall`,
-        );
+        await apiClient.delete(`/messages/${messageId}/recall`);
     },
 
     async pinMessage(messageId: string, userId: number): Promise<void> {
@@ -185,9 +181,7 @@ const chatService = {
     },
 
     async deleteMessageForMe(messageId: string, userId: number): Promise<void> {
-        await apiClient.delete(
-            `/messages/${messageId}/delete-for-me`,
-        );
+        await apiClient.delete(`/messages/${messageId}/delete-for-me`);
     },
 
     async deleteConversationForMe(
@@ -202,10 +196,7 @@ const chatService = {
     async createGroupConversation(
         request: CreateGroupRequest,
     ): Promise<Conversation> {
-        const response = await apiClient.post(
-            "/conversations/group",
-            request,
-        );
+        const response = await apiClient.post("/conversations/group", request);
 
         return unwrapApiData(
             response.data as ApiResponse<Conversation> | Conversation,

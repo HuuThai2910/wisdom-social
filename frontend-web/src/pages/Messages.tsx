@@ -899,7 +899,9 @@ export default function Messages() {
                                     }
                                     onForbidden={clearSelectedConversation}
                                     name={selectedDisplayInfo?.name}
-                                    avatarUrl={selectedDisplayInfo?.avatar}
+                                    avatarUrl={
+                                        selectedDisplayInfo?.avatar ?? undefined
+                                    }
                                     compositeAvatarUrls={
                                         selectedDisplayInfo?.hasCompositeAvatar
                                             ? selectedDisplayInfo.compositeAvatars

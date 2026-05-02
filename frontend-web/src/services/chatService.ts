@@ -83,15 +83,18 @@ export interface PinnedMessageDetail {
     content?: string;
 }
 
-export interface Conversation {
+export interface ConversationSidebar {
     id: number;
     name?: string;
     type: "DIRECT" | "GROUP";
     imageUrl?: string;
     updatedAt: string;
     lastMessage?: LastMessage;
-    members?: ConversationMember[];
     unreadCount?: number;
+}
+
+export interface Conversation extends ConversationSidebar {
+    members?: ConversationMember[];
     pinnedMessages?: PinnedMessageDetail[];
 }
 
@@ -208,7 +211,7 @@ function unwrapApiData<T>(payload: ApiResponse<T> | T): T {
 const chatService = {
     async getConversations(
         userId: number,
-    ): Promise<ApiResponse<Conversation[]>> {
+    ): Promise<ApiResponse<ConversationSidebar[]>> {
         const response = await axiosClient.get("/conversations");
         return response.data;
     },
