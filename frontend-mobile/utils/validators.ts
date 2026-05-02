@@ -15,8 +15,16 @@ export function validateRequired(value: string): boolean {
     return value.trim().length > 0;
 }
 
-export function validatePhone(phone: string): boolean {
-    return /^\d{10}$/.test(phone.trim());
+export function validatePhone(phone: string): ValidationResult {
+    if (!phone) {
+        return { isValid: false, error: "Số điện thoại không được để trống" };
+    }
+
+    if (!/^[0-9]{10}$/.test(phone.trim())) {
+        return { isValid: false, error: "Số điện thoại phải là 10 chữ số" };
+    }
+
+    return { isValid: true };
 }
 
 export function validateOtp(otp: string): boolean {
@@ -151,6 +159,190 @@ export function validateGender(gender: string): ValidationResult {
     const validGenders = ["MALE", "FEMALE", "HIDDEN"];
     if (!validGenders.includes(gender)) {
         return { isValid: false, error: "Giới tính không hợp lệ" };
+    }
+
+    return { isValid: true };
+}
+
+// ==================== Authentication Form Validators ====================
+
+/**
+ * Confirm password validation
+ */
+export function validateConfirmPassword(
+    password: string,
+    confirmPassword: string
+): ValidationResult {
+    if (!confirmPassword) {
+        return { isValid: false, error: "Vui lòng xác nhận mật khẩu" };
+    }
+
+    if (password !== confirmPassword) {
+        return { isValid: false, error: "Mật khẩu xác nhận không khớp" };
+    }
+
+    return { isValid: true };
+}
+
+/**
+ * OTP validation - exactly 6 digits
+ */
+export function validateOTP(otp: string): ValidationResult {
+    if (!otp) {
+        return { isValid: false, error: "Mã OTP không được để trống" };
+    }
+
+    if (!/^[0-9]{6}$/.test(otp.trim())) {
+        return { isValid: false, error: "Mã OTP phải là 6 chữ số" };
+    }
+
+    return { isValid: true };
+}
+
+/**
+ * Login form validation
+ */
+export function validateLoginForm(
+    phone: string,
+    password: string
+): ValidationResult {
+    if (!phone) {
+        return { isValid: false, error: "Số điện thoại không được để trống" };
+    }
+
+    if (!/^[0-9]{10}$/.test(phone.trim())) {
+        return { isValid: false, error: "Số điện thoại phải là 10 chữ số" };
+    }
+
+    if (!password) {
+        return { isValid: false, error: "Mật khẩu không được để trống" };
+    }
+
+    return { isValid: true };
+}
+
+/**
+ * Signup form validation
+ */
+export function validateSignupForm(
+    phone: string,
+    password: string,
+    confirmPassword: string
+): ValidationResult {
+    if (!phone) {
+        return { isValid: false, error: "Số điện thoại không được để trống" };
+    }
+
+    if (!/^[0-9]{10}$/.test(phone.trim())) {
+        return { isValid: false, error: "Số điện thoại phải là 10 chữ số" };
+    }
+
+    if (!password) {
+        return { isValid: false, error: "Mật khẩu không được để trống" };
+    }
+
+    if (password.length < 8) {
+        return { isValid: false, error: "Mật khẩu phải có ít nhất 8 ký tự" };
+    }
+
+    if (password.length > 50) {
+        return { isValid: false, error: "Mật khẩu không được vượt quá 50 ký tự" };
+    }
+
+    if (!/[a-z]/.test(password)) {
+        return { isValid: false, error: "Mật khẩu phải có ít nhất 1 chữ thường" };
+    }
+
+    if (!/[A-Z]/.test(password)) {
+        return { isValid: false, error: "Mật khẩu phải có ít nhất 1 chữ hoa" };
+    }
+
+    if (!/[0-9]/.test(password)) {
+        return { isValid: false, error: "Mật khẩu phải có ít nhất 1 số" };
+    }
+
+    if (!/[^A-Za-z0-9]/.test(password)) {
+        return { isValid: false, error: "Mật khẩu phải có ít nhất 1 ký tự đặc biệt" };
+    }
+
+    const confirmValidation = validateConfirmPassword(password, confirmPassword);
+    if (!confirmValidation.isValid) {
+        return confirmValidation;
+    }
+
+    return { isValid: true };
+}
+
+/**
+ * Reset password form validation
+ */
+export function validateResetPasswordForm(
+    password: string,
+    confirmPassword: string
+): ValidationResult {
+    if (!password) {
+        return { isValid: false, error: "Mật khẩu không được để trống" };
+    }
+
+    if (password.length < 8) {
+        return { isValid: false, error: "Mật khẩu phải có ít nhất 8 ký tự" };
+    }
+
+    if (password.length > 50) {
+        return { isValid: false, error: "Mật khẩu không được vượt quá 50 ký tự" };
+    }
+
+    if (!/[a-z]/.test(password)) {
+        return { isValid: false, error: "Mật khẩu phải có ít nhất 1 chữ thường" };
+    }
+
+    if (!/[A-Z]/.test(password)) {
+        return { isValid: false, error: "Mật khẩu phải có ít nhất 1 chữ hoa" };
+    }
+
+    if (!/[0-9]/.test(password)) {
+        return { isValid: false, error: "Mật khẩu phải có ít nhất 1 số" };
+    }
+
+    if (!/[^A-Za-z0-9]/.test(password)) {
+        return { isValid: false, error: "Mật khẩu phải có ít nhất 1 ký tự đặc biệt" };
+    }
+
+    const confirmValidation = validateConfirmPassword(password, confirmPassword);
+    if (!confirmValidation.isValid) {
+        return confirmValidation;
+    }
+
+    return { isValid: true };
+}
+
+/**
+ * Profile form validation
+ */
+export function validateProfileForm(
+    name: string,
+    username: string,
+    birthday: string,
+    gender: string
+): ValidationResult {
+    const nameValidation = validateFullName(name);
+    if (!nameValidation.isValid) {
+        return nameValidation;
+    }
+
+    const usernameValidation = validateUsername(username);
+    if (!usernameValidation.isValid) {
+        return usernameValidation;
+    }
+
+    const birthdayValidation = validateBirthday(birthday);
+    if (!birthdayValidation.isValid) {
+        return birthdayValidation;
+    }
+
+    const genderValidation = validateGender(gender);
+    if (!genderValidation.isValid) {
+        return genderValidation;
     }
 
     return { isValid: true };
