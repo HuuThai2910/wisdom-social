@@ -4,17 +4,23 @@
  */
 package iuh.fit.edu.backend.mapper;
 
+import iuh.fit.edu.backend.constant.ConversationMemberStatus;
+import iuh.fit.edu.backend.constant.ConversationType;
+import iuh.fit.edu.backend.constant.MessageType;
 import iuh.fit.edu.backend.domain.entity.mysql.Conversation;
 
+import iuh.fit.edu.backend.domain.entity.mysql.ConversationMember;
+import iuh.fit.edu.backend.domain.entity.mysql.FrozenLastMessage;
 import iuh.fit.edu.backend.domain.entity.mysql.PinnedMessageDetail;
 import iuh.fit.edu.backend.dto.response.conversation.ConversationResponse;
 
+import iuh.fit.edu.backend.dto.response.conversation.ConversationSidebarResponse;
 import iuh.fit.edu.backend.dto.response.message.LastMessageResponse;
 import iuh.fit.edu.backend.util.MediaUrlBuilder;
 import org.mapstruct.*;
 import org.springframework.beans.factory.annotation.Autowired;
 
-
+import java.util.function.Consumer;
 import java.util.List;
 
 
@@ -24,13 +30,22 @@ import java.util.List;
  * @date:
  * @version: 1.0
  */
+
+
+
 @Mapper(componentModel = "spring", uses = { ConversationMemberMapper.class })
 public abstract class ConversationMapper {
+
     @Autowired
     protected MediaUrlBuilder mediaUrlBuilder;
+
+    // =======================================================
+    // 1. MAPPING CHO CONVERSATION RESPONSE (DETAIL)
+    // =======================================================
     @Mapping(target = "members", source = "members")
     @Mapping(target = "pinnedMessages", source = "pinnedMessages")
-    @Mapping(target = "lastMessage", ignore = true)
+        @Mapping(target = "lastMessage", source = "conversation")
+    @Mapping(target = "imageUrl", source = "imageUrl", qualifiedByName = "buildImageUrl")
     public abstract ConversationResponse toConversationResponse(
             Conversation conversation,
             @Context Long userId
@@ -41,65 +56,132 @@ public abstract class ConversationMapper {
             @Context Long userId
     );
 
+    // =======================================================
+    // 2. MAPPING CHO CONVERSATION SIDEBAR RESPONSE
+    // =======================================================
+    @Mapping(target = "id", source = "conversation.id")
+    @Mapping(target = "name", source = "conversation.name")
+    @Mapping(target = "type", source = "conversation.type")
+    @Mapping(target = "imageUrl", source = "conversation.imageUrl", qualifiedByName = "buildImageUrl")
+    @Mapping(target = "updatedAt", source = "conversation.updatedAt")
+    @Mapping(target = "unreadCount", source = "unreadCount")
+    @Mapping(target = "lastMessage", ignore = true)
+    public abstract ConversationSidebarResponse toSidebarFromMember(ConversationMember member);
 
-    @Mapping(target = "lastMessageContent", source = "lastMessageContent")
-    @Mapping(target = "lastMessageType", source = "lastMessageType")
-    @Mapping(target = "lastMessageAt", source = "lastMessageAt")
-    @Mapping(target = "lastSenderId", source = "lastSenderId")
-    @Mapping(target = "lastSenderName", ignore = true)
-    public abstract LastMessageResponse toLastMessageResponse(Conversation conversation);
+    public abstract List<ConversationSidebarResponse> toListSidebarFromMembers(List<ConversationMember> members);
 
+    // =======================================================
+    // 3. AFTER MAPPING (ĐÃ GOM LOGIC)
+    // =======================================================
 
     @AfterMapping
-    protected void mapLastMessage(
-            Conversation conversation,
-            @MappingTarget ConversationResponse response
-    ) {
-        response.setLastMessage(toLastMessageResponse(conversation));
+    protected void applyCorrectLastMessage(ConversationMember member, @MappingTarget ConversationSidebarResponse response) {
+        LastMessageResponse lastMsg = new LastMessageResponse();
+
+        // Nếu đang hoạt động -> lấy từ Global (Conversation)
+        if (member.getStatus() == ConversationMemberStatus.ACTIVE) {
+            Conversation conv = member.getConversation();
+            if (conv != null) {
+                lastMsg.setLastMessageContent(conv.getLastMessageContent());
+                lastMsg.setLastMessageType(conv.getLastMessageType());
+                lastMsg.setLastMessageAt(conv.getLastMessageAt());
+                lastMsg.setLastSenderId(conv.getLastSenderId());
+                lastMsg.setLastSenderName(conv.getLastSenderName());
+            }
+        } else {
+            // Đã rời/bị kick/giải tán -> Lấy từ Frozen State
+            FrozenLastMessage frozen = member.getFrozenLastMessage();
+            if (frozen != null) {
+                lastMsg.setLastMessageContent(frozen.getContent());
+                lastMsg.setLastMessageType(frozen.getType());
+                lastMsg.setLastMessageAt(frozen.getTime());
+                lastMsg.setLastSenderId(frozen.getSenderId());
+                lastMsg.setLastSenderName(frozen.getSenderName());
+            }
+        }
+
+        response.setLastMessage(lastMsg);
     }
 
     @AfterMapping
-    protected void mapUnreadCount(
-            Conversation conversation,
-            @MappingTarget ConversationResponse response,
-            @Context Long userId
-    ) {
+    protected void customizeDirectChatInfo(ConversationMember currentMember, @MappingTarget ConversationSidebarResponse response) {
+        if (response.getType() == ConversationType.DIRECT) {
+            // Tái sử dụng hàm helper
+            applyDirectChatPartnerInfo(currentMember.getConversation(), currentMember.getUser().getId(), response::setName, response::setImageUrl);
+        }
+    }
+
+    @AfterMapping
+    protected void customizeDirectChatDetailInfo(Conversation conversation, @MappingTarget ConversationResponse response, @Context Long userId) {
+        if (response.getType() == ConversationType.DIRECT) {
+            // Tái sử dụng hàm helper
+            applyDirectChatPartnerInfo(conversation, userId, response::setName, response::setImageUrl);
+        }
+    }
+
+    @AfterMapping
+    protected void mapUnreadCount(Conversation conversation, @MappingTarget ConversationResponse response, @Context Long userId) {
+        if (conversation.getMembers() == null) return;
         conversation.getMembers().stream()
                 .filter(m -> m.getUser().getId().equals(userId))
                 .findFirst()
                 .ifPresent(m -> response.setUnreadCount(m.getUnreadCount()));
     }
+
     @AfterMapping
-    protected void mapPinnedMessages(
-            Conversation conversation,
-            @MappingTarget ConversationResponse response
-    ) {
+    protected void mapPinnedMessages(Conversation conversation, @MappingTarget ConversationResponse response) {
         if (conversation.getPinnedMessages() == null) return;
-
         List<PinnedMessageDetail> mapped = conversation.getPinnedMessages()
-                .stream()
-                .map(this::mapPinnedMessageDetail)
-                .toList();
-
+                .stream().map(this::mapPinnedMessageDetail).toList();
         response.setPinnedMessages(mapped);
     }
 
-    // ================== HELPER ==================
+    // =======================================================
+    // 4. HELPER MAPPING & SNAPSHOT
+    // =======================================================
+
+    /**
+     * HÀM HELPER MỚI: Dùng Consumer để gán dữ liệu vào bất kỳ DTO nào
+     */
+    protected void applyDirectChatPartnerInfo(Conversation conversation, Long currentUserId, Consumer<String> setName, Consumer<String> setImageUrl) {
+        if (conversation.getMembers() == null) return;
+
+        conversation.getMembers().stream()
+                .filter(m -> !m.getUser().getId().equals(currentUserId))
+                .findFirst()
+                .ifPresent(partner -> {
+                    String displayName = (partner.getNickname() != null && !partner.getNickname().trim().isEmpty())
+                            ? partner.getNickname()
+                            : partner.getUser().getName();
+
+                    // Gọi Consumer để set dữ liệu vào DTO đang được map
+                    setName.accept(displayName);
+                    setImageUrl.accept(buildImageUrl(partner.getUser().getAvatarUrl()));
+                });
+    }
+
+    @Mapping(target = "lastMessageContent", source = "lastMessageContent")
+    @Mapping(target = "lastMessageType", source = "lastMessageType")
+    @Mapping(target = "lastMessageAt", source = "lastMessageAt")
+    @Mapping(target = "lastSenderId", source = "lastSenderId")
+    @Mapping(target = "lastSenderName", source = "lastSenderName")
+    public abstract LastMessageResponse toLastMessageResponse(Conversation conversation);
+
+    @Named("buildImageUrl")
+    protected String buildImageUrl(String path) {
+        if (path == null || path.trim().isEmpty()) return path;
+        return mediaUrlBuilder.build(path, MessageType.IMAGE);
+    }
 
     protected PinnedMessageDetail mapPinnedMessageDetail(PinnedMessageDetail p) {
         if (p == null) return null;
-
         PinnedMessageDetail copy = new PinnedMessageDetail();
         copy.setOriginalSenderId(p.getOriginalSenderId());
         copy.setMessageId(p.getMessageId());
         copy.setPinnerId(p.getPinnerId());
         copy.setPinnedAt(p.getPinnedAt());
         copy.setType(p.getType());
-
-        copy.setContent(
-                mediaUrlBuilder.build(p.getContent(), p.getType())
-        );
-
+        copy.setContent(mediaUrlBuilder.build(p.getContent(), p.getType()));
         return copy;
     }
 }

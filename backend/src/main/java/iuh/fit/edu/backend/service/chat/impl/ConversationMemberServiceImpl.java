@@ -4,9 +4,11 @@
  */
 package iuh.fit.edu.backend.service.chat.impl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import iuh.fit.edu.backend.constant.*;
 import iuh.fit.edu.backend.domain.entity.mysql.Conversation;
 import iuh.fit.edu.backend.domain.entity.mysql.ConversationMember;
+import iuh.fit.edu.backend.domain.entity.mysql.FrozenLastMessage;
 import iuh.fit.edu.backend.dto.request.convesation.AddMemberRequest;
 import iuh.fit.edu.backend.dto.response.conversation.ConversationMemberResponse;
 import iuh.fit.edu.backend.dto.response.conversation.ConversationResponse;
@@ -121,18 +123,24 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
 
 
         // Ghi Log vào MongoDB qua MessageFacade
-        String targetIdsJson = "[" + actuallyAddedIds.stream()
-                .map(String::valueOf).collect(Collectors.joining(",")) + "]";
+        String targetIdsJson = buildMemberSnapshotContent(actuallyAddedIds);
 
         internalMessageService.createSystemMessage(conversationId, inviterId, MessageType.SYSTEM_ADD_MEMBER, targetIdsJson);
 
         // Cập nhật Snapshot (MySQL)
-        updateConversationSnapshot(conv, inviterId, MessageType.SYSTEM_ADD_MEMBER, targetIdsJson, now);
+        updateConversationSnapshot(
+            conv,
+            inviterId,
+            MessageType.SYSTEM_ADD_MEMBER,
+            targetIdsJson,
+            now,
+            resolveActorDisplayName(conv, inviterId)
+        );
 
         // Map Response & Chỉnh sửa LastMessage
         ConversationResponse response = conversationMapper.toConversationResponse(conv, inviterId);
         if (response.getLastMessage() != null) {
-            response.getLastMessage().setLastSenderName("");
+            response.getLastMessage().setLastSenderName(resolveActorDisplayName(conv, inviterId));
             response.getLastMessage().setRead(true);
         }
 
@@ -164,7 +172,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
 
         // Gọi hàm lõi dùng chung
         return processMemberRemoval(conv, targetId, requesterId,
-                ConversationMemberStatus.KICKED, MessageType.SYSTEM_KICK_MEMBER, "[" + targetId + "]", DomainEventType.MEMBER_KICKED);
+            ConversationMemberStatus.KICKED, MessageType.SYSTEM_KICK_MEMBER, buildKickSnapshotContent(targetId), DomainEventType.MEMBER_KICKED);
     }
 
     /**
@@ -247,8 +255,8 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
         }
 
         // Tạo JSON Content cho tin nhắn hệ thống
-        // Chuyển {"targetId": 2, "newRole": "DEPUTY"} thành chuỗi để FE dễ dịch
-        String sysMsgContent = String.format("{\"targetId\":%d, \"newRole\":\"%s\"}", targetId, newRole.name());
+        // Đính kèm luôn tên hiển thị để FE render sidebar và timeline đồng nhất
+        String sysMsgContent = buildRoleSnapshotContent(targetId, newRole.name());
 
         // Gom ID người nhận Socket
         Set<Long> allNotifyIds = conversationMemberRepository
@@ -259,12 +267,19 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
                 conversationId, requesterId, MessageType.SYSTEM_UPDATE_ROLE, sysMsgContent);
 
         // Cập nhật Snapshot Sidebar (MySQL)
-        updateConversationSnapshot(conv, requesterId, MessageType.SYSTEM_UPDATE_ROLE, sysMsgContent, now);
+        updateConversationSnapshot(
+            conv,
+            requesterId,
+            MessageType.SYSTEM_UPDATE_ROLE,
+            sysMsgContent,
+            now,
+            resolveActorDisplayName(conv, requesterId)
+        );
 
         // Map DTO & Bắn Event Sidebar
         ConversationResponse response = conversationMapper.toConversationResponse(conv, requesterId);
         if (response.getLastMessage() != null) {
-            response.getLastMessage().setLastSenderName("");
+            response.getLastMessage().setLastSenderName(resolveActorDisplayName(conv, requesterId));
             response.getLastMessage().setRead(true);
         }
 
@@ -315,7 +330,14 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
                 conversationId, requesterId, MessageType.SYSTEM_DISBAND_GROUP, "[]");
 
         // Cập nhật Snapshot Sidebar (Để hiện chữ "Nhóm đã giải tán")
-        updateConversationSnapshot(conv, requesterId, MessageType.SYSTEM_DISBAND_GROUP, "[]", now);
+        updateConversationSnapshot(
+            conv,
+            requesterId,
+            MessageType.SYSTEM_DISBAND_GROUP,
+            "[]",
+            now,
+            resolveActorDisplayName(conv, requesterId)
+        );
 
         // Bắn Event giải tán để FE xóa/khóa Sidebar
         // Chúng ta không cần Map Response phức tạp vì nhóm đã chết, chỉ cần gửi ID để FE xử lý
@@ -406,6 +428,15 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
         ConversationMember target = getActiveMember(convId, targetId);
         target.setStatus(newStatus);
         target.setLeftAt(now);
+        target.setFrozenLastMessage(
+                new FrozenLastMessage(
+                        sysMsgContent,
+                        requesterId,
+                        resolveActorDisplayName(conv, requesterId),
+                        sysMsgType,
+                        now
+                )
+        );
         conversationMemberRepository.save(target);
 
         // Cập nhật thông tin cho redis
@@ -426,12 +457,13 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
         conv.setLastSenderId(requesterId);
         conv.setLastMessageType(sysMsgType);
         conv.setLastMessageAt(now);
+        conv.setLastSenderName(resolveActorDisplayName(conv, requesterId));
         conversationRepository.save(conv);
 
         // Map DTO
         ConversationResponse response = conversationMapper.toConversationResponse(conv, requesterId);
         if (response.getLastMessage() != null) {
-            response.getLastMessage().setLastSenderName("");
+            response.getLastMessage().setLastSenderName(resolveActorDisplayName(conv, requesterId));
             response.getLastMessage().setRead(true);
         }
 
@@ -505,12 +537,101 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
     }
 
     private void updateConversationSnapshot(Conversation conv, Long inviterId,
-                                            MessageType type, String content, Instant now) {
+                                            MessageType type, String content, Instant now,
+                                            String senderName) {
         conv.setLastMessageContent(content);
         conv.setLastSenderId(inviterId);
         conv.setLastMessageType(type);
         conv.setLastMessageAt(now);
+        conv.setLastSenderName(senderName);
         conversationRepository.save(conv);
+    }
+
+    private String resolveActorDisplayName(Conversation conv, Long userId) {
+        if (conv.getMembers() != null) {
+            for (ConversationMember member : conv.getMembers()) {
+                if (member.getUser() != null && Objects.equals(member.getUser().getId(), userId)) {
+                    String nickname = member.getNickname();
+                    if (nickname != null && !nickname.trim().isEmpty()) {
+                        return nickname.trim();
+                    }
+                    String name = member.getUser().getName();
+                    if (name != null && !name.trim().isEmpty()) {
+                        return name.trim();
+                    }
+                    String username = member.getUser().getUsername();
+                    if (username != null && !username.trim().isEmpty()) {
+                        return username.trim();
+                    }
+                }
+            }
+        }
+
+        return userRepository.findById(userId)
+                .map(user -> {
+                    String name = user.getName();
+                    if (name != null && !name.trim().isEmpty()) {
+                        return name.trim();
+                    }
+                    String username = user.getUsername();
+                    if (username != null && !username.trim().isEmpty()) {
+                        return username.trim();
+                    }
+                    return "Người dùng";
+                })
+                .orElse("Người dùng");
+    }
+
+    private String buildMemberSnapshotContent(Collection<Long> memberIds) {
+        List<Map<String, Object>> snapshot = memberIds.stream()
+                .map(memberId -> {
+                    Map<String, Object> member = new HashMap<>();
+                    member.put("id", memberId);
+                    member.put("name", resolveMemberDisplayName(memberId));
+                    return member;
+                })
+                .collect(Collectors.toList());
+
+        try {
+            return new ObjectMapper().writeValueAsString(snapshot);
+        } catch (Exception ex) {
+            return "[" + memberIds.stream()
+                    .map(String::valueOf)
+                    .collect(Collectors.joining(",")) + "]";
+        }
+    }
+
+    private String buildRoleSnapshotContent(Long targetId, String newRole) {
+        Map<String, Object> snapshot = new HashMap<>();
+        snapshot.put("targetId", targetId);
+        snapshot.put("targetName", resolveMemberDisplayName(targetId));
+        snapshot.put("newRole", newRole);
+
+        try {
+            return new ObjectMapper().writeValueAsString(snapshot);
+        } catch (Exception ex) {
+            return String.format("{\"targetId\":%d, \"newRole\":\"%s\"}", targetId, newRole);
+        }
+    }
+
+    private String buildKickSnapshotContent(Long targetId) {
+        return buildMemberSnapshotContent(Collections.singleton(targetId));
+    }
+
+    private String resolveMemberDisplayName(Long userId) {
+        return userRepository.findById(userId)
+                .map(user -> {
+                    String name = user.getName();
+                    if (name != null && !name.trim().isEmpty()) {
+                        return name.trim();
+                    }
+                    String username = user.getUsername();
+                    if (username != null && !username.trim().isEmpty()) {
+                        return username.trim();
+                    }
+                    return "Người dùng";
+                })
+                .orElse("Người dùng");
     }
 }
 

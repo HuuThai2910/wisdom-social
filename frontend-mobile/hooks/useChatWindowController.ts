@@ -20,7 +20,7 @@ import type {
 } from "@/types/chat";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useIsFocused } from "@react-navigation/native";
-import { setActiveConversationId } from "@/hooks/useMessagesController";
+import { setActiveConversationId, onConversationUnlocked } from "@/hooks/useMessagesController";
 import { useAppContext } from "@/context/AppContext";
 import { isMessageDeletedForUser } from "@/utils/chatMessageGuards";
 
@@ -161,7 +161,12 @@ function safeParseMemberIds(content: string): number[] {
         if (!Array.isArray(parsed)) return [];
 
         return parsed
-            .map((value) => Number(value))
+            .map((value: any) => {
+                if (typeof value === "object" && value !== null && "id" in value) {
+                    return Number(value.id);
+                }
+                return Number(value);
+            })
             .filter((value) => Number.isFinite(value));
     } catch {
         return [];
@@ -665,7 +670,9 @@ export function useChatWindowController(args: {
                 // Nếu lỗi là 403 hoặc thông báo lỗi liên quan đến quyền truy cập/kick:
                 if (fallbackReason) {
                     setReadOnlyNotice(fallbackReason);
-                    setConversation(null);
+                    // ĐỪNG XÓA conversation/membersById ở đây!
+                    // Nếu xóa, component MessagesConversation sẽ không render được header (vì conversation null).
+                    // Chỉ cần block việc nhập text (do readOnlyNotice) là đủ.
                 } else {
                     setError(apiMessage || "Khong the tai du lieu chat");
                 }
@@ -707,6 +714,32 @@ export function useChatWindowController(args: {
         void loadInitialDataRef.current(token);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [conversationId]);
+
+    // Lắng nghe tín hiệu unlock từ useMessagesController
+    useEffect(() => {
+        if (!conversationId) return;
+
+        const handleUnlock = (unlockedConversationId: number) => {
+            if (unlockedConversationId === conversationId && isScreenFocused) {
+                console.log(
+                    "[JUMP_DEBUG][controller] conversation unlocked, reloading",
+                    { conversationId }
+                );
+                
+                // Clear state lỗi và reload
+                setReadOnlyNotice(null);
+                setError(null);
+                setLoading(true);
+                
+                const token = Date.now();
+                loadTokenRef.current = token;
+                void loadInitialDataRef.current(token);
+            }
+        };
+
+        const unsubscribe = onConversationUnlocked(handleUnlock);
+        return () => unsubscribe();
+    }, [conversationId, isScreenFocused]);
 
     useEffect(() => {
         if (!jumpToast) return;
@@ -827,6 +860,18 @@ export function useChatWindowController(args: {
             );
             if (readOnlyReason) {
                 setReadOnlyNotice(readOnlyReason);
+                
+                // Khi bị cấm quyền truy cập (giải tán/đuổi/rời), dọn dẹp state
+                // để UI chuyển sang 'Error View' ngay lập tức (giống web)
+                setMessages([]);
+                setConversation(null);
+                setMembersById({});
+
+                // Giải đăng ký socket của hội thoại cũ
+                chatWebsocketService.unsubscribeFromConversation(conversationId);
+                chatWebsocketService.unsubscribeFromConversationMembers(conversationId);
+                chatWebsocketService.unsubscribeFromConversationPins(conversationId);
+                return;
             }
 
             if (GROUP_SYSTEM_MEMBER_SYNC_TYPES.has(normalizedIncoming.type)) {

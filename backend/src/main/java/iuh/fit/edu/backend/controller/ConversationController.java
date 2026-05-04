@@ -10,6 +10,7 @@ import iuh.fit.edu.backend.dto.request.convesation.CreateGroupRequest;
 import iuh.fit.edu.backend.dto.response.CursorResponse;
 import iuh.fit.edu.backend.dto.response.conversation.ConversationMemberResponse;
 import iuh.fit.edu.backend.dto.response.conversation.ConversationResponse;
+import iuh.fit.edu.backend.dto.response.conversation.ConversationSidebarResponse;
 import iuh.fit.edu.backend.dto.response.message.MessageResponse;
 import iuh.fit.edu.backend.service.chat.ConversationMemberService;
 import iuh.fit.edu.backend.service.chat.ConversationService;
@@ -42,7 +43,7 @@ public class ConversationController {
     private final UserService userService;
 
     @GetMapping
-    public ResponseEntity<List<ConversationResponse>> getConversationsByUser(){
+    public ResponseEntity<List<ConversationSidebarResponse>> getConversationsByUser(){
         Long userId = this.userService.getCurrentUser().getId();
         return ResponseEntity.ok(conversationService.getConversationsByUser(userId));
     }

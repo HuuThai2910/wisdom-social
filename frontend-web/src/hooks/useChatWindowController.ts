@@ -114,7 +114,12 @@ function safeParseMemberIds(content: string): number[] {
         if (!Array.isArray(parsed)) return [];
 
         return parsed
-            .map((value) => Number(value))
+            .map((value) => {
+                if (typeof value === "object" && value !== null && "id" in value) {
+                    return Number(value.id);
+                }
+                return Number(value);
+            })
             .filter((value) => Number.isFinite(value));
     } catch {
         return [];
@@ -354,8 +359,13 @@ export function useChatWindowController(args: {
         null,
     );
     const readOnlyNotice = useMemo(() => {
-        if (forcedReadOnlyNotice) return forcedReadOnlyNotice;
-        return localReadOnlyNotice;
+        const notice = forcedReadOnlyNotice || localReadOnlyNotice;
+        console.log("[DEBUG_READD] readOnlyNotice evaluated:", {
+            forcedReadOnlyNotice,
+            localReadOnlyNotice,
+            result: notice
+        });
+        return notice;
     }, [forcedReadOnlyNotice, localReadOnlyNotice]);
 
     const prevForcedNoticeRef = useRef<string | null | undefined>(
@@ -2917,6 +2927,13 @@ export function useChatWindowController(args: {
     useEffect(() => {
         const prevForced = prevForcedNoticeRef.current;
         prevForcedNoticeRef.current = forcedReadOnlyNotice;
+
+        console.log("[DEBUG_READD] useChatWindowController forced notice effect:", {
+            prevForced,
+            forcedReadOnlyNotice,
+            localReadOnlyNotice,
+            conversationId
+        });
 
         if (!forcedReadOnlyNotice) {
             // Chỉ mở khóa nếu prop thực sự vừa thay đổi từ 'có thông báo' sang 'không có'

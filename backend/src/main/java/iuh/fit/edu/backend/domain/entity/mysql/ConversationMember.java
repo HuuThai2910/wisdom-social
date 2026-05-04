@@ -7,9 +7,13 @@ package iuh.fit.edu.backend.domain.entity.mysql;
 import iuh.fit.edu.backend.constant.ConversationMemberStatus;
 import iuh.fit.edu.backend.constant.MemberRole;
 import iuh.fit.edu.backend.constant.MemberStatus;
+import iuh.fit.edu.backend.constant.MessageType;
+import iuh.fit.edu.backend.util.convert.FrozenLastMessageConverter;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 
@@ -44,7 +48,7 @@ public class ConversationMember {
     private String nickname;
 
     @Enumerated(EnumType.STRING)
-    private MemberRole role;       // <--- TRƯỜNG MỚI
+    private MemberRole role;
 
     @Enumerated(EnumType.STRING)
     private ConversationMemberStatus status;
@@ -61,9 +65,17 @@ public class ConversationMember {
     @Column(columnDefinition = "int default 0")
     private int unreadCount = 0;
 
+    // Lưu lại tin nhắn cuối cùng đối với trường hợp bị kick/left
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "frozen_last_message")
+    private FrozenLastMessage frozenLastMessage;
+
     // Mốc thời gian xóa cuộc hội thoại
     @Column(name = "cleared_at")
     private Instant clearedAt;
+
+//    // Lưu lại id của tin nhắn khi xóa ở phía member
+//    private String hiddenGlobalMessageId;
 
     @Column(name = "is_hidden")
     private boolean isHidden = false;

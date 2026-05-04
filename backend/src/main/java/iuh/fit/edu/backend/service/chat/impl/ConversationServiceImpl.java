@@ -4,13 +4,14 @@
  */
 package iuh.fit.edu.backend.service.chat.impl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import iuh.fit.edu.backend.constant.*;
 import iuh.fit.edu.backend.domain.entity.mysql.Conversation;
 import iuh.fit.edu.backend.domain.entity.mysql.ConversationMember;
-import iuh.fit.edu.backend.dto.request.convesation.AddMemberRequest;
 import iuh.fit.edu.backend.dto.request.convesation.CreateGroupRequest;
 import iuh.fit.edu.backend.dto.response.conversation.ConversationMemberResponse;
 import iuh.fit.edu.backend.dto.response.conversation.ConversationResponse;
+import iuh.fit.edu.backend.dto.response.conversation.ConversationSidebarResponse;
 import iuh.fit.edu.backend.dto.response.message.MessageSeenResponse;
 import iuh.fit.edu.backend.event.payload.ConversationCreatedEvent;
 import iuh.fit.edu.backend.event.payload.MessageSeenEvent;
@@ -66,6 +67,10 @@ public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat
         if (targetMemberIds.size() < 2) {
             throw new IllegalArgumentException("Nhóm phải có ít nhất 3 thành viên (bao gồm bạn)");
         }
+
+        if(request.getImageUrl() == null){
+            request.setImageUrl("users/group.png");
+        }
         // Set tổng hợp tất cả ID
         Set<Long> allMemberIds = new HashSet<>(targetMemberIds);
         allMemberIds.add(creatorId);
@@ -80,6 +85,8 @@ public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat
         conversation.setUpdatedAt(now);
         conversation.setLastMessageAt(now);
         Conversation savedConversation = conversationRepository.save(conversation);
+
+
 
 
         // 3. LƯU BẢNG CONVERSATION MEMBER (MySQL - BATCH INSERT)
@@ -103,21 +110,20 @@ public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat
         savedConversation.setMembers(members);
         memberCacheService.saveMembersMap(savedConversation.getId(), dbMap);
 
-        String targetIdsStr = "[" + targetMemberIds.stream()
-                .map(String::valueOf)
-                .collect(Collectors.joining(",")) + "]";
-        internalMessageService.createSystemMessage(savedConversation.getId(), creatorId, MessageType.SYSTEM_CREATE_GROUP, targetIdsStr);
+        String targetMembersSnapshot = buildMemberSnapshotContent(targetMemberIds);
+        internalMessageService.createSystemMessage(savedConversation.getId(), creatorId, MessageType.SYSTEM_CREATE_GROUP, targetMembersSnapshot);
 
         // CẬP NHẬT SNAPSHOT TIN NHẮN CUỐI (MySQL)
-        savedConversation.setLastMessageContent(targetIdsStr);
+        savedConversation.setLastMessageContent(targetMembersSnapshot);
         savedConversation.setLastSenderId(creatorId);
         savedConversation.setLastMessageType(MessageType.SYSTEM_CREATE_GROUP);
+        savedConversation.setLastSenderName(resolveUserDisplayName(creatorId));
         conversationRepository.save(savedConversation);
 
         // MAP RESPONSE & BẮN EVENT
         ConversationResponse response = conversationMapper.toConversationResponse(savedConversation, creatorId);
         if(response.getLastMessage() != null){
-            response.getLastMessage().setLastSenderName("");
+            response.getLastMessage().setLastSenderName(resolveUserDisplayName(creatorId));
             response.getLastMessage().setRead(true);
         }
 
@@ -128,37 +134,11 @@ public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat
     }
 
     @Override
-    public List<ConversationResponse> getConversationsByUser(Long userId){
-        log.info("Get conversation by user {}", userId);
-
-        List<Conversation> conversations = conversationMemberRepository.findConversationsByUserIdOrderByLastMessageAtDesc(userId);
-        if(conversations.isEmpty()) return Collections.emptyList();
-
-        // Map sang dto (lúc này senderName đang null vì cần lấy dynamic name trong trường hợp người dùng đổi tên)
-        List<ConversationResponse> conversationResponses = this.conversationMapper.toListConversationResponse(conversations, userId);
-
-        conversationResponses.forEach(res -> {
-            if (res.getLastMessage() != null) {
-                boolean isSystemMessage = res.getLastMessage().getLastMessageType().name().startsWith("SYSTEM_");
-                if (isSystemMessage) {
-                    // NẾU LÀ TIN HỆ THỐNG: Bỏ qua việc tìm tên, set rỗng để Frontend không hiển thị dấu hai chấm (:)
-                    res.getLastMessage().setLastSenderName("");
-                }else {
-                    Long conversationId = res.getId();
-                    Long senderId = res.getLastMessage().getLastSenderId();
-
-                    // Kéo thông tin từ Redis Hash Map
-                    ConversationMemberResponse senderInfo = conversationMemberService.getMemberInfo(conversationId, senderId);
-                    if (senderInfo != null) {
-                        res.getLastMessage().setLastSenderName(senderInfo.getNickname());
-                    } else {
-                        res.getLastMessage().setLastSenderName("Người dùng ẩn");
-                    }
-                }
-
-            }
-        });
-        log.info("List conversation {}", conversationResponses);
+    public List<ConversationSidebarResponse> getConversationsByUser(Long userId){
+        List<ConversationMember> members = conversationMemberRepository.findActiveSidebarByUserId(userId);
+        if(members.isEmpty()) return Collections.emptyList();
+        List<ConversationSidebarResponse> conversationResponses = this.conversationMapper.toListSidebarFromMembers(members);
+        log.info("List conversation by user {}:  {} ", userId, conversationResponses);
         return conversationResponses;
     }
 
@@ -187,6 +167,41 @@ public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat
 
         log.info("Conversation: {}", response);
         return response;
+    }
+
+    private String resolveUserDisplayName(Long userId) {
+        return userRepository.findById(userId)
+                .map(user -> {
+                    String name = user.getName();
+                    if (name != null && !name.trim().isEmpty()) {
+                        return name.trim();
+                    }
+                    String username = user.getUsername();
+                    if (username != null && !username.trim().isEmpty()) {
+                        return username.trim();
+                    }
+                    return "Người dùng";
+                })
+                .orElse("Người dùng");
+    }
+
+    private String buildMemberSnapshotContent(Collection<Long> memberIds) {
+        List<Map<String, Object>> snapshot = memberIds.stream()
+                .map(memberId -> {
+                    Map<String, Object> member = new HashMap<>();
+                    member.put("id", memberId);
+                    member.put("name", resolveUserDisplayName(memberId));
+                    return member;
+                })
+                .collect(Collectors.toList());
+
+        try {
+            return new ObjectMapper().writeValueAsString(snapshot);
+        } catch (Exception ex) {
+            return "[" + memberIds.stream()
+                    .map(String::valueOf)
+                    .collect(Collectors.joining(",")) + "]";
+        }
     }
 
     @Transactional
@@ -233,12 +248,8 @@ public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat
                 .build();
 
         Set<Long> memberIds = conversationMemberService.getAllMemberId(conversationId);
-
-
         // Publish Event cho các user khác thấy tin nhắn mình đã xem
         this.eventPublisher.publishEvent(new MessageSeenEvent(response, memberIds));
 
     }
-
-
 }

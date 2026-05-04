@@ -57,7 +57,12 @@ function safeParseMemberIds(content: string): number[] {
         const parsed = JSON.parse(content);
         if (!Array.isArray(parsed)) return [];
         return parsed
-            .map((value) => Number(value))
+            .map((value) => {
+                if (typeof value === "object" && value !== null && "id" in value) {
+                    return Number(value.id);
+                }
+                return Number(value);
+            })
             .filter((value) => Number.isFinite(value));
     } catch {
         return [];
@@ -238,11 +243,38 @@ export function useMessagesController() {
         if (convId == null || !currentUserId) return;
 
         const selectedConv = conversations.find((conv) => conv.id === convId);
-        if (selectedConv?.members && selectedConv.members.length > 0) {
+        
+        // We need to bypass the early return if the conversation's cached members
+        // list indicates the current user has a restricted status, because we must
+        // fetch the fresh data to set the conversationReadOnlyNotices properly.
+        let hasRestrictedStatus = false;
+        if (selectedConv?.members) {
+            const me = selectedConv.members.find(
+                (m) => Number(m.userId) === Number(currentUserId)
+            );
+            if (!me) {
+                // If the user is not in the cached members list, they might have left/kicked
+                // and the backend list API didn't include them. We must fetch detail to know.
+                hasRestrictedStatus = true;
+            } else if (me.status === "LEFT" || me.status === "KICKED" || me.status === "GROUP_DISBANDED") {
+                hasRestrictedStatus = true;
+            }
+        }
+
+        console.log("[DEBUG_READD] Hydration check", {
+            convId,
+            hasMembers: selectedConv?.members?.length,
+            hasRestrictedStatus,
+            me: selectedConv?.members?.find((m) => Number(m.userId) === Number(currentUserId))
+        });
+
+        if (!hasRestrictedStatus && selectedConv?.members && selectedConv.members.length > 0) {
+            console.log("[DEBUG_READD] Hydration skipped (already has members and no restricted status)");
             return;
         }
 
         let isCancelled = false;
+        console.log("[DEBUG_READD] Fetching conversation detail for hydration", convId);
 
         chatService
             .getConversation(convId, currentUserId)
@@ -276,24 +308,50 @@ export function useMessagesController() {
                     detailConversation,
                     currentUserId,
                 );
+                
+                console.log("[DEBUG_READD] Hydration fetched detail", {
+                    convId,
+                    detailNotice
+                });
 
                 setConversationReadOnlyNotices((prev) => {
                     const next = { ...prev };
 
                     if (detailNotice) {
                         next[convId] = detailNotice;
+                        console.log("[DEBUG_READD] Setting conversationReadOnlyNotices during hydration", next);
                         return next;
                     }
 
                     if (convId in next) {
                         delete next[convId];
+                        console.log("[DEBUG_READD] Clearing conversationReadOnlyNotices during hydration", next);
                     }
 
                     return next;
                 });
             })
-            .catch(() => {
-                // Ignore: ChatWindow vẫn có thể tự load chi tiết hội thoại.
+            .catch((error: any) => {
+                if (isCancelled) return;
+                
+                // Nếu fetch detail trả về 403, nghĩa là user đã rời/bị kick khỏi nhóm
+                // và backend không cho phép truy cập detail nữa.
+                // Chúng ta phải set notice để UI chat window hiện khóa,
+                // và ĐẶC BIỆT để sau này khi websocket mở khóa, nó tạo ra sự thay đổi state (từ có lỗi -> null).
+                if (error?.response?.status === 403) {
+                    const data = error.response.data;
+                    const directMessage = typeof data?.message === "string" ? data.message : null;
+                    const nestedMessage = data?.data && typeof data.data.message === "string" ? data.data.message : null;
+                    const springMessage = typeof data?.error === "string" ? data.error : null;
+                    const finalServerMsg = directMessage || nestedMessage || springMessage;
+                    
+                    const notice = finalServerMsg || "Bạn không có quyền truy cập hội thoại này.";
+
+                    setConversationReadOnlyNotices((prev) => ({
+                        ...prev,
+                        [convId]: notice,
+                    }));
+                }
             });
 
         return () => {
@@ -404,9 +462,19 @@ export function useMessagesController() {
                     safeParseMemberIds(lastMessage.lastMessageContent).some(
                         (id) => Number(id) === Number(latestUserId),
                     );
+                    
+                console.log("[DEBUG_READD] handleConversationUpdate notice eval", {
+                    conversationId,
+                    lastMessageType: lastMessage?.lastMessageType,
+                    lastMessageContent: lastMessage?.lastMessageContent,
+                    isUnlockingMessage,
+                    snapshotReadOnlyNotice,
+                    messageReadOnlyNotice
+                });
 
                 if (isUnlockingMessage) {
                     delete next[conversationId];
+                    console.log("[DEBUG_READD] Cleared notice for unlocked message", next);
                     return next;
                 }
 

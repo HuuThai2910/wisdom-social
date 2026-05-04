@@ -612,6 +612,7 @@ public class MessageServiceImpl implements MessageService{
         conversation.setLastMessageContent(sidebarPreview);
         conversation.setLastMessageAt(savedMessage.getCreatedAt());
         conversation.setLastSenderId(savedMessage.getSenderId());
+        conversation.setLastSenderName(senderInfo.getNickname());
 
         // Snapshot sidebar dùng type tương thích DB cũ; nội dung vẫn thể hiện cuộc gọi rõ ràng.
         MessageType sidebarMessageType = savedMessage.getMessageType() == MessageType.CALL

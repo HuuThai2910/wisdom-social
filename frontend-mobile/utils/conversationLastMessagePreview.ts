@@ -1,5 +1,5 @@
 import type { Conversation } from "@/types/chat";
-import { buildSystemGroupMessage } from "@/utils/systemCreateGroupMessage";
+import { buildSystemGroupMessage, type GroupSystemMessageType } from "@/utils/systemCreateGroupMessage";
 
 interface ConversationLastMessagePreviewParams {
     conversation: Conversation;
@@ -70,7 +70,7 @@ export function buildConversationLastMessagePreview({
 
         return {
             text: buildSystemGroupMessage({
-                type: lastMessage.lastMessageType,
+                type: lastMessage.lastMessageType as GroupSystemMessageType,
                 content: lastMessage.lastMessageContent,
                 isOwn: lastMessage.lastSenderId === currentUserId,
                 senderName: lastMessage.lastSenderName,

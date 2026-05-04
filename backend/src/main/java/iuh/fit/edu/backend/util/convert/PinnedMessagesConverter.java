@@ -1,4 +1,4 @@
-package iuh.fit.edu.backend.util;
+package iuh.fit.edu.backend.util.convert;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;

@@ -10,9 +10,40 @@ import { useAppContext } from "@/context/AppContext";
 // Set by useChatWindowController (via setActiveConversationId) when entering/leaving a chat.
 // Mirrors web's selectedConversationIdRef (derived from URL) for unread logic.
 const activeConversationIdRef = { current: null as number | null };
+type UnlockListener = (conversationId: number) => void;
+const unlockListeners = new Set<UnlockListener>();
+
+function safeParseMemberIds(content: string): number[] {
+    if (!content) return [];
+    try {
+        const parsed = JSON.parse(content);
+        if (!Array.isArray(parsed)) return [];
+        return parsed
+            .map((value: any) => {
+                if (typeof value === "object" && value !== null && "id" in value) {
+                    return Number(value.id);
+                }
+                return Number(value);
+            })
+            .filter((value: number) => Number.isFinite(value));
+    } catch {
+        return [];
+    }
+}
 
 export function setActiveConversationId(id: number | null): void {
     activeConversationIdRef.current = id;
+}
+
+export function onConversationUnlocked(listener: UnlockListener): () => void {
+    unlockListeners.add(listener);
+    return () => unlockListeners.delete(listener);
+}
+
+function emitConversationUnlocked(conversationId: number): void {
+    for (const listener of unlockListeners) {
+        listener(conversationId);
+    }
 }
 
 function getConversationSortTime(conversation: Conversation): number {
@@ -180,6 +211,16 @@ export function useMessagesController() {
                 read: isReadUpdate,
             };
 
+            const isUnlockingMessage =
+                lastMessage.lastMessageType === "SYSTEM_ADD_MEMBER" &&
+                safeParseMemberIds(lastMessage.lastMessageContent ?? "").some(
+                    (id: string | number) => Number(id) === Number(latestUserId)
+                );
+
+            if (isUnlockingMessage) {
+                emitConversationUnlocked(conversationId);
+            }
+
             setConversations((prev) => {
                 const exists = prev.some((conv) => conv.id === conversationId);
                 if (!exists) {
@@ -251,11 +292,35 @@ export function useMessagesController() {
                 const next = prev.map((conv) => {
                     if (conv.id !== conversationId) return conv;
 
-                    const baseConversation =
+                    const isGroup = conv.type === "GROUP";
+                    const mergedSnapshot =
                         conversationSnapshot &&
                         conversationSnapshot.id === conversationId
-                            ? { ...conv, ...conversationSnapshot }
-                            : conv;
+                            ? { ...conversationSnapshot }
+                            : undefined;
+
+                    // Khi nhận được snapshot từ WebSocket, chúng ta phải giữ nguyên name và imageUrl hiện tại
+                    // nếu đó là conversation nhóm và backend đang tự ý map thành tên cá nhân.
+                    if (isGroup && mergedSnapshot) {
+                        if (
+                            mergedSnapshot.name !== undefined &&
+                            mergedSnapshot.name !== null &&
+                            !mergedSnapshot.name.trim()
+                        ) {
+                            mergedSnapshot.name = conv.name;
+                        }
+                        if (
+                            mergedSnapshot.imageUrl !== undefined &&
+                            mergedSnapshot.imageUrl !== null &&
+                            !mergedSnapshot.imageUrl.trim()
+                        ) {
+                            mergedSnapshot.imageUrl = conv.imageUrl;
+                        }
+                    }
+
+                    const baseConversation = mergedSnapshot
+                        ? { ...conv, ...mergedSnapshot }
+                        : conv;
 
                     let newUnreadCount: number;
                     if (isReadUpdate) {

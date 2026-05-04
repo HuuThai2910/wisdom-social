@@ -38,6 +38,14 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
             @Param("userId") Long userId
     );
 
+    // Trong ConversationMemberRepository.java
+    @Query("SELECT cm FROM ConversationMember cm " +
+            "JOIN FETCH cm.conversation c " +
+            "JOIN FETCH c.members " +
+            "WHERE cm.user.id = :userId AND cm.isHidden = false " +
+            "ORDER BY c.lastMessageAt DESC")
+    List<ConversationMember> findActiveSidebarByUserId(@Param("userId") Long userId);
+
     // Lay ra danh sach member o trong mot cuoc hoi thoai
     List<ConversationMember> findByConversationIdAndUserIdIn(Long conversationId, Set<Long> userIds);
 

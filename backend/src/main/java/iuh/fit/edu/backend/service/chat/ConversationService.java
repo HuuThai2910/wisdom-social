@@ -13,6 +13,7 @@ import iuh.fit.edu.backend.constant.MemberRole;
 import iuh.fit.edu.backend.dto.request.convesation.AddMemberRequest;
 import iuh.fit.edu.backend.dto.request.convesation.CreateGroupRequest;
 import iuh.fit.edu.backend.dto.response.conversation.ConversationResponse;
+import iuh.fit.edu.backend.dto.response.conversation.ConversationSidebarResponse;
 import jakarta.transaction.Transactional;
 
 import java.util.List;
@@ -23,7 +24,8 @@ public interface ConversationService {
 
     ConversationResponse createGroup(CreateGroupRequest request, Long creatorId);
 
-    List<ConversationResponse> getConversationsByUser(Long userId);
+    List<ConversationSidebarResponse> getConversationsByUser(Long userId);
+
     ConversationResponse getConversationById(Long conversationId, Long userId);
 
     void deleteConversationForMe(Long conversationId, Long userId);

@@ -3,7 +3,7 @@ interface MemberLookup {
     username?: string;
 }
 
-type GroupSystemMessageType =
+export type GroupSystemMessageType =
     | "SYSTEM_CREATE_GROUP"
     | "SYSTEM_ADD_MEMBER"
     | "SYSTEM_UPDATE_ROLE"
