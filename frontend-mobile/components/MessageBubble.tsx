@@ -14,6 +14,7 @@ import { Video, ResizeMode } from "expo-av";
 import { UserAvatar } from "@/components";
 import { colors, spacing } from "@/constants";
 const RIGHT_SCROLL_CUE_HEIGHT = 38;
+const MESSAGE_LONG_PRESS_DELAY_MS = 500;
 import {
     Message,
     Conversation,
@@ -106,184 +107,188 @@ export const MessageBubble = React.memo(
         const senderDisplayName =
             sender?.nickname || sender?.username || "Nguoi dung";
 
-        let previousMessage: Message | undefined;
-        for (let cursor = index - 1; cursor >= 0; cursor--) {
-            const candidate = messages[cursor];
-            if (isPinSystemMessageType(candidate.type)) {
-                continue;
-            }
-            previousMessage = candidate;
-            break;
-        }
+        // ===== Gesture handling (từ develop) =====
+const suppressNextTapRef = React.useRef(false);
 
-        let nextMessage: Message | undefined;
-        for (let cursor = index + 1; cursor < messages.length; cursor++) {
-            const candidate = messages[cursor];
-            if (isPinSystemMessageType(candidate.type)) {
-                continue;
-            }
-            nextMessage = candidate;
-            break;
-        }
-        const isFirstInGroup =
-            !previousMessage || previousMessage.senderId !== item.senderId;
-        const isLastInGroup =
-            !nextMessage || nextMessage.senderId !== item.senderId;
-        const isConsecutiveRecalledInGroup =
-            !isFirstInGroup &&
-            item.isRecalled &&
-            Boolean(previousMessage?.isRecalled) &&
-            previousMessage?.senderId === item.senderId;
-        const showSenderLabel =
-            !mine &&
-            conversation?.type === "GROUP" &&
-            isFirstInGroup &&
-            !item.isRecalled;
-        const showAvatar = !mine && isLastInGroup;
-        const messageTime = formatMessageTime(item.createdAt);
-        const receiptsForThisMessage =
-            mine && !item.isRecalled
-                ? readReceipts.filter(
-                      (receipt) =>
-                          receipt.lastMessageId === item.id &&
-                          receipt.userId !== currentUserId,
-                  )
-                : [];
+const triggerMessageLongPress = React.useCallback(
+    (event: any) => {
+        suppressNextTapRef.current = true;
+        handleMessageLongPress(event, item.id, mine);
+    },
+    [handleMessageLongPress, item.id, mine],
+);
 
-        const imageUrls =
-            item.type === "IMAGE" ? resolveAttachmentUrls(item) : [];
-        const videoUrls =
-            item.type === "VIDEO" ? resolveAttachmentUrls(item) : [];
-        const audioUrls =
-            item.type === "AUDIO" ? resolveAttachmentUrls(item) : [];
-        const callMeta = parseCallMeta(item);
+const runTapAction = React.useCallback((action: () => void) => {
+    if (suppressNextTapRef.current) {
+        suppressNextTapRef.current = false;
+        return;
+    }
+    action();
+}, []);
 
-        const rawFileAttachments =
-            item.type === "FILE"
-                ? Array.isArray(item.attachments) && item.attachments.length > 0
-                    ? item.attachments
-                    : isLikelyStoragePathOrUrl(item.content)
-                      ? [
-                            {
-                                url: item.content ?? "",
-                                fileName:
-                                    (item.content ?? "").split("/").pop() ||
-                                    "Tep dinh kem",
-                            },
-                        ]
-                      : []
-                : [];
+// ===== Audio long press timer (từ develop) =====
+const audioWaveLongPressTimerRef = React.useRef<ReturnType<
+    typeof setTimeout
+> | null>(null);
+const audioWaveLongPressTriggeredRef = React.useRef(false);
 
-        const fileAttachments = rawFileAttachments.map((attachment) => ({
-            ...attachment,
-            resolvedUrl: resolveMediaUrl(attachment.url) || attachment.url,
-        }));
+const clearAudioWaveLongPressTimer = React.useCallback(() => {
+    if (!audioWaveLongPressTimerRef.current) return;
+    clearTimeout(audioWaveLongPressTimerRef.current);
+    audioWaveLongPressTimerRef.current = null;
+}, []);
 
-        const replySenderName =
-            typeof item.replyInfo?.senderId === "number"
-                ? membersById[item.replyInfo.senderId]?.nickname ||
-                  membersById[item.replyInfo.senderId]?.username ||
-                  "Nguoi dung"
-                : "Nguoi dung";
+React.useEffect(() => {
+    return () => {
+        clearAudioWaveLongPressTimer();
+    };
+}, [clearAudioWaveLongPressTimer]);
 
-        const replyPreviewType = inferReplyPreviewType(item.replyInfo);
-        const replyPreviewContent = item.replyInfo?.content?.trim() ?? "";
-        const normalizedReplyPreviewContent =
-            normalizeSearchText(replyPreviewContent);
-        const isReplyPreviewRecalled =
-            normalizedReplyPreviewContent.includes("thu hoi") ||
-            normalizedReplyPreviewContent.includes("da bi go bo") ||
-            normalizedReplyPreviewContent.includes("da duoc go bo");
-        const isReplyMedia =
-            replyPreviewType === "IMAGE" || replyPreviewType === "VIDEO";
-        const replyPreviewImageUrl =
-            isReplyMedia && isLikelyStoragePathOrUrl(replyPreviewContent)
-                ? resolveMediaUrl(replyPreviewContent)
-                : "";
-        const isFullMediaReply =
-            !!replyPreviewImageUrl && !isReplyPreviewRecalled;
-        const hasReplyLeadingVisual =
-            !isReplyPreviewRecalled &&
-            (replyPreviewType === "IMAGE" ||
-                replyPreviewType === "VIDEO" ||
-                replyPreviewType === "AUDIO" ||
-                replyPreviewType === "CALL");
-        const replyPreviewText = isReplyPreviewRecalled
-            ? "Tin nhan da duoc thu hoi"
-            : replyPreviewType === "IMAGE"
-              ? ""
-              : replyPreviewType === "VIDEO"
-                ? ""
-                : replyPreviewType === "AUDIO"
-                  ? "Tin nhan thoai"
-                  : replyPreviewType === "FILE"
-                    ? "File dinh kem"
-                    : replyPreviewType === "CALL"
-                      ? "Cuoc goi"
-                      : replyPreviewContent || "Tin nhan";
+// ===== previous/next message (từ feature/call-mobile - có skip SYSTEM_PIN) =====
+let previousMessage: Message | undefined;
+for (let cursor = index - 1; cursor >= 0; cursor--) {
+    const candidate = messages[cursor];
+    if (isPinSystemMessageType(candidate.type)) continue;
+    previousMessage = candidate;
+    break;
+}
 
-        const trimmedContent = item.content?.trim() ?? "";
-        const messageIsEmojiOnly =
-            item.type === "TEXT" &&
-            !item.isRecalled &&
-            isEmojiOnlyText(trimmedContent);
+let nextMessage: Message | undefined;
+for (let cursor = index + 1; cursor < messages.length; cursor++) {
+    const candidate = messages[cursor];
+    if (isPinSystemMessageType(candidate.type)) continue;
+    nextMessage = candidate;
+    break;
+}
 
-        const shouldShowFallbackText =
-            !item.isRecalled &&
-            item.type !== "IMAGE" &&
-            item.type !== "FILE" &&
-            item.type !== "VIDEO" &&
-            item.type !== "AUDIO" &&
-            item.type !== "CALL" &&
-            item.type !== "SYSTEM_PIN" &&
-            item.type !== "SYSTEM_UPIN";
+// ===== grouping logic (common, nhưng dùng previous/next từ feature) =====
+const isFirstInGroup =
+    !previousMessage || previousMessage.senderId !== item.senderId;
 
-        const shouldShowAttachmentCaption =
-            !item.isRecalled &&
-            (item.type === "IMAGE" ||
-                item.type === "FILE" ||
-                item.type === "VIDEO" ||
-                item.type === "AUDIO") &&
-            trimmedContent.length > 0 &&
-            !isLikelyStoragePathOrUrl(trimmedContent);
+const isLastInGroup =
+    !nextMessage || nextMessage.senderId !== item.senderId;
 
-        const isRichCardMessage =
-            !item.isRecalled &&
-            (item.type === "IMAGE" ||
-                item.type === "FILE" ||
-                item.type === "VIDEO" ||
-                item.type === "AUDIO" ||
-                item.type === "CALL");
-        const hasReplyPreview = Boolean(item.replyInfo) && !item.isRecalled;
-        const shouldOverlayReplyWithBubble =
-            hasReplyPreview && !isRichCardMessage;
-        const replySenderId = item.replyInfo?.senderId;
-        const replyMessageId = item.replyInfo?.messageId ?? "";
+const isConsecutiveRecalledInGroup =
+    !isFirstInGroup &&
+    item.isRecalled &&
+    Boolean(previousMessage?.isRecalled) &&
+    previousMessage?.senderId === item.senderId;
 
-        const bubbleGroupShape = !isRichCardMessage
-            ? mine
-                ? isFirstInGroup
-                    ? isLastInGroup
-                        ? styles.bubbleMineSingle
-                        : styles.bubbleMineFirst
-                    : isLastInGroup
-                      ? styles.bubbleMineLast
-                      : styles.bubbleMineMiddle
-                : isFirstInGroup
-                  ? isLastInGroup
-                      ? styles.bubbleOtherSingle
-                      : styles.bubbleOtherFirst
-                  : isLastInGroup
-                    ? styles.bubbleOtherLast
-                    : styles.bubbleOtherMiddle
-            : null;
+// ===== UI flags (common) =====
+const showSenderLabel =
+    !mine &&
+    conversation?.type === "GROUP" &&
+    isFirstInGroup &&
+    !item.isRecalled;
 
-        const isPinSystemMessage = isPinSystemMessageType(item.type);
+const showAvatar = !mine && isLastInGroup;
 
-        if (isPinSystemMessage) {
-            if (pinRunMeta?.shouldHideMessage) {
-                return null;
-            }
+const messageTime = formatMessageTime(item.createdAt);
+
+// ===== read receipts (common) =====
+const receiptsForThisMessage =
+    mine && !item.isRecalled
+        ? readReceipts.filter(
+              (receipt) =>
+                  receipt.lastMessageId === item.id &&
+                  receipt.userId !== currentUserId,
+          )
+        : [];
+
+// ===== media handling =====
+const imageUrls =
+    item.type === "IMAGE" ? resolveAttachmentUrls(item) : [];
+
+const videoUrls =
+    item.type === "VIDEO" ? resolveAttachmentUrls(item) : [];
+
+// ===== audioAttachments (từ develop - nâng cấp hơn audioUrls) =====
+const audioAttachments =
+    item.type === "AUDIO"
+        ? Array.isArray(item.attachments) && item.attachments.length > 0
+            ? item.attachments
+                  .map((attachment) => ({
+                      url:
+                          resolveMediaUrl(attachment.url) ||
+                          attachment.url,
+                      mimeType: attachment.type,
+                  }))
+                  .filter((attachment) => Boolean(attachment.url))
+            : resolveAttachmentUrls(item).map((url) => ({
+                  url,
+                  mimeType: undefined,
+              }))
+        : [];
+
+// ===== call meta (common) =====
+const callMeta = parseCallMeta(item);
+
+// ===== file attachments (common) =====
+const rawFileAttachments =
+    item.type === "FILE"
+        ? Array.isArray(item.attachments) && item.attachments.length > 0
+            ? item.attachments
+            : isLikelyStoragePathOrUrl(item.content)
+              ? [
+                    {
+                        url: item.content ?? "",
+                        fileName:
+                            (item.content ?? "").split("/").pop() ||
+                            "Tep dinh kem",
+                    },
+                ]
+              : []
+        : [];
+
+const fileAttachments = rawFileAttachments.map((attachment) => ({
+    ...attachment,
+    resolvedUrl: resolveMediaUrl(attachment.url) || attachment.url,
+}));
+
+// ===== CALL logic (từ develop - quan trọng) =====
+const isRichCardMessage =
+    !item.isRecalled &&
+    (item.type === "IMAGE" ||
+        item.type === "FILE" ||
+        item.type === "VIDEO" ||
+        item.type === "AUDIO" ||
+        item.type === "CALL");
+
+const isCallMessage = !item.isRecalled && item.type === "CALL";
+
+// ===== reply overlay (từ develop - fix cho CALL) =====
+const hasReplyPreview = Boolean(item.replyInfo) && !item.isRecalled;
+
+const shouldOverlayReplyWithBubble =
+    hasReplyPreview && (!isRichCardMessage || isCallMessage);
+
+// ===== bubble grouping (từ develop + fix CALL) =====
+const bubbleGroupShape =
+    !isRichCardMessage || isCallMessage
+        ? mine
+            ? isFirstInGroup
+                ? isLastInGroup
+                    ? styles.bubbleMineSingle
+                    : styles.bubbleMineFirst
+                : isLastInGroup
+                  ? styles.bubbleMineLast
+                  : styles.bubbleMineMiddle
+            : isFirstInGroup
+              ? isLastInGroup
+                  ? styles.bubbleOtherSingle
+                  : styles.bubbleOtherFirst
+              : isLastInGroup
+                ? styles.bubbleOtherLast
+                : styles.bubbleOtherMiddle
+        : null;
+
+// ===== system pin (common) =====
+const isPinSystemMessage = isPinSystemMessageType(item.type);
+
+if (isPinSystemMessage) {
+    if (pinRunMeta?.shouldHideMessage) {
+        return null;
+    }
 
             if (pinRunMeta?.shouldRenderCollapsedButton) {
                 return (
@@ -405,10 +410,8 @@ export const MessageBubble = React.memo(
                         ) : null}
 
                         <Pressable
-                            delayLongPress={500}
-                            onLongPress={(event) =>
-                                handleMessageLongPress(event, item.id, mine)
-                            }
+                            delayLongPress={MESSAGE_LONG_PRESS_DELAY_MS}
+                            onLongPress={triggerMessageLongPress}
                         >
                             {messageIsEmojiOnly ? (
                                 <Text style={styles.emojiOnlyText}>
@@ -431,12 +434,22 @@ export const MessageBubble = React.memo(
                                                     ? styles.replyPreviewConnectedMine
                                                     : styles.replyPreviewConnectedOther,
                                             ]}
-                                            onPress={() => {
-                                                if (!replyMessageId) return;
-                                                void requestJumpToMessage(
-                                                    replyMessageId,
-                                                );
-                                            }}
+                                            delayLongPress={
+                                                MESSAGE_LONG_PRESS_DELAY_MS
+                                            }
+                                            onLongPress={
+                                                triggerMessageLongPress
+                                            }
+                                            onPress={() =>
+                                                runTapAction(() => {
+                                                    if (!replyMessageId) {
+                                                        return;
+                                                    }
+                                                    void requestJumpToMessage(
+                                                        replyMessageId,
+                                                    );
+                                                })
+                                            }
                                         >
                                             {isFullMediaReply ? (
                                                 <View
@@ -633,7 +646,8 @@ export const MessageBubble = React.memo(
                                                 styles.highlightedBubble,
                                             item.isRecalled
                                                 ? styles.bubbleRecalled
-                                                : isRichCardMessage
+                                                : isRichCardMessage &&
+                                                    !isCallMessage
                                                   ? styles.bubblePlain
                                                   : mine
                                                     ? styles.bubbleMine
@@ -646,7 +660,8 @@ export const MessageBubble = React.memo(
                                                     ? styles.bubbleWithReplyMine
                                                     : styles.bubbleWithReplyOther),
                                             !mine &&
-                                                !isRichCardMessage &&
+                                                (!isRichCardMessage ||
+                                                    isCallMessage) &&
                                                 styles.cardShadow,
                                         ]}
                                     >
@@ -670,12 +685,21 @@ export const MessageBubble = React.memo(
                                                         (url, imageIndex) => (
                                                             <Pressable
                                                                 key={`${item.id}-image-${imageIndex}`}
+                                                                delayLongPress={
+                                                                    MESSAGE_LONG_PRESS_DELAY_MS
+                                                                }
+                                                                onLongPress={
+                                                                    triggerMessageLongPress
+                                                                }
                                                                 onPress={() =>
-                                                                    setMediaViewer(
-                                                                        {
-                                                                            type: "IMAGE",
-                                                                            url,
-                                                                        },
+                                                                    runTapAction(
+                                                                        () =>
+                                                                            setMediaViewer(
+                                                                                {
+                                                                                    type: "IMAGE",
+                                                                                    url,
+                                                                                },
+                                                                            ),
                                                                     )
                                                                 }
                                                             >
@@ -732,12 +756,21 @@ export const MessageBubble = React.memo(
                                                                     style={
                                                                         styles.videoExpandBtn
                                                                     }
+                                                                    delayLongPress={
+                                                                        MESSAGE_LONG_PRESS_DELAY_MS
+                                                                    }
+                                                                    onLongPress={
+                                                                        triggerMessageLongPress
+                                                                    }
                                                                     onPress={() =>
-                                                                        setMediaViewer(
-                                                                            {
-                                                                                type: "VIDEO",
-                                                                                url,
-                                                                            },
+                                                                        runTapAction(
+                                                                            () =>
+                                                                                setMediaViewer(
+                                                                                    {
+                                                                                        type: "VIDEO",
+                                                                                        url,
+                                                                                    },
+                                                                                ),
                                                                         )
                                                                     }
                                                                 >
@@ -757,10 +790,17 @@ export const MessageBubble = React.memo(
                                                 </View>
                                             ) : null}
 
-                                            {audioUrls.length > 0 ? (
+                                            {audioAttachments.length > 0 ? (
                                                 <View style={styles.audioList}>
-                                                    {audioUrls.map(
-                                                        (url, audioIndex) => {
+                                                    {audioAttachments.map(
+                                                        (
+                                                            attachment,
+                                                            audioIndex,
+                                                        ) => {
+                                                            const url =
+                                                                attachment.url;
+                                                            const mimeType =
+                                                                attachment.mimeType;
                                                             const audioKey = `${item.id}-audio-${audioIndex}`;
                                                             const isLoading =
                                                                 audioLoadingKey ===
@@ -830,10 +870,21 @@ export const MessageBubble = React.memo(
                                                                             mine &&
                                                                                 styles.audioPlayBtnMine,
                                                                         ]}
+                                                                        delayLongPress={
+                                                                            MESSAGE_LONG_PRESS_DELAY_MS
+                                                                        }
+                                                                        onLongPress={
+                                                                            triggerMessageLongPress
+                                                                        }
                                                                         onPress={() =>
-                                                                            void toggleAudioPlayback(
-                                                                                audioKey,
-                                                                                url,
+                                                                            runTapAction(
+                                                                                () => {
+                                                                                    void toggleAudioPlayback(
+                                                                                        audioKey,
+                                                                                        url,
+                                                                                        mimeType,
+                                                                                    );
+                                                                                },
                                                                             )
                                                                         }
                                                                         onPressIn={() =>
@@ -888,7 +939,7 @@ export const MessageBubble = React.memo(
                                                                             styles.audioMeta
                                                                         }
                                                                     >
-                                                                        <View
+                                                                        <Animated.View
                                                                             style={[
                                                                                 styles.audioWaveformTrack,
                                                                                 mine &&
@@ -943,21 +994,45 @@ export const MessageBubble = React.memo(
                                                                             onResponderGrant={(
                                                                                 event,
                                                                             ) => {
-                                                                                handleSeekInteractionStart(
-                                                                                    audioKey,
-                                                                                );
-                                                                                seekAudioByLocation(
-                                                                                    audioKey,
-                                                                                    url,
+                                                                                const pageX =
                                                                                     event
                                                                                         .nativeEvent
-                                                                                        .locationX,
-                                                                                    false,
+                                                                                        .pageX;
+                                                                                const pageY =
+                                                                                    event
+                                                                                        .nativeEvent
+                                                                                        .pageY;
+                                                                                audioWaveLongPressTriggeredRef.current = false;
+                                                                                clearAudioWaveLongPressTimer();
+                                                                                audioWaveLongPressTimerRef.current =
+                                                                                    setTimeout(
+                                                                                        () => {
+                                                                                            audioWaveLongPressTriggeredRef.current = true;
+                                                                                            triggerMessageLongPress(
+                                                                                                {
+                                                                                                    nativeEvent:
+                                                                                                        {
+                                                                                                            pageX,
+                                                                                                            pageY,
+                                                                                                        },
+                                                                                                },
+                                                                                            );
+                                                                                        },
+                                                                                        MESSAGE_LONG_PRESS_DELAY_MS,
+                                                                                    );
+                                                                                handleSeekInteractionStart(
+                                                                                    audioKey,
                                                                                 );
                                                                             }}
                                                                             onResponderMove={(
                                                                                 event,
-                                                                            ) =>
+                                                                            ) => {
+                                                                                if (
+                                                                                    audioWaveLongPressTriggeredRef.current
+                                                                                ) {
+                                                                                    return;
+                                                                                }
+                                                                                clearAudioWaveLongPressTimer();
                                                                                 seekAudioByLocation(
                                                                                     audioKey,
                                                                                     url,
@@ -965,11 +1040,19 @@ export const MessageBubble = React.memo(
                                                                                         .nativeEvent
                                                                                         .locationX,
                                                                                     true,
-                                                                                )
-                                                                            }
+                                                                                );
+                                                                            }}
                                                                             onResponderRelease={(
                                                                                 event,
                                                                             ) => {
+                                                                                clearAudioWaveLongPressTimer();
+                                                                                if (
+                                                                                    audioWaveLongPressTriggeredRef.current
+                                                                                ) {
+                                                                                    audioWaveLongPressTriggeredRef.current = false;
+                                                                                    handleSeekInteractionEnd();
+                                                                                    return;
+                                                                                }
                                                                                 seekAudioByLocation(
                                                                                     audioKey,
                                                                                     url,
@@ -980,9 +1063,11 @@ export const MessageBubble = React.memo(
                                                                                 );
                                                                                 handleSeekInteractionEnd();
                                                                             }}
-                                                                            onResponderTerminate={() =>
-                                                                                handleSeekInteractionEnd()
-                                                                            }
+                                                                            onResponderTerminate={() => {
+                                                                                clearAudioWaveLongPressTimer();
+                                                                                audioWaveLongPressTriggeredRef.current = false;
+                                                                                handleSeekInteractionEnd();
+                                                                            }}
                                                                         >
                                                                             {waveBars.map(
                                                                                 (
@@ -1037,7 +1122,7 @@ export const MessageBubble = React.memo(
                                                                                     );
                                                                                 },
                                                                             )}
-                                                                        </View>
+                                                                        </Animated.View>
                                                                         <Text
                                                                             style={[
                                                                                 styles.audioTimeText,
@@ -1080,15 +1165,25 @@ export const MessageBubble = React.memo(
                                                                     !mine &&
                                                                         styles.cardShadow,
                                                                 ]}
-                                                                onPress={() => {
-                                                                    if (
-                                                                        attachment.resolvedUrl
-                                                                    ) {
-                                                                        void Linking.openURL(
-                                                                            attachment.resolvedUrl,
-                                                                        );
-                                                                    }
-                                                                }}
+                                                                delayLongPress={
+                                                                    MESSAGE_LONG_PRESS_DELAY_MS
+                                                                }
+                                                                onLongPress={
+                                                                    triggerMessageLongPress
+                                                                }
+                                                                onPress={() =>
+                                                                    runTapAction(
+                                                                        () => {
+                                                                            if (
+                                                                                attachment.resolvedUrl
+                                                                            ) {
+                                                                                void Linking.openURL(
+                                                                                    attachment.resolvedUrl,
+                                                                                );
+                                                                            }
+                                                                        },
+                                                                    )
+                                                                }
                                                             >
                                                                 <View
                                                                     style={
@@ -1134,6 +1229,36 @@ export const MessageBubble = React.memo(
                                                                             attachment.fileSize,
                                                                         )}
                                                                     </Text>
+                                                                    <Text
+                                                                        style={[
+                                                                            styles.fileSize,
+                                                                            mine &&
+                                                                                styles.fileSizeMine,
+                                                                        ]}
+                                                                    >
+                                                                        {formatFileSize(
+                                                                            attachment.fileSize,
+                                                                        )}
+                                                                    </Text>
+                                                                </View>
+                                                                <View
+                                                                    style={[
+                                                                        styles.fileActionIconWrap,
+                                                                        mine &&
+                                                                            styles.fileActionIconWrapMine,
+                                                                    ]}
+                                                                >
+                                                                    <Ionicons
+                                                                        name="download-outline"
+                                                                        size={
+                                                                            14
+                                                                        }
+                                                                        color={
+                                                                            mine
+                                                                                ? colors.white
+                                                                                : "#475569"
+                                                                        }
+                                                                    />
                                                                 </View>
                                                                 <View
                                                                     style={[
@@ -1587,7 +1712,7 @@ const styles = StyleSheet.create({
     },
     replyPreview: {
         alignSelf: "flex-start",
-        maxWidth: "92%",
+        maxWidth: "100%",
         borderRadius: 13,
         backgroundColor: "rgba(243, 244, 246, 0.92)",
         borderColor: "rgba(203, 213, 225, 0.75)",
@@ -1901,16 +2026,12 @@ const styles = StyleSheet.create({
     callCard: {
         marginTop: 6,
         borderRadius: 14,
-        backgroundColor: "#F8FAFC",
-        paddingHorizontal: 10,
-        paddingVertical: 10,
-        borderWidth: 1,
-        borderColor: "#E2E8F0",
+        backgroundColor: "transparent",
+        paddingHorizontal: 0,
+        paddingVertical: 0,
+        borderWidth: 0,
     },
-    callCardMine: {
-        backgroundColor: "#1D4ED8",
-        borderColor: "rgba(255,255,255,0.28)",
-    },
+    callCardMine: {},
     callMainRow: {
         flexDirection: "row",
         alignItems: "center",
@@ -1928,7 +2049,7 @@ const styles = StyleSheet.create({
     },
     callMeta: {
         marginLeft: 8,
-        flex: 1,
+        flexShrink: 1,
         minWidth: 0,
     },
     callTitle: {

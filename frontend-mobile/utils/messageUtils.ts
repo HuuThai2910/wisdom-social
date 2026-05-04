@@ -16,10 +16,46 @@ export const RIGHT_SCROLL_CUE_MARGIN = 8;
 export const JUMP_SCROLL_LOCK_MS = 1500;
 export const JUMP_AUTO_PAGING_SUPPRESS_MS = 2600;
 export const QUICK_EMOJIS = [
-    "😀", "😂", "😍", "🥰", "😘", "😊", "😉", "😎", "😭", "😡",
-    "😮", "🤔", "🙏", "👍", "👎", "👏", "🔥", "💯", "🎉", "❤️",
-    "💙", "💚", "💛", "🧡", "💜", "🤍", "🤎", "💔", "✨", "🌟",
-    "😴", "🤯", "😅", "😇", "🤗", "😋", "🙌", "👌", "🤝", "🎵",
+    "😀",
+    "😂",
+    "😍",
+    "🥰",
+    "😘",
+    "😊",
+    "😉",
+    "😎",
+    "😭",
+    "😡",
+    "😮",
+    "🤔",
+    "🙏",
+    "👍",
+    "👎",
+    "👏",
+    "🔥",
+    "💯",
+    "🎉",
+    "❤️",
+    "💙",
+    "💚",
+    "💛",
+    "🧡",
+    "💜",
+    "🤍",
+    "🤎",
+    "💔",
+    "✨",
+    "🌟",
+    "😴",
+    "🤯",
+    "😅",
+    "😇",
+    "🤗",
+    "😋",
+    "🙌",
+    "👌",
+    "🤝",
+    "🎵",
 ];
 
 export type ContextMenuState = {
@@ -206,7 +242,16 @@ export function getFileBadgeLabel(fileName?: string): string {
 }
 
 export function resolvePinSystemPreview(message: Message): string {
+    let content = "";
+    if (message.replyInfo?.type === "VIDEO") {
+        content = "1 tin nhắn video";
+    }
+    if (message.replyInfo?.type === "IMAGE") {
+        content = "1 tin nhắn ảnh";
+    }
+
     const source =
+        content ||
         message.replyInfo?.content ||
         message.content ||
         message.attachments?.[0]?.fileName ||
