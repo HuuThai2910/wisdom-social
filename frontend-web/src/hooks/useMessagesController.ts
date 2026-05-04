@@ -1,122 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import chatService, {
-    type Conversation,
-    type MessageType,
-} from "../services/chatService";
+import chatService, { type Conversation } from "../services/chatService";
 import websocketService, {
     type ConversationSnapshot,
     type LastMessageUpdate,
 } from "../services/websocket";
-import { DEFAULT_AVATAR_URL, DEFAULT_GROUP_AVATAR_URL } from "../constants/ui";
 import { useAuth } from "../contexts/AuthContext";
 import chatRuntimeStore from "../stores/chatRuntimeStore";
-
-/**
- * parseOptionalInt
- * - Nhận vào string (thường lấy từ URL params) và convert sang number.
- * - Trả về null nếu value rỗng/undefined hoặc không phải số hợp lệ.
- */
-function parseOptionalInt(value: string | undefined): number | null {
-    if (!value) return null;
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-}
-
-function sortConversationsByLastMessageAt(
-    conversationList: Conversation[],
-): Conversation[] {
-    return [...conversationList].sort((a, b) => {
-        const timeA = a.lastMessage?.lastMessageAt
-            ? new Date(a.lastMessage.lastMessageAt).getTime()
-            : a.updatedAt
-              ? new Date(a.updatedAt).getTime()
-              : 0;
-        const timeB = b.lastMessage?.lastMessageAt
-            ? new Date(b.lastMessage.lastMessageAt).getTime()
-            : b.updatedAt
-              ? new Date(b.updatedAt).getTime()
-              : 0;
-        return timeB - timeA;
-    });
-}
-
-const GROUP_SYSTEM_SYNC_TYPES = new Set<MessageType>([
-    "SYSTEM_CREATE_GROUP",
-    "SYSTEM_ADD_MEMBER",
-    "SYSTEM_UPDATE_ROLE",
-    "SYSTEM_KICK_MEMBER",
-    "SYSTEM_LEAVE_GROUP",
-    "SYSTEM_DISBAND_GROUP",
-]);
-
-function safeParseMemberIds(content: string): number[] {
-    if (!content) return [];
-
-    try {
-        const parsed = JSON.parse(content);
-        if (!Array.isArray(parsed)) return [];
-        return parsed
-            .map((value) => {
-                if (typeof value === "object" && value !== null && "id" in value) {
-                    return Number(value.id);
-                }
-                return Number(value);
-            })
-            .filter((value) => Number.isFinite(value));
-    } catch {
-        return [];
-    }
-}
-
-function resolveReadOnlyNoticeFromConversation(
-    conversation: Conversation | ConversationSnapshot | undefined,
-    currentUserId: number,
-): string | null {
-    if (!conversation || conversation.type !== "GROUP") return null;
-
-    const currentMember = (conversation.members ?? []).find(
-        (member) => Number(member.userId) === Number(currentUserId),
-    );
-    if (!currentMember) return null;
-
-    if (currentMember.status === "KICKED") {
-        return "Bạn đã bị xóa khỏi nhóm.";
-    }
-    if (currentMember.status === "LEFT") {
-        return "Bạn đã rời khỏi nhóm.";
-    }
-    if (currentMember.status === "GROUP_DISBANDED") {
-        return "Nhóm đã bị giải tán.";
-    }
-
-    return null;
-}
-
-function resolveReadOnlyNoticeFromLastMessage(
-    lastMessage: LastMessageUpdate,
-    currentUserId: number,
-): string | null {
-    if (lastMessage.lastMessageType === "SYSTEM_DISBAND_GROUP") {
-        return "Nhóm đã bị giải tán.";
-    }
-
-    if (lastMessage.lastMessageType === "SYSTEM_LEAVE_GROUP") {
-        if (Number(lastMessage.lastSenderId) === Number(currentUserId)) {
-            return "Bạn đã rời khỏi nhóm.";
-        }
-        return null;
-    }
-
-    if (lastMessage.lastMessageType === "SYSTEM_KICK_MEMBER") {
-        const targetIds = safeParseMemberIds(lastMessage.lastMessageContent);
-        if (targetIds.some((id) => Number(id) === Number(currentUserId))) {
-            return "Bạn đã bị xóa khỏi nhóm.";
-        }
-    }
-
-    return null;
-}
+import {
+    formatConversationTime,
+    getConversationDisplayInfo,
+    GROUP_SYSTEM_SYNC_TYPES,
+    parseOptionalInt,
+    resolveReadOnlyNoticeFromConversation,
+    resolveReadOnlyNoticeFromLastMessage,
+    safeParseMemberIds,
+    sortConversationsByLastMessageAt,
+} from "../utils/messagesControllerUtils";
 
 /**
  * useMessagesController
@@ -331,17 +231,34 @@ export function useMessagesController() {
                     return next;
                 });
             })
-            .catch((error: any) => {
+            .catch((error: unknown) => {
                 if (isCancelled) return;
                 
                 // Nếu fetch detail trả về 403, nghĩa là user đã rời/bị kick khỏi nhóm
                 // và backend không cho phép truy cập detail nữa.
                 // Chúng ta phải set notice để UI chat window hiện khóa,
                 // và ĐẶC BIỆT để sau này khi websocket mở khóa, nó tạo ra sự thay đổi state (từ có lỗi -> null).
-                if (error?.response?.status === 403) {
-                    const data = error.response.data;
+                const response =
+                    error &&
+                    typeof error === "object" &&
+                    "response" in error
+                        ? (error as {
+                              response?: { status?: number; data?: unknown };
+                          }).response
+                        : undefined;
+
+                if (response?.status === 403) {
+                    const data =
+                        response.data &&
+                        typeof response.data === "object"
+                            ? (response.data as Record<string, unknown>)
+                            : null;
+                    const nestedData =
+                        data?.data && typeof data.data === "object"
+                            ? (data.data as Record<string, unknown>)
+                            : null;
                     const directMessage = typeof data?.message === "string" ? data.message : null;
-                    const nestedMessage = data?.data && typeof data.data.message === "string" ? data.data.message : null;
+                    const nestedMessage = typeof nestedData?.message === "string" ? nestedData.message : null;
                     const springMessage = typeof data?.error === "string" ? data.error : null;
                     const finalServerMsg = directMessage || nestedMessage || springMessage;
                     
@@ -701,50 +618,17 @@ export function useMessagesController() {
         });
     }, [conversations, searchQuery]);
 
-    const getDisplayInfo = useCallback((conv: Conversation) => {
-        const resolvedName =
-            conv.name?.trim() ||
-            (conv.type === "GROUP" ? "Nhóm chat" : "Người dùng");
-        const resolvedAvatar = conv.imageUrl?.trim() || null;
-
-        const fallbackAvatarUrl =
-            conv.type === "GROUP"
-                ? DEFAULT_GROUP_AVATAR_URL
-                : DEFAULT_AVATAR_URL;
-
-        return {
-            name: resolvedName,
-            avatar: resolvedAvatar,
-            fallbackAvatar: fallbackAvatarUrl,
-            compositeAvatars: [],
-            hasCompositeAvatar: false,
-        };
-    }, []);
+    const getDisplayInfo = useCallback(
+        (conv: Conversation) => {
+            return getConversationDisplayInfo(conv, currentUserId);
+        },
+        [currentUserId],
+    );
 
     const formatTime = useCallback((dateString: string) => {
         // Format thời gian kiểu "now / 5m / 2h / 3d / 27 thg 1".
         // UI dùng format ngắn để giống các app chat phổ biến.
-        const date = new Date(dateString);
-        const now = new Date();
-        const diffInHours = Math.floor(
-            (now.getTime() - date.getTime()) / (1000 * 60 * 60),
-        );
-
-        if (diffInHours < 1) {
-            const diffInMinutes = Math.floor(
-                (now.getTime() - date.getTime()) / (1000 * 60),
-            );
-            return diffInMinutes < 1 ? "now" : `${diffInMinutes}m`;
-        }
-        if (diffInHours < 24) return `${diffInHours}h`;
-
-        const diffInDays = Math.floor(diffInHours / 24);
-        if (diffInDays < 7) return `${diffInDays}d`;
-
-        return date.toLocaleDateString("vi-VN", {
-            month: "short",
-            day: "numeric",
-        });
+        return formatConversationTime(dateString);
     }, []);
 
     // Xóa cuộc trò chuyện ở phía tôi (xóa khỏi danh sách sidebar)
