@@ -14,9 +14,10 @@
             }
         },
         "android": {
+            "package": "com.nguyentinh.frontendmobile",
             "edgeToEdgeEnabled": true,
             "predictiveBackGestureEnabled": false,
-            "permissions": ["CAMERA"]
+            "permissions": ["CAMERA", "RECORD_AUDIO","WAKE_LOCK"]
         },
         "web": {
             "output": "static"
