@@ -1,11 +1,11 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
     View,
     Text,
     StyleSheet,
     ScrollView,
-    TouchableOpacity,
     TextInput,
+    TouchableOpacity,
     ActivityIndicator,
     Alert,
     KeyboardAvoidingView,
@@ -14,11 +14,11 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { colors, spacing } from "@/constants";
+import { colors } from "@/constants";
 import pageService from "@/services/pageService";
-import type { CreatePageRequest, PageStatus } from "@/services/pageService";
+import type { PageStatus } from "@/services/pageService";
 
 const STATUS_OPTIONS: { label: string; value: PageStatus; icon: string }[] = [
     { label: "Công khai", value: "PUBLIC", icon: "earth-outline" },
@@ -31,34 +31,51 @@ const CATEGORIES = [
     "Nghệ thuật", "Sức khỏe", "Thời trang", "Khác",
 ];
 
-export default function CreatePageScreen() {
+export default function PageEditScreen() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
+    const { pageId } = useLocalSearchParams<{ pageId?: string }>();
+    const numericPageId = Number(pageId ?? 0);
 
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [name, setName] = useState("");
+    const [username, setUsername] = useState("");
+    const [description, setDescription] = useState("");
+    const [category, setCategory] = useState("");
+    const [phone, setPhone] = useState("");
+    const [email, setEmail] = useState("");
+    const [website, setWebsite] = useState("");
+    const [address, setAddress] = useState("");
+    const [status, setStatus] = useState<PageStatus>("PUBLIC");
+
     const [avatarLocalUri, setAvatarLocalUri] = useState("");
-    const [isUploadingCover, setIsUploadingCover] = useState(false);
     const [coverLocalUri, setCoverLocalUri] = useState("");
+    const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+    const [isUploadingCover, setIsUploadingCover] = useState(false);
     const [pendingAvatarAsset, setPendingAvatarAsset] = useState<{ uri: string; mimeType: string; extension: string } | null>(null);
     const [pendingCoverAsset, setPendingCoverAsset] = useState<{ uri: string; mimeType: string; extension: string } | null>(null);
-    const [form, setForm] = useState<CreatePageRequest>({
-        name: "",
-        username: "",
-        category: "",
-        description: "",
-        avatarUrl: "",
-        coverUrl: "",
-        phone: "",
-        email: "",
-        website: "",
-        address: "",
-        status: "PUBLIC",
-    });
+    const [existingAvatarUrl, setExistingAvatarUrl] = useState("");
+    const [existingCoverUrl, setExistingCoverUrl] = useState("");
 
-    const update = (key: keyof CreatePageRequest, value: string) => {
-        setForm(f => ({ ...f, [key]: value }));
-    };
+    useEffect(() => {
+        if (!numericPageId) return;
+        pageService.findPageById(numericPageId).then(page => {
+            if (page) {
+                setName(page.name ?? "");
+                setUsername(page.username ?? "");
+                setDescription(page.description ?? "");
+                setCategory(page.category ?? "");
+                setPhone(page.phone ?? "");
+                setEmail(page.email ?? "");
+                setWebsite(page.website ?? "");
+                setAddress(page.address ?? "");
+                setStatus(page.status ?? "PUBLIC");
+                setExistingAvatarUrl(page.avatarUrl ?? "");
+                setExistingCoverUrl(page.coverUrl ?? "");
+            }
+        }).finally(() => setLoading(false));
+    }, [numericPageId]);
 
     const pickAvatarImage = async () => {
         const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -66,10 +83,7 @@ export default function CreatePageScreen() {
             Alert.alert("Quyền truy cập", "Cần quyền truy cập thư viện ảnh để chọn ảnh.");
             return;
         }
-        const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ["images"],
-            quality: 0.8,
-        });
+        const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.8 });
         if (result.canceled || !result.assets[0]) return;
         const asset = result.assets[0];
         const mimeType = asset.mimeType ?? "image/jpeg";
@@ -84,10 +98,7 @@ export default function CreatePageScreen() {
             Alert.alert("Quyền truy cập", "Cần quyền truy cập thư viện ảnh để chọn ảnh.");
             return;
         }
-        const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ["images"],
-            quality: 0.8,
-        });
+        const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.8 });
         if (result.canceled || !result.assets[0]) return;
         const asset = result.assets[0];
         const mimeType = asset.mimeType ?? "image/jpeg";
@@ -96,15 +107,15 @@ export default function CreatePageScreen() {
         setPendingCoverAsset({ uri: asset.uri, mimeType, extension });
     };
 
-    const handleSubmit = async () => {
-        if (!form.name?.trim()) {
+    const handleSave = async () => {
+        if (!name.trim()) {
             Alert.alert("Thiếu thông tin", "Vui lòng nhập tên trang.");
             return;
         }
-        setIsSubmitting(true);
+        setSaving(true);
         try {
-            let finalAvatarUrl = form.avatarUrl;
-            let finalCoverUrl = form.coverUrl;
+            let finalAvatarUrl: string | undefined = existingAvatarUrl || undefined;
+            let finalCoverUrl: string | undefined = existingCoverUrl || undefined;
 
             if (pendingAvatarAsset) {
                 setIsUploadingAvatar(true);
@@ -136,19 +147,46 @@ export default function CreatePageScreen() {
                 setIsUploadingCover(false);
             }
 
-            await pageService.createPage({ ...form, avatarUrl: finalAvatarUrl, coverUrl: finalCoverUrl });
-            Alert.alert("Thành công", "Đã tạo trang mới!", [
-                { text: "OK", onPress: () => router.back() },
-            ]);
+            const ok = await pageService.updatePage(numericPageId, {
+                name: name.trim(),
+                username: username.trim() || undefined,
+                description: description.trim() || undefined,
+                category: category.trim() || undefined,
+                phone: phone.trim() || undefined,
+                email: email.trim() || undefined,
+                website: website.trim() || undefined,
+                address: address.trim() || undefined,
+                status,
+                avatarUrl: finalAvatarUrl,
+                coverUrl: finalCoverUrl,
+            });
+            if (ok) {
+                Alert.alert("Thành công", "Đã cập nhật trang.", [
+                    { text: "OK", onPress: () => router.back() },
+                ]);
+            } else {
+                Alert.alert("Lỗi", "Không thể cập nhật trang. Vui lòng thử lại.");
+            }
         } catch (err: any) {
-            const msg = err?.response?.data?.message || err?.message || "Không thể tạo trang. Vui lòng thử lại.";
+            const msg = err?.response?.data?.message || err?.message || "Không thể cập nhật trang.";
             Alert.alert("Lỗi", msg);
         } finally {
-            setIsSubmitting(false);
+            setSaving(false);
             setIsUploadingAvatar(false);
             setIsUploadingCover(false);
         }
     };
+
+    if (loading) {
+        return (
+            <View style={[styles.container, styles.center, { paddingTop: insets.top }]}>
+                <ActivityIndicator size="large" color={colors.primary} />
+            </View>
+        );
+    }
+
+    const avatarSource = avatarLocalUri || existingAvatarUrl;
+    const coverSource = coverLocalUri || existingCoverUrl;
 
     return (
         <KeyboardAvoidingView
@@ -157,19 +195,19 @@ export default function CreatePageScreen() {
         >
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => router.back()} hitSlop={12}>
-                    <Ionicons name="close" size={24} color={colors.text} />
+                    <Ionicons name="arrow-back" size={24} color={colors.text} />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>Tạo trang mới</Text>
+                <Text style={styles.headerTitle}>Chỉnh sửa trang</Text>
                 <TouchableOpacity
-                    onPress={handleSubmit}
-                    disabled={isSubmitting || !form.name?.trim()}
-                    style={[styles.submitBtn, (!form.name?.trim() || isSubmitting) && styles.submitBtnDisabled]}
+                    onPress={handleSave}
+                    disabled={saving || !name.trim()}
+                    style={[styles.saveBtn, (!name.trim() || saving) && styles.saveBtnDisabled]}
                     activeOpacity={0.7}
                 >
-                    {isSubmitting ? (
+                    {saving ? (
                         <ActivityIndicator size="small" color={colors.white} />
                     ) : (
-                        <Text style={styles.submitBtnText}>Tạo</Text>
+                        <Text style={styles.saveBtnText}>Lưu</Text>
                     )}
                 </TouchableOpacity>
             </View>
@@ -180,28 +218,17 @@ export default function CreatePageScreen() {
                 showsVerticalScrollIndicator={false}
             >
                 <SectionLabel label="Thông tin cơ bản" />
-                <Field
-                    label="Tên trang *"
-                    value={form.name || ""}
-                    onChange={v => update("name", v)}
-                    placeholder="Nhập tên trang"
-                />
-                <Field
-                    label="Username"
-                    value={form.username || ""}
-                    onChange={v => update("username", v)}
-                    placeholder="VD: my-awesome-page"
-                    autoCapitalize="none"
-                />
+                <Field label="Tên trang *" value={name} onChange={setName} placeholder="Nhập tên trang" />
+                <Field label="Username" value={username} onChange={setUsername} placeholder="@username" autoCapitalize="none" />
 
                 <Text style={styles.fieldLabel}>Danh mục</Text>
                 <View style={styles.chipRow}>
                     {CATEGORIES.map(cat => {
-                        const active = form.category === cat;
+                        const active = category === cat;
                         return (
                             <TouchableOpacity
                                 key={cat}
-                                onPress={() => update("category", active ? "" : cat)}
+                                onPress={() => setCategory(active ? "" : cat)}
                                 style={[styles.chip, active && styles.chipActive]}
                                 activeOpacity={0.7}
                             >
@@ -211,22 +238,16 @@ export default function CreatePageScreen() {
                     })}
                 </View>
 
-                <Field
-                    label="Mô tả"
-                    value={form.description || ""}
-                    onChange={v => update("description", v)}
-                    placeholder="Mô tả ngắn về trang"
-                    multiline
-                />
+                <Field label="Mô tả" value={description} onChange={setDescription} placeholder="Giới thiệu về trang..." multiline />
 
                 <SectionLabel label="Quyền riêng tư" />
                 <View style={{ flexDirection: "row", gap: 12, marginBottom: 4 }}>
                     {STATUS_OPTIONS.map(opt => {
-                        const active = form.status === opt.value;
+                        const active = status === opt.value;
                         return (
                             <TouchableOpacity
                                 key={opt.value}
-                                onPress={() => update("status", opt.value)}
+                                onPress={() => setStatus(opt.value)}
                                 style={[styles.statusCard, active && styles.statusCardActive]}
                                 activeOpacity={0.7}
                             >
@@ -251,13 +272,13 @@ export default function CreatePageScreen() {
                 >
                     {isUploadingAvatar ? (
                         <ActivityIndicator size="small" color={colors.primary} />
-                    ) : avatarLocalUri ? (
-                        <Image source={{ uri: avatarLocalUri }} style={styles.avatarPreview} />
+                    ) : avatarSource ? (
+                        <Image source={{ uri: avatarSource }} style={styles.avatarPreview} />
                     ) : (
                         <Ionicons name="camera-outline" size={28} color={colors.textMuted} />
                     )}
-                    <Text style={[styles.imagePickerLabel, avatarLocalUri ? { color: colors.primary } : {}]}>
-                        {isUploadingAvatar ? "Đang tải lên..." : avatarLocalUri ? "Đổi ảnh" : "Chọn ảnh"}
+                    <Text style={[styles.imagePickerLabel, avatarSource ? { color: colors.primary } : {}]}>
+                        {isUploadingAvatar ? "Đang tải lên..." : avatarSource ? "Đổi ảnh" : "Chọn ảnh"}
                     </Text>
                 </TouchableOpacity>
 
@@ -270,21 +291,21 @@ export default function CreatePageScreen() {
                 >
                     {isUploadingCover ? (
                         <ActivityIndicator size="small" color={colors.primary} />
-                    ) : coverLocalUri ? (
-                        <Image source={{ uri: coverLocalUri }} style={styles.coverPreview} />
+                    ) : coverSource ? (
+                        <Image source={{ uri: coverSource }} style={styles.coverPreview} />
                     ) : (
                         <Ionicons name="image-outline" size={28} color={colors.textMuted} />
                     )}
-                    <Text style={[styles.imagePickerLabel, coverLocalUri ? { color: colors.primary } : {}]}>
-                        {isUploadingCover ? "Đang tải lên..." : coverLocalUri ? "Đổi ảnh bìa" : "Chọn ảnh bìa"}
+                    <Text style={[styles.imagePickerLabel, coverSource ? { color: colors.primary } : {}]}>
+                        {isUploadingCover ? "Đang tải lên..." : coverSource ? "Đổi ảnh bìa" : "Chọn ảnh bìa"}
                     </Text>
                 </TouchableOpacity>
 
                 <SectionLabel label="Liên hệ (tùy chọn)" />
-                <Field label="Điện thoại" value={form.phone || ""} onChange={v => update("phone", v)} placeholder="+84..." />
-                <Field label="Email" value={form.email || ""} onChange={v => update("email", v)} placeholder="page@example.com" autoCapitalize="none" />
-                <Field label="Website" value={form.website || ""} onChange={v => update("website", v)} placeholder="https://..." autoCapitalize="none" />
-                <Field label="Địa chỉ" value={form.address || ""} onChange={v => update("address", v)} placeholder="Địa chỉ..." />
+                <Field label="Số điện thoại" value={phone} onChange={setPhone} placeholder="0912345678" />
+                <Field label="Email" value={email} onChange={setEmail} placeholder="contact@example.com" autoCapitalize="none" />
+                <Field label="Website" value={website} onChange={setWebsite} placeholder="https://example.com" autoCapitalize="none" />
+                <Field label="Địa chỉ" value={address} onChange={setAddress} placeholder="Địa chỉ trang" />
             </ScrollView>
         </KeyboardAvoidingView>
     );
@@ -337,6 +358,7 @@ function Field({ label, value, onChange, placeholder, multiline, autoCapitalize 
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
+    center: { justifyContent: "center", alignItems: "center" },
     header: {
         flexDirection: "row",
         alignItems: "center",
@@ -348,7 +370,7 @@ const styles = StyleSheet.create({
         borderBottomColor: colors.border,
     },
     headerTitle: { fontSize: 18, fontWeight: "700", color: colors.text },
-    submitBtn: {
+    saveBtn: {
         paddingHorizontal: 20,
         paddingVertical: 10,
         borderRadius: 12,
@@ -356,8 +378,8 @@ const styles = StyleSheet.create({
         minWidth: 60,
         alignItems: "center",
     },
-    submitBtnDisabled: { opacity: 0.5 },
-    submitBtnText: { fontSize: 15, fontWeight: "700", color: colors.white },
+    saveBtnDisabled: { opacity: 0.5 },
+    saveBtnText: { fontSize: 15, fontWeight: "700", color: colors.white },
 
     fieldLabel: { fontSize: 13, fontWeight: "600", color: colors.textMuted, marginBottom: 8 },
     chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 },

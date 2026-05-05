@@ -7,6 +7,7 @@ import {
     TouchableOpacity,
     ActivityIndicator,
     Alert,
+    Image,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -15,7 +16,16 @@ import { colors } from "@/constants";
 import { useAppContext } from "@/context/AppContext";
 import friendService from "@/services/friendService";
 import blockService from "@/services/blockService";
+import userService from "@/services/userService";
 import { useFriendNotifications } from "@/hooks/useFriendNotifications";
+import type { User } from "@/services/userService";
+
+const S3_BASE = "https://cnmt-hk1-amz.s3.ap-southeast-1.amazonaws.com/";
+const toImageUrl = (url?: string): string | undefined => {
+    if (!url) return undefined;
+    if (url.startsWith("http") || url.startsWith("file://") || url.startsWith("content://")) return url;
+    return S3_BASE + url;
+};
 
 type FriendStatus = "NONE" | "SENT" | "RECEIVED" | "FRIEND" | "BLOCKED";
 
@@ -37,6 +47,20 @@ export default function UserProfileScreen() {
         () => !!userId && !!currentUser?.id && Number(userId) === Number(currentUser.id),
         [userId, currentUser?.id],
     );
+
+    const [profileUser, setProfileUser] = useState<User | null>(null);
+    const [profileLoading, setProfileLoading] = useState(true);
+
+    const loadProfile = useCallback(async () => {
+        const id = isOwnProfile ? currentUser?.id : userId;
+        if (!id) { setProfileLoading(false); return; }
+        try {
+            const user = await userService.getUserProfile(id);
+            setProfileUser(user);
+        } finally {
+            setProfileLoading(false);
+        }
+    }, [userId, isOwnProfile, currentUser?.id]);
 
     // Load friend status from API
     const loadFriendStatus = useCallback(async () => {
@@ -65,9 +89,10 @@ export default function UserProfileScreen() {
     const refreshTrigger = useFriendNotifications();
 
     useEffect(() => {
+        void loadProfile();
         void loadFriendStatus();
         void loadFriendsCount();
-    }, [loadFriendStatus, loadFriendsCount, refreshTrigger]);
+    }, [loadProfile, loadFriendStatus, loadFriendsCount, refreshTrigger]);
 
     // --- Friend action handlers ---
     const handleSendRequest = async () => {
@@ -251,7 +276,7 @@ export default function UserProfileScreen() {
                 <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
                     <Ionicons name="arrow-back" size={24} color={colors.text} />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>Hồ sơ</Text>
+                <Text style={styles.headerTitle}>{profileUser?.username || "Hồ sơ"}</Text>
                 {!isOwnProfile && (
                     <TouchableOpacity style={styles.menuButton} onPress={handleBlock}>
                         <Ionicons name="ellipsis-vertical" size={24} color={colors.text} />
@@ -263,21 +288,30 @@ export default function UserProfileScreen() {
             <ScrollView showsVerticalScrollIndicator={false}>
                 {/* Avatar Section */}
                 <View style={styles.profileHeader}>
-                    <View style={styles.avatarContainer}>
-                        <View style={[styles.avatar, { backgroundColor: colors.surface }]}>
-                            <Ionicons name="person" size={50} color={colors.primary} />
-                        </View>
-                        <View style={styles.onlineDot} />
-                    </View>
+                    {profileLoading ? (
+                        <ActivityIndicator size="large" color={colors.primary} style={{ marginVertical: 24 }} />
+                    ) : (
+                        <>
+                            <View style={styles.avatarContainer}>
+                                {profileUser?.avatarUrl ? (
+                                    <Image source={{ uri: toImageUrl(profileUser.avatarUrl) }} style={styles.avatar} />
+                                ) : (
+                                    <View style={[styles.avatar, { backgroundColor: colors.surface, alignItems: "center", justifyContent: "center" }]}>
+                                        <Ionicons name="person" size={50} color={colors.primary} />
+                                    </View>
+                                )}
+                            </View>
 
-                    <Text style={styles.name}>John Doe</Text>
-                    <Text style={styles.username}>@johndoe</Text>
-                    <Text style={styles.bio}>Yêu thích công nghệ và du lịch</Text>
+                            <Text style={styles.name}>{profileUser?.name || profileUser?.fullName || profileUser?.username || "—"}</Text>
+                            {profileUser?.username && <Text style={styles.username}>@{profileUser.username}</Text>}
+                            {profileUser?.bio ? <Text style={styles.bio}>{profileUser.bio}</Text> : null}
+                        </>
+                    )}
 
                     {/* Stats */}
                     <View style={styles.statsContainer}>
                         <View style={styles.statItem}>
-                            <Text style={styles.statNumber}>125</Text>
+                            <Text style={styles.statNumber}>{profileUser?.postsCount ?? "—"}</Text>
                             <Text style={styles.statLabel}>Bài viết</Text>
                         </View>
                         <TouchableOpacity
@@ -295,7 +329,7 @@ export default function UserProfileScreen() {
                             <Text style={styles.statLabel}>Bạn bè</Text>
                         </TouchableOpacity>
                         <View style={styles.statItem}>
-                            <Text style={styles.statNumber}>450</Text>
+                            <Text style={styles.statNumber}>{profileUser?.following ?? "—"}</Text>
                             <Text style={styles.statLabel}>Đang theo dõi</Text>
                         </View>
                     </View>
@@ -402,17 +436,6 @@ const styles = StyleSheet.create({
         borderRadius: 50,
         alignItems: "center",
         justifyContent: "center",
-    },
-    onlineDot: {
-        position: "absolute",
-        bottom: 0,
-        right: 0,
-        width: 20,
-        height: 20,
-        borderRadius: 10,
-        backgroundColor: colors.success,
-        borderWidth: 3,
-        borderColor: colors.background,
     },
     name: {
         fontSize: 18,

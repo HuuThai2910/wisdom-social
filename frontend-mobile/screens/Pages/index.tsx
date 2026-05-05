@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
     View,
     Text,
@@ -6,61 +6,112 @@ import {
     FlatList,
     TouchableOpacity,
     RefreshControl,
+    ActivityIndicator,
+    Image,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors, spacing } from "@/constants";
-
-interface PageItem {
-    id: number;
-    name: string;
-    username: string;
-    avatar?: string;
-    description?: string;
-    followCount: number;
-    memberCount: number;
-}
-
-const MOCK_PAGES: PageItem[] = [
-    {
-        id: 1,
-        name: "Tech News",
-        username: "technews",
-        description: "Công nghệ hàng ngày",
-        followCount: 1250,
-        memberCount: 450,
-    },
-    {
-        id: 2,
-        name: "Food Lovers",
-        username: "foodlovers",
-        description: "Chia sẻ công thức nấu ăn",
-        followCount: 980,
-        memberCount: 320,
-    },
-    {
-        id: 3,
-        name: "Travel Tips",
-        username: "traveltips",
-        description: "Du lịch khám phá thế giới",
-        followCount: 2100,
-        memberCount: 750,
-    },
-];
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { colors } from "@/constants";
+import { useAppContext } from "@/context/AppContext";
+import pageService, { PageData } from "@/services/pageService";
 
 export default function PagesScreen() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
+    const { currentUser } = useAppContext();
     const [activeTab, setActiveTab] = useState<"discover" | "my-pages">("discover");
+    const [pages, setPages] = useState<PageData[]>([]);
+    const [loading, setLoading] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
 
-    const onRefresh = () => {
+    const loadData = useCallback(async () => {
+        setLoading(true);
+        try {
+            const data =
+                activeTab === "discover"
+                    ? await pageService.getAllPages()
+                    : await pageService.getMyPages();
+            setPages(data);
+        } finally {
+            setLoading(false);
+        }
+    }, [activeTab]);
+
+    useEffect(() => {
+        void loadData();
+    }, [loadData]);
+
+    const onRefresh = async () => {
         setRefreshing(true);
-        setTimeout(() => setRefreshing(false), 1000);
+        try {
+            const data =
+                activeTab === "discover"
+                    ? await pageService.getAllPages()
+                    : await pageService.getMyPages();
+            setPages(data);
+        } finally {
+            setRefreshing(false);
+        }
     };
 
-    const displayPages = activeTab === "discover" ? MOCK_PAGES : MOCK_PAGES.slice(0, 2);
+    const handleFollow = async (page: PageData) => {
+        if (!currentUser?.id) return;
+        await pageService.followPage(Number(currentUser.id), page.id);
+    };
+
+    const renderItem = ({ item }: { item: PageData }) => {
+        const raw = item as PageData & { memberCount?: number; followCount?: number };
+        return (
+            <TouchableOpacity
+                style={styles.pageCard}
+                onPress={() =>
+                    router.push({
+                        pathname: "/(stack)/page-detail",
+                        params: { pageId: String(item.id) },
+                    })
+                }
+            >
+                <View style={styles.avatarWrap}>
+                    {item.avatarUrl ? (
+                        <Image source={{ uri: item.avatarUrl }} style={styles.avatarImg} />
+                    ) : (
+                        <Ionicons name="storefront" size={32} color={colors.primary} />
+                    )}
+                </View>
+
+                <View style={styles.pageInfo}>
+                    <Text style={styles.pageName} numberOfLines={1}>{item.name}</Text>
+                    {item.username && (
+                        <Text style={styles.pageUsername}>@{item.username}</Text>
+                    )}
+                    {item.description ? (
+                        <Text style={styles.pageDesc} numberOfLines={1}>
+                            {item.description}
+                        </Text>
+                    ) : null}
+                    <View style={styles.statsRow}>
+                        {raw.memberCount !== undefined && (
+                            <Text style={styles.statText}>👥 {raw.memberCount}</Text>
+                        )}
+                        {raw.followCount !== undefined && (
+                            <Text style={styles.statText}>🔔 {raw.followCount}</Text>
+                        )}
+                        {item.status === "PRIVATE" && (
+                            <Text style={styles.statText}>🔒 Riêng tư</Text>
+                        )}
+                    </View>
+                </View>
+
+                <TouchableOpacity
+                    style={styles.followBtn}
+                    onPress={() => handleFollow(item)}
+                >
+                    <Ionicons name="add-outline" size={20} color={colors.primary} />
+                </TouchableOpacity>
+            </TouchableOpacity>
+        );
+    };
 
     return (
         <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -69,7 +120,10 @@ export default function PagesScreen() {
                     <Ionicons name="arrow-back" size={24} color={colors.text} />
                 </TouchableOpacity>
                 <Text style={styles.headerTitle}>Trang</Text>
-                <TouchableOpacity onPress={() => router.push("/(stack)/create-page")} style={styles.createButton}>
+                <TouchableOpacity
+                    onPress={() => router.push("/(stack)/create-page")}
+                    style={styles.createButton}
+                >
                     <Ionicons name="add-circle-outline" size={24} color={colors.primary} />
                 </TouchableOpacity>
             </View>
@@ -94,45 +148,28 @@ export default function PagesScreen() {
                 </TouchableOpacity>
             </View>
 
-            <FlatList
-                data={displayPages}
-                keyExtractor={(item) => String(item.id)}
-                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-                renderItem={({ item }) => (
-                    <TouchableOpacity
-                        style={styles.pageCard}
-                        onPress={() =>
-                            router.push({
-                                pathname: "/(stack)/page-detail",
-                                params: { pageId: String(item.id) },
-                            })
-                        }
-                    >
-                        <View style={styles.avatar}>
-                            <Ionicons name="storefront" size={32} color={colors.primary} />
+            {loading && !refreshing ? (
+                <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color={colors.primary} />
+                </View>
+            ) : (
+                <FlatList
+                    data={pages}
+                    keyExtractor={(item) => String(item.id)}
+                    renderItem={renderItem}
+                    refreshControl={
+                        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+                    }
+                    ListEmptyComponent={
+                        <View style={styles.emptyContainer}>
+                            <Ionicons name="storefront-outline" size={60} color="#D1D5DB" />
+                            <Text style={styles.emptyText}>
+                                {activeTab === "discover" ? "Không có trang nào" : "Bạn chưa có trang nào"}
+                            </Text>
                         </View>
-
-                        <View style={styles.pageInfo}>
-                            <Text style={styles.pageName}>{item.name}</Text>
-                            <Text style={styles.pageUsername}>@{item.username}</Text>
-                            {item.description && (
-                                <Text style={styles.pageDesc} numberOfLines={1}>
-                                    {item.description}
-                                </Text>
-                            )}
-                            <View style={styles.statsRow}>
-                                <Text style={styles.statText}>👥 {item.memberCount}</Text>
-                                <Text style={styles.statText}>🔔 {item.followCount}</Text>
-                            </View>
-                        </View>
-
-                        <TouchableOpacity style={styles.followBtn}>
-                            <Ionicons name="add-outline" size={20} color={colors.primary} />
-                        </TouchableOpacity>
-                    </TouchableOpacity>
-                )}
-                scrollEnabled={true}
-            />
+                    }
+                />
+            )}
         </View>
     );
 }
@@ -188,6 +225,21 @@ const styles = StyleSheet.create({
         color: colors.primary,
         fontWeight: "600",
     },
+    loadingContainer: {
+        flex: 1,
+        justifyContent: "center",
+        alignItems: "center",
+    },
+    emptyContainer: {
+        flex: 1,
+        alignItems: "center",
+        paddingTop: 80,
+    },
+    emptyText: {
+        marginTop: 16,
+        fontSize: 15,
+        color: colors.textMuted,
+    },
     pageCard: {
         flexDirection: "row",
         alignItems: "center",
@@ -197,7 +249,7 @@ const styles = StyleSheet.create({
         borderBottomWidth: 1,
         borderBottomColor: colors.surface,
     },
-    avatar: {
+    avatarWrap: {
         width: 60,
         height: 60,
         borderRadius: 12,
@@ -205,6 +257,11 @@ const styles = StyleSheet.create({
         alignItems: "center",
         justifyContent: "center",
         marginRight: 12,
+        overflow: "hidden",
+    },
+    avatarImg: {
+        width: 60,
+        height: 60,
     },
     pageInfo: {
         flex: 1,

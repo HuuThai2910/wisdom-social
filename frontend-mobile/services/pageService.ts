@@ -347,6 +347,124 @@ class PageService {
             return false;
         }
     }
+
+    // ── Image upload ──────────────────────────────────────────────────────
+
+    async getUploadUrl(type: string, extension: string): Promise<{ uploadUrl: string; uuid: string; extension: string } | null> {
+        try {
+            const response = await apiClient.get("/page/upload-avatar", { params: { type, extension } });
+            const data = response.data?.data ?? response.data;
+            return {
+                uploadUrl: data.uploadUrl ?? "",
+                uuid: data.uuid ?? "",
+                extension: data.extension ?? extension,
+            };
+        } catch {
+            return null;
+        }
+    }
+
+    // ── Post management ────────────────────────────────────────────────────
+
+    async getPostsWaitingForApproval(pageId: number): Promise<PagePostItem[]> {
+        try {
+            const response = await apiClient.get(`/page/post/waiting-approve/${pageId}`);
+            const data = response.data?.data ?? response.data;
+            return Array.isArray(data) ? data : [];
+        } catch {
+            return [];
+        }
+    }
+
+    async approvePost(userId: number, pageId: number, postId: string): Promise<boolean> {
+        try {
+            const response = await apiClient.post("/page/post/approve", { userId, pageId, postId });
+            return response.status === 200;
+        } catch {
+            return false;
+        }
+    }
+
+    async cancelApprovePost(userId: number, pageId: number, postId: string): Promise<boolean> {
+        try {
+            const response = await apiClient.post("/page/post/cancel-approve", { userId, pageId, postId });
+            return response.status === 200;
+        } catch {
+            return false;
+        }
+    }
+
+    async removePostFromPage(userId: number, pageId: number, postId: string): Promise<boolean> {
+        try {
+            const response = await apiClient.post("/page/post/remove", { userId, pageId, postId });
+            return response.status === 200;
+        } catch {
+            return false;
+        }
+    }
+
+    async getAllPostsOfPage(pageId: number): Promise<any[]> {
+        try {
+            const response = await apiClient.get(`/page/post/all/${pageId}`);
+            const data = response.data?.data ?? response.data;
+            return Array.isArray(data) ? data : [];
+        } catch {
+            return [];
+        }
+    }
+
+    async addPostToPage(
+        pageId: number,
+        postData: { content: string; privacy?: string; allowComments?: boolean; allowShares?: boolean },
+        images?: { uri: string; name: string; type: string }[],
+    ): Promise<boolean> {
+        try {
+            const formData = new FormData();
+            formData.append("postData", JSON.stringify({ privacy: "PUBLIC", allowComments: true, allowShares: true, ...postData }));
+            if (images?.length) {
+                images.forEach(img => formData.append("images", img as any));
+            }
+            const response = await apiClient.post("/page/post/add", formData, {
+                params: { pageId },
+                headers: { "Content-Type": "multipart/form-data" },
+            });
+            return response.status === 200;
+        } catch {
+            return false;
+        }
+    }
+
+    async approveAllPosts(userId: number, pageId: number): Promise<boolean> {
+        try {
+            const response = await apiClient.post("/page/post/approve-all", { userId, pageId });
+            return response.status === 200;
+        } catch {
+            return false;
+        }
+    }
+
+    async cancelAllPosts(userId: number, pageId: number): Promise<boolean> {
+        try {
+            const response = await apiClient.post("/page/post/cancel-all", { userId, pageId });
+            return response.status === 200;
+        } catch {
+            return false;
+        }
+    }
 }
+
+export type PagePostItem = {
+    id: string;
+    content?: string;
+    caption?: string;
+    images?: string[];
+    createdAt?: string;
+    user?: {
+        id?: number;
+        name?: string;
+        username?: string;
+        avatarUrl?: string;
+    };
+};
 
 export default new PageService();
