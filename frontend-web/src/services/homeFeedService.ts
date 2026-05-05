@@ -18,11 +18,12 @@ interface FeedPostData {
     }>;
     stats?: { reactCount: number; commentCount: number; shareCount: number };
     createdAt: string;
+    lastActivityAt?: string;
     taggedUserIds?: string[];
 }
 
 export interface FeedCursor {
-    lastCreatedAt?: string;
+    lastActivityAt?: string;
     lastPostId?: string;
     prioritizePostId?: string;
 }
@@ -30,7 +31,7 @@ export interface FeedCursor {
 export interface HomeFeedResult {
     posts: Post[];
     hasNext: boolean;
-    nextCursorCreatedAt: string | null;
+    nextCursorLastActivityAt: string | null;
     nextCursorPostId: string | null;
 }
 
@@ -52,7 +53,7 @@ const extractFeedSliceMeta = (payload: any) => {
     const rawData = payload?.data ?? payload;
     return {
         hasNext: Boolean(rawData?.hasNext),
-        nextCursorCreatedAt: rawData?.nextCursorCreatedAt ?? null,
+        nextCursorLastActivityAt: rawData?.nextCursorCreatedAt ?? null,
         nextCursorPostId: rawData?.nextCursorPostId ?? null,
     };
 };
@@ -89,7 +90,8 @@ export const normalizePost = (post: any, userData: any): Post => {
         privacy: (post.privacy as any) || "PUBLIC",
         likes: post.stats?.reactCount || 0,
         comments: [],
-        createdAt: post.createdAt ? new Date(post.createdAt).toLocaleString("vi-VN") : "Vừa xong",
+        createdAt: post.createdAt || new Date().toISOString(),
+        lastActivityAt: post.lastActivityAt || post.createdAt || new Date().toISOString(),
         isLiked: false,
         isSaved: false,
         taggedUserIds: post.taggedUserIds || [],
@@ -103,7 +105,7 @@ export const fetchHomeFeedPosts = async (
     const feedResponse = await axiosClient.get("/posts/feed", {
         params: {
             size,
-            ...(cursor?.lastCreatedAt ? { lastCreatedAt: cursor.lastCreatedAt } : {}),
+            ...(cursor?.lastActivityAt ? { lastActivityAt: cursor.lastActivityAt } : {}),
             ...(cursor?.lastPostId ? { lastPostId: cursor.lastPostId } : {}),
             ...(cursor?.prioritizePostId ? { prioritizePostId: cursor.prioritizePostId } : {}),
         },
@@ -149,7 +151,7 @@ export const fetchHomeFeedPosts = async (
     return {
         posts,
         hasNext: meta.hasNext,
-        nextCursorCreatedAt: meta.nextCursorCreatedAt,
+        nextCursorLastActivityAt: meta.nextCursorLastActivityAt,
         nextCursorPostId: meta.nextCursorPostId,
     };
 };

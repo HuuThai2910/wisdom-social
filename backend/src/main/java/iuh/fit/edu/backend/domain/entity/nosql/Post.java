@@ -11,6 +11,7 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.index.CompoundIndexes;
+import org.springframework.data.mongodb.core.index.IndexDirection;
 import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
@@ -33,12 +34,12 @@ import java.util.List;
 @AllArgsConstructor
 @CompoundIndexes({
         @CompoundIndex(
-                name = "author_created_idx",
-                def = "{'authorId': 1, 'createdAt': -1}"
+                name = "author_activity_idx",
+                def = "{'authorId': 1, 'lastActivityAt': -1}"
         ),
         @CompoundIndex(
-                name = "status_created_idx",
-                def = "{'status': 1, 'createdAt': -1}"
+                name = "status_activity_idx",
+                def = "{'status': 1, 'lastActivityAt': -1}"
         )
 })
 public class Post {
@@ -90,5 +91,15 @@ public class Post {
     // Timestamps
     private Instant createdAt;
     private Instant updatedAt;
+
+    @Indexed(direction = IndexDirection.DESCENDING)
+    @Builder.Default
+    private Instant lastActivityAt = Instant.now();
+
     private Instant scheduledAt; // Hẹn giờ đăng
+
+    // Add manual constructor to ensure lastActivityAt is never null for old-style instantiation
+    public void setLastActivityAt(Instant lastActivityAt) {
+        this.lastActivityAt = lastActivityAt != null ? lastActivityAt : (this.createdAt != null ? this.createdAt : Instant.now());
+    }
 }

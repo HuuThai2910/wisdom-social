@@ -2,10 +2,11 @@ import { useEffect } from 'react';
 import websocketService from '../services/websocket';
 
 export interface PostRealtimeEvent {
-    action: "CREATE" | "UPDATE" | "DELETE";
+    action: "CREATE" | "UPDATE" | "DELETE" | "BUMP";
     post?: any;
     postId: string;
     authorId: string;
+    lastActivityAt?: string;
 }
 
 interface UseRealtimePostsProps {
@@ -13,13 +14,15 @@ interface UseRealtimePostsProps {
     onPostCreated?: (post: any) => void;
     onPostUpdated?: (post: any) => void;
     onPostDeleted?: (postId: string) => void;
+    onActivityBump?: (postId: string, lastActivityAt: string) => void;
 }
 
 export function useRealtimePosts({
     topic = "/topic/posts",
     onPostCreated,
     onPostUpdated,
-    onPostDeleted
+    onPostDeleted,
+    onActivityBump
 }: UseRealtimePostsProps) {
     useEffect(() => {
         const handleEvent = (event: PostRealtimeEvent) => {
@@ -35,6 +38,11 @@ export function useRealtimePosts({
                     break;
                 case "DELETE":
                     if (onPostDeleted) onPostDeleted(postId);
+                    break;
+                case "BUMP":
+                    if (postId && event.lastActivityAt && onActivityBump) {
+                        onActivityBump(postId, event.lastActivityAt);
+                    }
                     break;
             }
         };

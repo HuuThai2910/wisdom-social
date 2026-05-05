@@ -7,6 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.io.Serializable;
+import java.time.Instant;
 
 @Data
 @Builder
@@ -17,4 +18,5 @@ public class PostRealtimeEvent implements Serializable {
     private Post post;
     private String postId;
     private String authorId;
+    private Instant lastActivityAt;
 }

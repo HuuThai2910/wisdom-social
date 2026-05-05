@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import toast from "react-hot-toast";
 import { useLocation, useNavigate } from "react-router-dom";
 import { mockStories } from "../api/mockData";
 import StoriesBar from "../components/story/StoriesBar";
@@ -13,37 +14,67 @@ export default function Home() {
   const location = useLocation();
   const navigate = useNavigate();
   const currentUser = useCurrentUser();
-  const [posts, setPosts] = useState<Post[]>([]);
+  const [postsMap, setPostsMap] = useState<Map<string, Post>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Derived sorted posts for rendering
+  const sortedPosts = Array.from(postsMap.values()).sort((a, b) => {
+    const da = new Date(a.lastActivityAt || a.createdAt).getTime();
+    const db = new Date(b.lastActivityAt || b.createdAt).getTime();
+    if (isNaN(da) || isNaN(db)) return 0;
+    return db - da;
+  });
+
   const handlePostCreated = useCallback(async (newPost: any) => {
+    console.log("🔥 WebSocket: NEW_POST received", newPost);
+    toast.success("New post created!");
     try {
       const authorData = await postApi.fetchUserById(newPost.authorId);
       const normalized = normalizePost(newPost, authorData);
-      setPosts((prev) => {
-        if (prev.some((p) => p.id === normalized.id)) return prev;
-        return [normalized, ...prev];
+      setPostsMap((prev) => {
+        const next = new Map(prev);
+        next.set(normalized.id, normalized);
+        return next;
       });
     } catch (err) {
       console.error("Error normalizing created post:", err);
     }
   }, []);
 
-  const handlePostUpdated = useCallback((updatedPost: any) => {
-    setPosts((prev) =>
-      prev.map((p) => {
-        if (p.id === updatedPost.id) {
-          // Re-normalize using existing user data
-          return normalizePost(updatedPost, p.user);
-        }
-        return p;
-      })
-    );
+  const handlePostUpdated = useCallback((postId: string, updatedData: any) => {
+    console.log("🔥 WebSocket: POST_UPDATED received", postId, updatedData);
+    setPostsMap((prev) => {
+      const next = new Map(prev);
+      const post = next.get(postId);
+      if (post) {
+        next.set(postId, { ...post, ...updatedData });
+      }
+      return next;
+    });
   }, []);
 
   const handlePostDeleted = useCallback((postId: string) => {
-    setPosts((prev) => prev.filter((p) => p.id !== postId));
+    console.log("🔥 WebSocket: POST_DELETED received", postId);
+    setPostsMap((prev) => {
+      if (!prev.has(postId)) return prev;
+      const next = new Map(prev);
+      next.delete(postId);
+      return next;
+    });
+  }, []);
+
+  const handleActivityBump = useCallback((postId: string, lastActivityAt: string) => {
+    console.log("🔥 WebSocket: BUMP received", postId, lastActivityAt);
+    setPostsMap((prev) => {
+      const existing = prev.get(postId);
+      if (!existing) return prev;
+
+      // Update only the lastActivityAt to trigger re-sort
+      const next = new Map(prev);
+      next.set(postId, { ...existing, lastActivityAt });
+      return next;
+    });
   }, []);
 
   // Listen to global post events
@@ -52,6 +83,7 @@ export default function Home() {
     onPostCreated: handlePostCreated,
     onPostUpdated: handlePostUpdated,
     onPostDeleted: handlePostDeleted,
+    onActivityBump: handleActivityBump,
   });
 
   useEffect(() => {
@@ -83,21 +115,15 @@ export default function Home() {
         if (!isMounted) return;
 
         if (isMounted) {
-          const normalizedBoostPostId = boostPostId ? String(boostPostId) : "";
-          const orderedPosts = [...feedResult.posts];
-
-          if (normalizedBoostPostId) {
-            const boostedIndex = orderedPosts.findIndex(
-              (post) => String(post.id) === normalizedBoostPostId
-            );
-
-            if (boostedIndex > 0) {
-              const [boostedPost] = orderedPosts.splice(boostedIndex, 1);
-              orderedPosts.unshift(boostedPost);
-            }
-          }
-
-          setPosts(orderedPosts);
+          setPostsMap((prev) => {
+            const next = new Map(prev);
+            feedResult.posts.forEach((post) => {
+              if (!next.has(post.id)) {
+                next.set(post.id, post);
+              }
+            });
+            return next;
+          });
           setError(null);
 
           if (boostPostId) {
@@ -150,7 +176,7 @@ export default function Home() {
           <div className="p-4 text-center text-red-500">{error}</div>
         )}
 
-        {!loading && currentUser && !error && posts.length === 0 && (
+        {!loading && currentUser && !error && postsMap.size === 0 && (
           <div className="p-8 text-center text-gray-500">
             No posts available. Start following friends to see their posts!
           </div>
@@ -158,7 +184,7 @@ export default function Home() {
 
         {!loading &&
           !error &&
-          posts.map((post) => <PostCard key={post.id} post={post} />)}
+          sortedPosts.map((post) => <PostCard key={post.id} post={post} />)}
       </div>
     </div>
   );

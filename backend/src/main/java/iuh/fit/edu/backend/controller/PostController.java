@@ -52,7 +52,7 @@ public class PostController {
     public ResponseEntity<ApiResponse<FeedSliceResponse>> getFeed(
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
-            Instant lastCreatedAt,
+            Instant lastActivityAt,
             @RequestParam(required = false) String lastPostId,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String prioritizePostId) {
@@ -62,8 +62,8 @@ public class PostController {
                 return ResponseEntity.badRequest()
                         .body(ApiResponse.error(401, "Bạn cần đăng nhập để xem feed", null));
             }
-
-            FeedSliceResponse feed = feedService.getFeed(currentUser.getId(), lastCreatedAt, lastPostId, size, prioritizePostId);
+            
+            FeedSliceResponse feed = feedService.getFeed(currentUser.getId(), lastActivityAt, lastPostId, size, prioritizePostId);
             return ResponseEntity.ok(ApiResponse.success(200, "Lấy feed thành công", feed));
         } catch (Exception e) {
             log.error("Error fetching feed", e);

@@ -38,6 +38,7 @@ export interface Post {
     likes: number;
     comments: Comment[];
     createdAt: string;
+    lastActivityAt?: string;
     isLiked?: boolean;
     isSaved?: boolean;
     privacy?: PrivacyType;

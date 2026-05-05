@@ -30,7 +30,7 @@ public class FeedServiceImpl implements FeedService {
     private final PostRepository postRepository;
 
     @Override
-    public FeedSliceResponse getFeed(Long userId, Instant lastCreatedAt, String lastPostId, int size, String prioritizePostId) {
+    public FeedSliceResponse getFeed(Long userId, Instant lastLastActivityAt, String lastPostId, int size, String prioritizePostId) {
         int pageSize = normalizePageSize(size);
         Instant recentThreshold = Instant.now().minus(24, ChronoUnit.HOURS);
 
@@ -39,18 +39,25 @@ public class FeedServiceImpl implements FeedService {
 
         List<String> friendIds = friendIdsLong.stream()
                 .map(String::valueOf)
-            .limit(MAX_FEED_AUTHORS)
+                .limit(MAX_FEED_AUTHORS)
                 .toList();
 
         int friendQueryLimit = Math.min(MAX_FRIEND_RECENT_POSTS + 1, pageSize + 1);
         List<Post> friendRecent = postRepository.findRecentFriendPosts(
                 friendIds,
                 currentUserId,
-                lastCreatedAt,
+                lastLastActivityAt,
                 lastPostId,
                 recentThreshold,
                 friendQueryLimit
         );
+
+        // Fetch self's "active" posts separately to avoid cluttering with all self posts
+        // "Active" = very new (last 2h) or has interactions
+        Instant selfActiveThreshold = Instant.now().minus(2, java.time.temporal.ChronoUnit.HOURS);
+        List<Post> selfActive = (lastLastActivityAt == null) 
+            ? postRepository.findActiveSelfPosts(currentUserId, selfActiveThreshold, 10)
+            : new ArrayList<>();
 
         int friendTake = Math.min(friendRecent.size(), Math.min(pageSize, MAX_FRIEND_RECENT_POSTS));
         boolean hasMoreFriendRecent = friendRecent.size() > friendTake;
@@ -60,7 +67,7 @@ public class FeedServiceImpl implements FeedService {
 
         // One-time boost: pin the prioritized post on top only on the first page load.
         Post prioritizedPost = null;
-        if (lastCreatedAt == null && prioritizePostId != null && !prioritizePostId.isBlank()) {
+        if (lastLastActivityAt == null && prioritizePostId != null && !prioritizePostId.isBlank()) {
             prioritizedPost = postRepository.findById(prioritizePostId)
                     .filter(post -> post.getStatus() != null && "ACTIVE".equals(post.getStatus().name()))
                     .orElse(null);
@@ -78,13 +85,20 @@ public class FeedServiceImpl implements FeedService {
             }
         }
 
+        // Add self active posts
+        for (Post post : selfActive) {
+            if (seenPostIds.add(post.getId())) {
+                merged.add(post);
+            }
+        }
+
         int remaining = pageSize - merged.size();
         boolean hasMoreRandom = false;
         if (remaining > 0) {
             List<Post> randomPosts = postRepository.findRandomFallbackPosts(
                     friendIds,
                     currentUserId,
-                    lastCreatedAt,
+                    lastLastActivityAt,
                     lastPostId,
                     recentThreshold,
                     new ArrayList<>(seenPostIds),
@@ -111,13 +125,13 @@ public class FeedServiceImpl implements FeedService {
             if (Objects.equals(a.getId(), pinnedId)) return -1;
             if (Objects.equals(b.getId(), pinnedId)) return 1;
             
-            Instant ca = a.getCreatedAt();
-            Instant cb = b.getCreatedAt();
-            if (ca == null && cb == null) return Objects.compare(b.getId(), a.getId(), Comparator.nullsLast(Comparator.naturalOrder()));
-            if (ca == null) return 1;
-            if (cb == null) return -1;
+            Instant ta = a.getLastActivityAt();
+            Instant tb = b.getLastActivityAt();
+            if (ta == null && tb == null) return Objects.compare(b.getId(), a.getId(), Comparator.nullsLast(Comparator.naturalOrder()));
+            if (ta == null) return 1;
+            if (tb == null) return -1;
             
-            int dateCmp = cb.compareTo(ca);
+            int dateCmp = tb.compareTo(ta);
             if (dateCmp != 0) return dateCmp;
             return Objects.compare(b.getId(), a.getId(), Comparator.nullsLast(Comparator.naturalOrder()));
         });
@@ -128,17 +142,17 @@ public class FeedServiceImpl implements FeedService {
 
         boolean hasNext = hasMoreFriendRecent || hasMoreRandom;
 
-        Instant nextCursorCreatedAt = null;
+        Instant nextCursorLastActivityAt = null;
         String nextCursorPostId = null;
         if (hasNext && !merged.isEmpty()) {
             Post lastPost = merged.get(merged.size() - 1);
-            nextCursorCreatedAt = lastPost.getCreatedAt();
+            nextCursorLastActivityAt = lastPost.getLastActivityAt();
             nextCursorPostId = lastPost.getId();
         }
 
         return FeedSliceResponse.builder()
                 .posts(merged)
-                .nextCursorCreatedAt(nextCursorCreatedAt)
+                .nextCursorCreatedAt(nextCursorLastActivityAt) // Reusing field for simplicity but populating with lastActivityAt
                 .nextCursorPostId(nextCursorPostId)
                 .hasNext(hasNext)
                 .build();

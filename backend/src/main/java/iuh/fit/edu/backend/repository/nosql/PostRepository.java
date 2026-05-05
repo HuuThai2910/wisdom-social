@@ -10,7 +10,10 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.mongodb.repository.MongoRepository;
 import org.springframework.data.mongodb.repository.Query;
+import org.springframework.data.mongodb.repository.Update;
 import org.springframework.stereotype.Repository;
+
+import java.time.Instant;
 
 import java.util.List;
 
@@ -24,5 +27,8 @@ public interface PostRepository extends MongoRepository<Post, String>, PostFeedR
     long countByAuthorId(Long authorId);
 
     List<Post> findByTaggedUserIdsContaining(String userId);
-}
 
+    @Query("{ '_id': ?0 }")
+    @Update("{ '$set': { 'lastActivityAt': ?1 } }")
+    void updateLastActivityAt(String postId, Instant timestamp);
+}

@@ -581,7 +581,9 @@ export default function PostCard({ post }: PostCardProps) {
         />
 
         <p className="text-[10px] text-gray-500 uppercase tracking-wide mt-3">
-          {post.createdAt}
+          {post.createdAt && !isNaN(Date.parse(post.createdAt)) 
+            ? new Date(post.createdAt).toLocaleString("vi-VN") 
+            : post.createdAt || "Vừa xong"}
         </p>
       </div>
 

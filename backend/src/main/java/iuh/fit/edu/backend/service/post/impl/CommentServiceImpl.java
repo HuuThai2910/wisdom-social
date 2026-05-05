@@ -8,12 +8,13 @@ import iuh.fit.edu.backend.dto.response.post.CommentResponse;
 import iuh.fit.edu.backend.dto.response.post.PaginatedCommentsResponse;
 import iuh.fit.edu.backend.repository.nosql.CommentRepository;
 import iuh.fit.edu.backend.repository.nosql.PostRepository;
+import iuh.fit.edu.backend.event.post.CommentRealtimeEvent;
+import iuh.fit.edu.backend.event.post.PostRealtimeEvent;
 import iuh.fit.edu.backend.repository.mysql.UserRepository;
 import iuh.fit.edu.backend.service.post.CommentService;
 import iuh.fit.edu.backend.service.notification.NotificationService;
 import iuh.fit.edu.backend.event.notification.NotificationEvent;
 import iuh.fit.edu.backend.constant.NotificationType;
-import iuh.fit.edu.backend.event.post.CommentRealtimeEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -22,6 +23,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -93,6 +96,8 @@ public class CommentServiceImpl implements CommentService {
         } else if (request.getTargetType() == TargetType.POST) {
             // Top-level comment on post
             updatePostCommentCount(request.getTargetId(), 1);
+            updatePostLastActivityAt(request.getTargetId());
+            publishActivityBump(request.getTargetId(), Instant.now());
         }
 
         // Trigger Notifications
@@ -149,13 +154,23 @@ public class CommentServiceImpl implements CommentService {
             log.error("Failed to send notification for comment", e);
         }
 
-        // Publish realtime event to WebSockets
+        // Publish realtime event to WebSockets - Post-commit
         try {
             CommentResponse responsePayload = commentToResponse(savedComment);
             String rootPostId = getRootPostId(savedComment);
             
             if (rootPostId != null) {
-                eventPublisher.publishEvent(new CommentRealtimeEvent("CREATE", rootPostId, responsePayload));
+                CommentRealtimeEvent event = new CommentRealtimeEvent("CREATE", rootPostId, responsePayload);
+                if (TransactionSynchronizationManager.isActualTransactionActive()) {
+                    TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            eventPublisher.publishEvent(event);
+                        }
+                    });
+                } else {
+                    eventPublisher.publishEvent(event);
+                }
             } else {
                 log.warn("Could not determine root postId for comment: {}", savedComment.getId());
             }
@@ -166,6 +181,7 @@ public class CommentServiceImpl implements CommentService {
         log.info("Comment created successfully with ID: {}", savedComment.getId());
         return savedComment;
     }
+
 
     private String getRootPostId(Comment comment) {
         if (comment.getTargetType() == TargetType.POST) {
@@ -408,17 +424,51 @@ public class CommentServiceImpl implements CommentService {
         commentRepository.deleteAllById(allIdsToDelete);
         log.info("Comment deleted successfully. Removed {} docs (including descendants)", allIdsToDelete.size());
         
-        // Publish realtime DELETE event
+        // Publish realtime DELETE event - Post-commit
         try {
             if (rootPostId != null) {
                 CommentResponse deletePayload = CommentResponse.builder()
                         .id(commentId)
                         .parentId(parentId)
                         .build();
-                eventPublisher.publishEvent(new CommentRealtimeEvent("DELETE", rootPostId, deletePayload));
+                CommentRealtimeEvent event = new CommentRealtimeEvent("DELETE", rootPostId, deletePayload);
+                
+                if (TransactionSynchronizationManager.isActualTransactionActive()) {
+                    TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            eventPublisher.publishEvent(event);
+                        }
+                    });
+                } else {
+                    eventPublisher.publishEvent(event);
+                }
             }
         } catch (Exception e) {
             log.error("Failed to publish delete event", e);
+        }
+    }
+
+    private void publishActivityBump(String postId, Instant lastActivityAt) {
+        try {
+            PostRealtimeEvent bumpEvent = PostRealtimeEvent.builder()
+                    .action("BUMP")
+                    .postId(postId)
+                    .lastActivityAt(lastActivityAt)
+                    .build();
+
+            if (TransactionSynchronizationManager.isActualTransactionActive()) {
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        eventPublisher.publishEvent(bumpEvent);
+                    }
+                });
+            } else {
+                eventPublisher.publishEvent(bumpEvent);
+            }
+        } catch (Exception e) {
+            log.error("Failed to publish PostRealtimeEvent BUMP", e);
         }
     }
 
@@ -492,9 +542,15 @@ public class CommentServiceImpl implements CommentService {
             if (post.getStats() != null) {
                 long newCount = Math.max(0L, post.getStats().getCommentCount() + delta);
                 post.getStats().setCommentCount(newCount);
+                post.setLastActivityAt(Instant.now());
                 postRepository.save(post);
-                log.info("Updated post {} commentCount to: {}", postId, newCount);
+                log.info("Updated post {} commentCount to: {} and bumped lastActivityAt", postId, newCount);
             }
         });
+    }
+
+    private void updatePostLastActivityAt(String postId) {
+        postRepository.updateLastActivityAt(postId, Instant.now());
+        log.info("Bumped lastActivityAt for post: {}", postId);
     }
 }

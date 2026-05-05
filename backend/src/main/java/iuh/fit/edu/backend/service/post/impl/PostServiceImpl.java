@@ -34,6 +34,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -97,6 +99,7 @@ public class PostServiceImpl implements PostService {
         List<String> excludedUserIds = convertUsernamesToIds(request.getExcludedUsernames());
         
         // Create post
+        Instant now = Instant.now();
         Post post = Post.builder()
                 .authorId(authorId.toString())
                 .content(request.getContent())
@@ -118,8 +121,9 @@ public class PostServiceImpl implements PostService {
                         .build())
                 .status(iuh.fit.edu.backend.constant.StatusType.ACTIVE)
                 .isEdited(false)
-                .createdAt(Instant.now())
-                .updatedAt(Instant.now())
+                .createdAt(now)
+                .updatedAt(now)
+                .lastActivityAt(now)
                 .build();
         
         // Save post to MongoDB to get ID
@@ -181,13 +185,28 @@ public class PostServiceImpl implements PostService {
             log.info("No image URLs provided");
         }
         
-        // Broadcast CREATE event
-        eventPublisher.publishEvent(PostRealtimeEvent.builder()
-                .action("CREATE")
-                .post(savedPost)
-                .postId(savedPost.getId())
-                .authorId(savedPost.getAuthorId())
-                .build());
+        // Broadcast CREATE event - Post-commit for stability
+        final Post finalPost = savedPost;
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    eventPublisher.publishEvent(PostRealtimeEvent.builder()
+                            .action("CREATE")
+                            .post(finalPost)
+                            .postId(finalPost.getId())
+                            .authorId(finalPost.getAuthorId())
+                            .build());
+                }
+            });
+        } else {
+            eventPublisher.publishEvent(PostRealtimeEvent.builder()
+                    .action("CREATE")
+                    .post(finalPost)
+                    .postId(finalPost.getId())
+                    .authorId(finalPost.getAuthorId())
+                    .build());
+        }
     
         return savedPost;
     }
@@ -319,12 +338,25 @@ public class PostServiceImpl implements PostService {
         postRepository.delete(post);
         log.info("Post {} deleted successfully", postId);
 
-        // Broadcast DELETE event
-        eventPublisher.publishEvent(PostRealtimeEvent.builder()
-                .action("DELETE")
-                .postId(postId)
-                .authorId(post.getAuthorId())
-                .build());
+        // Broadcast DELETE event - Post-commit
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    eventPublisher.publishEvent(PostRealtimeEvent.builder()
+                            .action("DELETE")
+                            .postId(postId)
+                            .authorId(post.getAuthorId())
+                            .build());
+                }
+            });
+        } else {
+            eventPublisher.publishEvent(PostRealtimeEvent.builder()
+                    .action("DELETE")
+                    .postId(postId)
+                    .authorId(post.getAuthorId())
+                    .build());
+        }
     }
 
     @Override
@@ -498,17 +530,34 @@ public class PostServiceImpl implements PostService {
         post.setMentions(extractMentions(request.getContent()));
         
         post.setUpdatedAt(Instant.now());
+        post.setLastActivityAt(Instant.now());
         
         Post updated = postRepository.save(post);
         log.info("✅ Post {} updated successfully with {} media items", postId, updated.getMedia().size());
         
-        // Broadcast UPDATE event
-        eventPublisher.publishEvent(PostRealtimeEvent.builder()
-                .action("UPDATE")
-                .post(updated)
-                .postId(updated.getId())
-                .authorId(updated.getAuthorId())
-                .build());
+        // Broadcast UPDATE event - Post-commit
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    eventPublisher.publishEvent(PostRealtimeEvent.builder()
+                            .action("UPDATE")
+                            .post(updated)
+                            .postId(updated.getId())
+                            .authorId(updated.getAuthorId())
+                            .lastActivityAt(updated.getLastActivityAt())
+                            .build());
+                }
+            });
+        } else {
+            eventPublisher.publishEvent(PostRealtimeEvent.builder()
+                    .action("UPDATE")
+                    .post(updated)
+                    .postId(updated.getId())
+                    .authorId(updated.getAuthorId())
+                    .lastActivityAt(updated.getLastActivityAt())
+                    .build());
+        }
 
         return updated;
     }

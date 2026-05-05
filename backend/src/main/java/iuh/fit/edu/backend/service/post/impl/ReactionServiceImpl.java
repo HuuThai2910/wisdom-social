@@ -9,6 +9,7 @@ import iuh.fit.edu.backend.constant.TargetType;
 import iuh.fit.edu.backend.domain.entity.nosql.Reaction;
 import iuh.fit.edu.backend.dto.response.post.ReactionSummaryResponse;
 import iuh.fit.edu.backend.repository.nosql.ReactionRepository;
+import iuh.fit.edu.backend.event.post.PostRealtimeEvent;
 import iuh.fit.edu.backend.service.post.ReactionService;
 import iuh.fit.edu.backend.repository.nosql.PostRepository;
 import iuh.fit.edu.backend.service.notification.NotificationService;
@@ -21,6 +22,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
 import java.util.EnumMap;
@@ -80,6 +83,10 @@ public class ReactionServiceImpl implements ReactionService {
             log.info("Updated reaction: {}", updated.getId());
             
             publishRealtimeReaction("REACT", targetType, targetId, reactionType, userId);
+            
+            if (targetType == TargetType.POST) {
+                updatePostLastActivityAt(targetId);
+            }
             
             return updated;
         }
@@ -144,6 +151,17 @@ public class ReactionServiceImpl implements ReactionService {
             log.error("Failed to send notification for reaction", e);
         }
         
+        if (targetType == TargetType.POST) {
+            updatePostLastActivityAt(targetId);
+            publishActivityBump(targetId, Instant.now());
+        } else if (targetType == TargetType.COMMENT) {
+            String rootPostId = getRootPostId(targetType, targetId);
+            if (rootPostId != null) {
+                updatePostLastActivityAt(rootPostId);
+                publishActivityBump(rootPostId, Instant.now());
+            }
+        }
+
         publishRealtimeReaction("REACT", targetType, targetId, reactionType, userId);
         
         return saved;
@@ -161,10 +179,42 @@ public class ReactionServiceImpl implements ReactionService {
                         .reactionType(reactionType)
                         .userId(userId)
                         .build();
-                eventPublisher.publishEvent(event);
+                if (TransactionSynchronizationManager.isActualTransactionActive()) {
+                    TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            eventPublisher.publishEvent(event);
+                        }
+                    });
+                } else {
+                    eventPublisher.publishEvent(event);
+                }
             }
         } catch (Exception e) {
             log.error("Failed to publish ReactionRealtimeEvent", e);
+        }
+    }
+
+    private void publishActivityBump(String postId, Instant lastActivityAt) {
+        try {
+            PostRealtimeEvent bumpEvent = PostRealtimeEvent.builder()
+                    .action("BUMP")
+                    .postId(postId)
+                    .lastActivityAt(lastActivityAt)
+                    .build();
+
+            if (TransactionSynchronizationManager.isActualTransactionActive()) {
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        eventPublisher.publishEvent(bumpEvent);
+                    }
+                });
+            } else {
+                eventPublisher.publishEvent(bumpEvent);
+            }
+        } catch (Exception e) {
+            log.error("Failed to publish PostRealtimeEvent BUMP", e);
         }
     }
 
@@ -194,10 +244,16 @@ public class ReactionServiceImpl implements ReactionService {
             if (post.getStats() != null) {
                 long newCount = Math.max(0L, post.getStats().getReactCount() + delta);
                 post.getStats().setReactCount(newCount);
+                post.setLastActivityAt(Instant.now());
                 postRepository.save(post);
-                log.info("Updated post {} reactCount to: {}", postId, newCount);
+                log.info("Updated post {} reactCount to: {} and bumped lastActivityAt", postId, newCount);
             }
         });
+    }
+
+    private void updatePostLastActivityAt(String postId) {
+        postRepository.updateLastActivityAt(postId, Instant.now());
+        log.info("Bumped lastActivityAt for post: {}", postId);
     }
 
     @Override
