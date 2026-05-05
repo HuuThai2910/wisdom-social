@@ -22,6 +22,8 @@ import iuh.fit.edu.backend.repository.mysql.UserRepository;
 import iuh.fit.edu.backend.service.chat.ConversationMemberCacheService;
 import iuh.fit.edu.backend.service.chat.ConversationMemberService;
 import iuh.fit.edu.backend.service.chat.InternalMessageService;
+import iuh.fit.edu.backend.util.TransactionUtil;
+import iuh.fit.edu.backend.util.heplper.ChatSnapshotHelper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -46,12 +48,12 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
     private final ConversationMemberRepository conversationMemberRepository;
     private final ConversationMemberMapper conversationMemberMapper;
     private final ConversationRepository conversationRepository;
-    private final ConversationMemberCacheServiceImpl cacheService;
     private final ApplicationEventPublisher eventPublisher;
     private final UserRepository userRepository;
     private final ConversationMapper conversationMapper;
     private final InternalMessageService internalMessageService;
     private final ConversationMemberCacheService conversationMemberCacheService;
+    private final ChatSnapshotHelper chatSnapshotHelper;
 
     /**
      * Lấy danh sách toàn bộ thành viên. Ưu tiên lấy từ Cache, nếu rỗng thì gọi DB.
@@ -59,7 +61,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
     @Override
     public Map<Long, ConversationMemberResponse> getMembersMap(Long conversationId) {
         // Kéo từ Redis
-        Map<Long, ConversationMemberResponse> cachedMap = cacheService.getMembersMap(conversationId);
+        Map<Long, ConversationMemberResponse> cachedMap = conversationMemberCacheService.getMembersMap(conversationId);
         if (!cachedMap.isEmpty()) {
             return cachedMap;
         }
@@ -71,7 +73,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
                 .collect(Collectors.toMap(ConversationMemberResponse::getUserId, m -> m));
 
         // Nạp lại vào Redis để lần sau đọc cho nhanh
-        cacheService.saveMembersMap(conversationId, dbMap);
+        conversationMemberCacheService.saveMembersMap(conversationId, dbMap);
         return dbMap;
     }
 
@@ -80,7 +82,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
      */
     @Override
     public ConversationMemberResponse getMemberInfo(Long conversationId, Long userId) {
-        ConversationMemberResponse cachedMember = cacheService.getMemberInfo(conversationId, userId);
+        ConversationMemberResponse cachedMember = conversationMemberCacheService.getMemberInfo(conversationId, userId);
         if (cachedMember != null && cachedMember.getStatus().equals(ConversationMemberStatus.ACTIVE)) {
             return cachedMember;
         }
@@ -89,7 +91,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
                 .map(conversationMemberMapper::toConversationMemberResponse)
                         .orElseThrow(() -> new RuntimeException("Không tim thấy thành viên cuộc trò chuyện"));
 
-        cacheService.saveMemberInfo(conversationId, userId, response);
+        conversationMemberCacheService.saveMemberInfo(conversationId, userId, response);
         return response;
     }
 
@@ -109,47 +111,25 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
         if (actuallyAddedIds.isEmpty()) {
             return conversationMapper.toConversationResponse(conv, inviterId);
         }
-
         List<ConversationMember> conversationMembers = conversationMemberRepository.saveAll(membersToSave);
-        for (ConversationMember member : conversationMembers){
-            this.conversationMemberCacheService.saveMemberInfo(conversationId, member.getUser().getId(), conversationMemberMapper.toConversationMemberResponse(member));
-        }
 
         // Cập nhật thông tin cho redis
-        for (ConversationMember m : membersToSave) {
-            ConversationMemberResponse memberResponse = conversationMemberMapper.toConversationMemberResponse(m);
-            conversationMemberCacheService.saveMemberInfo(conversationId, m.getUser().getId(), memberResponse);
-        }
-
+        TransactionUtil.executeAfterCommit(() -> {
+            for (ConversationMember member : conversationMembers){
+                this.conversationMemberCacheService.saveMemberInfo(conversationId, member.getUser().getId(), conversationMemberMapper.toConversationMemberResponse(member));
+            }
+        });
 
         // Ghi Log vào MongoDB qua MessageFacade
-        String targetIdsJson = buildMemberSnapshotContent(actuallyAddedIds);
+        String targetIdsJson = chatSnapshotHelper.buildMemberSnapshotContent(actuallyAddedIds);
 
-        internalMessageService.createSystemMessage(conversationId, inviterId, MessageType.SYSTEM_ADD_MEMBER, targetIdsJson);
+        ConversationResponse response = executeSystemActionAndBuildResponse(
+                conv, inviterId, MessageType.SYSTEM_ADD_MEMBER, targetIdsJson, now);
 
-        // Cập nhật Snapshot (MySQL)
-        updateConversationSnapshot(
-            conv,
-            inviterId,
-            MessageType.SYSTEM_ADD_MEMBER,
-            targetIdsJson,
-            now,
-            resolveActorDisplayName(conv, inviterId)
-        );
-
-        // Map Response & Chỉnh sửa LastMessage
-        ConversationResponse response = conversationMapper.toConversationResponse(conv, inviterId);
-        if (response.getLastMessage() != null) {
-            response.getLastMessage().setLastSenderName(resolveActorDisplayName(conv, inviterId));
-            response.getLastMessage().setRead(true);
-        }
-
-        // Bắn sự kiện (Lấy tất cả member ACTIVE hiện tại để bắn)
         Set<Long> allActiveMemberIds = conversationMemberRepository
                 .findUserIdsByConversationIdAndStatus(conversationId, ConversationMemberStatus.ACTIVE);
 
         eventPublisher.publishEvent(new MemberAddedEvent(response, allActiveMemberIds));
-
         return response;
     }
 
@@ -172,7 +152,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
 
         // Gọi hàm lõi dùng chung
         return processMemberRemoval(conv, targetId, requesterId,
-            ConversationMemberStatus.KICKED, MessageType.SYSTEM_KICK_MEMBER, buildKickSnapshotContent(targetId), DomainEventType.MEMBER_KICKED);
+            ConversationMemberStatus.KICKED, MessageType.SYSTEM_KICK_MEMBER, chatSnapshotHelper.buildKickSnapshotContent(targetId), DomainEventType.MEMBER_KICKED);
     }
 
     /**
@@ -182,7 +162,9 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
     @Override
     public void updateMemberStateInCache(Long conversationId, Long userId, ConversationMember memberEntity) {
         ConversationMemberResponse updatedInfo = conversationMemberMapper.toConversationMemberResponse(memberEntity);
-        cacheService.saveMemberInfo(conversationId, userId, updatedInfo);
+        TransactionUtil.executeAfterCommit(() -> {
+            conversationMemberCacheService.saveMemberInfo(conversationId, userId, updatedInfo);
+        });
     }
 
     /**
@@ -249,40 +231,22 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
         conversationMemberRepository.saveAll(membersToUpdate);
 
         // Cập nhật thông tin cho redis
-        for (ConversationMember m : membersToUpdate) {
-            ConversationMemberResponse memberResponse = conversationMemberMapper.toConversationMemberResponse(m);
-            conversationMemberCacheService.saveMemberInfo(conversationId, m.getUser().getId(), memberResponse);
-        }
+        TransactionUtil.executeAfterCommit(() -> {
+            for (ConversationMember m : membersToUpdate) {
+                ConversationMemberResponse memberResponse = conversationMemberMapper.toConversationMemberResponse(m);
+                conversationMemberCacheService.saveMemberInfo(conversationId, m.getUser().getId(), memberResponse);
+            }
+        });
 
         // Tạo JSON Content cho tin nhắn hệ thống
         // Đính kèm luôn tên hiển thị để FE render sidebar và timeline đồng nhất
-        String sysMsgContent = buildRoleSnapshotContent(targetId, newRole.name());
+        String sysMsgContent = chatSnapshotHelper.buildRoleSnapshotContent(targetId, newRole.name());
 
-        // Gom ID người nhận Socket
+        ConversationResponse response = executeSystemActionAndBuildResponse(
+                conv, requesterId, MessageType.SYSTEM_UPDATE_ROLE, sysMsgContent, now);
+
         Set<Long> allNotifyIds = conversationMemberRepository
                 .findUserIdsByConversationIdAndStatus(conversationId, ConversationMemberStatus.ACTIVE);
-
-        // 6. Lưu Mongo & Bắn Socket Khung Chat qua Facade
-        internalMessageService.createSystemMessage(
-                conversationId, requesterId, MessageType.SYSTEM_UPDATE_ROLE, sysMsgContent);
-
-        // Cập nhật Snapshot Sidebar (MySQL)
-        updateConversationSnapshot(
-            conv,
-            requesterId,
-            MessageType.SYSTEM_UPDATE_ROLE,
-            sysMsgContent,
-            now,
-            resolveActorDisplayName(conv, requesterId)
-        );
-
-        // Map DTO & Bắn Event Sidebar
-        ConversationResponse response = conversationMapper.toConversationResponse(conv, requesterId);
-        if (response.getLastMessage() != null) {
-            response.getLastMessage().setLastSenderName(resolveActorDisplayName(conv, requesterId));
-            response.getLastMessage().setRead(true);
-        }
-
         eventPublisher.publishEvent(new MemberRoleUpdatedEvent(response, allNotifyIds));
 
         return response;
@@ -316,31 +280,9 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
         }
         conversationMemberRepository.saveAll(activeMembers);
 
-        // Đồng bộ Redis (Xóa hoặc cập nhật status từng người)
-        for (Long uid : allNotifyIds) {
-            ConversationMemberResponse dto = conversationMemberCacheService.getMemberInfo(conversationId, uid);
-            if (dto != null) {
-                dto.setStatus(ConversationMemberStatus.GROUP_DISBANDED);
-                conversationMemberCacheService.saveMemberInfo(conversationId, uid, dto);
-            }
-        }
+        executeSystemActionAndBuildResponse(
+                conv, requesterId, MessageType.SYSTEM_DISBAND_GROUP, "[]", now);
 
-        // 5. Lưu tin nhắn hệ thống & Bắn Socket Khung Chat
-        internalMessageService.createSystemMessage(
-                conversationId, requesterId, MessageType.SYSTEM_DISBAND_GROUP, "[]");
-
-        // Cập nhật Snapshot Sidebar (Để hiện chữ "Nhóm đã giải tán")
-        updateConversationSnapshot(
-            conv,
-            requesterId,
-            MessageType.SYSTEM_DISBAND_GROUP,
-            "[]",
-            now,
-            resolveActorDisplayName(conv, requesterId)
-        );
-
-        // Bắn Event giải tán để FE xóa/khóa Sidebar
-        // Chúng ta không cần Map Response phức tạp vì nhóm đã chết, chỉ cần gửi ID để FE xử lý
         eventPublisher.publishEvent(new GroupDisbandedEvent(conversationId, allNotifyIds));
     }
 
@@ -417,6 +359,30 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
         return member;
     }
 
+    private ConversationResponse executeSystemActionAndBuildResponse(
+            Conversation conv, Long actorId, MessageType type, String content, Instant now) {
+
+        // 1. Lưu MongoDB
+        internalMessageService.createSystemMessage(conv.getId(), actorId, type, content);
+
+        // 2. Cập nhật Snapshot (MySQL)
+        String actorName = chatSnapshotHelper.resolveActorDisplayName(conv, actorId);
+        conv.setLastMessageContent(content);
+        conv.setLastSenderId(actorId);
+        conv.setLastMessageType(type);
+        conv.setLastMessageAt(now);
+        conv.setLastSenderName(actorName);
+        conversationRepository.save(conv);
+
+        // 3. Map DTO và xử lý cờ Read
+        ConversationResponse response = conversationMapper.toConversationResponse(conv, actorId);
+        if (response.getLastMessage() != null) {
+            response.getLastMessage().setLastSenderName(actorName);
+            response.getLastMessage().setRead(true);
+        }
+        return response;
+    }
+
     private ConversationResponse processMemberRemoval(
             Conversation conv, Long targetId, Long requesterId,
             ConversationMemberStatus newStatus, MessageType sysMsgType, String sysMsgContent, DomainEventType eventType) {
@@ -427,12 +393,13 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
         // Cập nhật DB cho nạn nhân (Soft Delete)
         ConversationMember target = getActiveMember(convId, targetId);
         target.setStatus(newStatus);
+        target.setRole(MemberRole.MEMBER);
         target.setLeftAt(now);
         target.setFrozenLastMessage(
                 new FrozenLastMessage(
                         sysMsgContent,
                         requesterId,
-                        resolveActorDisplayName(conv, requesterId),
+                        chatSnapshotHelper.resolveActorDisplayName(conv, requesterId),
                         sysMsgType,
                         now
                 )
@@ -441,35 +408,19 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
 
         // Cập nhật thông tin cho redis
         ConversationMemberResponse memberResponse = conversationMemberMapper.toConversationMemberResponse(target);
-        conversationMemberCacheService.saveMemberInfo(convId, targetId, memberResponse);
+        TransactionUtil.executeAfterCommit(() -> {
+            conversationMemberCacheService.saveMemberInfo(convId, targetId, memberResponse);
+        });
 
         // Gom ID để bắn Socket (Bao gồm cả người vừa out để họ biết đường khóa ô chat)
         Set<Long> allNotifyIds = conversationMemberRepository
                 .findUserIdsByConversationIdAndStatus(convId, ConversationMemberStatus.ACTIVE);
         allNotifyIds.add(targetId);
 
-        //  Giao việc lưu Mongo & Bắn Socket khung chat chon internal messsage serivce
-        internalMessageService.createSystemMessage(
-                convId, requesterId, sysMsgType, sysMsgContent);
+        ConversationResponse response = executeSystemActionAndBuildResponse(
+                conv, requesterId, sysMsgType, sysMsgContent, now);
 
-        // Cập nhật Snapshot Sidebar (MySQL)
-        conv.setLastMessageContent(sysMsgContent);
-        conv.setLastSenderId(requesterId);
-        conv.setLastMessageType(sysMsgType);
-        conv.setLastMessageAt(now);
-        conv.setLastSenderName(resolveActorDisplayName(conv, requesterId));
-        conversationRepository.save(conv);
-
-        // Map DTO
-        ConversationResponse response = conversationMapper.toConversationResponse(conv, requesterId);
-        if (response.getLastMessage() != null) {
-            response.getLastMessage().setLastSenderName(resolveActorDisplayName(conv, requesterId));
-            response.getLastMessage().setRead(true);
-        }
-
-        // Bắn sự kiện qua cho redis
         eventPublisher.publishEvent(new MemberStatusChangedEvent(response, eventType, allNotifyIds));
-
         return response;
     }
 
@@ -536,103 +487,6 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
         return membersToSave;
     }
 
-    private void updateConversationSnapshot(Conversation conv, Long inviterId,
-                                            MessageType type, String content, Instant now,
-                                            String senderName) {
-        conv.setLastMessageContent(content);
-        conv.setLastSenderId(inviterId);
-        conv.setLastMessageType(type);
-        conv.setLastMessageAt(now);
-        conv.setLastSenderName(senderName);
-        conversationRepository.save(conv);
-    }
-
-    private String resolveActorDisplayName(Conversation conv, Long userId) {
-        if (conv.getMembers() != null) {
-            for (ConversationMember member : conv.getMembers()) {
-                if (member.getUser() != null && Objects.equals(member.getUser().getId(), userId)) {
-                    String nickname = member.getNickname();
-                    if (nickname != null && !nickname.trim().isEmpty()) {
-                        return nickname.trim();
-                    }
-                    String name = member.getUser().getName();
-                    if (name != null && !name.trim().isEmpty()) {
-                        return name.trim();
-                    }
-                    String username = member.getUser().getUsername();
-                    if (username != null && !username.trim().isEmpty()) {
-                        return username.trim();
-                    }
-                }
-            }
-        }
-
-        return userRepository.findById(userId)
-                .map(user -> {
-                    String name = user.getName();
-                    if (name != null && !name.trim().isEmpty()) {
-                        return name.trim();
-                    }
-                    String username = user.getUsername();
-                    if (username != null && !username.trim().isEmpty()) {
-                        return username.trim();
-                    }
-                    return "Người dùng";
-                })
-                .orElse("Người dùng");
-    }
-
-    private String buildMemberSnapshotContent(Collection<Long> memberIds) {
-        List<Map<String, Object>> snapshot = memberIds.stream()
-                .map(memberId -> {
-                    Map<String, Object> member = new HashMap<>();
-                    member.put("id", memberId);
-                    member.put("name", resolveMemberDisplayName(memberId));
-                    return member;
-                })
-                .collect(Collectors.toList());
-
-        try {
-            return new ObjectMapper().writeValueAsString(snapshot);
-        } catch (Exception ex) {
-            return "[" + memberIds.stream()
-                    .map(String::valueOf)
-                    .collect(Collectors.joining(",")) + "]";
-        }
-    }
-
-    private String buildRoleSnapshotContent(Long targetId, String newRole) {
-        Map<String, Object> snapshot = new HashMap<>();
-        snapshot.put("targetId", targetId);
-        snapshot.put("targetName", resolveMemberDisplayName(targetId));
-        snapshot.put("newRole", newRole);
-
-        try {
-            return new ObjectMapper().writeValueAsString(snapshot);
-        } catch (Exception ex) {
-            return String.format("{\"targetId\":%d, \"newRole\":\"%s\"}", targetId, newRole);
-        }
-    }
-
-    private String buildKickSnapshotContent(Long targetId) {
-        return buildMemberSnapshotContent(Collections.singleton(targetId));
-    }
-
-    private String resolveMemberDisplayName(Long userId) {
-        return userRepository.findById(userId)
-                .map(user -> {
-                    String name = user.getName();
-                    if (name != null && !name.trim().isEmpty()) {
-                        return name.trim();
-                    }
-                    String username = user.getUsername();
-                    if (username != null && !username.trim().isEmpty()) {
-                        return username.trim();
-                    }
-                    return "Người dùng";
-                })
-                .orElse("Người dùng");
-    }
 }
 
 

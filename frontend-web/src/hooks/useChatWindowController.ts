@@ -108,7 +108,7 @@ export function useChatWindowController(args: {
         console.log("[DEBUG_READD] readOnlyNotice evaluated:", {
             forcedReadOnlyNotice,
             localReadOnlyNotice,
-            result: notice
+            result: notice,
         });
         return notice;
     }, [forcedReadOnlyNotice, localReadOnlyNotice]);
@@ -2157,7 +2157,10 @@ export function useChatWindowController(args: {
     );
 
     const refreshPinnedMessages = useCallback(async () => {
-        const response = await chatService.getConversation(conversationId, userId);
+        const response = await chatService.getConversation(
+            conversationId,
+            userId,
+        );
         const responseData = response.data;
         if (!response.success || !responseData) return;
 
@@ -2257,11 +2260,19 @@ export function useChatWindowController(args: {
                         });
                     },
                 );
-                // Bước 3: Gửi tin nhắn với objectKey làm content (BE tự ghép domain khi trả về)
+                const attachment = {
+                    url: objectKey,
+                    type: file.type || "application/octet-stream",
+                    fileName: file.name,
+                    fileSize: file.size,
+                };
+
+                // Bước 3: Gửi tin nhắn với attachments (thống nhất với FILE/IMAGE/AUDIO)
                 const request: SendMessageRequest = {
-                    content: objectKey,
+                    content: "",
                     type,
                     conversationId,
+                    attachments: [attachment],
                 };
                 await chatService.sendMessage(request, userId);
                 setUploadProgressPercent(100);
@@ -2696,12 +2707,15 @@ export function useChatWindowController(args: {
         const prevForced = prevForcedNoticeRef.current;
         prevForcedNoticeRef.current = forcedReadOnlyNotice;
 
-        console.log("[DEBUG_READD] useChatWindowController forced notice effect:", {
-            prevForced,
-            forcedReadOnlyNotice,
-            localReadOnlyNotice,
-            conversationId
-        });
+        console.log(
+            "[DEBUG_READD] useChatWindowController forced notice effect:",
+            {
+                prevForced,
+                forcedReadOnlyNotice,
+                localReadOnlyNotice,
+                conversationId,
+            },
+        );
 
         if (!forcedReadOnlyNotice) {
             // Chỉ mở khóa nếu prop thực sự vừa thay đổi từ 'có thông báo' sang 'không có'

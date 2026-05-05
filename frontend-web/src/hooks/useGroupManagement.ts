@@ -104,6 +104,8 @@ export function useGroupManagement({
     }, [currentUserId, groupMembers]);
 
     const canManageMembers = currentMemberRole !== null;
+    const canKickMembers =
+        currentMemberRole === "OWNER" || currentMemberRole === "DEPUTY";
     const canUpdateRole = currentMemberRole === "OWNER";
     const canDisbandGroup = currentMemberRole === "OWNER";
 
@@ -310,7 +312,7 @@ export function useGroupManagement({
 
     const kickMember = useCallback(
         async (targetUserId: number) => {
-            if (!selectedConversationId || !canManageMembers) {
+            if (!selectedConversationId || !canKickMembers) {
                 return false;
             }
 
@@ -332,7 +334,7 @@ export function useGroupManagement({
                 setPendingKickUserId(null);
             }
         },
-        [canManageMembers, reloadConversations, selectedConversationId],
+        [canKickMembers, reloadConversations, selectedConversationId],
     );
 
     const leaveGroupDirectly = useCallback(async () => {
@@ -489,6 +491,7 @@ export function useGroupManagement({
         groupMembers,
         currentMemberRole,
         canManageMembers,
+        canKickMembers,
         canUpdateRole,
         canDisbandGroup,
         groupMemberIds,

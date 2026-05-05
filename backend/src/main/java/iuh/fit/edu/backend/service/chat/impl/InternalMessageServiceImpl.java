@@ -12,6 +12,7 @@ import iuh.fit.edu.backend.mapper.MessageMapper;
 import iuh.fit.edu.backend.repository.nosql.MessageRepository;
 import iuh.fit.edu.backend.service.chat.InternalMessageService;
 import iuh.fit.edu.backend.service.chat.MessageCacheService;
+import iuh.fit.edu.backend.util.TransactionUtil;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -46,7 +47,9 @@ public class InternalMessageServiceImpl implements InternalMessageService {
 
         // Map ra DTO và Bắn Socket KHUNG CHAT (Giống hệt hàm sendMessage bình thường)
         MessageResponse msgResponse = messageMapper.toMessageResponse(savedMsg);
-        messageCacheService.cacheNewMessage(msgResponse);
+        TransactionUtil.executeAfterCommit(() -> {
+            messageCacheService.cacheNewMessage(msgResponse);
+        });
 
         this.eventPublisher.publishEvent(new MessageCreatedEvent(msgResponse));
     }

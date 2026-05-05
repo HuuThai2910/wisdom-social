@@ -19,6 +19,7 @@ interface GroupConversationPanelProps {
     conversation: Conversation;
     currentUserId: number;
     canManageMembers: boolean;
+    canKickMembers: boolean;
     canUpdateRole: boolean;
     canDisbandGroup: boolean;
     isLeavingGroup: boolean;
@@ -29,6 +30,14 @@ interface GroupConversationPanelProps {
     pendingTransferOwnerUserId: number | null;
     ownerTransferCandidates: ConversationMember[];
     actionError: string | null;
+    isConfirmLeaveModalOpen: boolean;
+    onSetConfirmLeaveModalOpen: (open: boolean) => void;
+    isConfirmDisbandModalOpen: boolean;
+    onSetConfirmDisbandModalOpen: (open: boolean) => void;
+    isConfirmKickModalOpen: boolean;
+    kickTargetUserId: number | null;
+    onOpenConfirmKick: (userId: number) => void;
+    onCloseConfirmKick: () => void;
     onOpenAddMembersModal: () => void;
     onLeaveGroup: () => Promise<boolean>;
     onCloseTransferOwnerModal: () => void;
@@ -39,14 +48,6 @@ interface GroupConversationPanelProps {
         targetUserId: number,
         nextRole: MemberRole,
     ) => Promise<boolean>;
-    isConfirmLeaveModalOpen: boolean;
-    onSetConfirmLeaveModalOpen: (open: boolean) => void;
-    isConfirmDisbandModalOpen: boolean;
-    onSetConfirmDisbandModalOpen: (open: boolean) => void;
-    isConfirmKickModalOpen: boolean;
-    kickTargetUserId: number | null;
-    onOpenConfirmKick: (userId: number) => void;
-    onCloseConfirmKick: () => void;
 }
 
 function roleLabel(role?: MemberRole): string {
@@ -88,6 +89,7 @@ export default function GroupConversationPanel({
     conversation,
     currentUserId,
     canManageMembers,
+    canKickMembers,
     canUpdateRole,
     canDisbandGroup,
     isLeavingGroup,
@@ -98,6 +100,14 @@ export default function GroupConversationPanel({
     pendingTransferOwnerUserId,
     ownerTransferCandidates,
     actionError,
+    isConfirmLeaveModalOpen,
+    onSetConfirmLeaveModalOpen,
+    isConfirmDisbandModalOpen,
+    onSetConfirmDisbandModalOpen,
+    isConfirmKickModalOpen,
+    kickTargetUserId,
+    onOpenConfirmKick,
+    onCloseConfirmKick,
     onOpenAddMembersModal,
     onLeaveGroup,
     onCloseTransferOwnerModal,
@@ -105,9 +115,6 @@ export default function GroupConversationPanel({
     onDisbandGroup,
     onKickMember,
     onUpdateMemberRole,
-    onSetConfirmLeaveModalOpen,
-    onSetConfirmDisbandModalOpen,
-    onOpenConfirmKick,
 }: GroupConversationPanelProps) {
     const members = useMemo(
         () =>
@@ -120,23 +127,6 @@ export default function GroupConversationPanel({
     );
 
     const memberCount = members.length;
-
-    const handleLeaveGroup = () => {
-        const currentMember = members.find((m) => m.userId === currentUserId);
-        const isOwner = currentMember?.role === "OWNER";
-        const hasOtherMembers = members.length > 1;
-
-        // Nếu là trưởng nhóm và còn người khác, nhảy thẳng tới modal chọn trưởng nhóm mới
-        if (isOwner && hasOtherMembers) {
-            void onLeaveGroup();
-        } else {
-            onSetConfirmLeaveModalOpen(true);
-        }
-    };
-
-    const handleDisbandGroup = () => {
-        onSetConfirmDisbandModalOpen(true);
-    };
 
     return (
         <section className="py-3">
@@ -166,7 +156,7 @@ export default function GroupConversationPanel({
                 <div className="mb-3 flex flex-wrap items-center gap-2">
                     <button
                         type="button"
-                        onClick={() => void handleLeaveGroup()}
+                        onClick={() => onSetConfirmLeaveModalOpen(true)}
                         disabled={isLeavingGroup || isDisbandingGroup}
                         className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-[#2f2f2f] dark:text-gray-200 dark:hover:bg-[#1a1a1a]"
                     >
@@ -177,7 +167,7 @@ export default function GroupConversationPanel({
                     {canDisbandGroup && (
                         <button
                             type="button"
-                            onClick={() => void handleDisbandGroup()}
+                            onClick={() => onSetConfirmDisbandModalOpen(true)}
                             disabled={isDisbandingGroup || isLeavingGroup}
                             className="inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-medium text-red-700 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-300 dark:hover:bg-red-900/30"
                         >
@@ -244,7 +234,7 @@ export default function GroupConversationPanel({
                                     </span>
                                 </div>
 
-                                {(canUpdateRole || canManageMembers) &&
+                                {(canUpdateRole || canKickMembers) &&
                                     !isCurrentUser && (
                                         <div className="mt-2 flex flex-wrap items-center gap-2">
                                             {canUpdateRole && !isOwner && (
@@ -273,7 +263,7 @@ export default function GroupConversationPanel({
                                                     </option>
                                                 </select>
                                             )}
-                                            {canManageMembers && !isOwner && (
+                                            {canKickMembers && !isOwner && (
                                                 <button
                                                     type="button"
                                                     onClick={() => {

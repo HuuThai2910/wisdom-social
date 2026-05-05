@@ -25,7 +25,10 @@ import iuh.fit.edu.backend.repository.mysql.ConversationRepository;
 import iuh.fit.edu.backend.repository.mysql.UserRepository;
 import iuh.fit.edu.backend.service.chat.ConversationMemberCacheService;
 import iuh.fit.edu.backend.service.chat.ConversationMemberService;
+import iuh.fit.edu.backend.service.chat.ConversationService;
 import iuh.fit.edu.backend.service.chat.InternalMessageService;
+import iuh.fit.edu.backend.util.TransactionUtil;
+import iuh.fit.edu.backend.util.heplper.ChatSnapshotHelper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -46,7 +49,7 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat.ConversationService {
+public class ConversationServiceImpl implements ConversationService {
     private final ConversationMemberRepository conversationMemberRepository;
     private final ConversationMapper conversationMapper;
     private final ConversationMemberService conversationMemberService;
@@ -56,6 +59,7 @@ public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat
     private final InternalMessageService internalMessageService;
     private final ConversationMemberCacheService memberCacheService;
     private final ConversationMemberMapper conversationMemberMapper;
+    private final ChatSnapshotHelper chatSnapshotHelper;
 
 
     @Transactional(rollbackFor = Exception.class)
@@ -68,6 +72,7 @@ public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat
             throw new IllegalArgumentException("Nhóm phải có ít nhất 3 thành viên (bao gồm bạn)");
         }
 
+        String imageUrl = request.getImageUrl() != null ? request.getImageUrl() : "users/group.png";
         if(request.getImageUrl() == null){
             request.setImageUrl("users/group.png");
         }
@@ -78,52 +83,32 @@ public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat
         // LƯU BẢNG CONVERSATION (MySQL)
         Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
 
-        Conversation conversation = new Conversation();
-        conversation.setType(ConversationType.GROUP);
-        conversation.setName(request.getName());
-        conversation.setImageUrl(request.getImageUrl());
-        conversation.setUpdatedAt(now);
-        conversation.setLastMessageAt(now);
-        Conversation savedConversation = conversationRepository.save(conversation);
+        Conversation savedConversation = initializeNewConversation(request.getName(), imageUrl, now);
 
 
+        // LƯU BẢNG CONVERSATION MEMBER (MySQL - BATCH INSERT)
+        List<ConversationMember> members = createMembersForNewGroup(savedConversation, allMemberIds, creatorId, now);
+        savedConversation.setMembers(members);
 
-
-        // 3. LƯU BẢNG CONVERSATION MEMBER (MySQL - BATCH INSERT)
-        List<ConversationMember> members = allMemberIds.stream().map(userId -> {
-            ConversationMember member = new ConversationMember();
-            member.setConversation(savedConversation);
-            member.setUser(userRepository.getReferenceById(userId));
-            member.setStatus(ConversationMemberStatus.ACTIVE);
-            member.setJoinedAt(now);
-            if (userId.equals(creatorId)) {
-                member.setRole(MemberRole.OWNER); // Người tạo là Trưởng nhóm
-            } else {
-                member.setRole(MemberRole.MEMBER); // Những người còn lại
-            }
-            return member;
-        }).collect(Collectors.toList());
-        conversationMemberRepository.saveAll(members);
         Map<Long, ConversationMemberResponse> dbMap = members.stream()
                 .map(conversationMemberMapper::toConversationMemberResponse)
                 .collect(Collectors.toMap(ConversationMemberResponse::getUserId, m -> m));
-        savedConversation.setMembers(members);
-        memberCacheService.saveMembersMap(savedConversation.getId(), dbMap);
 
-        String targetMembersSnapshot = buildMemberSnapshotContent(targetMemberIds);
+        TransactionUtil.executeAfterCommit(() -> {
+            memberCacheService.saveMembersMap(savedConversation.getId(), dbMap);
+        });
+
+        String targetMembersSnapshot = chatSnapshotHelper.buildMemberSnapshotContent(targetMemberIds);
         internalMessageService.createSystemMessage(savedConversation.getId(), creatorId, MessageType.SYSTEM_CREATE_GROUP, targetMembersSnapshot);
 
         // CẬP NHẬT SNAPSHOT TIN NHẮN CUỐI (MySQL)
-        savedConversation.setLastMessageContent(targetMembersSnapshot);
-        savedConversation.setLastSenderId(creatorId);
-        savedConversation.setLastMessageType(MessageType.SYSTEM_CREATE_GROUP);
-        savedConversation.setLastSenderName(resolveUserDisplayName(creatorId));
-        conversationRepository.save(savedConversation);
+        String creatorName = chatSnapshotHelper.resolveUserDisplayName(creatorId);
+        updateGroupSnapshot(savedConversation, targetMembersSnapshot, creatorId, creatorName, MessageType.SYSTEM_CREATE_GROUP);
 
         // MAP RESPONSE & BẮN EVENT
         ConversationResponse response = conversationMapper.toConversationResponse(savedConversation, creatorId);
         if(response.getLastMessage() != null){
-            response.getLastMessage().setLastSenderName(resolveUserDisplayName(creatorId));
+            response.getLastMessage().setLastSenderName(creatorName);
             response.getLastMessage().setRead(true);
         }
 
@@ -169,41 +154,6 @@ public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat
         return response;
     }
 
-    private String resolveUserDisplayName(Long userId) {
-        return userRepository.findById(userId)
-                .map(user -> {
-                    String name = user.getName();
-                    if (name != null && !name.trim().isEmpty()) {
-                        return name.trim();
-                    }
-                    String username = user.getUsername();
-                    if (username != null && !username.trim().isEmpty()) {
-                        return username.trim();
-                    }
-                    return "Người dùng";
-                })
-                .orElse("Người dùng");
-    }
-
-    private String buildMemberSnapshotContent(Collection<Long> memberIds) {
-        List<Map<String, Object>> snapshot = memberIds.stream()
-                .map(memberId -> {
-                    Map<String, Object> member = new HashMap<>();
-                    member.put("id", memberId);
-                    member.put("name", resolveUserDisplayName(memberId));
-                    return member;
-                })
-                .collect(Collectors.toList());
-
-        try {
-            return new ObjectMapper().writeValueAsString(snapshot);
-        } catch (Exception ex) {
-            return "[" + memberIds.stream()
-                    .map(String::valueOf)
-                    .collect(Collectors.joining(",")) + "]";
-        }
-    }
-
     @Transactional
     @Override
     public void deleteConversationForMe(Long conversationId, Long userId) {
@@ -215,7 +165,9 @@ public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat
         ConversationMember savedMember = conversationMemberRepository.save(member);
 
         // DỌN SẠCH CACHE ĐỂ CẬP NHẬT MỐC CLEARED_AT
-        conversationMemberService.updateMemberStateInCache(conversationId, userId, savedMember);
+        TransactionUtil.executeAfterCommit(() -> {
+            conversationMemberService.updateMemberStateInCache(conversationId, userId, savedMember);
+        });
 
     }
 
@@ -237,7 +189,9 @@ public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat
         ConversationMember savedMember = conversationMemberRepository.save(member);
 
         // ĐỒNG BỘ REDIS: Số unreadCount = 0 vừa cập nhật phải được nhét lại vào Redis Hash ngay!
-        conversationMemberService.updateMemberStateInCache(conversationId, userId, savedMember);
+        TransactionUtil.executeAfterCommit(() -> {
+            conversationMemberService.updateMemberStateInCache(conversationId, userId, savedMember);
+        });
 
         // Chuẩn bị dữ liệu bắn Socket
         MessageSeenResponse response = MessageSeenResponse.builder()
@@ -251,5 +205,41 @@ public class ConversationServiceImpl implements iuh.fit.edu.backend.service.chat
         // Publish Event cho các user khác thấy tin nhắn mình đã xem
         this.eventPublisher.publishEvent(new MessageSeenEvent(response, memberIds));
 
+    }
+
+    // =======================================================
+    // PRIVATE HELPERS CHO HÀM TẠO NHÓM
+    // =======================================================
+
+    private Conversation initializeNewConversation(String name, String imageUrl, Instant now) {
+        Conversation conversation = new Conversation();
+        conversation.setType(ConversationType.GROUP);
+        conversation.setName(name);
+        conversation.setImageUrl(imageUrl);
+        conversation.setUpdatedAt(now);
+        conversation.setLastMessageAt(now);
+        return conversationRepository.save(conversation);
+    }
+
+    private List<ConversationMember> createMembersForNewGroup(Conversation conv, Set<Long> allMemberIds, Long creatorId, Instant now) {
+        List<ConversationMember> members = allMemberIds.stream().map(userId -> {
+            ConversationMember member = new ConversationMember();
+            member.setConversation(conv);
+            member.setUser(userRepository.getReferenceById(userId));
+            member.setStatus(ConversationMemberStatus.ACTIVE);
+            member.setJoinedAt(now);
+            member.setRole(userId.equals(creatorId) ? MemberRole.OWNER : MemberRole.MEMBER);
+            return member;
+        }).collect(Collectors.toList());
+
+        return conversationMemberRepository.saveAll(members);
+    }
+
+    private void updateGroupSnapshot(Conversation conv, String targetSnapshot, Long creatorId, String creatorName, MessageType type) {
+        conv.setLastMessageContent(targetSnapshot);
+        conv.setLastSenderId(creatorId);
+        conv.setLastMessageType(type);
+        conv.setLastSenderName(creatorName);
+        conversationRepository.save(conv);
     }
 }

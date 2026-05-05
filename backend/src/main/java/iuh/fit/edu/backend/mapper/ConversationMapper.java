@@ -75,32 +75,28 @@ public abstract class ConversationMapper {
     // =======================================================
 
     @AfterMapping
-    protected void applyCorrectLastMessage(ConversationMember member, @MappingTarget ConversationSidebarResponse response) {
+    protected void applyCorrectLastMessageToSidebar(ConversationMember member, @MappingTarget ConversationSidebarResponse response) {
         LastMessageResponse lastMsg = new LastMessageResponse();
-
-        // Nếu đang hoạt động -> lấy từ Global (Conversation)
-        if (member.getStatus() == ConversationMemberStatus.ACTIVE) {
-            Conversation conv = member.getConversation();
-            if (conv != null) {
-                lastMsg.setLastMessageContent(conv.getLastMessageContent());
-                lastMsg.setLastMessageType(conv.getLastMessageType());
-                lastMsg.setLastMessageAt(conv.getLastMessageAt());
-                lastMsg.setLastSenderId(conv.getLastSenderId());
-                lastMsg.setLastSenderName(conv.getLastSenderName());
-            }
-        } else {
-            // Đã rời/bị kick/giải tán -> Lấy từ Frozen State
-            FrozenLastMessage frozen = member.getFrozenLastMessage();
-            if (frozen != null) {
-                lastMsg.setLastMessageContent(frozen.getContent());
-                lastMsg.setLastMessageType(frozen.getType());
-                lastMsg.setLastMessageAt(frozen.getTime());
-                lastMsg.setLastSenderId(frozen.getSenderId());
-                lastMsg.setLastSenderName(frozen.getSenderName());
-            }
-        }
-
+        resolveMaskedLastMessage(member.getConversation(), member, lastMsg);
         response.setLastMessage(lastMsg);
+    }
+    @AfterMapping
+    protected void applyCorrectLastMessageToDetail(Conversation conversation, @MappingTarget ConversationResponse response, @Context Long userId) {
+        if (conversation.getMembers() == null) return;
+
+        // Tìm Member của user đang request
+        conversation.getMembers().stream()
+                .filter(m -> m.getUser().getId().equals(userId))
+                .findFirst()
+                .ifPresent(member -> {
+                    LastMessageResponse lastMsg = response.getLastMessage();
+                    if (lastMsg == null) {
+                        lastMsg = new LastMessageResponse();
+                        response.setLastMessage(lastMsg);
+                    }
+                    // Áp dụng bùa che tin nhắn (Mask)
+                    resolveMaskedLastMessage(conversation, member, lastMsg);
+                });
     }
 
     @AfterMapping
@@ -140,6 +136,42 @@ public abstract class ConversationMapper {
     // 4. HELPER MAPPING & SNAPSHOT
     // =======================================================
 
+    /**
+     * HÀM HELPER MỚI: Dùng chung để che tin nhắn (Mặt nạ) cho cả Sidebar và Detail
+     */
+    protected void resolveMaskedLastMessage(Conversation conv, ConversationMember member, LastMessageResponse lastMsg) {
+        // Nếu đang hoạt động -> kiểm tra xem có bị che Global không
+        if (member.getStatus() == ConversationMemberStatus.ACTIVE) {
+            if (conv.getLastMessageId() != null && conv.getLastMessageId().equals(member.getHiddenGlobalMessageId())) {
+                // Trúng mặt nạ (Tin nhắn vừa bị Xóa 1 phía) -> Dùng dữ liệu của Mặt nạ
+                FrozenLastMessage personal = member.getPersonalLastMessage();
+                if (personal != null) {
+                    lastMsg.setLastMessageContent(personal.getContent());
+                    lastMsg.setLastMessageType(personal.getType());
+                    lastMsg.setLastMessageAt(personal.getTime());
+                    lastMsg.setLastSenderId(personal.getSenderId());
+                    lastMsg.setLastSenderName(personal.getSenderName());
+                }
+            } else {
+                // == BÌNH THƯỜNG: DÙNG GLOBAL STATE ==
+                lastMsg.setLastMessageContent(conv.getLastMessageContent());
+                lastMsg.setLastMessageType(conv.getLastMessageType());
+                lastMsg.setLastMessageAt(conv.getLastMessageAt());
+                lastMsg.setLastSenderId(conv.getLastSenderId());
+                lastMsg.setLastSenderName(conv.getLastSenderName());
+            }
+        } else {
+            // Đã rời/bị kick/giải tán -> Lấy từ Frozen State
+            FrozenLastMessage frozen = member.getFrozenLastMessage();
+            if (frozen != null) {
+                lastMsg.setLastMessageContent(frozen.getContent());
+                lastMsg.setLastMessageType(frozen.getType());
+                lastMsg.setLastMessageAt(frozen.getTime());
+                lastMsg.setLastSenderId(frozen.getSenderId());
+                lastMsg.setLastSenderName(frozen.getSenderName());
+            }
+        }
+    }
     /**
      * HÀM HELPER MỚI: Dùng Consumer để gán dữ liệu vào bất kỳ DTO nào
      */

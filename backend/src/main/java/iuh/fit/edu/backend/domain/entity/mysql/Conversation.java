@@ -39,6 +39,7 @@ public class Conversation {
     private Instant updatedAt;
 
     // Snapshot cho tin nhan moi nhat
+    private String lastMessageId;
     private String lastMessageContent;
     private Instant lastMessageAt;
     @Enumerated(EnumType.STRING)

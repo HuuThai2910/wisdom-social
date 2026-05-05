@@ -70,6 +70,12 @@ public class ConversationMember {
     @Column(name = "frozen_last_message")
     private FrozenLastMessage frozenLastMessage;
 
+    // Lưu lại tin nhắn đối với truòng hợp xóa ở 1 phía (chỉ áp dụng với tin nhắn cuối cùng)
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "personal_last_message")
+    private FrozenLastMessage personalLastMessage;
+    // Lưu lại id của tin nhắn mà user vừa xóa 1 phía
+    private String hiddenGlobalMessageId;
     // Mốc thời gian xóa cuộc hội thoại
     @Column(name = "cleared_at")
     private Instant clearedAt;
