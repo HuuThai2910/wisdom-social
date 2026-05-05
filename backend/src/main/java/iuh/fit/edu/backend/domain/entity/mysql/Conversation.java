@@ -6,7 +6,7 @@ package iuh.fit.edu.backend.domain.entity.mysql;
 
 import iuh.fit.edu.backend.constant.ConversationType;
 import iuh.fit.edu.backend.constant.MessageType;
-import iuh.fit.edu.backend.util.PinnedMessagesConverter;
+import iuh.fit.edu.backend.util.convert.PinnedMessagesConverter;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -39,11 +39,13 @@ public class Conversation {
     private Instant updatedAt;
 
     // Snapshot cho tin nhan moi nhat
+    private String lastMessageId;
     private String lastMessageContent;
     private Instant lastMessageAt;
     @Enumerated(EnumType.STRING)
     private MessageType lastMessageType;
     private Long lastSenderId;
+    private String lastSenderName;
 
     @OneToMany(mappedBy = "conversation")
     private List<ConversationMember> members;

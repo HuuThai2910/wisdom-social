@@ -8,6 +8,7 @@ import {
 } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import { AuthProvider } from "./contexts/AuthContext";
 import { AvatarProvider } from "./context/AvatarContext";
 import { FriendNotificationProvider } from "./contexts/FriendNotificationContext";
 import FriendDataProvider from "./contexts/FriendDataContext";
@@ -84,7 +85,8 @@ function App() {
 
   return (
       <ThemeProvider>
-        <AvatarProvider>
+        <AuthProvider>
+          <AvatarProvider>
           <FriendDataProvider>
             <FriendNotificationProvider>
               <Toaster
@@ -172,6 +174,7 @@ function App() {
             </FriendNotificationProvider>
           </FriendDataProvider>
         </AvatarProvider>
+        </AuthProvider>
       </ThemeProvider>
   );
 }

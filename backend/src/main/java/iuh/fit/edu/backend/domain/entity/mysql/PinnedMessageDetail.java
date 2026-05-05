@@ -1,5 +1,6 @@
 package iuh.fit.edu.backend.domain.entity.mysql;
 
+import iuh.fit.edu.backend.constant.MessageType;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -13,4 +14,7 @@ public class PinnedMessageDetail {
     private String messageId; // ID của tin nhắn gốc trong MongoDB
     private Long pinnerId;    // ID của người thực hiện thao tác ghim
     private Instant pinnedAt; // Thời gian ghim để sắp xếp
+    private Long originalSenderId;
+    private String content;
+    private MessageType type;
 }

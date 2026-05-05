@@ -1,6 +1,5 @@
 package iuh.fit.edu.backend.event.handler;
 
-import iuh.fit.edu.backend.dto.response.message.MessageResponse;
 import iuh.fit.edu.backend.event.payload.MessageCreatedEvent;
 import iuh.fit.edu.backend.event.type.DomainEventType;
 import lombok.RequiredArgsConstructor;

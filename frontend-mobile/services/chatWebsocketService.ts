@@ -1,7 +1,12 @@
 import { Client, type IMessage } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
 import type {
+    Conversation,
+    ConversationCreatedEvent,
+    ConversationMembershipEvent,
     ConversationUpdatedEvent,
+    GroupDisbandedEvent,
+    LastMessage,
     MemberUpdatedEvent,
     Message,
     MessageCreatedEvent,
@@ -18,6 +23,87 @@ type ConversationEvent =
     | MessageSeenEvent
     | TypingEvent;
 
+type ConversationSnapshot = Conversation;
+
+type UserConversationEvent =
+    | ConversationUpdatedEvent
+    | ConversationCreatedEvent
+    | ConversationMembershipEvent
+    | GroupDisbandedEvent;
+
+function toLastMessageUpdate(conversation: Conversation): LastMessage | null {
+    return conversation.lastMessage ?? null;
+}
+
+function buildFallbackLastMessageUpdate(conversation: Conversation): LastMessage {
+    return {
+        lastMessageContent: "",
+        lastMessageType: "SYSTEM_CREATE_GROUP",
+        lastSenderId: 0,
+        lastSenderName: "",
+        lastMessageAt: conversation.updatedAt,
+        read: false,
+    };
+}
+
+function buildSystemFallbackByDomainEvent(
+    domainEventType?: string,
+): LastMessage {
+    const now = new Date().toISOString();
+
+    if (domainEventType === "MEMBER_ADDED") {
+        return {
+            lastMessageContent: "",
+            lastMessageType: "SYSTEM_ADD_MEMBER",
+            lastSenderId: 0,
+            lastSenderName: "",
+            lastMessageAt: now,
+            read: false,
+        };
+    }
+
+    if (domainEventType === "MEMBER_ROLE_UPDATED") {
+        return {
+            lastMessageContent: "",
+            lastMessageType: "SYSTEM_UPDATE_ROLE",
+            lastSenderId: 0,
+            lastSenderName: "",
+            lastMessageAt: now,
+            read: false,
+        };
+    }
+
+    if (domainEventType === "MEMBER_KICKED") {
+        return {
+            lastMessageContent: "",
+            lastMessageType: "SYSTEM_KICK_MEMBER",
+            lastSenderId: 0,
+            lastSenderName: "",
+            lastMessageAt: now,
+            read: false,
+        };
+    }
+
+    if (domainEventType === "MEMBER_LEFT") {
+        return {
+            lastMessageContent: "",
+            lastMessageType: "SYSTEM_LEAVE_GROUP",
+            lastSenderId: 0,
+            lastSenderName: "",
+            lastMessageAt: now,
+            read: false,
+        };
+    }
+
+    return {
+        lastMessageContent: "",
+        lastMessageType: "SYSTEM_DISBAND_GROUP",
+        lastSenderId: 0,
+        lastSenderName: "",
+        lastMessageAt: now,
+        read: false,
+    };
+}
 export type CallStatus =
     | "calling"
     | "ringing"
@@ -618,7 +704,9 @@ class ChatWebsocketService {
         onConversationUpdated: (
             conversationId: number,
             lastMessage: ConversationUpdatedEvent["lastMessage"],
+            conversation?: ConversationSnapshot,
         ) => void,
+        onDisbanded?: (conversationId: number) => void,
     ): void {
         const destination = `/topic/user/${userId}/conversations`;
         this.registerSubscription(destination, () => {
@@ -629,52 +717,129 @@ class ChatWebsocketService {
 
             return client.subscribe(destination, (message: IMessage) => {
                 try {
-                    const raw = JSON.parse(message.body) as
-                        | ConversationUpdatedEvent
-                        | {
-                            payload?: ConversationUpdatedEvent;
-                            data?: ConversationUpdatedEvent;
-                            conversationId?: unknown;
-                            lastMessage?: unknown;
-                            lastMessageResponse?: unknown;
+                    const payload = JSON.parse(message.body) as UserConversationEvent;
+
+                    const createdConversation = (
+                        payload as { conversationResponse?: Conversation }
+                    ).conversationResponse;
+
+                    if (createdConversation?.id) {
+                        const lastMessageData =
+                            toLastMessageUpdate(createdConversation);
+                        const resolvedLastMessage =
+                            lastMessageData ??
+                            buildFallbackLastMessageUpdate(createdConversation);
+                        const conversationSnapshot: ConversationSnapshot = {
+                            ...createdConversation,
+                            lastMessage:
+                                createdConversation.lastMessage ??
+                                resolvedLastMessage,
                         };
-                    const container =
-                        (raw as { payload?: ConversationUpdatedEvent })
-                            .payload ??
-                        (raw as { data?: ConversationUpdatedEvent }).data ??
-                        raw;
 
-                    const conversationIdRaw = (
-                        container as { conversationId?: unknown }
-                    ).conversationId;
-                    const parsedConversationId = Number(conversationIdRaw);
-                    if (!Number.isFinite(parsedConversationId)) {
+                        onConversationUpdated(
+                            createdConversation.id,
+                            resolvedLastMessage,
+                            conversationSnapshot,
+                        );
                         return;
                     }
 
-                    const lastMessageRaw =
-                        (
-                            container as {
-                                lastMessage?: ConversationUpdatedEvent["lastMessage"];
-                            }
-                        ).lastMessage ??
-                        (
-                            container as {
-                                lastMessageResponse?: ConversationUpdatedEvent["lastMessage"];
-                            }
-                        ).lastMessageResponse;
+                    const disbandPayload = payload as GroupDisbandedEvent;
+                    if (
+                        disbandPayload.domainEventType === "GROUP_DISBANDED" &&
+                        typeof disbandPayload.conversationId === "number"
+                    ) {
+                        // Gọi callback chuyên biệt nếu có (dùng trong useChatWindowController)
+                        onDisbanded?.(disbandPayload.conversationId);
 
-                    if (!lastMessageRaw) {
+                        // Vẫn gọi onConversationUpdated để cập nhật sidebar list
+                        onConversationUpdated(
+                            disbandPayload.conversationId,
+                            buildSystemFallbackByDomainEvent(
+                                disbandPayload.domainEventType,
+                            ),
+                        );
                         return;
                     }
 
-                    onConversationUpdated(parsedConversationId, lastMessageRaw);
+                    const updatedEvent = payload as ConversationUpdatedEvent;
+                    if (
+                        typeof updatedEvent.conversationId === "number" &&
+                        updatedEvent.lastMessage
+                    ) {
+                        onConversationUpdated(
+                            updatedEvent.conversationId,
+                            updatedEvent.lastMessage,
+                        );
+                    }
                 } catch {
                     // no-op
                 }
             });
         });
     }
+
+
+    /**
+     * Subscribe to GROUP_DISBANDED events for a specific conversation.
+     * Uses a unique internal key so it doesn't overwrite the generic
+     * subscribeToUserConversations subscription used by the sidebar.
+     */
+    subscribeToGroupDisbanded(
+        userId: number,
+        conversationId: number,
+        onDisbanded: () => void,
+    ): void {
+        const destination = `/topic/user/${userId}/conversations`;
+        const key = `${destination}::disband-watch::${conversationId}`;
+
+        this.subscriptionFactories.set(key, () => {
+            const client = this.client;
+            if (!client?.connected) {
+                throw new Error("WebSocket not connected");
+            }
+
+            // Không subscribe STOMP mới — chỉ forward từ topic gốc.
+            // Thay vào đó ta tạo một subscriber độc lập lên cùng topic.
+            return client.subscribe(destination, (message: IMessage) => {
+                try {
+                    const payload = JSON.parse(message.body) as {
+                        domainEventType?: string;
+                        conversationId?: number;
+                    };
+                    const disbandCid =
+                        payload.domainEventType === "GROUP_DISBANDED"
+                            ? payload.conversationId
+                            : undefined;
+                    if (disbandCid === conversationId) {
+                        onDisbanded();
+                    }
+                } catch {
+                    // no-op
+                }
+            });
+        });
+
+        // Kích hoạt ngay nếu đã kết nối
+        if (this.client?.connected && !this.subscriptions.has(key)) {
+            try {
+                const sub = this.subscriptionFactories.get(key)!();
+                this.subscriptions.set(key, sub);
+            } catch {
+                // retry sẽ được thực hiện ở syncSubscriptions()
+            }
+        }
+    }
+
+    unsubscribeFromGroupDisbanded(
+        userId: number,
+        conversationId: number,
+    ): void {
+        const destination = `/topic/user/${userId}/conversations`;
+        const key = `${destination}::disband-watch::${conversationId}`;
+        this.removeSubscription(key);
+    }
+
 
     unsubscribeFromUserConversations(userId: number): void {
         const destination = `/topic/user/${userId}/conversations`;

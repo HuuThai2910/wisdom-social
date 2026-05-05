@@ -8,9 +8,6 @@ import {
 } from "react";
 import {
     Send,
-    Phone,
-    Video,
-    Info,
     ChevronDown,
     ArrowDown,
     Plus,
@@ -35,18 +32,27 @@ import { MessageBubble } from "./MessageBubble";
 import { useCall } from "../../hooks/useCall";
 import IncomingCallModal from "./IncomingCallModal";
 import CallScreen from "./CallScreen";
+import ConversationAvatar from "./ConversationAvatar";
+import ChatHeader from "./ChatHeader";
 import { useChatAI } from "../../features/chat-ai/hooks/useChatAI";
 import AIConsentModal from "../../features/chat-ai/components/AIConsentModal";
 import AIActionPanel from "../../features/chat-ai/components/AIActionPanel";
 import AIResultPanel from "../../features/chat-ai/components/AIResultPanel";
 import type { MessagePreviewDTO } from "../../features/chat-ai/types/chatAI";
+import { buildPinnedBannerItemsFromSnapshot } from "../../utils/pinnedMessageSnapshot";
+import { DEFAULT_GROUP_AVATAR_URL } from "../../constants/ui";
 
 interface ChatWindowProps {
     conversationId: number;
-    userId: number;
     onMarkAsRead?: (conversationId: number) => void;
     onToggleInfoPanel?: () => void;
     showInfoPanel?: boolean;
+    forcedReadOnlyNotice?: string | null;
+    onForbidden?: () => void;
+    // Fallback props for Header when conversation fetch fails (e.g. disbanded/kicked)
+    name?: string;
+    avatarUrl?: string;
+    compositeAvatarUrls?: string[];
 }
 
 function createClientFileId(): string {
@@ -58,10 +64,14 @@ function createClientFileId(): string {
 
 export default function ChatWindow({
     conversationId,
-    userId,
     onMarkAsRead,
     onToggleInfoPanel,
     showInfoPanel = true,
+    forcedReadOnlyNotice = null,
+    onForbidden,
+    name,
+    avatarUrl,
+    compositeAvatarUrls,
 }: ChatWindowProps) {
     const [isAiPanelOpen, setIsAiPanelOpen] = useState(false);
 
@@ -79,9 +89,11 @@ export default function ChatWindow({
         uploadFileProgressMap,
         uploadFailedFileNames,
         error,
+        readOnlyNotice,
 
         displayName,
         displayAvatar,
+        displayCompositeAvatars,
 
         messageText,
         setMessageText,
@@ -105,6 +117,7 @@ export default function ChatWindow({
         appendRealtimeMessage,
         scrollToBottom,
         recallToast,
+        jumpToast,
 
         isRecording,
         recordingDuration,
@@ -124,7 +137,15 @@ export default function ChatWindow({
         readReceipts,
         typingUsers,
         sendTypingSignal,
-    } = useChatWindowController({ conversationId, userId, onMarkAsRead });
+        userId,
+    } = useChatWindowController({
+        conversationId,
+        onMarkAsRead,
+        forcedReadOnlyNotice,
+        onForbidden,
+    });
+
+    const isConversationReadOnly = Boolean(readOnlyNotice);
 
     const otherMember = useMemo(
         () => Object.values(membersById).find((m) => m.userId !== userId),
@@ -195,7 +216,10 @@ export default function ChatWindow({
             .filter((member) => callMemberIds.has(member.userId))
             .map((member) => ({
                 userId: member.userId,
-                name: member.nickname || member.username,
+                name:
+                    member.nickname?.trim() ||
+                    member.username?.trim() ||
+                    "Người dùng",
                 avatar: member.avatar,
             }));
     }, [activeCall, conversation?.type, membersById, userId]);
@@ -209,44 +233,11 @@ export default function ChatWindow({
     );
 
     const pinnedBannerItems = useMemo(() => {
-        // Chuẩn hoá text preview theo loại tin nhắn để banner dễ đọc.
-        const previewText = (message: (typeof messages)[number]) => {
-            if (message.type === "IMAGE") return "[Hình ảnh]";
-            if (message.type === "VIDEO") return "[Video]";
-            if (message.type === "AUDIO") return "[Tin nhắn thoại]";
-            if (message.type === "FILE") return "[Tệp đính kèm]";
-            if (message.type === "CALL") return "[Cuộc gọi]";
-            return message.content || "Tin nhắn";
-        };
-
-        return pinnedMessages.map((pin) => {
-            const matchedMessage = messages.find(
-                (message) => message.id === pin.messageId,
-            );
-
-            // Hiển thị tên người gửi của tin nhắn gốc đang được ghim.
-            // Nếu không tìm thấy member thì fallback về chuỗi chung để UI không bị rỗng.
-            const originalSender = matchedMessage
-                ? membersById[matchedMessage.senderId]
-                : undefined;
-            const senderName = originalSender?.nickname || "Người dùng";
-
-            // Nếu tin ghim là ảnh thì hiện thumbnail nhỏ trong banner/list.
-            const thumbUrl =
-                matchedMessage?.type === "IMAGE"
-                    ? matchedMessage.content
-                    : undefined;
-
-            return {
-                ...pin,
-                preview: matchedMessage
-                    ? previewText(matchedMessage)
-                    : "Tin nhắn đã ghim",
-                thumbUrl,
-                senderName,
-            };
+        return buildPinnedBannerItemsFromSnapshot({
+            pins: pinnedMessages,
+            membersById,
         });
-    }, [membersById, messages, pinnedMessages]);
+    }, [membersById, pinnedMessages]);
 
     // Item ghim đầu tiên luôn hiển thị ở banner dạng gọn.
     const primaryPinnedItem = pinnedBannerItems[0];
@@ -425,6 +416,15 @@ export default function ChatWindow({
         };
     }, []);
 
+    useEffect(() => {
+        if (!isConversationReadOnly) return;
+
+        setPlusMenuOpen(false);
+        setEmojiPickerOpen(false);
+        setReplyToMessage(null);
+        setSelectedFiles([]);
+    }, [isConversationReadOnly]);
+
     const getMessagePreviewText = useCallback(
         (message: (typeof messages)[number]) => {
             if (message.type === "IMAGE") return "[Hình ảnh]";
@@ -572,7 +572,14 @@ export default function ChatWindow({
 
         let previousDayKey: string | null = null;
         const isPinSystemMessageType = (type?: string) =>
-            type === "SYSTEM_PIN" || type === "SYSTEM_UPIN";
+            type === "SYSTEM_PIN" ||
+            type === "SYSTEM_UPIN" ||
+            type === "SYSTEM_CREATE_GROUP" ||
+            type === "SYSTEM_ADD_MEMBER" ||
+            type === "SYSTEM_UPDATE_ROLE" ||
+            type === "SYSTEM_KICK_MEMBER" ||
+            type === "SYSTEM_LEAVE_GROUP" ||
+            type === "SYSTEM_DISBAND_GROUP";
 
         for (let idx = 0; idx < messages.length; idx++) {
             const message = messages[idx];
@@ -720,6 +727,7 @@ export default function ChatWindow({
                         senderAvatar={senderAvatar}
                         replyPreview={replyPreview}
                         currentUserId={userId}
+                        membersById={membersById}
                         conversationType={conversation?.type}
                         defaultAvatarSmallUrl={defaultAvatarSmallUrl}
                         isPinned={isPinned}
@@ -832,74 +840,96 @@ export default function ChatWindow({
 
     if (loading) {
         return (
-            <div className="flex items-center justify-center h-full">
-                <p className="text-gray-500">Đang tải...</p>
+            <div className="flex flex-col h-full w-full">
+                {/* Skeleton Header */}
+                <div className="flex items-center justify-between border-b border-gray-200/80 dark:border-gray-700 px-5 py-3.5 bg-white dark:bg-black">
+                    <div className="flex items-center gap-3">
+                        <div className="h-10 w-10 rounded-full bg-gray-200 dark:bg-gray-800 animate-pulse" />
+                        <div className="space-y-2">
+                            <div className="h-4 w-24 bg-gray-200 dark:bg-gray-800 animate-pulse rounded" />
+                            <div className="h-3 w-16 bg-gray-100 dark:bg-gray-900 animate-pulse rounded" />
+                        </div>
+                    </div>
+                </div>
+                {/* Loading Body */}
+                <div className="flex-1 flex items-center justify-center bg-gray-50 dark:bg-[#0f0f0f]">
+                    <div className="flex flex-col items-center gap-2">
+                        <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                            Đang tải hội thoại...
+                        </p>
+                    </div>
+                </div>
             </div>
         );
     }
 
-    if (!conversation) {
+    // Xác định xem có hiển thị giao diện báo lỗi (Red Cross) hay không.
+    // Hiển thị khi bị mất quyền truy cập (readOnlyNotice) hoặc không tải được hội thoại.
+    const isErrorState = !!readOnlyNotice || (!loading && !conversation);
+
+    if (isErrorState) {
+        const displayErrorName =
+            conversation?.name || name || "Cuộc trò chuyện";
+        const displayErrorAvatar = conversation?.imageUrl || avatarUrl;
+        const displayErrorComposite =
+            conversation?.members && conversation.members.length > 0
+                ? conversation.members.slice(0, 4).map((m) => m.avatar || "")
+                : compositeAvatarUrls;
+
         return (
-            <div className="flex items-center justify-center h-full">
-                <p className="text-gray-500">
-                    {error || "Không tìm thấy cuộc trò chuyện"}
-                </p>
+            <div className="flex flex-col h-full w-full">
+                {/* Static Header for Locked/Error state */}
+                <div className="flex items-center justify-between border-b border-gray-200/80 dark:border-gray-700 px-5 py-3.5 bg-white dark:bg-black backdrop-blur-sm">
+                    <div className="flex items-center gap-3">
+                        <ConversationAvatar
+                            name={displayErrorName}
+                            avatarUrl={displayErrorAvatar}
+                            compositeAvatarUrls={displayErrorComposite}
+                            fallbackAvatarUrl={DEFAULT_GROUP_AVATAR_URL}
+                            sizeClassName="h-10 w-10"
+                        />
+                        <div>
+                            <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                                {displayErrorName}
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                                Không thể truy cập
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                {/* Error Body */}
+                <div className="flex-1 flex flex-col items-center justify-center p-6 text-center bg-gray-50 dark:bg-[#0f0f0f]">
+                    <div className="w-16 h-16 bg-red-50 dark:bg-red-950/20 rounded-full flex items-center justify-center mb-4">
+                        <X size={32} className="text-red-500" />
+                    </div>
+                    <p className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                        {error || readOnlyNotice || "Lỗi truy cập"}
+                    </p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm">
+                        Hội thoại này hiện không khả dụng. Bạn có thể đã bị xóa
+                        khỏi nhóm hoặc không có quyền xem nội dung này.
+                    </p>
+                </div>
             </div>
         );
     }
 
     return (
         <div className="flex flex-col h-full w-full flex-1 min-w-0">
-            {/* Header */}
-            <div className="flex items-center justify-between border-b border-gray-200/80 dark:border-gray-700 px-5 py-3.5 bg-white dark:bg-black backdrop-blur-sm">
-                <div className="flex items-center gap-3">
-                    <img
-                        src={displayAvatar || defaultAvatarUrl}
-                        alt={displayName}
-                        className="h-10 w-10 rounded-full object-cover ring-1 ring-gray-200 dark:ring-gray-700"
-                    />
-                    <div>
-                        <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                            {displayName}
-                        </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                            Active now
-                        </p>
-                    </div>
-                </div>
-                <div className="flex items-center gap-1.5">
-                    <button
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white disabled:opacity-40"
-                        onClick={() => void startCall("audio")}
-                        disabled={!otherMember}
-                        title="Gọi thoại"
-                    >
-                        <Phone size={18} />
-                    </button>
-                    <button
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white disabled:opacity-40"
-                        onClick={() => void startCall("video")}
-                        disabled={!otherMember}
-                        title="Gọi video"
-                    >
-                        <Video size={18} />
-                    </button>
-                    <button
-                        type="button"
-                        onClick={onToggleInfoPanel}
-                        className={`inline-flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
-                            showInfoPanel
-                                ? "bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950/40 dark:text-blue-300 dark:hover:bg-blue-900/40"
-                                : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white"
-                        }`}
-                        title={
-                            showInfoPanel ? "Ẩn thông tin" : "Hiện thông tin"
-                        }
-                    >
-                        <Info size={18} />
-                    </button>
-                </div>
-            </div>
+            <ChatHeader
+                displayName={displayName}
+                displayAvatar={displayAvatar}
+                displayCompositeAvatars={displayCompositeAvatars}
+                conversationType={conversation?.type}
+                defaultAvatarUrl={defaultAvatarUrl}
+                canCall={Boolean(otherMember)}
+                isConversationReadOnly={isConversationReadOnly}
+                showInfoPanel={showInfoPanel}
+                onStartCall={(callType) => void startCall(callType)}
+                onToggleInfoPanel={onToggleInfoPanel}
+            />
 
             {pinnedBannerItems.length > 0 && (
                 <div className="bg-gray-50 px-2.5 py-2 border-b border-gray-200 dark:bg-black dark:border-[#262626]">
@@ -1093,6 +1123,12 @@ export default function ChatWindow({
                     </div>
                 )}
 
+                {jumpToast && (
+                    <div className="absolute top-14 left-1/2 -translate-x-1/2 z-30 bg-gray-800 dark:bg-gray-700 text-white text-sm px-4 py-2 rounded-lg shadow-lg pointer-events-none whitespace-nowrap">
+                        {jumpToast}
+                    </div>
+                )}
+
                 <div
                     ref={messagesContainerRef}
                     onScroll={handleScroll}
@@ -1183,7 +1219,7 @@ export default function ChatWindow({
                 <AIActionPanel
                     isOpen={isAiPanelOpen}
                     onToggle={() => setIsAiPanelOpen((prev) => !prev)}
-                    disabled={uploading || sending}
+                    disabled={uploading || sending || isConversationReadOnly}
                     isSummarizing={isSummarizing}
                     isSuggesting={isSuggesting}
                     onSummarize={() => {
@@ -1391,7 +1427,9 @@ export default function ChatWindow({
                                 <button
                                     type="button"
                                     onClick={() => setPlusMenuOpen((v) => !v)}
-                                    disabled={uploading}
+                                    disabled={
+                                        uploading || isConversationReadOnly
+                                    }
                                     className="rounded-full p-1.5 text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800 disabled:opacity-50"
                                 >
                                     {plusMenuOpen ? (
@@ -1478,6 +1516,7 @@ export default function ChatWindow({
                                     type="text"
                                     value={messageText}
                                     onChange={(e) => {
+                                        if (isConversationReadOnly) return;
                                         setMessageText(e.target.value);
                                         // Gửi typing signal
                                         if (e.target.value.trim()) {
@@ -1490,7 +1529,8 @@ export default function ChatWindow({
                                         if (
                                             e.key === "Enter" &&
                                             !sending &&
-                                            !uploading
+                                            !uploading &&
+                                            !isConversationReadOnly
                                         ) {
                                             sendTypingSignal(false); // Ngừng typing khi gửi
                                             if (selectedFiles.length > 0) {
@@ -1517,11 +1557,17 @@ export default function ChatWindow({
                                     }}
                                     onBlur={() => sendTypingSignal(false)} // Ngừng typing khi blur
                                     placeholder={
-                                        uploading
-                                            ? "Đang tải file lên..."
-                                            : "Nhập tin nhắn..."
+                                        isConversationReadOnly
+                                            ? "Bạn không còn quyền gửi tin nhắn trong nhóm này"
+                                            : uploading
+                                              ? "Đang tải file lên..."
+                                              : "Nhập tin nhắn..."
                                     }
-                                    disabled={sending || uploading}
+                                    disabled={
+                                        sending ||
+                                        uploading ||
+                                        isConversationReadOnly
+                                    }
                                     className="min-w-0 flex-1 bg-transparent px-2.5 py-1.5 text-sm text-gray-900 placeholder:text-gray-500 focus:outline-none dark:text-white dark:placeholder-gray-400 disabled:opacity-50"
                                 />
 
@@ -1543,6 +1589,7 @@ export default function ChatWindow({
                                                     !emojiPickerOpen,
                                                 )
                                             }
+                                            disabled={isConversationReadOnly}
                                             className={`shrink-0 rounded-full p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 ${
                                                 emojiPickerOpen
                                                     ? "text-blue-500"
@@ -1614,7 +1661,9 @@ export default function ChatWindow({
                                                 setReplyToMessage(null),
                                             );
                                         }}
-                                        disabled={sending}
+                                        disabled={
+                                            sending || isConversationReadOnly
+                                        }
                                         className="shrink-0 rounded-full p-1.5 text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800 disabled:opacity-50"
                                     >
                                         <Send size={22} />
@@ -1630,7 +1679,9 @@ export default function ChatWindow({
                                                 setReplyToMessage(null),
                                             )
                                         }
-                                        disabled={sending}
+                                        disabled={
+                                            sending || isConversationReadOnly
+                                        }
                                         className="shrink-0 rounded-full p-0.5 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
                                     >
                                         <Emoji
@@ -1642,6 +1693,12 @@ export default function ChatWindow({
                                 ))}
                         </div>
                     </div>
+                )}
+
+                {readOnlyNotice && (
+                    <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">
+                        {readOnlyNotice}
+                    </p>
                 )}
             </div>
 

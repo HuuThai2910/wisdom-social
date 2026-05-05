@@ -5,15 +5,11 @@
 package iuh.fit.edu.backend.event.publisher;
 
 import iuh.fit.edu.backend.config.RedisPubSubConfig;
-import iuh.fit.edu.backend.dto.response.message.MessageRecalledResponse;
 import iuh.fit.edu.backend.event.payload.*;
-import iuh.fit.edu.backend.dto.response.message.MessageResponse;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.event.EventListener;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
@@ -94,7 +90,6 @@ public class ChatEventPublisher {
                 event
         );
         pubSubRedisTemplate.convertAndSend(RedisPubSubConfig.CHAT_CHANNEL, envelope);
-        Long conversationId = event.getTypingResponse().getConversationId();
     }
 
 

@@ -27,9 +27,16 @@ import {
     X,
 } from "lucide-react";
 import ChatWindow from "../components/message/ChatWindow";
+import CreateGroupModal from "../components/message/CreateGroupModal";
+import GroupConversationPanel from "../components/message/GroupConversationPanel";
+import ConfirmModal from "../components/message/ConfirmModal";
+import SelectGroupMembersModal from "../components/message/SelectGroupMembersModal";
+import ConversationAvatar from "../components/message/ConversationAvatar";
 import { useMessagesController } from "../hooks/useMessagesController";
+import { useGroupManagement } from "../hooks/useGroupManagement";
 import chatService from "../services/chatService";
 import { useSidebarLayout } from "../hooks/useSidebarLayout";
+import { buildConversationLastMessagePreview } from "../utils/conversationLastMessagePreview";
 
 type DetailSectionKey = "chatInfo" | "customize" | "media" | "privacy";
 
@@ -46,10 +53,13 @@ export default function Messages() {
         conversations,
         filteredConversations,
         handleSelectConversation,
+        clearSelectedConversation,
         handleDeleteConversationForMe,
         getDisplayInfo,
         formatTime,
         clearUnreadCount,
+        selectedConversationReadOnlyNotice,
+        reload,
     } = useMessagesController();
 
     // State để track conversation nào đang mở menu
@@ -69,6 +79,59 @@ export default function Messages() {
     const selectedConversation =
         conversations.find((conv) => conv.id === selectedConversationId) ||
         null;
+    const isGroupConversation = selectedConversation?.type === "GROUP";
+
+    const {
+        selectedGroupConversation,
+        canManageMembers,
+        canKickMembers,
+        canUpdateRole,
+        canDisbandGroup,
+        groupMemberIds,
+        availableFriends,
+        friendsLoading,
+        friendsError,
+        isCreateGroupModalOpen,
+        isAddMembersModalOpen,
+        isCreatingGroup,
+        isAddingMembers,
+        isLeavingGroup,
+        isDisbandingGroup,
+        isTransferOwnerModalOpen,
+        pendingKickUserId,
+        pendingRoleUserId,
+        pendingTransferOwnerUserId,
+        ownerTransferCandidates,
+        actionError,
+        openCreateGroupModal,
+        closeCreateGroupModal,
+        openAddMembersModal,
+        closeAddMembersModal,
+        closeTransferOwnerModal,
+        createGroup,
+        addMembersToGroup,
+        updateMemberRole,
+        kickMember,
+        leaveGroup,
+        transferOwnershipAndLeave,
+        disbandGroup,
+        isConfirmLeaveModalOpen,
+        setIsConfirmLeaveModalOpen,
+        isConfirmDisbandModalOpen,
+        setIsConfirmDisbandModalOpen,
+        isConfirmKickModalOpen,
+        kickTargetUserId,
+        openConfirmKick,
+        closeConfirmKick,
+    } = useGroupManagement({
+        currentUserId,
+        selectedConversation,
+        selectedConversationId,
+        reloadConversations: reload,
+        onSelectConversation: handleSelectConversation,
+        onClearSelection: clearSelectedConversation,
+    });
+
     const selectedDisplayInfo = selectedConversation
         ? getDisplayInfo(selectedConversation)
         : null;
@@ -83,6 +146,7 @@ export default function Messages() {
 
     const handleChangeNickname = useCallback(async () => {
         if (!selectedConversationId || !selectedConversation) return;
+        if (selectedConversation.type === "GROUP") return;
 
         const targetMember = (selectedConversation.members ?? []).find(
             (member) => member.userId !== currentUserId,
@@ -192,11 +256,22 @@ export default function Messages() {
 
             <div className="flex-1 overflow-y-auto px-5 py-5">
                 <div className="flex flex-col items-center pb-4 text-center">
-                    <img
-                        src={selectedDisplayInfo?.avatar}
-                        alt={selectedDisplayInfo?.name}
-                        className="mb-3 h-20 w-20 rounded-full object-cover ring-1 ring-gray-200 dark:ring-[#242424]"
-                    />
+                    {selectedConversation && selectedDisplayInfo && (
+                        <ConversationAvatar
+                            name={selectedDisplayInfo.name}
+                            avatarUrl={selectedDisplayInfo.avatar}
+                            compositeAvatarUrls={
+                                selectedDisplayInfo.hasCompositeAvatar
+                                    ? selectedDisplayInfo.compositeAvatars
+                                    : undefined
+                            }
+                            fallbackAvatarUrl={
+                                selectedDisplayInfo.fallbackAvatar
+                            }
+                            sizeClassName="mb-3 h-20 w-20"
+                            ringClassName="ring-1 ring-gray-200 dark:ring-[#242424]"
+                        />
+                    )}
                     <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
                         {selectedDisplayInfo?.name || "Không xác định"}
                     </h3>
@@ -231,6 +306,53 @@ export default function Messages() {
                 </div>
 
                 <div className="h-px bg-gray-200 dark:bg-[#262626]" />
+
+                {selectedGroupConversation && (
+                    <>
+                        <GroupConversationPanel
+                            conversation={selectedGroupConversation}
+                            currentUserId={currentUserId}
+                            canManageMembers={canManageMembers}
+                            canKickMembers={canKickMembers}
+                            canUpdateRole={canUpdateRole}
+                            canDisbandGroup={canDisbandGroup}
+                            isLeavingGroup={isLeavingGroup}
+                            isDisbandingGroup={isDisbandingGroup}
+                            isTransferOwnerModalOpen={isTransferOwnerModalOpen}
+                            pendingKickUserId={pendingKickUserId}
+                            pendingRoleUserId={pendingRoleUserId}
+                            pendingTransferOwnerUserId={
+                                pendingTransferOwnerUserId
+                            }
+                            ownerTransferCandidates={ownerTransferCandidates}
+                            actionError={actionError}
+                            onOpenAddMembersModal={openAddMembersModal}
+                            onLeaveGroup={leaveGroup}
+                            onCloseTransferOwnerModal={closeTransferOwnerModal}
+                            onTransferOwnershipAndLeave={
+                                transferOwnershipAndLeave
+                            }
+                            onDisbandGroup={disbandGroup}
+                            onKickMember={kickMember}
+                            onUpdateMemberRole={updateMemberRole}
+                            isConfirmLeaveModalOpen={isConfirmLeaveModalOpen}
+                            onSetConfirmLeaveModalOpen={
+                                setIsConfirmLeaveModalOpen
+                            }
+                            isConfirmDisbandModalOpen={
+                                isConfirmDisbandModalOpen
+                            }
+                            onSetConfirmDisbandModalOpen={
+                                setIsConfirmDisbandModalOpen
+                            }
+                            isConfirmKickModalOpen={isConfirmKickModalOpen}
+                            kickTargetUserId={kickTargetUserId}
+                            onOpenConfirmKick={openConfirmKick}
+                            onCloseConfirmKick={closeConfirmKick}
+                        />
+                        <div className="h-px bg-gray-200 dark:bg-[#262626]" />
+                    </>
+                )}
 
                 <div className="space-y-0">
                     <section className="py-2">
@@ -297,14 +419,18 @@ export default function Messages() {
                                     <ThumbsUp size={18} />
                                     <span>Thay đổi biểu tượng cảm xúc</span>
                                 </button>
-                                <button
-                                    type="button"
-                                    onClick={() => void handleChangeNickname()}
-                                    className={detailActionButtonClass}
-                                >
-                                    <Type size={18} />
-                                    <span>Chỉnh sửa biệt danh</span>
-                                </button>
+                                {!isGroupConversation && (
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            void handleChangeNickname()
+                                        }
+                                        className={detailActionButtonClass}
+                                    >
+                                        <Type size={18} />
+                                        <span>Chỉnh sửa biệt danh</span>
+                                    </button>
+                                )}
                             </div>
                         )}
                     </section>
@@ -432,386 +558,495 @@ export default function Messages() {
     );
 
     return (
-        <div
-            className="fixed inset-0 bottom-16 left-0 flex overflow-hidden border-r border-gray-200/80 bg-gradient-to-b from-[#f8fafd] to-[#f2f5fa] dark:border-[#262626] dark:from-black dark:to-black md:bottom-0"
-            style={{ left: `${sidebarWidth}px` }}
-        >
-            {/* Left Sidebar - Chat List */}
+        <>
             <div
-                className={`flex w-full flex-col border-r border-gray-200/80 bg-white/95 backdrop-blur-sm transition-[width] duration-300 ease-out dark:border-[#262626] dark:bg-black ${
-                    selectedConversationId
-                        ? "md:w-[264px] lg:w-[284px]"
-                        : "md:w-[300px] lg:w-[320px]"
-                }`}
+                className="fixed inset-0 bottom-16 left-0 flex overflow-hidden border-r border-gray-200/80 bg-linear-to-b from-[#f8fafd] to-[#f2f5fa] dark:border-[#262626] dark:from-black dark:to-black md:bottom-0"
+                style={{ left: `${sidebarWidth}px` }}
             >
-                {/* Header */}
-                <div className="border-b border-gray-200/80 p-4 dark:border-[#262626]">
-                    <div className="mb-4 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                            <h2 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-white">
-                                Messages
-                            </h2>
+                {/* Left Sidebar - Chat List */}
+                <div
+                    className={`flex w-full flex-col border-r border-gray-200/80 bg-white/95 backdrop-blur-sm transition-[width] duration-300 ease-out dark:border-[#262626] dark:bg-black ${
+                        selectedConversationId
+                            ? "md:w-66 lg:w-71"
+                            : "md:w-75 lg:w-80"
+                    }`}
+                >
+                    {/* Header */}
+                    <div className="border-b border-gray-200/80 p-4 dark:border-[#262626]">
+                        <div className="mb-4 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <h2 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-white">
+                                    Messages
+                                </h2>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={openCreateGroupModal}
+                                title="Tạo nhóm mới"
+                                className="rounded-full p-2 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-[#262626] dark:hover:text-white"
+                            >
+                                <Edit size={20} />
+                            </button>
                         </div>
-                        <button className="rounded-full p-2 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-[#262626] dark:hover:text-white">
-                            <Edit size={20} />
-                        </button>
+
+                        {/* Search */}
+                        <div className="relative">
+                            <input
+                                type="text"
+                                placeholder="Tìm kiếm"
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="w-full rounded-xl border border-transparent bg-gray-100 py-2.5 pl-10 pr-3 text-sm text-gray-900 outline-none transition-colors focus:border-blue-200 focus:bg-white dark:bg-gray-900 dark:text-white dark:placeholder-gray-400 dark:focus:border-blue-900 dark:focus:bg-black"
+                            />
+                            <Search
+                                size={16}
+                                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                            />
+                        </div>
                     </div>
 
-                    {/* Search */}
-                    <div className="relative">
-                        <input
-                            type="text"
-                            placeholder="Tìm kiếm"
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="w-full rounded-xl border border-transparent bg-gray-100 py-2.5 pl-10 pr-3 text-sm text-gray-900 outline-none transition-colors focus:border-blue-200 focus:bg-white dark:bg-gray-900 dark:text-white dark:placeholder-gray-400 dark:focus:border-blue-900 dark:focus:bg-black"
-                        />
-                        <Search
-                            size={16}
-                            className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-                        />
-                    </div>
-                </div>
+                    {/* Chat List */}
+                    <div className="flex-1 space-y-1 overflow-y-auto px-2 py-2">
+                        {loading ? (
+                            <div className="flex items-center justify-center py-8">
+                                <p className="text-gray-500">Đang tải...</p>
+                            </div>
+                        ) : error ? (
+                            <div className="flex items-center justify-center py-8 px-4">
+                                <p className="text-gray-500 text-sm text-center">
+                                    {error}
+                                </p>
+                            </div>
+                        ) : filteredConversations.length === 0 ? (
+                            <div className="flex items-center justify-center py-8">
+                                <p className="text-gray-500">
+                                    Không có cuộc trò chuyện nào
+                                </p>
+                            </div>
+                        ) : (
+                            filteredConversations.map((conv) => {
+                                const displayInfo = getDisplayInfo(conv);
+                                const isActive =
+                                    selectedConversationId === conv.id;
+                                const isMenuOpen = openMenuConvId === conv.id;
+                                const messagePreview =
+                                    buildConversationLastMessagePreview({
+                                        conversation: conv,
+                                        currentUserId,
+                                    });
 
-                {/* Chat List */}
-                <div className="flex-1 space-y-1 overflow-y-auto px-2 py-2">
-                    {loading ? (
-                        <div className="flex items-center justify-center py-8">
-                            <p className="text-gray-500">Đang tải...</p>
-                        </div>
-                    ) : error ? (
-                        <div className="flex items-center justify-center py-8 px-4">
-                            <p className="text-gray-500 text-sm text-center">
-                                {error}
-                            </p>
-                        </div>
-                    ) : filteredConversations.length === 0 ? (
-                        <div className="flex items-center justify-center py-8">
-                            <p className="text-gray-500">
-                                Không có cuộc trò chuyện nào
-                            </p>
-                        </div>
-                    ) : (
-                        filteredConversations.map((conv) => {
-                            const displayInfo = getDisplayInfo(conv);
-                            const isActive = selectedConversationId === conv.id;
-                            const isMenuOpen = openMenuConvId === conv.id;
-
-                            return (
-                                <div
-                                    key={conv.id}
-                                    className="group/item relative"
-                                >
+                                return (
                                     <div
-                                        onClick={() =>
-                                            handleSelectConversation(conv.id)
-                                        }
-                                        className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-3 transition-colors ${
-                                            isActive
-                                                ? "border-blue-100 bg-blue-50/90 shadow-sm dark:border-[#262626] dark:bg-gray-900"
-                                                : "border-transparent hover:border-gray-200 hover:bg-gray-50 dark:hover:border-[#242424] dark:hover:bg-[#131313]"
-                                        }`}
+                                        key={conv.id}
+                                        className="group/item relative"
                                     >
-                                        <div className="relative">
-                                            <img
-                                                src={displayInfo.avatar}
-                                                alt={displayInfo.name}
-                                                className="h-14 w-14 rounded-full object-cover ring-1 ring-gray-200 dark:ring-[#2a2a2a]"
-                                            />
+                                        <div
+                                            onClick={() =>
+                                                handleSelectConversation(
+                                                    conv.id,
+                                                )
+                                            }
+                                            className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-3 transition-colors ${
+                                                isActive
+                                                    ? "border-blue-100 bg-blue-50/90 shadow-sm dark:border-[#262626] dark:bg-gray-900"
+                                                    : "border-transparent hover:border-gray-200 hover:bg-gray-50 dark:hover:border-[#242424] dark:hover:bg-[#131313]"
+                                            }`}
+                                        >
+                                            <div className="relative">
+                                                <ConversationAvatar
+                                                    name={displayInfo.name}
+                                                    avatarUrl={
+                                                        displayInfo.avatar
+                                                    }
+                                                    compositeAvatarUrls={
+                                                        displayInfo.hasCompositeAvatar
+                                                            ? displayInfo.compositeAvatars
+                                                            : undefined
+                                                    }
+                                                    fallbackAvatarUrl={
+                                                        displayInfo.fallbackAvatar
+                                                    }
+                                                    sizeClassName="h-14 w-14"
+                                                    ringClassName="ring-1 ring-gray-200 dark:ring-[#2a2a2a]"
+                                                />
+                                            </div>
+
+                                            <div className="flex-1 min-w-0">
+                                                <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">
+                                                    {displayInfo.name}
+                                                </p>
+                                                <p
+                                                    className={`truncate text-sm ${
+                                                        conv.unreadCount &&
+                                                        conv.unreadCount > 0
+                                                            ? "font-semibold text-gray-900 dark:text-white"
+                                                            : "text-gray-500 dark:text-gray-400"
+                                                    }`}
+                                                >
+                                                    {messagePreview.showSenderPrefix && (
+                                                        <>
+                                                            <span>
+                                                                {
+                                                                    messagePreview.senderLabel
+                                                                }
+                                                            </span>
+                                                            {" : "}
+                                                        </>
+                                                    )}
+                                                    {messagePreview.text}
+                                                </p>
+                                            </div>
+
+                                            <div className="flex flex-col items-end gap-1.5">
+                                                <span className="text-[11px] text-gray-500 dark:text-gray-400">
+                                                    {conv.lastMessage
+                                                        ?.lastMessageAt
+                                                        ? formatTime(
+                                                              conv.lastMessage
+                                                                  .lastMessageAt,
+                                                          )
+                                                        : ""}
+                                                </span>
+                                                {(conv.unreadCount ?? 0) >
+                                                    0 && (
+                                                    <div className="flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-500 px-1.5">
+                                                        <span className="text-xs text-white font-semibold">
+                                                            {conv.unreadCount! >
+                                                            99
+                                                                ? "99+"
+                                                                : conv.unreadCount}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
 
-                                        <div className="flex-1 min-w-0">
-                                            <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">
-                                                {displayInfo.name}
-                                            </p>
-                                            <p
-                                                className={`truncate text-sm ${
-                                                    conv.unreadCount &&
-                                                    conv.unreadCount > 0
-                                                        ? "font-semibold text-gray-900 dark:text-white"
-                                                        : "text-gray-500 dark:text-gray-400"
+                                        {/* Button "..." - hiện khi hover, đặt bên ngoài conversation row */}
+                                        <div
+                                            ref={isMenuOpen ? menuRef : null}
+                                            className="absolute right-3 top-1/2 z-50 -translate-y-1/2"
+                                        >
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setOpenMenuConvId(
+                                                        isMenuOpen
+                                                            ? null
+                                                            : conv.id,
+                                                    );
+                                                }}
+                                                className={`flex h-8 w-8 items-center justify-center rounded-full bg-white text-gray-700 shadow-sm transition-all hover:bg-gray-100 dark:bg-[#262626] dark:text-gray-300 dark:hover:bg-[#363636] ${
+                                                    isMenuOpen
+                                                        ? "opacity-100"
+                                                        : "opacity-0 group-hover/item:opacity-100"
                                                 }`}
                                             >
-                                                {conv.lastMessage
-                                                    ?.lastMessageContent ? (
-                                                    <>
-                                                        {(conv.type ===
-                                                            "GROUP" ||
-                                                            conv.lastMessage
-                                                                .lastSenderId ===
-                                                                currentUserId) && (
-                                                            <>
-                                                                <span>
-                                                                    {conv
-                                                                        .lastMessage
-                                                                        .lastSenderId ===
-                                                                    currentUserId
-                                                                        ? "Bạn"
-                                                                        : conv
-                                                                              .lastMessage
-                                                                              .lastSenderName}
-                                                                </span>
-                                                                {" : "}
-                                                            </>
-                                                        )}
-                                                        {
-                                                            conv.lastMessage
-                                                                .lastMessageContent
-                                                        }
-                                                    </>
-                                                ) : (
-                                                    "Bắt đầu trò chuyện"
-                                                )}
-                                            </p>
-                                        </div>
+                                                <MoreHorizontal
+                                                    size={18}
+                                                    className="text-gray-700 dark:text-gray-300"
+                                                />
+                                            </button>
 
-                                        <div className="flex flex-col items-end gap-1.5">
-                                            <span className="text-[11px] text-gray-500 dark:text-gray-400">
-                                                {conv.lastMessage
-                                                    ?.lastMessageContent
-                                                    ? formatTime(
-                                                          conv.lastMessage
-                                                              .lastMessageAt,
-                                                      )
-                                                    : ""}
-                                            </span>
-                                            {(conv.unreadCount ?? 0) > 0 && (
-                                                <div className="flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-500 px-1.5">
-                                                    <span className="text-xs text-white font-semibold">
-                                                        {conv.unreadCount! > 99
-                                                            ? "99+"
-                                                            : conv.unreadCount}
-                                                    </span>
+                                            {/* Context Menu */}
+                                            {isMenuOpen && (
+                                                <div className="absolute right-0 top-full mt-2 w-64 overflow-hidden rounded-lg border border-gray-200 bg-white py-2 shadow-2xl dark:border-[#363636] dark:bg-[#262626]">
+                                                    {/* Mũi tên chỉ lên */}
+                                                    <div className="absolute -top-2 right-2 h-4 w-4 rotate-45 border-l border-t border-gray-200 bg-white dark:border-[#363636] dark:bg-[#262626]" />
+
+                                                    <button
+                                                        onClick={() =>
+                                                            setOpenMenuConvId(
+                                                                null,
+                                                            )
+                                                        }
+                                                        className={menuItemBase}
+                                                    >
+                                                        <MailOpen
+                                                            size={20}
+                                                            className="text-gray-700 dark:text-gray-300"
+                                                        />
+                                                        <span className="dark:text-white">
+                                                            Đánh dấu là chưa đọc
+                                                        </span>
+                                                    </button>
+                                                    <button
+                                                        onClick={() =>
+                                                            setOpenMenuConvId(
+                                                                null,
+                                                            )
+                                                        }
+                                                        className={menuItemBase}
+                                                    >
+                                                        <BellOff
+                                                            size={20}
+                                                            className="text-gray-700 dark:text-gray-300"
+                                                        />
+                                                        <span className="dark:text-white">
+                                                            Tắt thông báo
+                                                        </span>
+                                                    </button>
+                                                    <button
+                                                        onClick={() =>
+                                                            setOpenMenuConvId(
+                                                                null,
+                                                            )
+                                                        }
+                                                        className={menuItemBase}
+                                                    >
+                                                        <User
+                                                            size={20}
+                                                            className="text-gray-700 dark:text-gray-300"
+                                                        />
+                                                        <span className="dark:text-white">
+                                                            Xem trang cá nhân
+                                                        </span>
+                                                    </button>
+
+                                                    {/* Separator */}
+                                                    <div className="my-1 border-t border-gray-200 dark:border-[#363636]" />
+
+                                                    <button
+                                                        onClick={() =>
+                                                            setOpenMenuConvId(
+                                                                null,
+                                                            )
+                                                        }
+                                                        className={menuItemBase}
+                                                    >
+                                                        <Ban
+                                                            size={20}
+                                                            className="text-gray-700 dark:text-gray-300"
+                                                        />
+                                                        <span className="dark:text-white">
+                                                            Chặn
+                                                        </span>
+                                                    </button>
+                                                    <button
+                                                        onClick={() =>
+                                                            setOpenMenuConvId(
+                                                                null,
+                                                            )
+                                                        }
+                                                        className={menuItemBase}
+                                                    >
+                                                        <Archive
+                                                            size={20}
+                                                            className="text-gray-700 dark:text-gray-300"
+                                                        />
+                                                        <span className="dark:text-white">
+                                                            Lưu trữ đoạn chat
+                                                        </span>
+                                                    </button>
+                                                    <button
+                                                        onClick={() =>
+                                                            handleDeleteConversation(
+                                                                conv.id,
+                                                            )
+                                                        }
+                                                        className={menuItemBase}
+                                                    >
+                                                        <Trash2
+                                                            size={20}
+                                                            className="text-red-500"
+                                                        />
+                                                        <span className="text-red-500">
+                                                            Xóa đoạn chat
+                                                        </span>
+                                                    </button>
+
+                                                    {/* Separator */}
+                                                    <div className="my-1 border-t border-gray-200 dark:border-[#363636]" />
+
+                                                    <button
+                                                        onClick={() =>
+                                                            setOpenMenuConvId(
+                                                                null,
+                                                            )
+                                                        }
+                                                        className={menuItemBase}
+                                                    >
+                                                        <Flag
+                                                            size={20}
+                                                            className="text-gray-700 dark:text-gray-300"
+                                                        />
+                                                        <span className="dark:text-white">
+                                                            Báo cáo
+                                                        </span>
+                                                    </button>
                                                 </div>
                                             )}
                                         </div>
                                     </div>
+                                );
+                            })
+                        )}
+                    </div>
+                </div>
 
-                                    {/* Button "..." - hiện khi hover, đặt bên ngoài conversation row */}
-                                    <div
-                                        ref={isMenuOpen ? menuRef : null}
-                                        className="absolute right-3 top-1/2 z-50 -translate-y-1/2"
-                                    >
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                setOpenMenuConvId(
-                                                    isMenuOpen ? null : conv.id,
-                                                );
-                                            }}
-                                            className={`flex h-8 w-8 items-center justify-center rounded-full bg-white text-gray-700 shadow-sm transition-all hover:bg-gray-100 dark:bg-[#262626] dark:text-gray-300 dark:hover:bg-[#363636] ${
-                                                isMenuOpen
-                                                    ? "opacity-100"
-                                                    : "opacity-0 group-hover/item:opacity-100"
-                                            }`}
-                                        >
-                                            <MoreHorizontal
-                                                size={18}
-                                                className="text-gray-700 dark:text-gray-300"
-                                            />
-                                        </button>
+                {/* Right Side - Chat Window or Empty State */}
+                <div className="hidden min-w-0 flex-1 bg-white dark:bg-black md:flex">
+                    {selectedConversationId ? (
+                        <div className="relative flex min-w-0 flex-1">
+                            <div
+                                className={`flex-1 min-w-0 transition-[margin] duration-300 ease-out ${showInfoPanel ? "xl:mr-88" : "xl:mr-0"}`}
+                            >
+                                <ChatWindow
+                                    key={selectedConversationId}
+                                    conversationId={selectedConversationId}
+                                    onMarkAsRead={clearUnreadCount}
+                                    onToggleInfoPanel={handleToggleInfoPanel}
+                                    showInfoPanel={showInfoPanel}
+                                    forcedReadOnlyNotice={
+                                        selectedConversationReadOnlyNotice
+                                    }
+                                    onForbidden={clearSelectedConversation}
+                                    name={selectedDisplayInfo?.name}
+                                    avatarUrl={
+                                        selectedDisplayInfo?.avatar ?? undefined
+                                    }
+                                    compositeAvatarUrls={
+                                        selectedDisplayInfo?.hasCompositeAvatar
+                                            ? selectedDisplayInfo.compositeAvatars
+                                            : undefined
+                                    }
+                                />
+                            </div>
 
-                                        {/* Context Menu */}
-                                        {isMenuOpen && (
-                                            <div className="absolute right-0 top-full mt-2 w-64 overflow-hidden rounded-lg border border-gray-200 bg-white py-2 shadow-2xl dark:border-[#363636] dark:bg-[#262626]">
-                                                {/* Mũi tên chỉ lên */}
-                                                <div className="absolute -top-2 right-2 h-4 w-4 rotate-45 border-l border-t border-gray-200 bg-white dark:border-[#363636] dark:bg-[#262626]" />
+                            {isInfoPanelRendered && (
+                                <button
+                                    type="button"
+                                    aria-label="Đóng bảng thông tin"
+                                    onClick={handleCloseInfoPanel}
+                                    className={`absolute inset-0 z-20 bg-black/20 transition-opacity duration-300 xl:hidden ${showInfoPanel ? "opacity-100" : "pointer-events-none opacity-0"}`}
+                                />
+                            )}
 
-                                                <button
-                                                    onClick={() =>
-                                                        setOpenMenuConvId(null)
-                                                    }
-                                                    className={menuItemBase}
-                                                >
-                                                    <MailOpen
-                                                        size={20}
-                                                        className="text-gray-700 dark:text-gray-300"
-                                                    />
-                                                    <span className="dark:text-white">
-                                                        Đánh dấu là chưa đọc
-                                                    </span>
-                                                </button>
-                                                <button
-                                                    onClick={() =>
-                                                        setOpenMenuConvId(null)
-                                                    }
-                                                    className={menuItemBase}
-                                                >
-                                                    <BellOff
-                                                        size={20}
-                                                        className="text-gray-700 dark:text-gray-300"
-                                                    />
-                                                    <span className="dark:text-white">
-                                                        Tắt thông báo
-                                                    </span>
-                                                </button>
-                                                <button
-                                                    onClick={() =>
-                                                        setOpenMenuConvId(null)
-                                                    }
-                                                    className={menuItemBase}
-                                                >
-                                                    <User
-                                                        size={20}
-                                                        className="text-gray-700 dark:text-gray-300"
-                                                    />
-                                                    <span className="dark:text-white">
-                                                        Xem trang cá nhân
-                                                    </span>
-                                                </button>
-
-                                                {/* Separator */}
-                                                <div className="my-1 border-t border-gray-200 dark:border-[#363636]" />
-
-                                                <button
-                                                    onClick={() =>
-                                                        setOpenMenuConvId(null)
-                                                    }
-                                                    className={menuItemBase}
-                                                >
-                                                    <Ban
-                                                        size={20}
-                                                        className="text-gray-700 dark:text-gray-300"
-                                                    />
-                                                    <span className="dark:text-white">
-                                                        Chặn
-                                                    </span>
-                                                </button>
-                                                <button
-                                                    onClick={() =>
-                                                        setOpenMenuConvId(null)
-                                                    }
-                                                    className={menuItemBase}
-                                                >
-                                                    <Archive
-                                                        size={20}
-                                                        className="text-gray-700 dark:text-gray-300"
-                                                    />
-                                                    <span className="dark:text-white">
-                                                        Lưu trữ đoạn chat
-                                                    </span>
-                                                </button>
-                                                <button
-                                                    onClick={() =>
-                                                        handleDeleteConversation(
-                                                            conv.id,
-                                                        )
-                                                    }
-                                                    className={menuItemBase}
-                                                >
-                                                    <Trash2
-                                                        size={20}
-                                                        className="text-red-500"
-                                                    />
-                                                    <span className="text-red-500">
-                                                        Xóa đoạn chat
-                                                    </span>
-                                                </button>
-
-                                                {/* Separator */}
-                                                <div className="my-1 border-t border-gray-200 dark:border-[#363636]" />
-
-                                                <button
-                                                    onClick={() =>
-                                                        setOpenMenuConvId(null)
-                                                    }
-                                                    className={menuItemBase}
-                                                >
-                                                    <Flag
-                                                        size={20}
-                                                        className="text-gray-700 dark:text-gray-300"
-                                                    />
-                                                    <span className="dark:text-white">
-                                                        Báo cáo
-                                                    </span>
-                                                </button>
-                                            </div>
-                                        )}
+                            {isInfoPanelRendered && (
+                                <aside
+                                    className={`absolute inset-y-0 right-0 z-30 hidden shrink-0 overflow-hidden border-l border-gray-200 bg-[#fbfcfe] transition-[transform,opacity] duration-300 ease-out dark:border-[#262626] dark:bg-black xl:flex ${showInfoPanel ? "translate-x-0 opacity-100" : "translate-x-full opacity-0"}`}
+                                    style={{ width: `${INFO_PANEL_WIDTH}px` }}
+                                >
+                                    <div className="flex h-full min-h-0 flex-1 flex-col">
+                                        {infoPanelContent}
                                     </div>
+                                </aside>
+                            )}
+
+                            {isInfoPanelRendered && (
+                                <aside
+                                    className={`absolute inset-y-0 right-0 z-30 flex w-full max-w-88 flex-col overflow-hidden border-l border-gray-200 bg-[#fbfcfe] shadow-2xl transition-[transform,opacity] duration-300 ease-out dark:border-[#262626] dark:bg-black xl:hidden ${showInfoPanel ? "translate-x-0 opacity-100" : "translate-x-full opacity-0"}`}
+                                >
+                                    {infoPanelContent}
+                                </aside>
+                            )}
+                        </div>
+                    ) : (
+                        <div className="flex-1 flex items-center justify-center">
+                            <div className="text-center">
+                                <div className="mx-auto mb-5 flex h-24 w-24 items-center justify-center rounded-full border border-gray-300 bg-white shadow-sm dark:border-gray-600 dark:bg-black">
+                                    <svg
+                                        width="48"
+                                        height="48"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        className="dark:stroke-white"
+                                    >
+                                        <path
+                                            d="M12 21L3 13V3h18v10l-9 8z"
+                                            stroke="currentColor"
+                                            strokeWidth="2"
+                                        />
+                                    </svg>
                                 </div>
-                            );
-                        })
+                                <h3 className="mb-2 text-2xl font-semibold tracking-tight text-gray-900 dark:text-white">
+                                    Tin nhắn của bạn
+                                </h3>
+                                <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">
+                                    Gửi ảnh và tin nhắn riêng tư cho bạn bè hoặc
+                                    nhóm.
+                                </p>
+                                <button className="rounded-full bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700">
+                                    Gửi tin nhắn
+                                </button>
+                            </div>
+                        </div>
                     )}
                 </div>
             </div>
 
-            {/* Right Side - Chat Window or Empty State */}
-            <div className="hidden min-w-0 flex-1 bg-white dark:bg-black md:flex">
-                {selectedConversationId ? (
-                    <div className="relative flex min-w-0 flex-1">
-                        <div
-                            className={`flex-1 min-w-0 transition-[margin] duration-300 ease-out ${showInfoPanel ? "xl:mr-[352px]" : "xl:mr-0"}`}
-                        >
-                            <ChatWindow
-                                key={selectedConversationId}
-                                conversationId={selectedConversationId}
-                                userId={currentUserId}
-                                onMarkAsRead={clearUnreadCount}
-                                onToggleInfoPanel={handleToggleInfoPanel}
-                                showInfoPanel={showInfoPanel}
-                            />
-                        </div>
+            <CreateGroupModal
+                open={isCreateGroupModalOpen}
+                friends={availableFriends}
+                loadingFriends={friendsLoading}
+                friendsError={friendsError}
+                submitting={isCreatingGroup}
+                error={actionError}
+                onClose={closeCreateGroupModal}
+                onSubmit={createGroup}
+            />
 
-                        {isInfoPanelRendered && (
-                            <button
-                                type="button"
-                                aria-label="Đóng bảng thông tin"
-                                onClick={handleCloseInfoPanel}
-                                className={`absolute inset-0 z-20 bg-black/20 transition-opacity duration-300 xl:hidden ${showInfoPanel ? "opacity-100" : "pointer-events-none opacity-0"}`}
-                            />
-                        )}
+            <SelectGroupMembersModal
+                open={isAddMembersModalOpen}
+                friends={availableFriends}
+                existingMemberIds={groupMemberIds}
+                loadingFriends={friendsLoading}
+                friendsError={friendsError}
+                submitting={isAddingMembers}
+                error={actionError}
+                onClose={closeAddMembersModal}
+                onSubmit={addMembersToGroup}
+            />
+            <ConfirmModal
+                open={isConfirmLeaveModalOpen}
+                title="Rời khỏi nhóm?"
+                description={`Bạn có chắc chắn muốn rời khỏi nhóm "${selectedGroupConversation?.name || "này"}"? Hành động này không thể hoàn tác.`}
+                confirmLabel="Rời nhóm"
+                loading={isLeavingGroup}
+                isDanger={true}
+                onClose={() => setIsConfirmLeaveModalOpen(false)}
+                onConfirm={() => {
+                    void leaveGroup().then((success) => {
+                        if (success) setIsConfirmLeaveModalOpen(false);
+                    });
+                }}
+            />
 
-                        {isInfoPanelRendered && (
-                            <aside
-                                className={`absolute inset-y-0 right-0 z-30 hidden shrink-0 overflow-hidden border-l border-gray-200 bg-[#fbfcfe] transition-[transform,opacity] duration-300 ease-out dark:border-[#262626] dark:bg-black xl:flex ${showInfoPanel ? "translate-x-0 opacity-100" : "translate-x-full opacity-0"}`}
-                                style={{ width: `${INFO_PANEL_WIDTH}px` }}
-                            >
-                                <div className="flex h-full min-h-0 flex-1 flex-col">
-                                    {infoPanelContent}
-                                </div>
-                            </aside>
-                        )}
+            <ConfirmModal
+                open={isConfirmDisbandModalOpen}
+                title="Giải tán nhóm?"
+                description={`Giải tán nhóm "${selectedGroupConversation?.name || "này"}" sẽ kết thúc cuộc trò chuyện cho tất cả thành viên. Mọi tin nhắn sẽ bị xóa đối với mọi người.`}
+                confirmLabel="Giải tán"
+                loading={isDisbandingGroup}
+                isDanger={true}
+                onClose={() => setIsConfirmDisbandModalOpen(false)}
+                onConfirm={() => {
+                    void disbandGroup().then((success) => {
+                        if (success) setIsConfirmDisbandModalOpen(false);
+                    });
+                }}
+            />
 
-                        {isInfoPanelRendered && (
-                            <aside
-                                className={`absolute inset-y-0 right-0 z-30 flex w-full max-w-[352px] flex-col overflow-hidden border-l border-gray-200 bg-[#fbfcfe] shadow-2xl transition-[transform,opacity] duration-300 ease-out dark:border-[#262626] dark:bg-black xl:hidden ${showInfoPanel ? "translate-x-0 opacity-100" : "translate-x-full opacity-0"}`}
-                            >
-                                {infoPanelContent}
-                            </aside>
-                        )}
-                    </div>
-                ) : (
-                    <div className="flex-1 flex items-center justify-center">
-                        <div className="text-center">
-                            <div className="mx-auto mb-5 flex h-24 w-24 items-center justify-center rounded-full border border-gray-300 bg-white shadow-sm dark:border-gray-600 dark:bg-black">
-                                <svg
-                                    width="48"
-                                    height="48"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    className="dark:stroke-white"
-                                >
-                                    <path
-                                        d="M12 21L3 13V3h18v10l-9 8z"
-                                        stroke="currentColor"
-                                        strokeWidth="2"
-                                    />
-                                </svg>
-                            </div>
-                            <h3 className="mb-2 text-2xl font-semibold tracking-tight text-gray-900 dark:text-white">
-                                Tin nhắn của bạn
-                            </h3>
-                            <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">
-                                Gửi ảnh và tin nhắn riêng tư cho bạn bè hoặc
-                                nhóm.
-                            </p>
-                            <button className="rounded-full bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700">
-                                Gửi tin nhắn
-                            </button>
-                        </div>
-                    </div>
-                )}
-            </div>
-        </div>
+            <ConfirmModal
+                open={isConfirmKickModalOpen}
+                title="Đuổi thành viên?"
+                description={`Bạn có chắc chắn muốn mời ${
+                    kickTargetUserId && selectedGroupConversation?.members
+                        ? selectedGroupConversation.members.find(
+                              (m) => m.userId === kickTargetUserId,
+                          )?.nickname || "thành viên này"
+                        : "thành viên"
+                } khỏi nhóm?`}
+                confirmLabel="Đuổi khỏi nhóm"
+                isDanger={true}
+                onClose={closeConfirmKick}
+                onConfirm={() => {
+                    if (kickTargetUserId) {
+                        void kickMember(kickTargetUserId).then((success) => {
+                            if (success) closeConfirmKick();
+                        });
+                    }
+                }}
+            />
+        </>
     );
 }

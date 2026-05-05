@@ -13,15 +13,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { Video, ResizeMode } from "expo-av";
 import { UserAvatar } from "@/components";
 import { colors, spacing } from "@/constants";
-const RIGHT_SCROLL_CUE_HEIGHT = 38;
-const MESSAGE_LONG_PRESS_DELAY_MS = 500;
-import {
-    Message,
-    Conversation,
-    ConversationMember,
-    PinnedMessageDetail,
-} from "@/types/chat";
-import { MembersByUserId } from "@/stores/chatRuntimeStore";
+import { Message, Conversation } from "@/types/chat";
+import { type MembersByUserId } from "@/stores/chatRuntimeStore";
 import {
     isPinSystemMessageType,
     formatMessageTime,
@@ -40,6 +33,19 @@ import {
     PinSystemRunRenderMeta,
     formatReplyLabel,
 } from "@/utils/messageUtils";
+import { buildSystemGroupMessage } from "@/utils/systemCreateGroupMessage";
+
+const RIGHT_SCROLL_CUE_HEIGHT = 38;
+const MESSAGE_LONG_PRESS_DELAY_MS = 500;
+
+const GROUP_SYSTEM_MESSAGE_TYPES = new Set<Message["type"]>([
+    "SYSTEM_CREATE_GROUP",
+    "SYSTEM_ADD_MEMBER",
+    "SYSTEM_UPDATE_ROLE",
+    "SYSTEM_KICK_MEMBER",
+    "SYSTEM_LEAVE_GROUP",
+    "SYSTEM_DISBAND_GROUP",
+]);
 
 export type MessageBubbleProps = {
     item: Message;
@@ -287,7 +293,8 @@ export const MessageBubble = React.memo(
             item.type !== "AUDIO" &&
             item.type !== "CALL" &&
             item.type !== "SYSTEM_PIN" &&
-            item.type !== "SYSTEM_UPIN" ;
+            item.type !== "SYSTEM_UPIN" &&
+            !GROUP_SYSTEM_MESSAGE_TYPES.has(item.type);
 
         const shouldShowAttachmentCaption =
             !item.isRecalled &&
@@ -338,6 +345,7 @@ export const MessageBubble = React.memo(
 
         // ===== system pin (common) =====
         const isPinSystemMessage = isPinSystemMessageType(item.type);
+        const isGroupSystemMessage = GROUP_SYSTEM_MESSAGE_TYPES.has(item.type);
 
         if (isPinSystemMessage) {
             if (pinRunMeta?.shouldHideMessage) {
@@ -382,6 +390,42 @@ export const MessageBubble = React.memo(
                             style={styles.systemMessageText}
                         >
                             {`${actorLabel} ${actionLabel} ${resolvePinSystemPreview(item)}`}
+                        </Text>
+                    </View>
+                </View>
+            );
+        }
+
+        if (isGroupSystemMessage) {
+            const content = buildSystemGroupMessage({
+                type: item.type as
+                    | "SYSTEM_CREATE_GROUP"
+                    | "SYSTEM_ADD_MEMBER"
+                    | "SYSTEM_UPDATE_ROLE"
+                    | "SYSTEM_KICK_MEMBER"
+                    | "SYSTEM_LEAVE_GROUP"
+                    | "SYSTEM_DISBAND_GROUP",
+                content: item.content,
+                isOwn: mine,
+                senderName: senderDisplayName,
+                senderId: item.senderId,
+                currentUserId,
+                membersById,
+            });
+
+            return (
+                <View style={styles.systemMessageRow}>
+                    <View style={styles.systemMessageBadge}>
+                        <Ionicons
+                            name="people-outline"
+                            size={12}
+                            color="#4B5563"
+                        />
+                        <Text
+                            numberOfLines={2}
+                            style={styles.systemMessageText}
+                        >
+                            {content}
                         </Text>
                     </View>
                 </View>
