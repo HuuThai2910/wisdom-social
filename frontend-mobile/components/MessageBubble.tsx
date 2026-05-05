@@ -66,6 +66,7 @@ export type MessageBubbleProps = {
     requestJumpToMessage: (messageId: string) => Promise<void>;
     handleExpandPinSystemRun: (runKey: string) => void;
     audioPlayback: any;
+    onRecallCall?: (callType: "audio" | "video") => void;
 };
 
 export const MessageBubble = React.memo(
@@ -84,6 +85,7 @@ export const MessageBubble = React.memo(
         requestJumpToMessage,
         handleExpandPinSystemRun,
         audioPlayback,
+        onRecallCall,
     }: MessageBubbleProps) => {
         const {
             audioLoadingKey,
@@ -111,6 +113,7 @@ export const MessageBubble = React.memo(
         const senderDisplayName =
             sender?.nickname || sender?.username || "Nguoi dung";
 
+        // ===== Gesture handling (từ develop) =====
         const suppressNextTapRef = React.useRef(false);
 
         const triggerMessageLongPress = React.useCallback(
@@ -129,15 +132,14 @@ export const MessageBubble = React.memo(
             action();
         }, []);
 
+        // ===== Audio long press timer (từ develop) =====
         const audioWaveLongPressTimerRef = React.useRef<ReturnType<
             typeof setTimeout
         > | null>(null);
         const audioWaveLongPressTriggeredRef = React.useRef(false);
 
         const clearAudioWaveLongPressTimer = React.useCallback(() => {
-            if (!audioWaveLongPressTimerRef.current) {
-                return;
-            }
+            if (!audioWaveLongPressTimerRef.current) return;
             clearTimeout(audioWaveLongPressTimerRef.current);
             audioWaveLongPressTimerRef.current = null;
         }, []);
@@ -148,25 +150,36 @@ export const MessageBubble = React.memo(
             };
         }, [clearAudioWaveLongPressTimer]);
 
+        // ===== previous/next message (từ feature/call-mobile - có skip SYSTEM_PIN) =====
         const previousMessage = index > 0 ? messages[index - 1] : undefined;
         const nextMessage =
             index + 1 < messages.length ? messages[index + 1] : undefined;
+
+        // ===== grouping logic (common, nhưng dùng previous/next từ feature) =====
         const isFirstInGroup =
             !previousMessage || previousMessage.senderId !== item.senderId;
+
         const isLastInGroup =
             !nextMessage || nextMessage.senderId !== item.senderId;
+
         const isConsecutiveRecalledInGroup =
             !isFirstInGroup &&
             item.isRecalled &&
             Boolean(previousMessage?.isRecalled) &&
             previousMessage?.senderId === item.senderId;
+
+        // ===== UI flags (common) =====
         const showSenderLabel =
             !mine &&
             conversation?.type === "GROUP" &&
             isFirstInGroup &&
             !item.isRecalled;
+
         const showAvatar = !mine && isLastInGroup;
+
         const messageTime = formatMessageTime(item.createdAt);
+
+        // ===== read receipts (common) =====
         const receiptsForThisMessage =
             mine && !item.isRecalled
                 ? readReceipts.filter(
@@ -176,10 +189,14 @@ export const MessageBubble = React.memo(
                   )
                 : [];
 
+        // ===== media handling =====
         const imageUrls =
             item.type === "IMAGE" ? resolveAttachmentUrls(item) : [];
+
         const videoUrls =
             item.type === "VIDEO" ? resolveAttachmentUrls(item) : [];
+
+        // ===== audioAttachments (từ develop - nâng cấp hơn audioUrls) =====
         const audioAttachments =
             item.type === "AUDIO"
                 ? Array.isArray(item.attachments) && item.attachments.length > 0
@@ -196,8 +213,11 @@ export const MessageBubble = React.memo(
                           mimeType: undefined,
                       }))
                 : [];
+
+        // ===== call meta (common) =====
         const callMeta = parseCallMeta(item);
 
+        // ===== file attachments (common) =====
         const rawFileAttachments =
             item.type === "FILE"
                 ? Array.isArray(item.attachments) && item.attachments.length > 0
@@ -218,7 +238,6 @@ export const MessageBubble = React.memo(
             ...attachment,
             resolvedUrl: resolveMediaUrl(attachment.url) || attachment.url,
         }));
-
         const replySenderName =
             typeof item.replyInfo?.senderId === "number"
                 ? membersById[item.replyInfo.senderId]?.nickname ||
@@ -261,13 +280,11 @@ export const MessageBubble = React.memo(
                     : replyPreviewType === "CALL"
                       ? "Cuoc goi"
                       : replyPreviewContent || "Tin nhan";
-
         const trimmedContent = item.content?.trim() ?? "";
         const messageIsEmojiOnly =
             item.type === "TEXT" &&
             !item.isRecalled &&
             isEmojiOnlyText(trimmedContent);
-
         const shouldShowFallbackText =
             !item.isRecalled &&
             item.type !== "IMAGE" &&
@@ -288,6 +305,7 @@ export const MessageBubble = React.memo(
             trimmedContent.length > 0 &&
             !isLikelyStoragePathOrUrl(trimmedContent);
 
+        // ===== CALL logic (từ develop - quan trọng) =====
         const isRichCardMessage =
             !item.isRecalled &&
             (item.type === "IMAGE" ||
@@ -295,13 +313,17 @@ export const MessageBubble = React.memo(
                 item.type === "VIDEO" ||
                 item.type === "AUDIO" ||
                 item.type === "CALL");
+
         const isCallMessage = !item.isRecalled && item.type === "CALL";
+
+        // ===== reply overlay (từ develop - fix cho CALL) =====
         const hasReplyPreview = Boolean(item.replyInfo) && !item.isRecalled;
+
         const shouldOverlayReplyWithBubble =
             hasReplyPreview && (!isRichCardMessage || isCallMessage);
         const replySenderId = item.replyInfo?.senderId;
         const replyMessageId = item.replyInfo?.messageId ?? "";
-
+        // ===== bubble grouping (từ develop + fix CALL) =====
         const bubbleGroupShape =
             !isRichCardMessage || isCallMessage
                 ? mine
@@ -321,6 +343,7 @@ export const MessageBubble = React.memo(
                         : styles.bubbleOtherMiddle
                 : null;
 
+        // ===== system pin (common) =====
         const isPinSystemMessage = isPinSystemMessageType(item.type);
         const isGroupSystemMessage = GROUP_SYSTEM_MESSAGE_TYPES.has(item.type);
 
@@ -1304,6 +1327,36 @@ export const MessageBubble = React.memo(
                                                                             attachment.fileSize,
                                                                         )}
                                                                     </Text>
+                                                                    <Text
+                                                                        style={[
+                                                                            styles.fileSize,
+                                                                            mine &&
+                                                                                styles.fileSizeMine,
+                                                                        ]}
+                                                                    >
+                                                                        {formatFileSize(
+                                                                            attachment.fileSize,
+                                                                        )}
+                                                                    </Text>
+                                                                </View>
+                                                                <View
+                                                                    style={[
+                                                                        styles.fileActionIconWrap,
+                                                                        mine &&
+                                                                            styles.fileActionIconWrapMine,
+                                                                    ]}
+                                                                >
+                                                                    <Ionicons
+                                                                        name="download-outline"
+                                                                        size={
+                                                                            14
+                                                                        }
+                                                                        color={
+                                                                            mine
+                                                                                ? colors.white
+                                                                                : "#475569"
+                                                                        }
+                                                                    />
                                                                 </View>
                                                                 <View
                                                                     style={[
@@ -1339,6 +1392,11 @@ export const MessageBubble = React.memo(
                                                         !mine &&
                                                             styles.cardShadow,
                                                     ]}
+                                                    onPress={() =>
+                                                        onRecallCall?.(
+                                                            callMeta.callType,
+                                                        )
+                                                    }
                                                 >
                                                     <View
                                                         style={
@@ -1375,9 +1433,6 @@ export const MessageBubble = React.memo(
                                                                     mine &&
                                                                         styles.callTitleMine,
                                                                 ]}
-                                                                numberOfLines={
-                                                                    1
-                                                                }
                                                             >
                                                                 {callMeta.title}
                                                             </Text>
@@ -1387,9 +1442,6 @@ export const MessageBubble = React.memo(
                                                                     mine &&
                                                                         styles.callSubtitleMine,
                                                                 ]}
-                                                                numberOfLines={
-                                                                    1
-                                                                }
                                                             >
                                                                 {
                                                                     callMeta.subtitle

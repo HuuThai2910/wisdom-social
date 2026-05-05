@@ -175,8 +175,8 @@ export function isLikelyStoragePathOrUrl(value?: string): boolean {
 export function resolveAttachmentUrls(message: Message): string[] {
     const attachmentUrls = Array.isArray(message.attachments)
         ? message.attachments
-              .map((attachment) => resolveMediaUrl(attachment.url))
-              .filter(Boolean)
+            .map((attachment) => resolveMediaUrl(attachment.url))
+            .filter(Boolean)
         : [];
 
     if (attachmentUrls.length > 0) return attachmentUrls;
@@ -263,6 +263,7 @@ export function resolvePinSystemPreview(message: Message): string {
 }
 
 export function parseCallMeta(message: Message): {
+    callType: "audio" | "video";
     icon: "call-outline" | "call" | "videocam-outline" | "close-circle-outline";
     iconColor: string;
     title: string;
@@ -297,11 +298,12 @@ export function parseCallMeta(message: Message): {
             : formatMessageTime(message.createdAt) || "Cuoc goi";
 
     return {
+        callType: isVideo ? "video" : "audio",
         icon: isMissed
             ? "close-circle-outline"
             : isVideo
-              ? "videocam-outline"
-              : "call-outline",
+                ? "videocam-outline"
+                : "call-outline",
         iconColor: isMissed ? "#EF4444" : "#10B981",
         title: isVideo ? "Cuoc goi video" : "Cuoc goi thoai",
         subtitle,

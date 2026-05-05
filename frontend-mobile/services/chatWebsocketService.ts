@@ -104,6 +104,32 @@ function buildSystemFallbackByDomainEvent(
         read: false,
     };
 }
+export type CallStatus =
+    | "calling"
+    | "ringing"
+    | "accepted"
+    | "rejected"
+    | "ended";
+
+export type CallSignalEvent =
+    | "call-user"
+    | "incoming-call"
+    | "answer-call"
+    | "ice-candidate"
+    | "reject-call"
+    | "end-call";
+
+export interface CallSignalPayload {
+    event: CallSignalEvent;
+    conversationId: number;
+    callId: string;
+    callType: "audio" | "video";
+    fromUserId: number;
+    targetUserId: number;
+    sdp?: RTCSessionDescriptionInit;
+    candidate?: RTCIceCandidateInit;
+    timestamp?: string;
+}
 
 function resolveWsBrokerUrl(): string {
     const baseUrl = apiClient.defaults.baseURL ?? "http://10.0.2.2:8080/api";
@@ -128,6 +154,10 @@ class ChatWebsocketService {
         () => { unsubscribe: () => void }
     >();
     private connectPromise: Promise<void> | null = null;
+    private callEventListeners = new Map<
+        number,
+        Set<(event: CallSignalPayload) => void>
+    >();
 
     private syncSubscriptions(): void {
         if (!this.client?.connected) return;
@@ -450,6 +480,7 @@ class ChatWebsocketService {
         this.subscriptions.forEach((sub) => sub.unsubscribe());
         this.subscriptions.clear();
         this.subscriptionFactories.clear();
+        this.callEventListeners.clear();
 
         if (this.client) {
             void this.client.deactivate();
@@ -813,6 +844,78 @@ class ChatWebsocketService {
     unsubscribeFromUserConversations(userId: number): void {
         const destination = `/topic/user/${userId}/conversations`;
         this.removeSubscription(destination);
+    }
+
+    subscribeToCallEvents(
+        userId: number,
+        callback: (event: CallSignalPayload) => void,
+    ): void {
+        const existingListeners = this.callEventListeners.get(userId);
+        if (existingListeners) {
+            existingListeners.add(callback);
+        } else {
+            this.callEventListeners.set(userId, new Set([callback]));
+        }
+
+        const destination = `/topic/user/${userId}/calls`;
+        if (this.subscriptions.has(destination)) {
+            return;
+        }
+
+        if (this.subscriptionFactories.has(destination)) {
+            this.syncSubscriptions();
+            return;
+        }
+
+        this.registerSubscription(destination, () => {
+            const client = this.client;
+            if (!client?.connected) {
+                throw new Error("WebSocket not connected");
+            }
+
+            return client.subscribe(destination, (message: IMessage) => {
+                try {
+                    const payload = JSON.parse(message.body) as CallSignalPayload;
+                    const listeners = this.callEventListeners.get(userId);
+                    listeners?.forEach((listener) => listener(payload));
+                } catch {
+                    // no-op
+                }
+            });
+        });
+    }
+
+    unsubscribeFromCallEvents(
+        userId: number,
+        callback?: (event: CallSignalPayload) => void,
+    ): void {
+        const listeners = this.callEventListeners.get(userId);
+
+        if (callback && listeners) {
+            listeners.delete(callback);
+            if (listeners.size > 0) {
+                return;
+            }
+        }
+
+        if (!callback || !listeners || listeners.size === 0) {
+            this.callEventListeners.delete(userId);
+        }
+
+        const destination = `/topic/user/${userId}/calls`;
+        this.removeSubscription(destination);
+    }
+
+    sendCallSignal(payload: CallSignalPayload): void {
+        if (!this.client?.connected) {
+            console.log(`${WS_DEBUG_PREFIX} sendCallSignal skipped: disconnected`);
+            return;
+        }
+
+        this.client.publish({
+            destination: "/app/call.signal",
+            body: JSON.stringify(payload),
+        });
     }
 
     sendTypingSignal(

@@ -1,6 +1,8 @@
 import { styles } from "./styles";
 import { MessageComposer } from "@/components/MessageComposer";
 import { MessageBubble } from "@/components/MessageBubble";
+import IncomingCallOverlay from "@/components/IncomingCallOverlay";
+import InCallOverlay from "@/components/InCallOverlay";
 import { useMessageAudioPlayback } from "@/hooks/useMessageAudioPlayback";
 import { useMessageComposerMediaActions } from "@/hooks/useMessageComposerMediaActions";
 import { MediaViewerModal } from "@/components/MediaViewerModal";
@@ -85,6 +87,7 @@ import {
 } from "@/utils/messageUtils";
 import { PinnedBanner } from "@/components/PinnedBanner";
 import { buildPinnedBannerItemsFromSnapshot } from "@/utils/pinnedMessageSnapshot";
+import { useOneToOneCall } from "@/hooks/useOneToOneCall";
 export default function MessagesConversationScreen() {
     const { conversationId: conversationIdParam } = useLocalSearchParams<{
         conversationId?: string;
@@ -286,6 +289,59 @@ export default function MessagesConversationScreen() {
             members: Object.values(membersById),
         });
     }, [conversation, currentUserId, membersById]);
+  const {
+        incomingCall,
+        activeCall,
+        callStatus,
+        localStreamUrl,
+        remoteStreamUrl,
+        micEnabled,
+        cameraEnabled,
+        speakerEnabled,
+        isCallSupported,
+        callDurationText,
+        startCall,
+        acceptIncomingCall,
+        rejectIncomingCall,
+        endCall,
+        toggleMic,
+        toggleCamera,
+        switchCamera,
+        toggleSpeaker,
+    } = useOneToOneCall({
+        conversationId: Number.isFinite(conversationId) ? conversationId : 0,
+        currentUserId,
+        targetUserId: otherUser?.userId,
+        targetName: otherUser?.nickname || otherUser?.username,
+        targetAvatar: otherUser?.avatar,
+    });
+
+    const incomingCallerName = useMemo(() => {
+        const incomingCallerId = incomingCall?.fromUserId ?? null;
+        if (!incomingCallerId) return "Nguoi dung";
+
+        const member = membersById[incomingCallerId];
+        return (
+            member?.nickname ||
+            member?.username ||
+            `Nguoi dung ${incomingCallerId}`
+        );
+    }, [incomingCall?.fromUserId, membersById]);
+
+    const tryStartCall = useCallback(
+        async (callType: "audio" | "video") => {
+            if (!isCallSupported) {
+                Alert.alert(
+                    "Tinh nang chua ho tro",
+                    "Call can development build vi Expo Go khong co native WebRTC.",
+                );
+                return;
+            }
+
+            await startCall(callType);
+        },
+        [isCallSupported, startCall],
+    );
 
     useEffect(() => {
         if (conversation?.type !== "GROUP") {
@@ -1411,14 +1467,22 @@ export default function MessagesConversationScreen() {
                                 color={colors.text}
                             />
                         </Pressable>
-                        <Pressable style={styles.headerActionBtn} hitSlop={8}>
+                        <Pressable
+                            style={styles.headerActionBtn}
+                            hitSlop={8}
+                            onPress={() => void tryStartCall("audio")}
+                        >
                             <Ionicons
                                 name="call-outline"
                                 size={22}
                                 color={colors.text}
                             />
                         </Pressable>
-                        <Pressable style={styles.headerActionBtn} hitSlop={8}>
+                        <Pressable
+                            style={styles.headerActionBtn}
+                            hitSlop={8}
+                            onPress={() => void tryStartCall("video")}
+                        >
                             <Ionicons
                                 name="videocam-outline"
                                 size={22}
@@ -1503,6 +1567,9 @@ export default function MessagesConversationScreen() {
                                 audioPlayPulse,
                                 audioPressScale,
                                 audioIconFade,
+                            }}
+                            onRecallCall={(callType) => {
+                                void tryStartCall(callType);
                             }}
                         />
                     )}
@@ -1847,6 +1914,31 @@ export default function MessagesConversationScreen() {
                 error={actionError}
                 onClose={closeAddMembersModal}
                 onSubmit={addMembersToGroup}
+              />
+          <IncomingCallOverlay
+                visible={Boolean(incomingCall)}
+                callerName={incomingCallerName}
+                callType={incomingCall?.callType ?? "audio"}
+                onAccept={() => void acceptIncomingCall()}
+                onReject={rejectIncomingCall}
+            />
+            <InCallOverlay
+                visible={Boolean(activeCall)}
+                callType={activeCall?.callType ?? "audio"}
+                remoteName={activeCall?.remoteName || incomingCallerName}
+                remoteAvatar={activeCall?.remoteAvatar || otherUser?.avatar}
+                status={callStatus ?? "calling"}
+                durationText={callDurationText}
+                localStreamUrl={localStreamUrl}
+                remoteStreamUrl={remoteStreamUrl}
+                micEnabled={micEnabled}
+                cameraEnabled={cameraEnabled}
+                speakerEnabled={speakerEnabled}
+                onToggleMic={toggleMic}
+                onToggleCamera={toggleCamera}
+                onSwitchCamera={switchCamera}
+                onToggleSpeaker={toggleSpeaker}
+                onEndCall={() => void endCall()}
             />
         </SafeAreaView>
     );

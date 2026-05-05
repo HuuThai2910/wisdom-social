@@ -131,6 +131,12 @@ export interface SendMessageRequest {
         fileSize: number;
     }>;
 }
+export interface SendCallMessageRequest {
+    conversationId: number;
+    callType: "audio" | "video";
+    status: "calling" | "ringing" | "accepted" | "rejected" | "ended";
+    durationSeconds: number;
+}
 
 export interface UpdateNicknameRequest {
     conversationId: number;

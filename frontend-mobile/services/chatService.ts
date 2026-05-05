@@ -13,6 +13,7 @@ import type {
     Message,
     PinnedMessageDetail,
     PresignedUrlResponse,
+    SendCallMessageRequest,
     SendMessageRequest,
     UpdateNicknameRequest,
 } from "@/types/chat";
@@ -149,6 +150,17 @@ const chatService = {
         userId: number,
     ): Promise<Message> {
         const response = await apiClient.post(`/messages/send`, request);
+        return normalizeMessagePayload(response.data);
+    },
+
+    async sendCallMessage(
+        request: SendCallMessageRequest,
+        userId: number,
+    ): Promise<Message> {
+        const response = await apiClient.post(
+            `/messages/call?userId=${userId}`,
+            request,
+        );
         return normalizeMessagePayload(response.data);
     },
 
