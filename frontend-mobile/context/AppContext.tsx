@@ -34,7 +34,7 @@ import {
     User,
 } from "@/types";
 import { getDeviceInfo } from "@/utils/deviceInfo";
-import { getSettings, saveSettings, saveUser } from "@/utils/storage";
+import { getSettings, getUser, saveSettings, saveUser } from "@/utils/storage";
 import {
     createContext,
     PropsWithChildren,
@@ -91,6 +91,7 @@ type AppContextValue = {
     currentUser: User | null;
     loggedIn: boolean;
     loadingAuth: boolean;
+    bootstrapLoading: boolean;
     posts: Post[];
     stories: Story[];
     savedPostIds: string[];
@@ -198,6 +199,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     const [users, setUsers] = useState<User[]>(mockUsers);
     const [currentUserId, setCurrentUserId] = useState<string | null>(null);
     const [loadingAuth, setLoadingAuth] = useState(false);
+    const [bootstrapLoading, setBootstrapLoading] = useState(true);
     const [posts, setPosts] = useState<Post[]>(mockPosts);
     const [stories] = useState<Story[]>(mockStories);
     const [savedPostIds, setSavedPostIds] =
@@ -258,6 +260,26 @@ export function AppProvider({ children }: PropsWithChildren) {
 
         void bootstrapSettings();
     }, []);
+
+    // Restore session from storage on app startup
+    useEffect(() => {
+        const bootstrapAuth = async () => {
+            try {
+                const storedUser = await getUser<ApiAuthUser>();
+                if (storedUser) {
+                    upsertMappedUser(mapApiUserToAppUser(storedUser));
+                    // Silently sync latest user data from server in background
+                    void syncCurrentUserFromServer();
+                }
+            } catch {
+                // Ignore bootstrap errors
+            } finally {
+                setBootstrapLoading(false);
+            }
+        };
+
+        void bootstrapAuth();
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (!loggedIn || !currentUser?.phone) return;
@@ -637,6 +659,7 @@ export function AppProvider({ children }: PropsWithChildren) {
             currentUser,
             loggedIn,
             loadingAuth,
+            bootstrapLoading,
             posts,
             stories,
             savedPostIds,
@@ -654,6 +677,7 @@ export function AppProvider({ children }: PropsWithChildren) {
             requestPasswordReset,
             resetPasswordByOtp,
             logout,
+            refreshCurrentUser: syncCurrentUserFromServer,
             setThemeMode,
             updateNotificationSetting,
             toggleAllNotifications,
@@ -674,6 +698,7 @@ export function AppProvider({ children }: PropsWithChildren) {
             currentUser,
             loggedIn,
             loadingAuth,
+            bootstrapLoading,
             posts,
             stories,
             savedPostIds,

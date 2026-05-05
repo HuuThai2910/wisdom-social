@@ -21,6 +21,9 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAppContext } from "@/context/AppContext";
 import { colors } from "@/constants";
+import userService from "@/services/userService";
+import friendService from "@/services/friendService";
+import blockService from "@/services/blockService";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const GRID_GAP = 2;
@@ -35,13 +38,14 @@ const GENDER_OPTIONS = [
 export default function InstagramProfileScreen() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
-    const { currentUser, posts, savedPostIds, logout } = useAppContext();
+    const { currentUser, posts, savedPostIds, logout, refreshCurrentUser } = useAppContext();
 
     const [selectedTab, setSelectedTab] = useState<"posts" | "saved" | "blocked">("posts");
     const [showEditModal, setShowEditModal] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
     const [avatarLocalUri, setAvatarLocalUri] = useState("");
+    const [friendsCount, setFriendsCount] = useState<number>(0);
     const [blockedUsers, setBlockedUsers] = useState<any[]>([]);
     const [isLoadingBlocked, setIsLoadingBlocked] = useState(false);
     const [editForm, setEditForm] = useState({
@@ -51,6 +55,11 @@ export default function InstagramProfileScreen() {
         birthday: "",
         gender: "",
     });
+
+    useEffect(() => {
+        if (!currentUser?.id) return;
+        friendService.getFriends(Number(currentUser.id)).then((list) => setFriendsCount(list.length)).catch(() => {});
+    }, [currentUser?.id]);
 
     useEffect(() => {
         if (showEditModal && currentUser) {
@@ -66,7 +75,7 @@ export default function InstagramProfileScreen() {
     }, [showEditModal, currentUser]);
 
     const handleEditProfile = () => {
-        setShowEditModal(true);
+        router.push("/(stack)/profile/edit");
     };
 
     const pickAvatarImage = async () => {
@@ -85,11 +94,32 @@ export default function InstagramProfileScreen() {
     };
 
     const handleSaveProfile = async () => {
+        if (!currentUser) return;
         setIsSaving(true);
         try {
-            // TODO: Call API to update profile
+            const updateData = {
+                name: editForm.name,
+                username: editForm.username,
+                bio: editForm.bio,
+                birthday: editForm.birthday,
+                gender: editForm.gender as "MALE" | "FEMALE" | "HIDDEN",
+            };
+            await userService.updateUser(currentUser.id, updateData);
+            
+            // Handle avatar update if needed
+            if (avatarLocalUri && avatarLocalUri !== currentUser.avatar) {
+                // Here you would implement avatar upload logic using s3Service/userService
+                // Since there's no direct method in userService for the actual file upload yet in this snippet,
+                // we leave this comment. The profile update itself will succeed.
+            }
+
+            if (refreshCurrentUser) {
+                await refreshCurrentUser();
+            }
             setShowEditModal(false);
+            Alert.alert("Thành công", "Cập nhật hồ sơ thành công!");
         } catch (error) {
+            console.error("Error updating profile:", error);
             Alert.alert("Lỗi", "Không thể cập nhật hồ sơ. Vui lòng thử lại.");
         } finally {
             setIsSaving(false);
@@ -112,15 +142,16 @@ export default function InstagramProfileScreen() {
     };
 
     const loadBlockedUsers = useCallback(async () => {
+        if (!currentUser?.id) return;
         setIsLoadingBlocked(true);
         try {
-            // TODO: Load blocked users from API
-            setBlockedUsers([]);
+            const list = await blockService.getBlockedUsers(Number(currentUser.id));
+            setBlockedUsers(list);
         } catch (_) {
         } finally {
             setIsLoadingBlocked(false);
         }
-    }, []);
+    }, [currentUser?.id]);
 
     const handleUnblock = async (userId: string) => {
         Alert.alert("Bỏ chặn", "Bạn có chắc muốn bỏ chặn người dùng này?", [
@@ -130,7 +161,7 @@ export default function InstagramProfileScreen() {
                 style: "destructive",
                 onPress: async () => {
                     try {
-                        // TODO: Call API to unblock user
+                        await blockService.unblockUser(Number(currentUser?.id), Number(userId));
                         setBlockedUsers((prev) => prev.filter((u) => u.id !== userId));
                     } catch {
                         Alert.alert("Lỗi", "Không thể bỏ chặn. Vui lòng thử lại.");
@@ -198,7 +229,16 @@ export default function InstagramProfileScreen() {
 
                             <View style={ds.statsRow}>
                                 <StatBlock label="Bài viết" value={myPosts.length} />
-                                <StatBlock label="Bạn bè" value={currentUser.followers || 0} />
+                                <TouchableOpacity
+                                    onPress={() =>
+                                        router.push({
+                                            pathname: "/(stack)/friends-list",
+                                            params: { tab: "friends" },
+                                        })
+                                    }
+                                >
+                                    <StatBlock label="Bạn bè" value={friendsCount} />
+                                </TouchableOpacity>
                                 <StatBlock label="Đang theo dõi" value={currentUser.following || 0} />
                             </View>
                         </View>

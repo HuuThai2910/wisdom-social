@@ -5,6 +5,7 @@ import {
     clearStorage,
     getIdToken,
     getRefreshToken,
+    getToken,
     saveIdToken,
 } from "@/utils/storage";
 
@@ -157,6 +158,14 @@ apiClient.interceptors.request.use(
 
         try {
             let idToken = await getIdToken();
+
+            // Fallback: if idToken is not saved, try the accessToken key
+            // (loginWithPhone saves the main JWT via saveToken → "accessToken" key,
+            //  but this interceptor originally only read "idToken" key)
+            if (!idToken) {
+                idToken = await getToken();
+            }
+
             const refreshToken = await getRefreshToken();
 
             if (idToken && isTokenExpiringSoon(idToken, 60)) {

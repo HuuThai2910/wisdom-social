@@ -1,154 +1,581 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, SafeAreaView, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import {
+    View,
+    Text,
+    StyleSheet,
+    ScrollView,
+    TouchableOpacity,
+    ActivityIndicator,
+    Alert,
+} from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { AppHeader, CustomButton } from "@/components";
-import { colors, spacing } from "@/constants";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
+import { colors } from "@/constants";
 import { useAppContext } from "@/context/AppContext";
-import userService, { User } from "@/services/userService";
+import friendService from "@/services/friendService";
+import blockService from "@/services/blockService";
+import { useFriendNotifications } from "@/hooks/useFriendNotifications";
+
+type FriendStatus = "NONE" | "SENT" | "RECEIVED" | "FRIEND" | "BLOCKED";
 
 export default function UserProfileScreen() {
     const router = useRouter();
-    const { users, currentUser } = useAppContext();
+    const insets = useSafeAreaInsets();
     const { userId } = useLocalSearchParams<{ userId?: string }>();
-    const [profileUser, setProfileUser] = useState<User | null>(null);
-    const [loading, setLoading] = useState(false);
+    const { currentUser } = useAppContext();
+    const [selectedTab, setSelectedTab] = useState<"posts" | "tagged">("posts");
+    const [friendStatus, setFriendStatus] = useState<FriendStatus>("NONE");
+    const [statusLoading, setStatusLoading] = useState(false);
+    const [actionLoading, setActionLoading] = useState(false);
+    const [friendsCount, setFriendsCount] = useState<number | null>(null);
 
-    const fallbackUser = useMemo(() => {
-        if (!userId) return currentUser;
-        const matched = users.find(
-            (u) => u.id === userId || Number(u.id) === Number(userId),
-        );
+    const myId = useMemo(() => Number(currentUser?.id), [currentUser?.id]);
+    const targetId = useMemo(() => Number(userId), [userId]);
 
-        if (matched) {
-            return matched;
+    const isOwnProfile = useMemo(
+        () => !!userId && !!currentUser?.id && Number(userId) === Number(currentUser.id),
+        [userId, currentUser?.id],
+    );
+
+    // Load friend status from API
+    const loadFriendStatus = useCallback(async () => {
+        if (isOwnProfile || !myId || !targetId || !Number.isFinite(myId) || !Number.isFinite(targetId)) return;
+        setStatusLoading(true);
+        try {
+            const status = await friendService.getFriendStatus(myId, targetId);
+            setFriendStatus(status);
+        } finally {
+            setStatusLoading(false);
+        }
+    }, [myId, targetId, isOwnProfile]);
+
+    const loadFriendsCount = useCallback(async () => {
+        const id = Number.isFinite(targetId) ? targetId : myId;
+        if (!id || !Number.isFinite(id)) return;
+        try {
+            const friends = await friendService.getFriends(id);
+            setFriendsCount(friends.length);
+        } catch {
+            // keep null
+        }
+    }, [targetId, myId]);
+
+    // Auto-refresh on WebSocket friend events
+    const refreshTrigger = useFriendNotifications();
+
+    useEffect(() => {
+        void loadFriendStatus();
+        void loadFriendsCount();
+    }, [loadFriendStatus, loadFriendsCount, refreshTrigger]);
+
+    // --- Friend action handlers ---
+    const handleSendRequest = async () => {
+        setActionLoading(true);
+        await friendService.sendFriendRequest(myId, targetId);
+        setFriendStatus("SENT");
+        setActionLoading(false);
+    };
+
+    const handleCancelRequest = async () => {
+        setActionLoading(true);
+        await friendService.cancelFriendRequest(myId, targetId);
+        setFriendStatus("NONE");
+        setActionLoading(false);
+    };
+
+    const handleAccept = async () => {
+        setActionLoading(true);
+        await friendService.acceptFriendRequest(targetId, myId);
+        setFriendStatus("FRIEND");
+        setActionLoading(false);
+    };
+
+    const handleReject = async () => {
+        setActionLoading(true);
+        await friendService.rejectFriendRequest(targetId, myId);
+        setFriendStatus("NONE");
+        setActionLoading(false);
+    };
+
+    const handleUnfriend = () => {
+        Alert.alert("Hủy kết bạn", "Bạn có chắc muốn hủy kết bạn?", [
+            { text: "Hủy", style: "cancel" },
+            {
+                text: "Hủy kết bạn",
+                style: "destructive",
+                onPress: async () => {
+                    setActionLoading(true);
+                    await friendService.cancelFriendRequest(myId, targetId);
+                    setFriendStatus("NONE");
+                    setActionLoading(false);
+                },
+            },
+        ]);
+    };
+
+    const handleBlock = () => {
+        Alert.alert("Chặn người dùng", "Bạn có chắc muốn chặn người này?", [
+            { text: "Hủy", style: "cancel" },
+            {
+                text: "Chặn",
+                style: "destructive",
+                onPress: async () => {
+                    setActionLoading(true);
+                    await blockService.blockUser(myId, targetId);
+                    setFriendStatus("BLOCKED");
+                    setActionLoading(false);
+                },
+            },
+        ]);
+    };
+
+    // Render the friend action button based on current status
+    const renderFriendButton = () => {
+        if (isOwnProfile || !userId) return null;
+        if (statusLoading) {
+            return (
+                <View style={[styles.friendBtn, styles.friendBtnLoading]}>
+                    <ActivityIndicator size="small" color={colors.primary} />
+                </View>
+            );
         }
 
-        const normalizedId = Number(userId);
-        if (Number.isFinite(normalizedId)) {
-            return {
-                id: String(normalizedId),
-                username: `user${normalizedId}`,
-                fullName: `User ${normalizedId}`,
-                bio: "Local profile fallback",
-                avatar: "",
-                followers: 0,
-                following: 0,
-            };
+        if (friendStatus === "NONE") {
+            return (
+                <TouchableOpacity
+                    style={[styles.friendBtn, styles.friendBtnPrimary]}
+                    onPress={handleSendRequest}
+                    disabled={actionLoading}
+                >
+                    {actionLoading ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                        <>
+                            <Ionicons name="person-add" size={16} color="#fff" />
+                            <Text style={styles.friendBtnTextWhite}>Kết bạn</Text>
+                        </>
+                    )}
+                </TouchableOpacity>
+            );
+        }
+
+        if (friendStatus === "SENT") {
+            return (
+                <TouchableOpacity
+                    style={[styles.friendBtn, styles.friendBtnOutline]}
+                    onPress={handleCancelRequest}
+                    disabled={actionLoading}
+                >
+                    {actionLoading ? (
+                        <ActivityIndicator size="small" color={colors.primary} />
+                    ) : (
+                        <>
+                            <Ionicons name="time-outline" size={16} color={colors.primary} />
+                            <Text style={styles.friendBtnTextPrimary}>Đã gửi lời mời</Text>
+                        </>
+                    )}
+                </TouchableOpacity>
+            );
+        }
+
+        if (friendStatus === "RECEIVED") {
+            return (
+                <View style={styles.receivedRow}>
+                    <TouchableOpacity
+                        style={[styles.friendBtn, styles.friendBtnPrimary, { flex: 1 }]}
+                        onPress={handleAccept}
+                        disabled={actionLoading}
+                    >
+                        {actionLoading ? (
+                            <ActivityIndicator size="small" color="#fff" />
+                        ) : (
+                            <>
+                                <Ionicons name="checkmark" size={16} color="#fff" />
+                                <Text style={styles.friendBtnTextWhite}>Chấp nhận</Text>
+                            </>
+                        )}
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.friendBtn, styles.friendBtnDanger, { flex: 1 }]}
+                        onPress={handleReject}
+                        disabled={actionLoading}
+                    >
+                        {actionLoading ? (
+                            <ActivityIndicator size="small" color="#fff" />
+                        ) : (
+                            <>
+                                <Ionicons name="close" size={16} color="#fff" />
+                                <Text style={styles.friendBtnTextWhite}>Từ chối</Text>
+                            </>
+                        )}
+                    </TouchableOpacity>
+                </View>
+            );
+        }
+
+        if (friendStatus === "FRIEND") {
+            return (
+                <TouchableOpacity
+                    style={[styles.friendBtn, styles.friendBtnOutline]}
+                    onPress={handleUnfriend}
+                    disabled={actionLoading}
+                >
+                    {actionLoading ? (
+                        <ActivityIndicator size="small" color={colors.primary} />
+                    ) : (
+                        <>
+                            <Ionicons name="people" size={16} color={colors.primary} />
+                            <Text style={styles.friendBtnTextPrimary}>Bạn bè</Text>
+                        </>
+                    )}
+                </TouchableOpacity>
+            );
+        }
+
+        if (friendStatus === "BLOCKED") {
+            return (
+                <View style={[styles.friendBtn, styles.friendBtnBlocked]}>
+                    <Ionicons name="ban-outline" size={16} color={colors.textMuted} />
+                    <Text style={styles.friendBtnTextMuted}>Đã chặn</Text>
+                </View>
+            );
         }
 
         return null;
-    }, [userId, users, currentUser]);
-
-    useEffect(() => {
-        const normalizedId = Number(userId);
-        if (!userId || !Number.isFinite(normalizedId)) {
-            setProfileUser((currentUser as User | null) ?? null);
-            setLoading(false);
-            return;
-        }
-
-        let cancelled = false;
-
-        const loadUserProfile = async () => {
-            setLoading(true);
-            const remoteUser = await userService.getUserProfile(normalizedId);
-            if (cancelled) return;
-
-            setProfileUser(remoteUser);
-            setLoading(false);
-        };
-
-        void loadUserProfile();
-
-        return () => {
-            cancelled = true;
-        };
-    }, [userId, currentUser]);
-
-    const user = profileUser ?? (fallbackUser as User | null);
+    };
 
     return (
-        <SafeAreaView style={styles.container}>
-            <AppHeader
-                title="User Profile"
-                leftAction={{
-                    icon: "arrow-back",
-                    onPress: () => router.back(),
-                }}
-            />
+        <View style={[styles.container, { paddingTop: insets.top }]}>
+            <View style={styles.header}>
+                <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+                    <Ionicons name="arrow-back" size={24} color={colors.text} />
+                </TouchableOpacity>
+                <Text style={styles.headerTitle}>Hồ sơ</Text>
+                {!isOwnProfile && (
+                    <TouchableOpacity style={styles.menuButton} onPress={handleBlock}>
+                        <Ionicons name="ellipsis-vertical" size={24} color={colors.text} />
+                    </TouchableOpacity>
+                )}
+                {isOwnProfile && <View style={styles.menuButton} />}
+            </View>
 
-            <View style={styles.content}>
-                {loading ? (
-                    <ActivityIndicator color={colors.primary} />
-                ) : null}
-                <Text style={styles.name}>
-                    {user?.fullName ?? "Unknown user"}
-                </Text>
-                <Text style={styles.username}>
-                    @{user?.username ?? "unknown"}
-                </Text>
-                <Text style={styles.bio}>{user?.bio ?? "No bio"}</Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+                {/* Avatar Section */}
+                <View style={styles.profileHeader}>
+                    <View style={styles.avatarContainer}>
+                        <View style={[styles.avatar, { backgroundColor: colors.surface }]}>
+                            <Ionicons name="person" size={50} color={colors.primary} />
+                        </View>
+                        <View style={styles.onlineDot} />
+                    </View>
 
-                <View style={styles.statsRow}>
-                    <Text style={styles.stats}>
-                        Followers: {user?.followers ?? 0}
-                    </Text>
-                    <Text style={styles.stats}>
-                        Following: {user?.following ?? 0}
-                    </Text>
+                    <Text style={styles.name}>John Doe</Text>
+                    <Text style={styles.username}>@johndoe</Text>
+                    <Text style={styles.bio}>Yêu thích công nghệ và du lịch</Text>
+
+                    {/* Stats */}
+                    <View style={styles.statsContainer}>
+                        <View style={styles.statItem}>
+                            <Text style={styles.statNumber}>125</Text>
+                            <Text style={styles.statLabel}>Bài viết</Text>
+                        </View>
+                        <TouchableOpacity
+                            style={styles.statItem}
+                            onPress={() =>
+                                router.push({
+                                    pathname: "/(stack)/friends-list",
+                                    params: { userId: userId ?? String(currentUser?.id ?? ""), tab: "friends" },
+                                })
+                            }
+                        >
+                            <Text style={styles.statNumber}>
+                                {friendsCount !== null ? String(friendsCount) : "—"}
+                            </Text>
+                            <Text style={styles.statLabel}>Bạn bè</Text>
+                        </TouchableOpacity>
+                        <View style={styles.statItem}>
+                            <Text style={styles.statNumber}>450</Text>
+                            <Text style={styles.statLabel}>Đang theo dõi</Text>
+                        </View>
+                    </View>
+
+                    {/* Friend Action Button */}
+                    <View style={styles.actionButtons}>
+                        {renderFriendButton()}
+
+                        {!isOwnProfile && (
+                            <TouchableOpacity style={styles.messageBtn}>
+                                <Ionicons name="chatbubble-outline" size={18} color={colors.primary} />
+                            </TouchableOpacity>
+                        )}
+                    </View>
+
+                    {isOwnProfile && (
+                        <TouchableOpacity
+                            style={styles.blockedListBtn}
+                            onPress={() =>
+                                router.push({
+                                    pathname: "/(stack)/friends-list",
+                                    params: { tab: "blocked" },
+                                })
+                            }
+                        >
+                            <Ionicons name="ban-outline" size={16} color={colors.textMuted} />
+                            <Text style={styles.blockedListText}>Danh sách đã chặn</Text>
+                            <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                        </TouchableOpacity>
+                    )}
                 </View>
 
-                <CustomButton
-                    title="Open Friends"
-                    onPress={() =>
-                        router.push({
-                            pathname: "/(stack)/friends-list",
-                            params: {
-                                userId: String(
-                                    user?.id ?? currentUser?.id ?? "",
-                                ),
-                                tab: "friends",
-                            },
-                        })
-                    }
-                    style={styles.gap}
-                />
-            </View>
-        </SafeAreaView>
+                {/* Tabs */}
+                <View style={styles.tabs}>
+                    <TouchableOpacity
+                        style={[styles.tab, selectedTab === "posts" && styles.tabActive]}
+                        onPress={() => setSelectedTab("posts")}
+                    >
+                        <Text style={[styles.tabText, selectedTab === "posts" && styles.tabTextActive]}>
+                            Bài viết
+                        </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                        style={[styles.tab, selectedTab === "tagged" && styles.tabActive]}
+                        onPress={() => setSelectedTab("tagged")}
+                    >
+                        <Text style={[styles.tabText, selectedTab === "tagged" && styles.tabTextActive]}>
+                            Được gắn thẻ
+                        </Text>
+                    </TouchableOpacity>
+                </View>
+
+                {/* Empty State */}
+                <View style={styles.emptyState}>
+                    <Ionicons name="images-outline" size={60} color={colors.textMuted} />
+                    <Text style={styles.emptyText}>Chưa có bài viết nào</Text>
+                </View>
+            </ScrollView>
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: colors.white,
+        backgroundColor: colors.background,
     },
-    content: {
-        padding: spacing.lg,
+    header: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        backgroundColor: colors.background,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
     },
-    name: {
-        fontSize: 22,
+    backButton: {
+        padding: 8,
+    },
+    headerTitle: {
+        fontSize: 18,
         fontWeight: "700",
         color: colors.text,
     },
+    menuButton: {
+        padding: 8,
+    },
+    profileHeader: {
+        alignItems: "center",
+        paddingVertical: 24,
+        paddingHorizontal: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+    },
+    avatarContainer: {
+        position: "relative",
+        marginBottom: 12,
+    },
+    avatar: {
+        width: 100,
+        height: 100,
+        borderRadius: 50,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    onlineDot: {
+        position: "absolute",
+        bottom: 0,
+        right: 0,
+        width: 20,
+        height: 20,
+        borderRadius: 10,
+        backgroundColor: colors.success,
+        borderWidth: 3,
+        borderColor: colors.background,
+    },
+    name: {
+        fontSize: 18,
+        fontWeight: "700",
+        color: colors.text,
+        marginTop: 8,
+    },
     username: {
-        marginTop: spacing.xs,
+        fontSize: 14,
         color: colors.textMuted,
-        fontWeight: "500",
+        marginTop: 2,
     },
     bio: {
-        marginTop: spacing.md,
+        fontSize: 13,
+        color: colors.text,
+        marginTop: 8,
+        textAlign: "center",
+        lineHeight: 18,
+    },
+    statsContainer: {
+        flexDirection: "row",
+        justifyContent: "space-around",
+        width: "100%",
+        marginTop: 16,
+        paddingVertical: 12,
+        borderTopWidth: 1,
+        borderTopColor: colors.border,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+    },
+    statItem: {
+        alignItems: "center",
+    },
+    statNumber: {
+        fontSize: 16,
+        fontWeight: "700",
         color: colors.text,
     },
-    statsRow: {
-        flexDirection: "row",
-        marginTop: spacing.md,
-        gap: spacing.md,
+    statLabel: {
+        fontSize: 12,
+        color: colors.textMuted,
+        marginTop: 4,
     },
-    stats: {
+    actionButtons: {
+        flexDirection: "row",
+        gap: 8,
+        marginTop: 16,
+        width: "100%",
+    },
+    // Friend button variants
+    friendBtn: {
+        flex: 1,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
+        paddingVertical: 10,
+        paddingHorizontal: 12,
+        borderRadius: 8,
+        minHeight: 44,
+    },
+    friendBtnPrimary: {
+        backgroundColor: colors.primary,
+    },
+    friendBtnOutline: {
+        backgroundColor: colors.surface,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    friendBtnDanger: {
+        backgroundColor: colors.danger,
+    },
+    friendBtnBlocked: {
+        backgroundColor: colors.surface,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    friendBtnLoading: {
+        backgroundColor: colors.surface,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    friendBtnTextWhite: {
+        color: "#fff",
+        fontSize: 13,
+        fontWeight: "600",
+    },
+    friendBtnTextPrimary: {
+        color: colors.primary,
+        fontSize: 13,
+        fontWeight: "600",
+    },
+    friendBtnTextMuted: {
+        color: colors.textMuted,
+        fontSize: 13,
+        fontWeight: "500",
+    },
+    receivedRow: {
+        flex: 1,
+        flexDirection: "row",
+        gap: 8,
+    },
+    messageBtn: {
+        width: 45,
+        height: 45,
+        borderRadius: 8,
+        backgroundColor: colors.surface,
+        borderWidth: 1,
+        borderColor: colors.border,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    tabs: {
+        flexDirection: "row",
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+    },
+    tab: {
+        flex: 1,
+        paddingVertical: 14,
+        alignItems: "center",
+        borderBottomWidth: 2,
+        borderBottomColor: "transparent",
+    },
+    tabActive: {
+        borderBottomColor: colors.primary,
+    },
+    tabText: {
+        fontSize: 13,
+        fontWeight: "500",
         color: colors.textMuted,
     },
-    gap: {
-        marginTop: spacing.lg,
+    tabTextActive: {
+        color: colors.primary,
+        fontWeight: "600",
+    },
+    emptyState: {
+        alignItems: "center",
+        paddingVertical: 80,
+        paddingHorizontal: 16,
+    },
+    emptyText: {
+        fontSize: 14,
+        color: colors.textMuted,
+        marginTop: 12,
+    },
+    blockedListBtn: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        marginTop: 12,
+        paddingVertical: 10,
+        paddingHorizontal: 16,
+        borderRadius: 8,
+        backgroundColor: colors.surface,
+        borderWidth: 1,
+        borderColor: colors.border,
+        width: "100%",
+    },
+    blockedListText: {
+        flex: 1,
+        fontSize: 13,
+        color: colors.textMuted,
+        fontWeight: "500",
     },
 });

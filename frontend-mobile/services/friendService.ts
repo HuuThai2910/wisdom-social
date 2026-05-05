@@ -5,6 +5,7 @@ export type FriendUser = {
     id: number;
     name?: string;
     username?: string;
+    avatar?: string;
     avatarUrl?: string;
     phone?: string;
 };

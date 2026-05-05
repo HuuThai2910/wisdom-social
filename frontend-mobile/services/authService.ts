@@ -186,8 +186,12 @@ export async function loginWithPhone(
         if (refreshToken) {
             await saveRefreshToken(refreshToken);
         }
+        // Save idToken if returned; otherwise use the accessToken
+        // so the request interceptor (which reads getIdToken()) always has a value
         if (idToken) {
             await saveIdToken(idToken);
+        } else if (accessToken) {
+            await saveIdToken(accessToken);
         }
 
         const userProfile = await getCurrentUser();

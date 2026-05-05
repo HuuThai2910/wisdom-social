@@ -11,6 +11,7 @@ import {
     Alert,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { colors } from "@/constants";
 import { useAppContext } from "@/context/AppContext";
@@ -22,6 +23,7 @@ type TabType = "friends" | "requests" | "sent" | "blocked";
 
 export default function FriendsListScreen() {
     const router = useRouter();
+    const insets = useSafeAreaInsets();
     const { currentUser } = useAppContext();
     const params = useLocalSearchParams<{ userId?: string; tab?: string }>();
 
@@ -204,7 +206,7 @@ export default function FriendsListScreen() {
     );
 
     return (
-        <View style={styles.container}>
+        <View style={[styles.container, { paddingTop: insets.top }]}>
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
                     <Ionicons name="arrow-back" size={24} color={colors.text} />
