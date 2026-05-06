@@ -1,0 +1,288 @@
+import { Ionicons } from "@expo/vector-icons";
+import { Image, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import Constants from "expo-constants";
+import { colors } from "@/constants";
+
+const expoEnv = Constants as {
+    executionEnvironment?: string;
+    appOwnership?: string;
+};
+
+const isExpoGo =
+    expoEnv.executionEnvironment === "storeClient" ||
+    expoEnv.appOwnership === "expo";
+
+function resolveRtcView(): any | null {
+    if (isExpoGo) return null;
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const mod = require("react-native-webrtc") as { RTCView?: any };
+        return mod.RTCView ?? null;
+    } catch {
+        return null;
+    }
+}
+
+const RTCViewComponent = resolveRtcView();
+
+type CallType = "audio" | "video";
+type CallStatus = "calling" | "ringing" | "accepted" | "rejected" | "ended";
+
+interface InCallOverlayProps {
+    visible: boolean;
+    callType: CallType;
+    remoteName: string;
+    remoteAvatar?: string;
+    status: CallStatus;
+    durationText: string;
+    localStreamUrl: string | null;
+    remoteStreamUrl: string | null;
+    micEnabled: boolean;
+    cameraEnabled: boolean;
+    speakerEnabled: boolean;
+    onToggleMic: () => void;
+    onToggleCamera: () => void;
+    onSwitchCamera: () => void;
+    onToggleSpeaker: () => void;
+    onEndCall: () => void;
+}
+
+function getStatusText(status: CallStatus): string {
+    if (status === "calling") return "Dang goi...";
+    if (status === "ringing") return "Dang do chuong...";
+    if (status === "accepted") return "Dang trong cuoc goi";
+    if (status === "rejected") return "Cuoc goi bi tu choi";
+    return "Cuoc goi da ket thuc";
+}
+
+function ControlButton(props: {
+    icon: keyof typeof Ionicons.glyphMap;
+    active?: boolean;
+    danger?: boolean;
+    onPress: () => void;
+}) {
+    const { icon, active = true, danger = false, onPress } = props;
+
+    return (
+        <Pressable
+            onPress={onPress}
+            style={[
+                styles.controlBtn,
+                danger
+                    ? styles.controlBtnDanger
+                    : active
+                      ? styles.controlBtnActive
+                      : styles.controlBtnInactive,
+            ]}
+        >
+            <Ionicons name={icon} size={21} color={colors.white} />
+        </Pressable>
+    );
+}
+
+export default function InCallOverlay({
+    visible,
+    callType,
+    remoteName,
+    remoteAvatar,
+    status,
+    durationText,
+    localStreamUrl,
+    remoteStreamUrl,
+    micEnabled,
+    cameraEnabled,
+    speakerEnabled,
+    onToggleMic,
+    onToggleCamera,
+    onSwitchCamera,
+    onToggleSpeaker,
+    onEndCall,
+}: InCallOverlayProps) {
+    if (!visible) return null;
+
+    const isVideo = callType === "video";
+
+    return (
+        <Modal
+            visible={visible}
+            animationType="slide"
+            presentationStyle="fullScreen"
+        >
+            <View style={styles.root}>
+                {isVideo ? (
+                    <View style={styles.videoLayer}>
+                        {remoteStreamUrl && RTCViewComponent ? (
+                            <RTCViewComponent
+                                streamURL={remoteStreamUrl}
+                                style={styles.remoteVideo}
+                                objectFit="cover"
+                                mirror={false}
+                            />
+                        ) : (
+                            <View style={styles.remoteVideoFallback}>
+                                <Text style={styles.remoteVideoFallbackText}>
+                                    {RTCViewComponent
+                                        ? "Dang ket noi video..."
+                                        : "Video call can dev build co native module WebRTC"}
+                                </Text>
+                            </View>
+                        )}
+
+                        {localStreamUrl && RTCViewComponent ? (
+                            <RTCViewComponent
+                                streamURL={localStreamUrl}
+                                style={styles.localVideo}
+                                objectFit="cover"
+                                mirror
+                            />
+                        ) : null}
+                    </View>
+                ) : (
+                    <View style={styles.audioLayer}>
+                        <Image
+                            source={{
+                                uri:
+                                    remoteAvatar ||
+                                    "https://cdn-icons-png.flaticon.com/512/149/149071.png",
+                            }}
+                            style={styles.avatar}
+                        />
+                    </View>
+                )}
+
+                <View style={styles.headerMeta}>
+                    <Text style={styles.remoteName} numberOfLines={1}>
+                        {remoteName}
+                    </Text>
+                    <Text style={styles.callStatus}>
+                        {getStatusText(status)}
+                        {status === "accepted" ? ` • ${durationText}` : ""}
+                    </Text>
+                </View>
+
+                <View style={styles.controlsRow}>
+                    <ControlButton
+                        icon={micEnabled ? "mic" : "mic-off"}
+                        active={micEnabled}
+                        onPress={onToggleMic}
+                    />
+
+                    {isVideo ? (
+                        <ControlButton
+                            icon={cameraEnabled ? "videocam" : "videocam-off"}
+                            active={cameraEnabled}
+                            onPress={onToggleCamera}
+                        />
+                    ) : null}
+
+                    {isVideo ? (
+                        <ControlButton
+                            icon="camera-reverse"
+                            onPress={onSwitchCamera}
+                        />
+                    ) : null}
+
+                    <ControlButton
+                        icon={speakerEnabled ? "volume-high" : "volume-medium"}
+                        active={speakerEnabled}
+                        onPress={onToggleSpeaker}
+                    />
+
+                    <ControlButton icon="call" danger onPress={onEndCall} />
+                </View>
+            </View>
+        </Modal>
+    );
+}
+
+const styles = StyleSheet.create({
+    root: {
+        flex: 1,
+        backgroundColor: "#030712",
+    },
+    videoLayer: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: "#000000",
+    },
+    remoteVideo: {
+        width: "100%",
+        height: "100%",
+    },
+    remoteVideoFallback: {
+        flex: 1,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    remoteVideoFallbackText: {
+        color: "#E5E7EB",
+        fontSize: 14,
+    },
+    localVideo: {
+        position: "absolute",
+        right: 16,
+        bottom: 128,
+        width: 108,
+        height: 160,
+        borderRadius: 12,
+        overflow: "hidden",
+        backgroundColor: "#111827",
+    },
+    audioLayer: {
+        flex: 1,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#020617",
+    },
+    avatar: {
+        width: 124,
+        height: 124,
+        borderRadius: 62,
+        borderWidth: 2,
+        borderColor: "rgba(255,255,255,0.25)",
+    },
+    headerMeta: {
+        position: "absolute",
+        top: 56,
+        left: 20,
+        right: 20,
+        alignItems: "center",
+    },
+    remoteName: {
+        fontSize: 28,
+        fontWeight: "700",
+        color: colors.white,
+    },
+    callStatus: {
+        marginTop: 8,
+        fontSize: 14,
+        color: "#CBD5E1",
+    },
+    controlsRow: {
+        position: "absolute",
+        left: 16,
+        right: 16,
+        bottom: 34,
+        flexDirection: "row",
+        justifyContent: "center",
+        alignItems: "center",
+        gap: 12,
+        flexWrap: "wrap",
+    },
+    controlBtn: {
+        width: 52,
+        height: 52,
+        borderRadius: 26,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    controlBtnActive: {
+        backgroundColor: "rgba(30, 41, 59, 0.9)",
+    },
+    controlBtnInactive: {
+        backgroundColor: "rgba(100, 116, 139, 0.85)",
+    },
+    controlBtnDanger: {
+        backgroundColor: "#EF4444",
+        transform: [{ rotate: "135deg" }],
+    },
+});

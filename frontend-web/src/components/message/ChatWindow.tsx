@@ -7,22 +7,19 @@ import {
   type ReactNode,
 } from "react";
 import {
-  Send,
-  Phone,
-  Video,
-  Info,
-  ChevronDown,
-  ArrowDown,
-  Plus,
-  X,
-  MoreVertical,
-  MessageCircle,
-  Mic,
-  Square,
-  Paperclip,
-  StickyNote,
-  Film,
-  Smile,
+    Send,
+    ChevronDown,
+    ArrowDown,
+    Plus,
+    X,
+    MoreVertical,
+    MessageCircle,
+    Mic,
+    Square,
+    Paperclip,
+    StickyNote,
+    Film,
+    Smile,
 } from "lucide-react";
 import EmojiPicker, {
   Emoji,
@@ -35,18 +32,27 @@ import { MessageBubble } from "./MessageBubble";
 import { useCall } from "../../hooks/useCall";
 import IncomingCallModal from "./IncomingCallModal";
 import CallScreen from "./CallScreen";
+import ConversationAvatar from "./ConversationAvatar";
+import ChatHeader from "./ChatHeader";
 import { useChatAI } from "../../features/chat-ai/hooks/useChatAI";
 import AIConsentModal from "../../features/chat-ai/components/AIConsentModal";
 import AIActionPanel from "../../features/chat-ai/components/AIActionPanel";
 import AIResultPanel from "../../features/chat-ai/components/AIResultPanel";
 import type { MessagePreviewDTO } from "../../features/chat-ai/types/chatAI";
+import { buildPinnedBannerItemsFromSnapshot } from "../../utils/pinnedMessageSnapshot";
+import { DEFAULT_GROUP_AVATAR_URL } from "../../constants/ui";
 
 interface ChatWindowProps {
-  conversationId: number;
-  userId: number;
-  onMarkAsRead?: (conversationId: number) => void;
-  onToggleInfoPanel?: () => void;
-  showInfoPanel?: boolean;
+    conversationId: number;
+    onMarkAsRead?: (conversationId: number) => void;
+    onToggleInfoPanel?: () => void;
+    showInfoPanel?: boolean;
+    forcedReadOnlyNotice?: string | null;
+    onForbidden?: () => void;
+    // Fallback props for Header when conversation fetch fails (e.g. disbanded/kicked)
+    name?: string;
+    avatarUrl?: string;
+    compositeAvatarUrls?: string[];
 }
 
 function createClientFileId(): string {
@@ -160,36 +166,93 @@ export default function ChatWindow({
     toggleScreenShare,
   } = useCall({
     conversationId,
-    userId,
-    targetUserIds: targetMemberIds,
-    targetUserId: otherMember?.userId,
-    targetName: otherMember?.nickname,
-    targetAvatar: otherMember?.avatar,
-    onCallMessageSaved: appendRealtimeMessage,
-  });
+    onMarkAsRead,
+    onToggleInfoPanel,
+    showInfoPanel = true,
+    forcedReadOnlyNotice = null,
+    onForbidden,
+    name,
+    avatarUrl,
+    compositeAvatarUrls,
+}: ChatWindowProps) {
+    const [isAiPanelOpen, setIsAiPanelOpen] = useState(false);
 
-  const {
-    consentLoading,
-    consentModalOpen,
-    summary,
-    suggestions,
-    aiError,
-    isSummarizing,
-    isSuggesting,
-    acceptAIConsent,
-    declineAIConsent,
-    summarizeConversation,
-    suggestReplies,
-  } = useChatAI({ conversationId });
+    const {
+        conversation,
+        membersById,
+        messages,
+        pinnedMessages,
+        loading,
+        loadingMore,
+        sending,
+        uploading,
+        uploadProgressPercent,
+        uploadProgressLabel,
+        uploadFileProgressMap,
+        uploadFailedFileNames,
+        error,
+        readOnlyNotice,
 
-  const callParticipants = useMemo(() => {
-    if (!activeCall || conversation?.type !== "GROUP") return [];
+        displayName,
+        displayAvatar,
+        displayCompositeAvatars,
 
-    const callMemberIds = new Set<number>(activeCall.remoteUserIds);
+        messageText,
+        setMessageText,
 
-    if (!activeCall.isCaller) {
-      callMemberIds.add(userId);
-    }
+        messagesEndRef,
+        messagesContainerRef,
+
+        showScrollToBottomButton,
+        pendingNewMessages,
+
+        isHistoricalMode,
+        handleJumpToMessage,
+        handleScroll,
+        handleScrollToBottomClick,
+        handleSend,
+        handleSendMixedMedia,
+        handlePinMessage,
+        handleUnpinMessage,
+        handleRecall,
+        handleDeleteMessageForMe,
+        appendRealtimeMessage,
+        scrollToBottom,
+        recallToast,
+        jumpToast,
+
+        isRecording,
+        recordingDuration,
+        startRecording,
+        stopRecording,
+        cancelRecording,
+
+        defaultAvatarUrl,
+        defaultAvatarSmallUrl,
+
+        isNearBottom,
+        isInitialLoad,
+        shouldScrollOnMediaLoad,
+        shouldForceAutoScroll,
+        stabilizeMediaLayoutOnMediaLoad,
+
+        readReceipts,
+        typingUsers,
+        sendTypingSignal,
+        userId,
+    } = useChatWindowController({
+        conversationId,
+        onMarkAsRead,
+        forcedReadOnlyNotice,
+        onForbidden,
+    });
+
+    const isConversationReadOnly = Boolean(readOnlyNotice);
+
+    const otherMember = useMemo(
+        () => Object.values(membersById).find((m) => m.userId !== userId),
+        [membersById, userId],
+    );
 
     return Object.values(membersById)
       .filter((member) => callMemberIds.has(member.userId))
@@ -250,11 +313,44 @@ export default function ChatWindow({
   const hiddenPinnedCount = hiddenPinnedItems.length;
   const canExpandPinnedList = hiddenPinnedCount > 0;
 
-  useEffect(() => {
-    if (!canExpandPinnedList && showPinnedList) {
-      setShowPinnedList(false);
-    }
-  }, [canExpandPinnedList, showPinnedList]);
+        return Object.values(membersById)
+            .filter((member) => callMemberIds.has(member.userId))
+            .map((member) => ({
+                userId: member.userId,
+                name:
+                    member.nickname?.trim() ||
+                    member.username?.trim() ||
+                    "Người dùng",
+                avatar: member.avatar,
+            }));
+    }, [activeCall, conversation?.type, membersById, userId]);
+
+    // UI state cho khu vực banner ghim:
+    // - false: hiển thị dạng gọn (1 item chính)
+    // - true: bung danh sách các item ghim còn lại
+    const [showPinnedList, setShowPinnedList] = useState(false);
+    const [openPinnedMenuId, setOpenPinnedMenuId] = useState<string | null>(
+        null,
+    );
+
+    const pinnedBannerItems = useMemo(() => {
+        return buildPinnedBannerItemsFromSnapshot({
+            pins: pinnedMessages,
+            membersById,
+        });
+    }, [membersById, pinnedMessages]);
+
+    // Item ghim đầu tiên luôn hiển thị ở banner dạng gọn.
+    const primaryPinnedItem = pinnedBannerItems[0];
+    const hiddenPinnedItems = pinnedBannerItems.slice(1);
+    const hiddenPinnedCount = hiddenPinnedItems.length;
+    const canExpandPinnedList = hiddenPinnedCount > 0;
+
+    useEffect(() => {
+        if (!canExpandPinnedList && showPinnedList) {
+            setShowPinnedList(false);
+        }
+    }, [canExpandPinnedList, showPinnedList]);
 
   useEffect(() => {
     function handlePinnedMenuOutside(e: MouseEvent) {
@@ -549,208 +645,26 @@ export default function ChatWindow({
       return `${dd}/${mm}`;
     };
 
-    // Khoá ngày ổn định để phát hiện "tin nhắn đầu tiên của ngày".
-    const getDayKey = (date: Date) =>
-      `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
-        2,
-        "0"
-      )}-${String(date.getDate()).padStart(2, "0")}`;
+    useEffect(() => {
+        if (!isConversationReadOnly) return;
 
-    let previousDayKey: string | null = null;
-    const isPinSystemMessageType = (type?: string) =>
-      type === "SYSTEM_PIN" || type === "SYSTEM_UPIN";
+        setPlusMenuOpen(false);
+        setEmojiPickerOpen(false);
+        setReplyToMessage(null);
+        setSelectedFiles([]);
+    }, [isConversationReadOnly]);
 
-    for (let idx = 0; idx < messages.length; idx++) {
-      const message = messages[idx];
-      const prevMsg = messages[idx - 1];
-      const nextMsg = messages[idx + 1];
-      const stableMessageKey =
-        message.id ||
-        `${message.senderId}-${message.createdAt || "unknown"}-${idx}`;
-
-      const createdAt = new Date(message.createdAt);
-      const validDate = Number.isFinite(createdAt.getTime());
-      const dayKey = validDate ? getDayKey(createdAt) : "invalid-date";
-
-      // Nhãn ngày: chỉ chèn khi "đổi ngày" so với message trước đó.
-      if (dayKey !== previousDayKey) {
-        items.push(
-          <div
-            key={`date-sep-${stableMessageKey}-${dayKey}`}
-            className="flex justify-center py-2 mt-4 first:mt-0"
-          >
-            <div className="px-3 py-1 rounded-md bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-100 text-xs">
-              {validDate ? formatDateLabel(createdAt) : ""}
-            </div>
-          </div>
-        );
-        previousDayKey = dayKey;
-      }
-
-      // Tính group: cùng người gửi & cùng ngày → gộp nhóm
-      const prevDayKey = prevMsg
-        ? getDayKey(new Date(prevMsg.createdAt))
-        : null;
-      const nextDayKey = nextMsg
-        ? getDayKey(new Date(nextMsg.createdAt))
-        : null;
-
-      const isCurrentPinSystem = isPinSystemMessageType(message.type);
-      const isPrevContinuousMessage =
-        !!prevMsg &&
-        !isCurrentPinSystem &&
-        !isPinSystemMessageType(prevMsg.type) &&
-        prevMsg.senderId === message.senderId &&
-        prevDayKey === dayKey;
-      const isNextContinuousMessage =
-        !!nextMsg &&
-        !isCurrentPinSystem &&
-        !isPinSystemMessageType(nextMsg.type) &&
-        nextMsg.senderId === message.senderId &&
-        nextDayKey === dayKey;
-
-      const isFirstInGroup = !isPrevContinuousMessage;
-      const isLastInGroup = !isNextContinuousMessage;
-
-      // Tin nhắn: dùng MessageBubble để handle recalled state + hover menu.
-      const isOwn = message.senderId === userId;
-
-      // Kiểm tra xem tin nhắn này có được ghim không
-      const isPinned = pinnedMessages.some(
-        (pin) => pin.messageId === message.id
-      );
-
-      const senderInfo = membersById[message.senderId];
-      const senderName = senderInfo?.nickname || "Người dùng";
-      const senderAvatar = senderInfo?.avatar;
-
-      const repliedSenderId = message.replyInfo?.senderId;
-      const repliedSender =
-        typeof repliedSenderId === "number"
-          ? membersById[repliedSenderId]
-          : undefined;
-      const repliedMessage = message.replyInfo?.messageId
-        ? messageById.get(message.replyInfo.messageId)
-        : undefined;
-      const repliedAttachment = Array.isArray(repliedMessage?.attachments)
-        ? repliedMessage.attachments[0]
-        : undefined;
-
-      const replyInfoContent = (message.replyInfo?.content || "").trim();
-      const repliedMessageContent = (repliedMessage?.content || "").trim();
-      const resolvedReplyContent =
-        replyInfoContent ||
-        repliedAttachment?.url ||
-        repliedMessageContent ||
-        "Tin nhắn";
-
-      const repliedAttachmentMeta = repliedAttachment as
-        | (typeof repliedAttachment & Record<string, unknown>)
-        | undefined;
-      const resolvedReplyThumbnailUrl =
-        (typeof repliedAttachmentMeta?.thumbnailUrl === "string" &&
-          repliedAttachmentMeta.thumbnailUrl) ||
-        (typeof repliedAttachmentMeta?.thumbnail === "string" &&
-          repliedAttachmentMeta.thumbnail) ||
-        undefined;
-      const resolvedReplyPosterUrl =
-        (typeof repliedAttachmentMeta?.posterUrl === "string" &&
-          repliedAttachmentMeta.posterUrl) ||
-        (typeof repliedAttachmentMeta?.poster === "string" &&
-          repliedAttachmentMeta.poster) ||
-        undefined;
-
-      // Luôn hiện tên người gửi tin gốc được reply
-      const repliedSenderName = repliedSender?.nickname || "Người dùng";
-
-      const replyPreview = message.replyInfo
-        ? {
-            messageId: message.replyInfo.messageId,
-            senderId: repliedSenderId,
-            senderName: repliedSenderName,
-            content: resolvedReplyContent,
-            type: message.replyInfo.type || repliedMessage?.type,
-            fileName: repliedAttachment?.fileName,
-            mimeType: repliedAttachment?.type,
-            thumbnailUrl: resolvedReplyThumbnailUrl,
-            posterUrl: resolvedReplyPosterUrl,
-          }
-        : null;
-
-      // Tìm các read receipts có lastMessageId trùng với tin nhắn này
-      // Chỉ hiển thị cho tin nhắn KHÔNG bị thu hồi và là tin của mình
-      const receiptsForThisMessage =
-        isOwn && !message.isRecalled
-          ? readReceipts.filter((r) => r.lastMessageId === message.id)
-          : [];
-
-      items.push(
-        <div
-          key={stableMessageKey}
-          data-message-id={message.id}
-          className={isFirstInGroup ? "mt-3 px-1 sm:px-2" : "mt-2 px-1 sm:px-2"}
-          ref={(element) => {
-            messageElementRefs.current[message.id] = element;
-          }}
-        >
-          <MessageBubble
-            message={message}
-            isOwn={isOwn}
-            senderName={senderName}
-            senderAvatar={senderAvatar}
-            replyPreview={replyPreview}
-            currentUserId={userId}
-            conversationType={conversation?.type}
-            defaultAvatarSmallUrl={defaultAvatarSmallUrl}
-            isPinned={isPinned}
-            onPin={(messageId) => void handlePinMessage(messageId)}
-            onUnpin={(messageId) => void handleUnpinMessage(messageId)}
-            onReply={handleReplyMessage}
-            onJumpToMessage={requestJumpToMessage}
-            onRecall={handleRecall}
-            onRecallCall={(callType) => void startCall(callType)}
-            onDeleteForMe={handleDeleteMessageForMe}
-            onMediaLoad={() => {
-              stabilizeMediaLayoutOnMediaLoad();
-              // Chỉ cuộn xuống cuối khi:
-              // 1. Đang trong giai đoạn initial load (F5/mở chat)
-              // 2. User đang ở gần cuối (đang xem tin mới)
-              // 3. Vừa nhận tin nhắn mới IMAGE/VIDEO (flag được set trong handleNewMessage)
-              // KHÔNG dùng isOwn vì sẽ gây scroll khi load tin cũ từ pagination
-              if (
-                isInitialLoad() ||
-                isNearBottom() ||
-                shouldScrollOnMediaLoad()
-              ) {
-                scrollToBottom(shouldForceAutoScroll() ? "auto" : "smooth");
-              }
-            }}
-            isHighlighted={highlightedMessageId === message.id}
-            isFirstInGroup={isFirstInGroup}
-            isLastInGroup={isLastInGroup}
-          />
-
-          {/* Read Receipt Avatars - hiển thị avatar "đã xem" bên dưới tin nhắn */}
-          {receiptsForThisMessage.length > 0 && (
-            <div className="flex justify-end mt-1 mr-1 gap-1">
-              {receiptsForThisMessage.map((receipt) => {
-                // Lấy thông tin member từ conversation
-                const member = membersById[receipt.userId];
-                return (
-                  <img
-                    key={receipt.userId}
-                    src={member?.avatar || defaultAvatarSmallUrl}
-                    alt={member?.nickname || "User"}
-                    title={`Đã xem bởi ${member?.nickname || "User"}`}
-                    className="w-4 h-4 rounded-full object-cover border border-white dark:border-gray-800"
-                  />
-                );
-              })}
-            </div>
-          )}
-        </div>
-      );
-    }
+    const getMessagePreviewText = useCallback(
+        (message: (typeof messages)[number]) => {
+            if (message.type === "IMAGE") return "[Hình ảnh]";
+            if (message.type === "VIDEO") return "[Video]";
+            if (message.type === "AUDIO") return "[Tin nhắn thoại]";
+            if (message.type === "FILE") return "[Tệp đính kèm]";
+            if (message.type === "CALL") return "[Cuộc gọi]";
+            return message.content || "Tin nhắn";
+        },
+        [],
+    );
 
     return items;
   }, [
@@ -938,16 +852,78 @@ export default function ChatWindow({
                   <MoreVertical size={16} />
                 </button>
 
-                {openPinnedMenuId ===
-                  `${primaryPinnedItem.messageId}-${primaryPinnedItem.pinnedAt}` && (
-                  <div className="absolute right-0 top-full mt-1 min-w-24 rounded-lg border border-gray-200 dark:border-[#303030] bg-white dark:bg-gray-900 shadow-lg z-20 py-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setOpenPinnedMenuId(null);
-                        void handleUnpinMessage(primaryPinnedItem.messageId);
-                      }}
-                      className="w-full px-3 py-1.5 text-left text-xs text-red-600 dark:text-red-400 hover:bg-gray-50 dark:hover:bg-gray-800"
+    // ====== Render messages theo nhóm ngày (Zalo-style) ======
+    // Yêu cầu:
+    // - Nhãn ngày nằm giữa luồng chat
+    // - Xuất hiện trước tin nhắn đầu tiên của ngày đó
+    // - Nội dung: Hôm nay / Hôm qua / dd/MM / dd/MM/yyyy (nếu khác năm)
+    // - Mỗi ngày chỉ hiển thị 1 lần
+    //
+    // Ghi chú: logic này giả định `messages` được sắp theo thời gian tăng dần
+    // (tin cũ -> tin mới) để nhãn ngày hiển thị đúng vị trí.
+    const messageItems = useMemo(() => {
+        const items: ReactNode[] = [];
+        const messageById = new Map(messages.map((msg) => [msg.id, msg]));
+
+        // Chuẩn hoá về "đầu ngày" (00:00) để so sánh hôm nay/hôm qua chính xác.
+        const startOfDay = (d: Date) =>
+            new Date(d.getFullYear(), d.getMonth(), d.getDate());
+
+        // Format nhãn ngày theo quy tắc sản phẩm.
+        const formatDateLabel = (date: Date) => {
+            const now = new Date();
+            const todayStart = startOfDay(now);
+            const dateStart = startOfDay(date);
+
+            const diffDays = Math.round(
+                (todayStart.getTime() - dateStart.getTime()) /
+                    (1000 * 60 * 60 * 24),
+            );
+
+            if (diffDays === 0) return "Hôm nay";
+            if (diffDays === 1) return "Hôm qua";
+
+            const dd = String(date.getDate()).padStart(2, "0");
+            const mm = String(date.getMonth() + 1).padStart(2, "0");
+            const yyyy = date.getFullYear();
+
+            if (yyyy !== now.getFullYear()) return `${dd}/${mm}/${yyyy}`;
+            return `${dd}/${mm}`;
+        };
+
+        // Khoá ngày ổn định để phát hiện "tin nhắn đầu tiên của ngày".
+        const getDayKey = (date: Date) =>
+            `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+
+        let previousDayKey: string | null = null;
+        const isPinSystemMessageType = (type?: string) =>
+            type === "SYSTEM_PIN" ||
+            type === "SYSTEM_UPIN" ||
+            type === "SYSTEM_CREATE_GROUP" ||
+            type === "SYSTEM_ADD_MEMBER" ||
+            type === "SYSTEM_UPDATE_ROLE" ||
+            type === "SYSTEM_KICK_MEMBER" ||
+            type === "SYSTEM_LEAVE_GROUP" ||
+            type === "SYSTEM_DISBAND_GROUP";
+
+        for (let idx = 0; idx < messages.length; idx++) {
+            const message = messages[idx];
+            const prevMsg = messages[idx - 1];
+            const nextMsg = messages[idx + 1];
+            const stableMessageKey =
+                message.id ||
+                `${message.senderId}-${message.createdAt || "unknown"}-${idx}`;
+
+            const createdAt = new Date(message.createdAt);
+            const validDate = Number.isFinite(createdAt.getTime());
+            const dayKey = validDate ? getDayKey(createdAt) : "invalid-date";
+
+            // Nhãn ngày: chỉ chèn khi "đổi ngày" so với message trước đó.
+            if (dayKey !== previousDayKey) {
+                items.push(
+                    <div
+                        key={`date-sep-${stableMessageKey}-${dayKey}`}
+                        className="flex justify-center py-2 mt-4 first:mt-0"
                     >
                       Bỏ ghim
                     </button>
@@ -964,129 +940,216 @@ export default function ChatWindow({
                   key={`${pin.messageId}-${pin.pinnedAt}`}
                   className="w-full flex items-center gap-1"
                 >
-                  <button
-                    type="button"
-                    onClick={() => handleOpenPinnedMessage(pin.messageId)}
-                    className="flex-1 min-w-0 flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2.5 py-2 text-left text-xs text-gray-800 hover:bg-gray-50 dark:border-[#303030] dark:bg-gray-900 dark:text-gray-100 dark:hover:bg-gray-800"
-                  >
-                    {pin.thumbUrl ? (
-                      <img
-                        src={pin.thumbUrl}
-                        alt="Ảnh ghim"
-                        className="h-9 w-9 rounded object-cover shrink-0"
-                      />
-                    ) : (
-                      <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-blue-600 dark:text-blue-400">
-                        <MessageCircle size={16} />
-                      </span>
+                    <MessageBubble
+                        message={message}
+                        isOwn={isOwn}
+                        senderName={senderName}
+                        senderAvatar={senderAvatar}
+                        replyPreview={replyPreview}
+                        currentUserId={userId}
+                        membersById={membersById}
+                        conversationType={conversation?.type}
+                        defaultAvatarSmallUrl={defaultAvatarSmallUrl}
+                        isPinned={isPinned}
+                        onPin={(messageId) => void handlePinMessage(messageId)}
+                        onUnpin={(messageId) =>
+                            void handleUnpinMessage(messageId)
+                        }
+                        onReply={handleReplyMessage}
+                        onJumpToMessage={requestJumpToMessage}
+                        onRecall={handleRecall}
+                        onRecallCall={(callType) => void startCall(callType)}
+                        onDeleteForMe={handleDeleteMessageForMe}
+                        onMediaLoad={() => {
+                            stabilizeMediaLayoutOnMediaLoad();
+                            // Chỉ cuộn xuống cuối khi:
+                            // 1. Đang trong giai đoạn initial load (F5/mở chat)
+                            // 2. User đang ở gần cuối (đang xem tin mới)
+                            // 3. Vừa nhận tin nhắn mới IMAGE/VIDEO (flag được set trong handleNewMessage)
+                            // KHÔNG dùng isOwn vì sẽ gây scroll khi load tin cũ từ pagination
+                            if (
+                                isInitialLoad() ||
+                                isNearBottom() ||
+                                shouldScrollOnMediaLoad()
+                            ) {
+                                scrollToBottom(
+                                    shouldForceAutoScroll() ? "auto" : "smooth",
+                                );
+                            }
+                        }}
+                        isHighlighted={highlightedMessageId === message.id}
+                        isFirstInGroup={isFirstInGroup}
+                        isLastInGroup={isLastInGroup}
+                    />
+
+                    {/* Read Receipt Avatars - hiển thị avatar "đã xem" bên dưới tin nhắn */}
+                    {receiptsForThisMessage.length > 0 && (
+                        <div className="flex justify-end mt-1 mr-1 gap-1">
+                            {receiptsForThisMessage.map((receipt) => {
+                                // Lấy thông tin member từ conversation
+                                const member = membersById[receipt.userId];
+                                return (
+                                    <img
+                                        key={receipt.userId}
+                                        src={
+                                            member?.avatar ||
+                                            defaultAvatarSmallUrl
+                                        }
+                                        alt={member?.nickname || "User"}
+                                        title={`Đã xem bởi ${member?.nickname || "User"}`}
+                                        className="w-4 h-4 rounded-full object-cover border border-white dark:border-gray-800"
+                                    />
+                                );
+                            })}
+                        </div>
                     )}
-                    <div className="min-w-0">
-                      <p className="truncate text-[11px] font-semibold text-gray-600 dark:text-gray-300">
-                        {pin.senderName}
-                      </p>
-                      <p className="truncate text-xs">{pin.preview}</p>
+                </div>,
+            );
+        }
+
+        return items;
+    }, [
+        conversation?.type,
+        defaultAvatarSmallUrl,
+        handlePinMessage,
+        handleDeleteMessageForMe,
+        handleReplyMessage,
+        handleRecall,
+        highlightedMessageId,
+        isInitialLoad,
+        isNearBottom,
+        membersById,
+        messageElementRefs,
+        shouldScrollOnMediaLoad,
+        messages,
+        readReceipts,
+        requestJumpToMessage,
+        scrollToBottom,
+        startCall,
+        userId,
+    ]);
+
+    const currentMessagesForAISummary = useMemo<MessagePreviewDTO[]>(() => {
+        const recentMessages = messages.slice(-100);
+
+        return recentMessages.reduce<MessagePreviewDTO[]>((result, message) => {
+            const previewContent = getMessagePreviewText(message);
+            if (!previewContent?.trim()) {
+                return result;
+            }
+
+            result.push({
+                senderRole: message.senderId === userId ? "me" : "other",
+                content: previewContent,
+                createdAt: message.createdAt,
+            });
+
+            return result;
+        }, []);
+    }, [messages, userId, getMessagePreviewText]);
+
+    useEffect(() => {
+        const pendingId = pendingJumpMessageIdRef.current;
+        if (!pendingId) return;
+
+        const focused = focusAndHighlightMessage(pendingId);
+        if (focused) {
+            pendingJumpMessageIdRef.current = null;
+        }
+    }, [focusAndHighlightMessage, jumpRequestToken, messageItems.length]);
+
+    if (loading) {
+        return (
+            <div className="flex flex-col h-full w-full">
+                {/* Skeleton Header */}
+                <div className="flex items-center justify-between border-b border-gray-200/80 dark:border-gray-700 px-5 py-3.5 bg-white dark:bg-black">
+                    <div className="flex items-center gap-3">
+                        <div className="h-10 w-10 rounded-full bg-gray-200 dark:bg-gray-800 animate-pulse" />
+                        <div className="space-y-2">
+                            <div className="h-4 w-24 bg-gray-200 dark:bg-gray-800 animate-pulse rounded" />
+                            <div className="h-3 w-16 bg-gray-100 dark:bg-gray-900 animate-pulse rounded" />
+                        </div>
                     </div>
-                  </button>
-
-                  <div className="relative shrink-0" data-pin-menu="true">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const key = `${pin.messageId}-${pin.pinnedAt}`;
-                        setOpenPinnedMenuId((prev) =>
-                          prev === key ? null : key
-                        );
-                      }}
-                      className="h-7 w-7 rounded-full flex items-center justify-center text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
-                      title="Tùy chọn ghim"
-                    >
-                      <MoreVertical size={14} />
-                    </button>
-
-                    {openPinnedMenuId ===
-                      `${pin.messageId}-${pin.pinnedAt}` && (
-                      <div className="absolute right-0 top-full mt-1 min-w-24 rounded-lg border border-gray-200 dark:border-[#303030] bg-white dark:bg-gray-900 shadow-lg z-20 py-1">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setOpenPinnedMenuId(null);
-                            void handleUnpinMessage(pin.messageId);
-                          }}
-                          className="w-full px-3 py-1.5 text-left text-xs text-red-600 dark:text-red-400 hover:bg-gray-50 dark:hover:bg-gray-800"
-                        >
-                          Bỏ ghim
-                        </button>
-                      </div>
-                    )}
-                  </div>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Messages */}
-      <div className="relative flex-1 min-h-0">
-        {error && (
-          <div className="px-4 py-2 text-xs text-red-600 dark:text-red-400 border-b border-gray-200 dark:border-gray-700">
-            {error}
-          </div>
-        )}
-
-        {/* Toast thu hồi: hiện 2s rồi tự biến mất */}
-        {recallToast && (
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 bg-gray-800 dark:bg-gray-700 text-white text-sm px-4 py-2 rounded-lg shadow-lg pointer-events-none whitespace-nowrap">
-            {recallToast}
-          </div>
-        )}
-
-        <div
-          ref={messagesContainerRef}
-          onScroll={handleScroll}
-          className="relative h-full overflow-y-auto p-4 pb-4 flex flex-col"
-          style={{ overflowAnchor: "none" }}
-        >
-          {/* Loading more indicator (hiện khi kéo lên load tin cũ) */}
-          {loadingMore && (
-            <div
-              className="pointer-events-none absolute top-2 left-0 right-0 z-10 flex justify-center"
-              style={{ overflowAnchor: "none" }}
-            >
-              <div className="inline-flex items-center rounded-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 shadow-sm px-3 py-2">
-                <span className="h-4 w-4 rounded-full border-2 border-gray-300 dark:border-gray-600 border-t-gray-600 dark:border-t-gray-200 animate-spin" />
-              </div>
-            </div>
-          )}
-
-          {messageItems}
-
-          {/* Typing Indicator - Dummy message bubble khi có người đang gõ */}
-          {typingUsers.size > 0 && (
-            <div className="flex items-end gap-2 mt-3 px-1 sm:px-2">
-              {/* Avatar của người đang gõ */}
-              {Array.from(typingUsers).map((typingUserId) => {
-                const typingMember = membersById[typingUserId];
-                return (
-                  <img
-                    key={typingUserId}
-                    src={typingMember?.avatar || defaultAvatarSmallUrl}
-                    alt={typingMember?.nickname || "User"}
-                    className="w-7 h-7 rounded-full object-cover"
-                  />
-                );
-              })}
-              {/* Bubble với 3 chấm nhấp nháy */}
-              <div className="bg-gray-200 dark:bg-gray-700 rounded-2xl px-3 py-3 max-w-20">
-                <div className="flex items-center gap-1">
-                  <span className="w-2 h-2 bg-gray-500 dark:bg-gray-400 rounded-full animate-bounce [animation-delay:-0.3s]" />
-                  <span className="w-2 h-2 bg-gray-500 dark:bg-gray-400 rounded-full animate-bounce [animation-delay:-0.15s]" />
-                  <span className="w-2 h-2 bg-gray-500 dark:bg-gray-400 rounded-full animate-bounce" />
+                {/* Loading Body */}
+                <div className="flex-1 flex items-center justify-center bg-gray-50 dark:bg-[#0f0f0f]">
+                    <div className="flex flex-col items-center gap-2">
+                        <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                            Đang tải hội thoại...
+                        </p>
+                    </div>
                 </div>
-              </div>
             </div>
-          )}
+        );
+    }
+
+    // Xác định xem có hiển thị giao diện báo lỗi (Red Cross) hay không.
+    // Hiển thị khi bị mất quyền truy cập (readOnlyNotice) hoặc không tải được hội thoại.
+    const isErrorState = !!readOnlyNotice || (!loading && !conversation);
+
+    if (isErrorState) {
+        const displayErrorName =
+            conversation?.name || name || "Cuộc trò chuyện";
+        const displayErrorAvatar = conversation?.imageUrl || avatarUrl;
+        const displayErrorComposite =
+            conversation?.members && conversation.members.length > 0
+                ? conversation.members.slice(0, 4).map((m) => m.avatar || "")
+                : compositeAvatarUrls;
+
+        return (
+            <div className="flex flex-col h-full w-full">
+                {/* Static Header for Locked/Error state */}
+                <div className="flex items-center justify-between border-b border-gray-200/80 dark:border-gray-700 px-5 py-3.5 bg-white dark:bg-black backdrop-blur-sm">
+                    <div className="flex items-center gap-3">
+                        <ConversationAvatar
+                            name={displayErrorName}
+                            avatarUrl={displayErrorAvatar}
+                            compositeAvatarUrls={displayErrorComposite}
+                            fallbackAvatarUrl={DEFAULT_GROUP_AVATAR_URL}
+                            sizeClassName="h-10 w-10"
+                        />
+                        <div>
+                            <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                                {displayErrorName}
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                                Không thể truy cập
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                {/* Error Body */}
+                <div className="flex-1 flex flex-col items-center justify-center p-6 text-center bg-gray-50 dark:bg-[#0f0f0f]">
+                    <div className="w-16 h-16 bg-red-50 dark:bg-red-950/20 rounded-full flex items-center justify-center mb-4">
+                        <X size={32} className="text-red-500" />
+                    </div>
+                    <p className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                        {error || readOnlyNotice || "Lỗi truy cập"}
+                    </p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm">
+                        Hội thoại này hiện không khả dụng. Bạn có thể đã bị xóa
+                        khỏi nhóm hoặc không có quyền xem nội dung này.
+                    </p>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="flex flex-col h-full w-full flex-1 min-w-0">
+            <ChatHeader
+                displayName={displayName}
+                displayAvatar={displayAvatar}
+                displayCompositeAvatars={displayCompositeAvatars}
+                conversationType={conversation?.type}
+                defaultAvatarUrl={defaultAvatarUrl}
+                canCall={Boolean(otherMember)}
+                isConversationReadOnly={isConversationReadOnly}
+                showInfoPanel={showInfoPanel}
+                onStartCall={(callType) => void startCall(callType)}
+                onToggleInfoPanel={onToggleInfoPanel}
+            />
 
           <div ref={messagesEndRef} className="h-1 scroll-mb-6" />
         </div>
@@ -1287,20 +1350,17 @@ export default function ChatWindow({
               </div>
             )}
 
-            {replyToMessage && (
-              <div className="mb-2 flex items-start justify-between gap-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-3 py-2">
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold text-gray-700 dark:text-gray-200">
-                    Trả lời {replyToMessage.senderName}
-                  </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                    {replyToMessage.content}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setReplyToMessage(null)}
-                  className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500"
+                {jumpToast && (
+                    <div className="absolute top-14 left-1/2 -translate-x-1/2 z-30 bg-gray-800 dark:bg-gray-700 text-white text-sm px-4 py-2 rounded-lg shadow-lg pointer-events-none whitespace-nowrap">
+                        {jumpToast}
+                    </div>
+                )}
+
+                <div
+                    ref={messagesContainerRef}
+                    onScroll={handleScroll}
+                    className="relative h-full overflow-y-auto p-4 pb-4 flex flex-col"
+                    style={{ overflowAnchor: "none" }}
                 >
                   <X size={16} />
                 </button>
@@ -1385,7 +1445,33 @@ export default function ChatWindow({
                     </button>
                   </div>
                 )}
-              </div>
+            </div>
+
+            <div className=" bg-white dark:bg-black px-4 pb-0.5 pt-1.5">
+                <AIActionPanel
+                    isOpen={isAiPanelOpen}
+                    onToggle={() => setIsAiPanelOpen((prev) => !prev)}
+                    disabled={uploading || sending || isConversationReadOnly}
+                    isSummarizing={isSummarizing}
+                    isSuggesting={isSuggesting}
+                    onSummarize={() => {
+                        void summarizeConversation(currentMessagesForAISummary);
+                    }}
+                    onSuggest={() => {
+                        void suggestReplies();
+                    }}
+                />
+                {isAiPanelOpen && (
+                    <AIResultPanel
+                        summary={summary}
+                        suggestions={suggestions}
+                        error={aiError}
+                        isSummarizing={isSummarizing}
+                        isSuggesting={isSuggesting}
+                        onSuggestionClick={handleApplySuggestion}
+                    />
+                )}
+            </div>
 
               <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-full bg-gray-100 px-2 py-1.5 transition-colors focus-within:bg-gray-50 dark:bg-gray-900 dark:focus-within:bg-gray-800">
                 {/* Input text */}
@@ -1450,81 +1536,288 @@ export default function ChatWindow({
                       <Smile size={21} />
                     </button>
 
-                    {/* Emoji Picker Popup */}
-                    {emojiPickerOpen && (
-                      <div
-                        ref={emojiPickerRef}
-                        className="absolute bottom-full right-0 mb-2 z-50 emoji-picker-custom"
-                      >
-                        <EmojiPicker
-                          onEmojiClick={onEmojiClick}
-                          theme={
-                            document.documentElement.classList.contains("dark")
-                              ? Theme.DARK
-                              : Theme.LIGHT
-                          }
-                          width={350}
-                          height={435}
-                          searchPlaceholder="Tìm kiếm biểu tượng cảm xúc"
-                          previewConfig={{
-                            showPreview: false,
-                          }}
-                          emojiStyle={EmojiStyle.FACEBOOK}
-                          skinTonesDisabled
-                          lazyLoadEmojis
-                        />
-                      </div>
-                    )}
-                  </div>
+                        <div className="flex items-center gap-2">
+                            {/* Plus / X — mở popup menu */}
+                            <div
+                                ref={plusMenuRef}
+                                className="relative shrink-0"
+                            >
+                                <button
+                                    type="button"
+                                    onClick={() => setPlusMenuOpen((v) => !v)}
+                                    disabled={
+                                        uploading || isConversationReadOnly
+                                    }
+                                    className="rounded-full p-1.5 text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800 disabled:opacity-50"
+                                >
+                                    {plusMenuOpen ? (
+                                        <X size={21} />
+                                    ) : (
+                                        <Plus size={21} />
+                                    )}
+                                </button>
+
+                                {/* Popup menu */}
+                                {plusMenuOpen && (
+                                    <div className="absolute bottom-full left-0 mb-2 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-2xl shadow-xl py-1.5 w-72 z-40">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setPlusMenuOpen(false);
+                                                void startRecording();
+                                            }}
+                                            className="flex items-center gap-3 w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700"
+                                        >
+                                            <Mic
+                                                size={20}
+                                                className="text-gray-700 dark:text-gray-300 shrink-0"
+                                            />
+                                            <span className="text-sm text-gray-800 dark:text-gray-100">
+                                                Gửi clip âm thanh
+                                            </span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setPlusMenuOpen(false);
+                                                attachInputRef.current?.click();
+                                            }}
+                                            className="flex items-center gap-3 w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700"
+                                        >
+                                            <Paperclip
+                                                size={20}
+                                                className="text-gray-700 dark:text-gray-300 shrink-0"
+                                            />
+                                            <span className="text-sm text-gray-800 dark:text-gray-100">
+                                                Đính kèm file (tối đa 100MB)
+                                            </span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                setPlusMenuOpen(false)
+                                            }
+                                            className="flex items-center gap-3 w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700 opacity-50 cursor-not-allowed"
+                                        >
+                                            <StickyNote
+                                                size={20}
+                                                className="text-gray-700 dark:text-gray-300 shrink-0"
+                                            />
+                                            <span className="text-sm text-gray-800 dark:text-gray-100">
+                                                Chọn nhãn dán
+                                            </span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setPlusMenuOpen(false);
+                                                gifInputRef.current?.click();
+                                            }}
+                                            className="flex items-center gap-3 w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700"
+                                        >
+                                            <Film
+                                                size={20}
+                                                className="text-gray-700 dark:text-gray-300 shrink-0"
+                                            />
+                                            <span className="text-sm text-gray-800 dark:text-gray-100">
+                                                Chọn file GIF / Ảnh / Video
+                                            </span>
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-full bg-gray-100 px-2 py-1.5 transition-colors focus-within:bg-gray-50 dark:bg-gray-900 dark:focus-within:bg-gray-800">
+                                {/* Input text */}
+                                <input
+                                    ref={messageInputRef}
+                                    type="text"
+                                    value={messageText}
+                                    onChange={(e) => {
+                                        if (isConversationReadOnly) return;
+                                        setMessageText(e.target.value);
+                                        // Gửi typing signal
+                                        if (e.target.value.trim()) {
+                                            sendTypingSignal(true);
+                                        } else {
+                                            sendTypingSignal(false);
+                                        }
+                                    }}
+                                    onKeyDown={(e) => {
+                                        if (
+                                            e.key === "Enter" &&
+                                            !sending &&
+                                            !uploading &&
+                                            !isConversationReadOnly
+                                        ) {
+                                            sendTypingSignal(false); // Ngừng typing khi gửi
+                                            if (selectedFiles.length > 0) {
+                                                void handleSendMixedMedia(
+                                                    selectedFiles.map(
+                                                        (item) => item.file,
+                                                    ),
+                                                    undefined,
+                                                    replyToMessage?.id,
+                                                ).then((ok) => {
+                                                    if (!ok) return;
+                                                    setSelectedFiles([]);
+                                                    setReplyToMessage(null);
+                                                });
+                                            } else {
+                                                void handleSend(
+                                                    undefined,
+                                                    replyToMessage?.id,
+                                                ).then(() =>
+                                                    setReplyToMessage(null),
+                                                );
+                                            }
+                                        }
+                                    }}
+                                    onBlur={() => sendTypingSignal(false)} // Ngừng typing khi blur
+                                    placeholder={
+                                        isConversationReadOnly
+                                            ? "Bạn không còn quyền gửi tin nhắn trong nhóm này"
+                                            : uploading
+                                              ? "Đang tải file lên..."
+                                              : "Nhập tin nhắn..."
+                                    }
+                                    disabled={
+                                        sending ||
+                                        uploading ||
+                                        isConversationReadOnly
+                                    }
+                                    className="min-w-0 flex-1 bg-transparent px-2.5 py-1.5 text-sm text-gray-900 placeholder:text-gray-500 focus:outline-none dark:text-white dark:placeholder-gray-400 disabled:opacity-50"
+                                />
+
+                                {/* Uploading spinner */}
+                                {uploading && (
+                                    <span className="shrink-0 h-5 w-5 rounded-full border-2 border-gray-300 dark:border-gray-600 border-t-gray-700 dark:border-t-gray-200 animate-spin" />
+                                )}
+
+                                {/* Emoji — luôn hiện (trừ khi đang upload) */}
+                                {!uploading && (
+                                    <div
+                                        ref={emojiPickerRef}
+                                        className="relative"
+                                    >
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                setEmojiPickerOpen(
+                                                    !emojiPickerOpen,
+                                                )
+                                            }
+                                            disabled={isConversationReadOnly}
+                                            className={`shrink-0 rounded-full p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 ${
+                                                emojiPickerOpen
+                                                    ? "text-blue-500"
+                                                    : "text-gray-800 dark:text-gray-200"
+                                            }`}
+                                        >
+                                            <Smile size={21} />
+                                        </button>
+
+                                        {/* Emoji Picker Popup */}
+                                        {emojiPickerOpen && (
+                                            <div
+                                                ref={emojiPickerRef}
+                                                className="absolute bottom-full right-0 mb-2 z-50 emoji-picker-custom"
+                                            >
+                                                <EmojiPicker
+                                                    onEmojiClick={onEmojiClick}
+                                                    theme={
+                                                        document.documentElement.classList.contains(
+                                                            "dark",
+                                                        )
+                                                            ? Theme.DARK
+                                                            : Theme.LIGHT
+                                                    }
+                                                    width={350}
+                                                    height={435}
+                                                    searchPlaceholder="Tìm kiếm biểu tượng cảm xúc"
+                                                    previewConfig={{
+                                                        showPreview: false,
+                                                    }}
+                                                    emojiStyle={
+                                                        EmojiStyle.FACEBOOK
+                                                    }
+                                                    skinTonesDisabled
+                                                    lazyLoadEmojis
+                                                />
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Thumbs up khi trống, Send khi có text */}
+                            {!uploading &&
+                                (messageText.trim() ||
+                                selectedFiles.length > 0 ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            if (selectedFiles.length > 0) {
+                                                void handleSendMixedMedia(
+                                                    selectedFiles.map(
+                                                        (item) => item.file,
+                                                    ),
+                                                    undefined,
+                                                    replyToMessage?.id,
+                                                ).then((ok) => {
+                                                    if (!ok) return;
+                                                    setSelectedFiles([]);
+                                                    setReplyToMessage(null);
+                                                });
+                                                return;
+                                            }
+
+                                            void handleSend(
+                                                undefined,
+                                                replyToMessage?.id,
+                                            ).then(() =>
+                                                setReplyToMessage(null),
+                                            );
+                                        }}
+                                        disabled={
+                                            sending || isConversationReadOnly
+                                        }
+                                        className="shrink-0 rounded-full p-1.5 text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800 disabled:opacity-50"
+                                    >
+                                        <Send size={22} />
+                                    </button>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            void handleSend(
+                                                "👍",
+                                                replyToMessage?.id,
+                                            ).then(() =>
+                                                setReplyToMessage(null),
+                                            )
+                                        }
+                                        disabled={
+                                            sending || isConversationReadOnly
+                                        }
+                                        className="shrink-0 rounded-full p-0.5 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
+                                    >
+                                        <Emoji
+                                            unified="1f44d"
+                                            size={28}
+                                            emojiStyle={EmojiStyle.APPLE}
+                                        />
+                                    </button>
+                                ))}
+                        </div>
+                    </div>
                 )}
-              </div>
 
-              {/* Thumbs up khi trống, Send khi có text */}
-              {!uploading &&
-                (messageText.trim() || selectedFiles.length > 0 ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (selectedFiles.length > 0) {
-                        void handleSendMixedMedia(
-                          selectedFiles.map((item) => item.file),
-                          undefined,
-                          replyToMessage?.id
-                        ).then((ok) => {
-                          if (!ok) return;
-                          setSelectedFiles([]);
-                          setReplyToMessage(null);
-                        });
-                        return;
-                      }
-
-                      void handleSend(undefined, replyToMessage?.id).then(() =>
-                        setReplyToMessage(null)
-                      );
-                    }}
-                    disabled={sending}
-                    className="shrink-0 rounded-full p-1.5 text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800 disabled:opacity-50"
-                  >
-                    <Send size={22} />
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void handleSend("👍", replyToMessage?.id).then(() =>
-                        setReplyToMessage(null)
-                      )
-                    }
-                    disabled={sending}
-                    className="shrink-0 rounded-full p-0.5 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
-                  >
-                    <Emoji
-                      unified="1f44d"
-                      size={28}
-                      emojiStyle={EmojiStyle.APPLE}
-                    />
-                  </button>
-                ))}
+                {readOnlyNotice && (
+                    <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">
+                        {readOnlyNotice}
+                    </p>
+                )}
             </div>
           </div>
         )}

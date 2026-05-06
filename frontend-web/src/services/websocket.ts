@@ -6,7 +6,7 @@
  */
 import { Client, type IMessage } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
-import type { Message } from "./chatService";
+import type { Conversation, Message, MessageType } from "./chatService";
 
 export type CallStatus =
     | "calling"
@@ -48,8 +48,10 @@ export type DomainEventType =
     | "ROOM_UPDATED" // Phòng chat được cập nhật
     | "ROOM_DELETED" // Phòng chat bị xóa
     | "MEMBER_ADDED" // Thành viên mới tham gia
-    | "MEMBER_REMOVED" // Thành viên rời khỏi
-    | "MEMBER_ROLE_CHANGED" // Thay đổi vai trò thành viên
+    | "MEMBER_ROLE_UPDATED"
+    | "MEMBER_LEFT"
+    | "MEMBER_KICKED"
+    | "GROUP_DISBANDED"
     | "PIN_MESSAGE"
     | "UPIN_MESSAGE"
     | "MEMBER_UPDATED";
@@ -61,6 +63,17 @@ export interface PinUpdatedEvent {
         messageId: string;
         pinnerId: number;
         pinnedAt: string;
+        originalSenderId?: number;
+        type?:
+            | "TEXT"
+            | "IMAGE"
+            | "VIDEO"
+            | "FILE"
+            | "AUDIO"
+            | "CALL"
+            | "SYSTEM_PIN"
+            | "SYSTEM_UPIN";
+        content?: string;
     }>;
 }
 
@@ -177,8 +190,9 @@ export interface TypingEvent {
  * 5. Cập nhật sidebar với lastMessage mới
  */
 export interface ConversationUpdatedEvent {
-    // Loại event - luôn là "ROOM_UPDATED"
-    type: "ROOM_UPDATED";
+    // Loại event từ backend
+    domainEventType?: "ROOM_UPDATED";
+    type?: "ROOM_UPDATED";
 
     // ID của conversation được cập nhật - nằm trong event, KHÔNG nằm trong lastMessage
     conversationId: number;
@@ -187,7 +201,7 @@ export interface ConversationUpdatedEvent {
     // LƯU Ý: Backend không gửi conversationId trong lastMessage
     lastMessage: {
         lastMessageContent: string; // Nội dung tin nhắn
-        lastMessageType: "TEXT" | "IMAGE" | "FILE" | "VIDEO" | "AUDIO" | "CALL"; // Loại tin nhắn
+        lastMessageType: MessageType; // Loại tin nhắn
         lastSenderId: number; // ID người gửi
         lastSenderName: string; // Tên người gửi
         lastMessageAt: string; // Thời điểm gửi (ISO string)
@@ -195,11 +209,121 @@ export interface ConversationUpdatedEvent {
     };
 }
 
+export interface ConversationCreatedEvent {
+    domainEventType?: "ROOM_CREATED";
+    type?: "ROOM_CREATED";
+    conversationResponse?: Conversation;
+}
+
+export interface ConversationMembershipEvent {
+    domainEventType?:
+        | "MEMBER_ADDED"
+        | "MEMBER_ROLE_UPDATED"
+        | "MEMBER_LEFT"
+        | "MEMBER_KICKED";
+    conversationResponse?: Conversation;
+}
+
+export interface GroupDisbandedEvent {
+    domainEventType?: "GROUP_DISBANDED";
+    conversationId?: number;
+}
+
 /**
  * Type alias cho dữ liệu cập nhật conversation
  * Để backward compatible với code hiện tại
  */
 export type LastMessageUpdate = ConversationUpdatedEvent["lastMessage"];
+
+export type ConversationSnapshot = Conversation;
+
+function toLastMessageUpdate(
+    conversation: Conversation,
+): LastMessageUpdate | null {
+    const lastMessage = conversation.lastMessage;
+    if (!lastMessage) return null;
+
+    return {
+        lastMessageContent: lastMessage.lastMessageContent,
+        lastMessageType: lastMessage.lastMessageType,
+        lastSenderId: lastMessage.lastSenderId,
+        lastSenderName: lastMessage.lastSenderName,
+        lastMessageAt: lastMessage.lastMessageAt,
+        read: lastMessage.read,
+    };
+}
+
+function buildFallbackLastMessageUpdate(
+    conversation: Conversation,
+): LastMessageUpdate {
+    return {
+        lastMessageContent: "",
+        lastMessageType: "SYSTEM_CREATE_GROUP",
+        lastSenderId: 0,
+        lastSenderName: "",
+        lastMessageAt: conversation.updatedAt,
+        read: false,
+    };
+}
+
+function buildSystemFallbackByDomainEvent(
+    domainEventType?: DomainEventType,
+): LastMessageUpdate {
+    const now = new Date().toISOString();
+
+    if (domainEventType === "MEMBER_ADDED") {
+        return {
+            lastMessageContent: "",
+            lastMessageType: "SYSTEM_ADD_MEMBER",
+            lastSenderId: 0,
+            lastSenderName: "",
+            lastMessageAt: now,
+            read: false,
+        };
+    }
+
+    if (domainEventType === "MEMBER_ROLE_UPDATED") {
+        return {
+            lastMessageContent: "",
+            lastMessageType: "SYSTEM_UPDATE_ROLE",
+            lastSenderId: 0,
+            lastSenderName: "",
+            lastMessageAt: now,
+            read: false,
+        };
+    }
+
+    if (domainEventType === "MEMBER_KICKED") {
+        return {
+            lastMessageContent: "",
+            lastMessageType: "SYSTEM_KICK_MEMBER",
+            lastSenderId: 0,
+            lastSenderName: "",
+            lastMessageAt: now,
+            read: false,
+        };
+    }
+
+    if (domainEventType === "MEMBER_LEFT") {
+        return {
+            lastMessageContent: "",
+            lastMessageType: "SYSTEM_LEAVE_GROUP",
+            lastSenderId: 0,
+            lastSenderName: "",
+            lastMessageAt: now,
+            read: false,
+        };
+    }
+
+    return {
+        lastMessageContent: "",
+        lastMessageType: "SYSTEM_DISBAND_GROUP",
+        lastSenderId: 0,
+        lastSenderName: "",
+        lastMessageAt: now,
+        read: false,
+    };
+}
 /**
  * WebSocketService - Singleton service quản lý kết nối WebSocket real-time
  *
@@ -280,7 +404,9 @@ class WebSocketService {
                  * Endpoint: http://localhost:8080/ws (backend Spring Boot)
                  */
                 webSocketFactory: () => {
-                    console.log("🟡 Creating SockJS connection to http://localhost:8080/ws");
+                    console.log(
+                        "🟡 Creating SockJS connection to http://localhost:8080/ws",
+                    );
                     return new SockJS("http://localhost:8080/ws");
                 },
 
@@ -625,6 +751,7 @@ class WebSocketService {
         callback: (
             conversationId: number,
             lastMessage: LastMessageUpdate,
+            conversation?: ConversationSnapshot,
         ) => void,
     ) {
         // BƯỚC 1: Kiểm tra kết nối WebSocket
@@ -661,24 +788,62 @@ class WebSocketService {
             destination,
             (message: IMessage) => {
                 try {
-                    // Parse JSON body thành ConversationUpdatedEvent
-                    // Backend gửi: { type: "ROOM_UPDATED", conversationId: 123, lastMessage: {...} }
-                    const event: ConversationUpdatedEvent = JSON.parse(
-                        message.body,
-                    );
+                    const payload = JSON.parse(message.body) as
+                        | ConversationUpdatedEvent
+                        | ConversationCreatedEvent
+                        | ConversationMembershipEvent
+                        | GroupDisbandedEvent;
 
-                    // Trích xuất conversationId từ event (KHÔNG nằm trong lastMessage)
-                    const conversationId = event.conversationId;
+                    const createdConversation = (
+                        payload as {
+                            conversationResponse?: Conversation;
+                        }
+                    ).conversationResponse;
+                    if (createdConversation?.id) {
+                        const lastMessageData =
+                            toLastMessageUpdate(createdConversation);
+                        const resolvedLastMessage =
+                            lastMessageData ??
+                            buildFallbackLastMessageUpdate(createdConversation);
+                        const conversationSnapshot: ConversationSnapshot = {
+                            ...createdConversation,
+                            lastMessage:
+                                createdConversation.lastMessage ??
+                                resolvedLastMessage,
+                        };
 
-                    // Trích xuất lastMessage từ event
-                    // lastMessage KHÔNG chứa conversationId, chỉ chứa: lastMessageContent, lastSenderName, etc.
-                    const lastMessageData: LastMessageUpdate =
-                        event.lastMessage;
+                        callback(
+                            createdConversation.id,
+                            resolvedLastMessage,
+                            conversationSnapshot,
+                        );
+                        return;
+                    }
 
-                    // Gọi callback với 2 tham số riêng biệt
-                    // - conversationId: Để biết cập nhật conversation nào
-                    // - lastMessageData: Thông tin tin nhắn mới nhất
-                    callback(conversationId, lastMessageData);
+                    const disbandPayload = payload as GroupDisbandedEvent;
+                    if (
+                        disbandPayload.domainEventType === "GROUP_DISBANDED" &&
+                        typeof disbandPayload.conversationId === "number"
+                    ) {
+                        callback(
+                            disbandPayload.conversationId,
+                            buildSystemFallbackByDomainEvent(
+                                disbandPayload.domainEventType,
+                            ),
+                        );
+                        return;
+                    }
+
+                    const updatedEvent = payload as ConversationUpdatedEvent;
+                    if (
+                        typeof updatedEvent.conversationId === "number" &&
+                        updatedEvent.lastMessage
+                    ) {
+                        callback(
+                            updatedEvent.conversationId,
+                            updatedEvent.lastMessage,
+                        );
+                    }
                 } catch (error) {
                     console.error("Error parsing conversation update:", error);
                 }
@@ -872,7 +1037,10 @@ class WebSocketService {
      */
     subscribeToTopic(destination: string, callback: (message: any) => void) {
         if (!this.client?.connected) {
-            console.error("WebSocket not connected, cannot subscribe to topic:", destination);
+            console.error(
+                "WebSocket not connected, cannot subscribe to topic:",
+                destination,
+            );
             return;
         }
 
@@ -896,9 +1064,12 @@ class WebSocketService {
                     }
                     callback(parsedMessage);
                 } catch (error) {
-                    console.error(`Error handling message from ${destination}:`, error);
+                    console.error(
+                        `Error handling message from ${destination}:`,
+                        error,
+                    );
                 }
-            }
+            },
         );
 
         this.subscriptions.set(destination, subscription);
@@ -958,7 +1129,10 @@ class WebSocketService {
                 console.log("📨 Message headers:", message.headers);
                 console.log("📨 Raw body string:", message.body);
                 console.log("📨 Body length:", message.body.length);
-                console.log("📨 Body first 100 chars:", message.body.substring(0, 100));
+                console.log(
+                    "📨 Body first 100 chars:",
+                    message.body.substring(0, 100),
+                );
 
                 try {
                     const updatedUser = JSON.parse(message.body);

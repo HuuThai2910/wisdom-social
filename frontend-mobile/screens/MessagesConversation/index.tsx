@@ -1,16 +1,22 @@
 import { styles } from "./styles";
 import { MessageComposer } from "@/components/MessageComposer";
 import { MessageBubble } from "@/components/MessageBubble";
+import IncomingCallOverlay from "@/components/IncomingCallOverlay";
+import InCallOverlay from "@/components/InCallOverlay";
 import { useMessageAudioPlayback } from "@/hooks/useMessageAudioPlayback";
 import { useMessageComposerMediaActions } from "@/hooks/useMessageComposerMediaActions";
 import { MediaViewerModal } from "@/components/MediaViewerModal";
 import { MessageContextMenu } from "@/components/MessageContextMenu";
 import { UserAvatar } from "@/components";
+import GroupConversationPanel from "@/components/GroupConversationPanel";
+import SelectGroupMembersModal from "@/components/SelectGroupMembersModal";
 import { colors, spacing } from "@/constants";
 import { useChatWindowController } from "@/hooks/useChatWindowController";
+import { useGroupManagement } from "@/hooks/useGroupManagement";
 import type { LocalUploadFile, Message } from "@/types/chat";
 import { formatRelativeTime } from "@/utils/format";
 import { focusComposerInput } from "@/utils/focusComposerInput";
+import { buildConversationDisplayInfo } from "@/utils/conversationDisplayInfo";
 import { Ionicons } from "@expo/vector-icons";
 import { Audio, type AVPlaybackStatus, ResizeMode, Video } from "expo-av";
 import * as Haptics from "expo-haptics";
@@ -19,6 +25,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Alert,
     Animated,
+    ActivityIndicator,
     Dimensions,
     Easing,
     FlatList,
@@ -60,14 +67,12 @@ import {
     ReplyComposerState,
     MediaViewerState,
     AudioProgress,
-    PinnedBannerItem,
     PinSystemRunRenderMeta,
     contextActions,
     formatDurationMillis,
     formatFileSize,
     resolveMediaUrl,
     isLikelyStoragePathOrUrl,
-    resolveAttachmentUrls,
     formatMessageTime,
     isEmojiOnlyText,
     formatReplyLabel,
@@ -81,6 +86,8 @@ import {
     buildAudioWaveBars,
 } from "@/utils/messageUtils";
 import { PinnedBanner } from "@/components/PinnedBanner";
+import { buildPinnedBannerItemsFromSnapshot } from "@/utils/pinnedMessageSnapshot";
+import { useOneToOneCall } from "@/hooks/useOneToOneCall";
 export default function MessagesConversationScreen() {
     const { conversationId: conversationIdParam } = useLocalSearchParams<{
         conversationId?: string;
@@ -110,7 +117,9 @@ export default function MessagesConversationScreen() {
         uploadProgressPercent,
         uploadProgressLabel,
         uploadFailedFileNames,
+        readOnlyNotice,
         error,
+        jumpToast,
         handleSend,
         handleSendMixedMedia,
         handleRecall,
@@ -148,9 +157,56 @@ export default function MessagesConversationScreen() {
     const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
     const [showRightScrollCue, setShowRightScrollCue] = useState(false);
     const [rightScrollCueBaseTop, setRightScrollCueBaseTop] = useState(0);
+    const [showGroupInfoModal, setShowGroupInfoModal] = useState(false);
     const [inputSelection, setInputSelection] = useState({
         start: 0,
         end: 0,
+    });
+
+    // Mapping web -> mobile:
+    // - useGroupManagement giu nguyen API/state flow cua web.
+    // - UI duoc hien thi trong modal thay cho side panel desktop.
+    const {
+        selectedGroupConversation,
+        canManageMembers,
+        canAddMembers,
+        canUpdateRole,
+        canDisbandGroup,
+        groupMemberIds,
+        availableFriends,
+        friendsLoading,
+        friendsError,
+        isAddMembersModalOpen,
+        isAddingMembers,
+        isLeavingGroup,
+        isDisbandingGroup,
+        isTransferOwnerModalOpen,
+        pendingKickUserId,
+        pendingRoleUserId,
+        pendingTransferOwnerUserId,
+        ownerTransferCandidates,
+        actionError,
+        openAddMembersModal,
+        closeAddMembersModal,
+        closeTransferOwnerModal,
+        addMembersToGroup,
+        updateMemberRole,
+        kickMember,
+        leaveGroup,
+        transferOwnershipAndLeave,
+        disbandGroup,
+    } = useGroupManagement({
+        currentUserId,
+        selectedConversation: conversation,
+        selectedConversationId: Number.isFinite(conversationId)
+            ? conversationId
+            : null,
+        reloadConversations: async () => {
+            await resetToPresent();
+        },
+        onClearSelection: () => {
+            router.back();
+        },
     });
 
     const listRef = useRef<FlatList<Message>>(null);
@@ -223,6 +279,75 @@ export default function MessagesConversationScreen() {
             null
         );
     }, [currentUserId, membersById]);
+
+    const conversationDisplayInfo = useMemo(() => {
+        if (!conversation) return null;
+
+        return buildConversationDisplayInfo({
+            conversation,
+            currentUserId,
+            members: Object.values(membersById),
+        });
+    }, [conversation, currentUserId, membersById]);
+  const {
+        incomingCall,
+        activeCall,
+        callStatus,
+        localStreamUrl,
+        remoteStreamUrl,
+        micEnabled,
+        cameraEnabled,
+        speakerEnabled,
+        isCallSupported,
+        callDurationText,
+        startCall,
+        acceptIncomingCall,
+        rejectIncomingCall,
+        endCall,
+        toggleMic,
+        toggleCamera,
+        switchCamera,
+        toggleSpeaker,
+    } = useOneToOneCall({
+        conversationId: Number.isFinite(conversationId) ? conversationId : 0,
+        currentUserId,
+        targetUserId: otherUser?.userId,
+        targetName: otherUser?.nickname || otherUser?.username,
+        targetAvatar: otherUser?.avatar,
+    });
+
+    const incomingCallerName = useMemo(() => {
+        const incomingCallerId = incomingCall?.fromUserId ?? null;
+        if (!incomingCallerId) return "Nguoi dung";
+
+        const member = membersById[incomingCallerId];
+        return (
+            member?.nickname ||
+            member?.username ||
+            `Nguoi dung ${incomingCallerId}`
+        );
+    }, [incomingCall?.fromUserId, membersById]);
+
+    const tryStartCall = useCallback(
+        async (callType: "audio" | "video") => {
+            if (!isCallSupported) {
+                Alert.alert(
+                    "Tinh nang chua ho tro",
+                    "Call can development build vi Expo Go khong co native WebRTC.",
+                );
+                return;
+            }
+
+            await startCall(callType);
+        },
+        [isCallSupported, startCall],
+    );
+
+    useEffect(() => {
+        if (conversation?.type !== "GROUP") {
+            setShowGroupInfoModal(false);
+        }
+    }, [conversation?.type]);
 
     const activityText = useMemo(() => {
         if (!conversation?.updatedAt) return "Dang hoat dong";
@@ -398,43 +523,14 @@ export default function MessagesConversationScreen() {
         scheduleReleaseJumpScrollLock,
     ]);
 
-    const pinnedBannerItems = useMemo<PinnedBannerItem[]>(() => {
-        const previewText = (message: Message) => {
-            if (message.isRecalled) return "Tin nhan da duoc thu hoi";
-            if (message.type === "IMAGE") return "[Hinh anh]";
-            if (message.type === "VIDEO") return "[Video]";
-            if (message.type === "AUDIO") return "[Tin nhan thoai]";
-            if (message.type === "FILE") return "[Tep dinh kem]";
-            if (message.type === "CALL") return "[Cuoc goi]";
-            return message.content?.trim() || "Tin nhan";
-        };
-
-        return pinnedMessages.slice(0, 3).map((pin) => {
-            const matchedMessage = messages.find(
-                (message) => message.id === pin.messageId,
-            );
-            const sender = matchedMessage
-                ? membersById[matchedMessage.senderId]
-                : undefined;
-
-            const senderName =
-                sender?.nickname || sender?.username || "Nguoi dung";
-            const thumbUrl =
-                matchedMessage?.type === "IMAGE"
-                    ? resolveAttachmentUrls(matchedMessage)[0]
-                    : undefined;
-
-            return {
-                messageId: pin.messageId,
-                pinnedAt: pin.pinnedAt,
-                senderName,
-                preview: matchedMessage
-                    ? previewText(matchedMessage)
-                    : "Tin nhan da ghim",
-                thumbUrl,
-            };
-        });
-    }, [membersById, messages, pinnedMessages]);
+    const pinnedBannerItems = useMemo(
+        () =>
+            buildPinnedBannerItemsFromSnapshot({
+                pins: pinnedMessages,
+                membersById,
+            }),
+        [membersById, pinnedMessages],
+    );
 
     const primaryPinnedItem = pinnedBannerItems[0];
     const canExpandPinnedList = pinnedBannerItems.length > 1;
@@ -1240,6 +1336,83 @@ export default function MessagesConversationScreen() {
         };
     }, []);
 
+    // Giống web: hiện loading nếu đang tải dữ liệu lần đầu
+    if (loading && !conversation) {
+        return (
+            <SafeAreaView style={[styles.container, { justifyContent: "center", alignItems: "center" }]}>
+                <ActivityIndicator size="large" color={colors.primary} />
+            </SafeAreaView>
+        );
+    }
+
+    // Giống web: hiện màn hình báo lỗi khi readOnlyNotice được set
+    // (bị đuổi, rời nhóm, nhóm bị giải tán) hoặc khi không tải được conversation.
+    const isErrorState = Boolean(readOnlyNotice) || (!loading && !conversation);
+
+    if (isErrorState) {
+        const displayName =
+            conversationDisplayInfo?.name ||
+            otherUser?.nickname ||
+            otherUser?.username ||
+            "Cuộc trò chuyện";
+
+        // Xác định tiêu đề lỗi cụ thể
+        const isDisbanded =
+            readOnlyNotice?.toLowerCase().includes("giải tán") ||
+            readOnlyNotice?.toLowerCase().includes("giai tan");
+
+        const errorTitle = isDisbanded
+            ? "Nhóm đã bị giải tán."
+            : readOnlyNotice || "Không thể truy cập";
+
+        return (
+            <SafeAreaView style={styles.container}>
+                {/* Header tĩnh cho trạng thái lỗi */}
+                <View style={styles.header}>
+                    <Pressable
+                        style={styles.headerBackBtn}
+                        onPress={() => router.back()}
+                        hitSlop={8}
+                    >
+                        <Ionicons
+                            name="arrow-back"
+                            size={24}
+                            color={colors.text}
+                        />
+                    </Pressable>
+                    <View style={styles.headerIdentity}>
+                        <UserAvatar
+                            uri={conversationDisplayInfo?.avatarUrl || otherUser?.avatar}
+                            name={displayName}
+                            size={40}
+                        />
+                        <View style={styles.headerMeta}>
+                            <Text style={styles.headerName} numberOfLines={1}>
+                                {displayName}
+                            </Text>
+                            <Text style={styles.headerStatus} numberOfLines={1}>
+                                Không thể truy cập
+                            </Text>
+                        </View>
+                    </View>
+                    <View style={styles.headerActions} />
+                </View>
+
+                {/* Nội dung lỗi giống web */}
+                <View style={disbandedStyles.body}>
+                    <View style={disbandedStyles.iconWrap}>
+                        <Ionicons name="close" size={32} color="#EF4444" />
+                    </View>
+                    <Text style={disbandedStyles.title}>{errorTitle}</Text>
+                    <Text style={disbandedStyles.subtitle}>
+                        Hội thoại này hiện không khả dụng. Bạn có thể đã bị xóa khỏi
+                        nhóm hoặc không có quyền xem nội dung này.
+                    </Text>
+                </View>
+            </SafeAreaView>
+        );
+    }
+
     return (
         <SafeAreaView style={styles.container}>
             <KeyboardAvoidingView
@@ -1261,14 +1434,23 @@ export default function MessagesConversationScreen() {
 
                     <View style={styles.headerIdentity}>
                         <UserAvatar
-                            uri={otherUser?.avatar}
-                            name={otherUser?.username ?? "?"}
+                            uri={
+                                conversationDisplayInfo?.avatarUrl ||
+                                otherUser?.avatar
+                            }
+                            name={
+                                conversationDisplayInfo?.name ||
+                                otherUser?.nickname ||
+                                otherUser?.username ||
+                                "Conversation"
+                            }
                             size={40}
                         />
                         <View style={styles.headerMeta}>
                             <Text style={styles.headerName} numberOfLines={1}>
-                                {otherUser?.nickname ??
-                                    otherUser?.username ??
+                                {conversationDisplayInfo?.name ||
+                                    otherUser?.nickname ||
+                                    otherUser?.username ||
                                     "Conversation"}
                             </Text>
                             <Text style={styles.headerStatus} numberOfLines={1}>
@@ -1285,20 +1467,41 @@ export default function MessagesConversationScreen() {
                                 color={colors.text}
                             />
                         </Pressable>
-                        <Pressable style={styles.headerActionBtn} hitSlop={8}>
+                        <Pressable
+                            style={styles.headerActionBtn}
+                            hitSlop={8}
+                            onPress={() => void tryStartCall("audio")}
+                        >
                             <Ionicons
                                 name="call-outline"
                                 size={22}
                                 color={colors.text}
                             />
                         </Pressable>
-                        <Pressable style={styles.headerActionBtn} hitSlop={8}>
+                        <Pressable
+                            style={styles.headerActionBtn}
+                            hitSlop={8}
+                            onPress={() => void tryStartCall("video")}
+                        >
                             <Ionicons
                                 name="videocam-outline"
                                 size={22}
                                 color={colors.text}
                             />
                         </Pressable>
+                        {conversation?.type === "GROUP" ? (
+                            <Pressable
+                                style={styles.headerActionBtn}
+                                hitSlop={8}
+                                onPress={() => setShowGroupInfoModal(true)}
+                            >
+                                <Ionicons
+                                    name="information-circle-outline"
+                                    size={22}
+                                    color={colors.text}
+                                />
+                            </Pressable>
+                        ) : null}
                     </View>
                 </View>
 
@@ -1311,6 +1514,11 @@ export default function MessagesConversationScreen() {
                     handleOpenPinnedMessage={handleOpenPinnedMessage}
                     handleUnpinMessage={handleUnpinMessage}
                 />
+                {jumpToast ? (
+                    <View style={styles.jumpToastWrap} pointerEvents="none">
+                        <Text style={styles.jumpToastText}>{jumpToast}</Text>
+                    </View>
+                ) : null}
 
                 <FlatList
                     ref={listRef}
@@ -1359,6 +1567,9 @@ export default function MessagesConversationScreen() {
                                 audioPlayPulse,
                                 audioPressScale,
                                 audioIconFade,
+                            }}
+                            onRecallCall={(callType) => {
+                                void tryStartCall(callType);
                             }}
                         />
                     )}
@@ -1599,6 +1810,7 @@ export default function MessagesConversationScreen() {
                     uploadProgressLabel={uploadProgressLabel || ""}
                     uploadProgressPercent={uploadProgressPercent}
                     uploadFailedFileNames={uploadFailedFileNames}
+                    readOnlyNotice={readOnlyNotice}
                     error={error}
                     onPickEmoji={onPickEmoji}
                 />
@@ -1614,6 +1826,188 @@ export default function MessagesConversationScreen() {
                 mediaViewer={mediaViewer}
                 closeMediaViewer={closeMediaViewer}
             />
+
+            <Modal
+                visible={
+                    showGroupInfoModal && Boolean(selectedGroupConversation)
+                }
+                transparent
+                animationType="fade"
+                onRequestClose={() => setShowGroupInfoModal(false)}
+            >
+                <View style={groupModalStyles.overlay}>
+                    <Pressable
+                        style={groupModalStyles.backdrop}
+                        onPress={() => setShowGroupInfoModal(false)}
+                    />
+
+                    <View style={groupModalStyles.card}>
+                        <View style={groupModalStyles.header}>
+                            <Text style={groupModalStyles.title}>
+                                Chi tiet nhom
+                            </Text>
+                            <Pressable
+                                onPress={() => setShowGroupInfoModal(false)}
+                                style={groupModalStyles.closeBtn}
+                            >
+                                <Ionicons
+                                    name="close"
+                                    size={20}
+                                    color={colors.textMuted}
+                                />
+                            </Pressable>
+                        </View>
+
+                        {selectedGroupConversation ? (
+                            <GroupConversationPanel
+                                conversation={selectedGroupConversation}
+                                currentUserId={currentUserId}
+                                canManageMembers={canManageMembers}
+                                canAddMembers={canAddMembers}
+                                canUpdateRole={canUpdateRole}
+                                canDisbandGroup={canDisbandGroup}
+                                isLeavingGroup={isLeavingGroup}
+                                isDisbandingGroup={isDisbandingGroup}
+                                isTransferOwnerModalOpen={
+                                    isTransferOwnerModalOpen
+                                }
+                                pendingKickUserId={pendingKickUserId}
+                                pendingRoleUserId={pendingRoleUserId}
+                                pendingTransferOwnerUserId={
+                                    pendingTransferOwnerUserId
+                                }
+                                ownerTransferCandidates={
+                                    ownerTransferCandidates
+                                }
+                                actionError={actionError}
+                                onOpenAddMembersModal={() => {
+                                    // Đóng GroupInfoModal trước để tránh block touch event
+                                    // lên SelectGroupMembersModal (render ngoài Modal stack)
+                                    setShowGroupInfoModal(false);
+                                    setTimeout(() => {
+                                        openAddMembersModal();
+                                    }, 250);
+                                }}
+                                onLeaveGroup={leaveGroup}
+                                onCloseTransferOwnerModal={
+                                    closeTransferOwnerModal
+                                }
+                                onTransferOwnershipAndLeave={
+                                    transferOwnershipAndLeave
+                                }
+                                onDisbandGroup={disbandGroup}
+                                onKickMember={kickMember}
+                                onUpdateMemberRole={updateMemberRole}
+                            />
+                        ) : null}
+                    </View>
+                </View>
+            </Modal>
+
+            <SelectGroupMembersModal
+                open={isAddMembersModalOpen}
+                friends={availableFriends}
+                existingMemberIds={groupMemberIds}
+                loadingFriends={friendsLoading}
+                friendsError={friendsError}
+                submitting={isAddingMembers}
+                error={actionError}
+                onClose={closeAddMembersModal}
+                onSubmit={addMembersToGroup}
+              />
+          <IncomingCallOverlay
+                visible={Boolean(incomingCall)}
+                callerName={incomingCallerName}
+                callType={incomingCall?.callType ?? "audio"}
+                onAccept={() => void acceptIncomingCall()}
+                onReject={rejectIncomingCall}
+            />
+            <InCallOverlay
+                visible={Boolean(activeCall)}
+                callType={activeCall?.callType ?? "audio"}
+                remoteName={activeCall?.remoteName || incomingCallerName}
+                remoteAvatar={activeCall?.remoteAvatar || otherUser?.avatar}
+                status={callStatus ?? "calling"}
+                durationText={callDurationText}
+                localStreamUrl={localStreamUrl}
+                remoteStreamUrl={remoteStreamUrl}
+                micEnabled={micEnabled}
+                cameraEnabled={cameraEnabled}
+                speakerEnabled={speakerEnabled}
+                onToggleMic={toggleMic}
+                onToggleCamera={toggleCamera}
+                onSwitchCamera={switchCamera}
+                onToggleSpeaker={toggleSpeaker}
+                onEndCall={() => void endCall()}
+            />
         </SafeAreaView>
     );
 }
+
+const groupModalStyles = StyleSheet.create({
+    overlay: {
+        flex: 1,
+        justifyContent: "center",
+        paddingHorizontal: spacing.lg,
+    },
+    backdrop: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: "rgba(0,0,0,0.35)",
+    },
+    card: {
+        maxHeight: "88%",
+        borderRadius: 16,
+        backgroundColor: colors.white,
+        padding: spacing.md,
+    },
+    header: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        marginBottom: spacing.sm,
+    },
+    title: {
+        fontSize: 18,
+        fontWeight: "700",
+        color: colors.text,
+    },
+    closeBtn: {
+        width: 30,
+        height: 30,
+        borderRadius: 15,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+});
+
+const disbandedStyles = StyleSheet.create({
+    body: {
+        flex: 1,
+        alignItems: "center",
+        justifyContent: "center",
+        paddingHorizontal: 32,
+        backgroundColor: "#F9FAFB",
+    },
+    iconWrap: {
+        width: 64,
+        height: 64,
+        borderRadius: 32,
+        backgroundColor: "#FEF2F2",
+        alignItems: "center",
+        justifyContent: "center",
+        marginBottom: 16,
+    },
+    title: {
+        fontSize: 18,
+        fontWeight: "700",
+        color: "#111827",
+        textAlign: "center",
+        marginBottom: 8,
+    },
+    subtitle: {
+        fontSize: 13,
+        color: "#6B7280",
+        textAlign: "center",
+        lineHeight: 20,
+    },
+});

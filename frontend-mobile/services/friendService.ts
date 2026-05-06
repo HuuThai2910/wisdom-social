@@ -9,6 +9,52 @@ export type FriendUser = {
     phone?: string;
 };
 
+function toFriendUsers(payload: unknown): FriendUser[] | null {
+    const candidates = [
+        payload,
+        (payload as { data?: unknown } | null)?.data,
+        (payload as { data?: { data?: unknown } } | null)?.data?.data,
+    ];
+
+    for (const candidate of candidates) {
+        if (!Array.isArray(candidate)) {
+            continue;
+        }
+
+        const normalized = candidate
+            .map((item) => {
+                if (!item || typeof item !== "object") return null;
+
+                const raw = item as Record<string, unknown>;
+                const id = Number(raw.id);
+                if (!Number.isFinite(id)) return null;
+
+                return {
+                    id,
+                    name:
+                        (typeof raw.name === "string" && raw.name.trim()) ||
+                        undefined,
+                    username:
+                        (typeof raw.username === "string" &&
+                            raw.username.trim()) ||
+                        undefined,
+                    avatarUrl:
+                        (typeof raw.avatarUrl === "string" &&
+                            raw.avatarUrl.trim()) ||
+                        undefined,
+                    phone:
+                        (typeof raw.phone === "string" && raw.phone.trim()) ||
+                        undefined,
+                } as FriendUser;
+            })
+            .filter((item): item is FriendUser => Boolean(item));
+
+        return normalized;
+    }
+
+    return null;
+}
+
 class FriendService {
     private localFriends: FriendUser[] = [...mockFeatureFriends];
 
@@ -17,26 +63,26 @@ class FriendService {
     async getFriends(userId: number): Promise<FriendUser[]> {
         try {
             const response = await apiClient.get(`/friends/${userId}`);
-            const data = response.data?.data ?? [];
-            if (Array.isArray(data) && data.length > 0) {
-                return data;
+            const parsed = toFriendUsers(response.data);
+            if (parsed) {
+                return parsed;
             }
-            return this.localFriends;
+            return [];
         } catch {
-            return this.localFriends;
+            return [];
         }
     }
 
     async getFriendRequests(userId: number): Promise<FriendUser[]> {
         try {
             const response = await apiClient.get(`/friends/requests/${userId}`);
-            const data = response.data?.data ?? [];
-            if (Array.isArray(data) && data.length > 0) {
-                return data;
+            const parsed = toFriendUsers(response.data);
+            if (parsed) {
+                return parsed;
             }
-            return this.localRequests;
+            return [];
         } catch {
-            return this.localRequests;
+            return [];
         }
     }
 

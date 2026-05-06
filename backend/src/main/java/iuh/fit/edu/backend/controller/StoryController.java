@@ -3,7 +3,6 @@ package iuh.fit.edu.backend.controller;
 import iuh.fit.edu.backend.domain.entity.nosql.Story;
 import iuh.fit.edu.backend.domain.entity.nosql.StoryView;
 import iuh.fit.edu.backend.domain.entity.mysql.User;
-import iuh.fit.edu.backend.dto.request.story.CreateStoryRequest;
 import iuh.fit.edu.backend.dto.response.story.StoryResponse;
 import iuh.fit.edu.backend.dto.response.PresignedUrlResponse;
 import iuh.fit.edu.backend.constant.UploadModule;
@@ -15,7 +14,6 @@ import iuh.fit.edu.backend.repository.mysql.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -23,7 +21,6 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
-import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 

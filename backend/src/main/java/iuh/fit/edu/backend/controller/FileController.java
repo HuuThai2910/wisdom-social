@@ -4,7 +4,6 @@
  */
 package iuh.fit.edu.backend.controller;
 
-import iuh.fit.edu.backend.constant.UploadModule;
 import iuh.fit.edu.backend.dto.request.BulkPresignedRequest;
 import iuh.fit.edu.backend.dto.response.PresignedUrlResponse;
 
