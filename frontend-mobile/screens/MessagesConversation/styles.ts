@@ -735,6 +735,22 @@ export const styles = StyleSheet.create({
         backgroundColor: "rgba(75, 85, 99, 0.55)",
         zIndex: 18,
     },
+    jumpToastWrap: {
+        alignItems: "center",
+        marginTop: 8,
+        marginBottom: 4,
+        paddingHorizontal: spacing.md,
+    },
+    jumpToastText: {
+        backgroundColor: "rgba(17, 24, 39, 0.95)",
+        color: colors.white,
+        fontSize: 12,
+        fontWeight: "600",
+        paddingHorizontal: 12,
+        paddingVertical: 7,
+        borderRadius: 999,
+        overflow: "hidden",
+    },
     composerWrap: {
         backgroundColor: colors.white,
         borderTopWidth: 1,

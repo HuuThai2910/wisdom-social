@@ -39,6 +39,28 @@ public class MessageCacheServiceImpl implements iuh.fit.edu.backend.service.chat
     }
 
     /**
+     * Kéo toàn bộ danh sách Object từ Redis về RAM
+     */
+    private List<Object> getFullListFromCache(String key) {
+        return redisTemplate.opsForList().range(key, 0, -1);
+    }
+
+    /**
+     * Tìm vị trí (index) của 1 tin nhắn cụ thể trong mảng Cache
+     * @return index (từ 0 trở đi), hoặc -1 nếu không tìm thấy
+     */
+    private int findMessageIndex(List<Object> cachedObjects, String messageId) {
+        if (cachedObjects == null || cachedObjects.isEmpty()) return -1;
+        for (int i = 0; i < cachedObjects.size(); i++) {
+            MessageResponse cachedMsg = (MessageResponse) cachedObjects.get(i);
+            if (cachedMsg.getId().equals(messageId)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /**
      * Dùng để lưu tin nhắn mới nhất vào cache (dùng khi sendMessage)
      */
     @Override
@@ -72,13 +94,14 @@ public class MessageCacheServiceImpl implements iuh.fit.edu.backend.service.chat
                 return;
             }
             // Lấy toàn bộ List từ Redis về RAM
-            List<Object> objects = redisTemplate.opsForList().range(key, 0, -1);
+            List<Object> objects = getFullListFromCache(key);
             if (objects == null || objects.isEmpty()) return;
 
-            // 3. Tìm vị trí (index) của tin nhắn cần thu hồi
+            // Tìm vị trí (index) của tin nhắn cần thu hồi
             for (int i = 0; i < objects.size(); i++) {
                 MessageResponse cachedMsg = (MessageResponse) objects.get(i);
                 boolean isModified = false;
+
                 // So sánh ID để tìm đúng tin nhắn
                 if (cachedMsg.getId().equals(message.getMessageId())) {
                     // Cập nhật dữ liệu tin nhắn: Xóa nội dung, bật cờ isRecalled
@@ -89,10 +112,14 @@ public class MessageCacheServiceImpl implements iuh.fit.edu.backend.service.chat
                     }
                     isModified = true;
                 }
+
+                // Xử lý các tin nhắn khác đang Reply lại tin nhắn vừa được thu hồi
                 if(cachedMsg.getReplyInfo() != null && cachedMsg.getReplyInfo().getMessageId().equals(message.getMessageId())){
                     cachedMsg.getReplyInfo().setContent("");
                     isModified = true;
                 }
+
+                // Lưu lại vị trí đã sửa
                 if(isModified){
                     redisTemplate.opsForList().set(key, i, cachedMsg);
                     log.info("Đã cập nhật tin nhắn thu hồi trong Redis tại index: {}", i);
@@ -111,32 +138,20 @@ public class MessageCacheServiceImpl implements iuh.fit.edu.backend.service.chat
         }
 
         // Lấy danh sách 60 tin nhắn từ RAM về
-        List<Object> objects = redisTemplate.opsForList().range(key, 0, -1);
-        if (objects == null || objects.isEmpty()) {
-            return;
-        }
+        List<Object> objects = getFullListFromCache(key);
+        int targetIndex = findMessageIndex(objects, messageId);
 
         // Tìm vị trí của tin nhắn cần đánh dấu xóa
-        for (int i = 0; i < objects.size(); i++) {
-            MessageResponse cachedMsg = (MessageResponse) objects.get(i);
+        if (targetIndex != -1) {
+            MessageResponse cachedMsg = (MessageResponse) objects.get(targetIndex);
 
-            // Tìm đúng ID tin nhắn
-            if (cachedMsg.getId().equals(messageId)) {
-
-                // Khởi tạo mảng nếu cấu trúc cũ bị null
-                if (cachedMsg.getDeletedFor() == null) {
-                    cachedMsg.setDeletedFor(new HashSet<>());
-                }
-
-                // Nhét ID của User vừa bấm xóa vào
-                cachedMsg.getDeletedFor().add(userId);
-
-                // Lưu đè lại đúng vị trí index đó trong Redis List
-                redisTemplate.opsForList().set(key, i, cachedMsg);
-
-                log.info("Đã cập nhật deletedFor cho tin nhắn {} trong Redis tại index: {}", messageId, i);
-                break;
+            if (cachedMsg.getDeletedFor() == null) {
+                cachedMsg.setDeletedFor(new HashSet<>());
             }
+            cachedMsg.getDeletedFor().add(userId);
+
+            redisTemplate.opsForList().set(key, targetIndex, cachedMsg);
+            log.info("Đã cập nhật deletedFor cho tin nhắn {} trong Redis tại index: {}", messageId, targetIndex);
         }
     }
 
@@ -168,7 +183,7 @@ public class MessageCacheServiceImpl implements iuh.fit.edu.backend.service.chat
                     .toList();
         } else {
             // Case 2: Load lịch sử tin nhắn trong trường hợp vẫn chứa lấy hết 60 tin từ cache
-            objects = redisTemplate.opsForList().range(key, 0, -1);
+            objects = getFullListFromCache(key);
             List<MessageResponse> allCached = objects == null
                     ? Collections.emptyList()
                     : objects.stream()
@@ -219,15 +234,11 @@ public class MessageCacheServiceImpl implements iuh.fit.edu.backend.service.chat
         if (cursor == null) {
             // Xóa cũ để đảm bảo không bị dư thừa hay trùng lặp dữ liệu không mong muốn
             redisTemplate.delete(key);
-            // Push vào
             redisTemplate.opsForList().rightPushAll(key, messageResponses.toArray());
 
-            // Dù có bao nhiêu luồng push vào cùng lúc, tôi chỉ giữ lại đúng số lượng message response
-            // Giữ lại đúng số lượng vừa push (messageResponses.size())
+            // Dù có bao nhiêu luồng push vào cùng lúc, chỉ giữ lại đúng số lượng message response
             redisTemplate.opsForList().trim(key, 0, messageResponses.size() - 1);
-
             redisTemplate.expire(key, TTL);
-
             log.info("Push messages (First Load), size redis: {} ", redisTemplate.opsForList().size(key));
         }
         // Case 2: Lưu thêm dữ liệu khi scroll
@@ -236,6 +247,10 @@ public class MessageCacheServiceImpl implements iuh.fit.edu.backend.service.chat
             if (Boolean.TRUE.equals(redisTemplate.hasKey(key))) {
                 MessageResponse lastObj = (MessageResponse) redisTemplate.opsForList().index(key, -1);
                 if (lastObj != null) {
+                    if (!cursor.equals(lastObj.getCreatedAt())) {
+                        log.warn("Cursor không khớp dòng thời gian liên tục (có thể do Jump). Bỏ qua Append để tránh tạo hố đen dữ liệu. ConvId: {}", conversationId);
+                        return;
+                    }
                     MessageResponse lastCachedMsg = lastObj;
                     MessageResponse firstNewMsg = messageResponses.getFirst();
 
@@ -273,27 +288,12 @@ public class MessageCacheServiceImpl implements iuh.fit.edu.backend.service.chat
         String key = getKey(conversationId);
 
         // Kéo toàn bộ 60 tin nhắn từ Redis về RAM (Tối đa 60 nên rất nhanh)
-        List<Object> objects = redisTemplate.opsForList().range(key, 0, -1);
-        if (objects == null || objects.isEmpty()) {
-            return Collections.emptyList();
-        }
-
-        // Chuyển đổi sang List<MessageResponse>
-        List<MessageResponse> cachedMessages = objects.stream()
-                .map(obj -> (MessageResponse) obj)
-                .toList();
-
-        // Tìm vị trí của tin nhắn mục tiêu
-        int targetIndex = -1;
-        for (int i = 0; i < cachedMessages.size(); i++) {
-            if (cachedMessages.get(i).getId().equals(targetMessageId)) {
-                targetIndex = i;
-                break;
-            }
-        }
+        List<Object> objects = getFullListFromCache(key);
+        int targetIndex = findMessageIndex(objects, targetMessageId);
 
         // Nếu tìm thấy (Redis Hit)
         if (targetIndex != -1) {
+            List<MessageResponse> cachedMessages = objects.stream().map(obj -> (MessageResponse) obj).toList();
             // Lấy từ tin mới nhất (index 0) đến tin mục tiêu + 10 tin cũ hơn làm ngữ cảnh
             int endIndex = Math.min(targetIndex + 11, cachedMessages.size());
 

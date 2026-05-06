@@ -3,15 +3,47 @@ import { DEFAULT_CHAT_USER_ID } from "@/constants/chat";
 import chatService from "@/services/chatService";
 import chatWebsocketService from "@/services/chatWebsocketService";
 import chatRuntimeStore from "@/stores/chatRuntimeStore";
-import type { Conversation } from "@/types/chat";
+import type { Conversation, ConversationSidebar } from "@/types/chat";
+import { useAppContext } from "@/context/AppContext";
 
 // Module-level ref: track which conversation is currently open on screen.
 // Set by useChatWindowController (via setActiveConversationId) when entering/leaving a chat.
 // Mirrors web's selectedConversationIdRef (derived from URL) for unread logic.
 const activeConversationIdRef = { current: null as number | null };
+type UnlockListener = (conversationId: number) => void;
+const unlockListeners = new Set<UnlockListener>();
+
+function safeParseMemberIds(content: string): number[] {
+    if (!content) return [];
+    try {
+        const parsed = JSON.parse(content);
+        if (!Array.isArray(parsed)) return [];
+        return parsed
+            .map((value: any) => {
+                if (typeof value === "object" && value !== null && "id" in value) {
+                    return Number(value.id);
+                }
+                return Number(value);
+            })
+            .filter((value: number) => Number.isFinite(value));
+    } catch {
+        return [];
+    }
+}
 
 export function setActiveConversationId(id: number | null): void {
     activeConversationIdRef.current = id;
+}
+
+export function onConversationUnlocked(listener: UnlockListener): () => void {
+    unlockListeners.add(listener);
+    return () => unlockListeners.delete(listener);
+}
+
+function emitConversationUnlocked(conversationId: number): void {
+    for (const listener of unlockListeners) {
+        listener(conversationId);
+    }
 }
 
 function getConversationSortTime(conversation: Conversation): number {
@@ -76,13 +108,20 @@ function mergeConversationsByFreshness(
     return sortConversationsByLatest(Array.from(byId.values()));
 }
 
+function toConversationFromSidebar(
+    conversation: ConversationSidebar,
+): Conversation {
+    return { ...conversation };
+}
+
 export function useMessagesController() {
     const [searchQuery, setSearchQuery] = useState("");
     const [conversations, setConversations] = useState<Conversation[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    const currentUserId = DEFAULT_CHAT_USER_ID;
+    const { currentUser } = useAppContext();
+    const currentUserId = Number(currentUser?.id ?? 0);
 
     const currentUserIdRef = useRef(currentUserId);
 
@@ -104,8 +143,11 @@ export function useMessagesController() {
 
             const response = await chatService.getConversations(currentUserId);
             if (response.success && response.data) {
+                const sidebarConversations = response.data.map(
+                    toConversationFromSidebar,
+                );
                 const merged = mergeConversationsByFreshness([
-                    response.data,
+                    sidebarConversations,
                     chatRuntimeStore.getAllConversations(),
                 ]);
 
@@ -134,7 +176,11 @@ export function useMessagesController() {
     }, [loadConversations]);
 
     const handleConversationUpdate = useCallback(
-        (conversationId: number, lastMessage: Conversation["lastMessage"]) => {
+        (
+            conversationId: number,
+            lastMessage: Conversation["lastMessage"],
+            conversationSnapshot?: Conversation,
+        ) => {
             if (!lastMessage) return;
 
             const latestUserId = currentUserIdRef.current;
@@ -165,9 +211,48 @@ export function useMessagesController() {
                 read: isReadUpdate,
             };
 
+            const isUnlockingMessage =
+                lastMessage.lastMessageType === "SYSTEM_ADD_MEMBER" &&
+                safeParseMemberIds(lastMessage.lastMessageContent ?? "").some(
+                    (id: string | number) => Number(id) === Number(latestUserId)
+                );
+
+            if (isUnlockingMessage) {
+                emitConversationUnlocked(conversationId);
+            }
+
             setConversations((prev) => {
                 const exists = prev.some((conv) => conv.id === conversationId);
                 if (!exists) {
+                    if (conversationSnapshot) {
+                        const unreadCountFromSnapshot =
+                            conversationSnapshot.unreadCount ?? 0;
+                        const nextUnreadCount =
+                            isReadUpdate || isMyMessage
+                                ? unreadCountFromSnapshot
+                                : unreadCountFromSnapshot > 0
+                                  ? unreadCountFromSnapshot
+                                  : 1;
+
+                        const snapshotWithLastMessage: Conversation = {
+                            ...conversationSnapshot,
+                            lastMessage:
+                                conversationSnapshot.lastMessage ??
+                                normalizedLastMessage,
+                            unreadCount: nextUnreadCount,
+                        };
+
+                        chatRuntimeStore.setConversation(
+                            conversationId,
+                            snapshotWithLastMessage,
+                        );
+
+                        return sortConversationsByLatest([
+                            snapshotWithLastMessage,
+                            ...prev,
+                        ]);
+                    }
+
                     void chatService
                         .getConversation(conversationId, latestUserId)
                         .then((response) => {
@@ -207,23 +292,53 @@ export function useMessagesController() {
                 const next = prev.map((conv) => {
                     if (conv.id !== conversationId) return conv;
 
+                    const isGroup = conv.type === "GROUP";
+                    const mergedSnapshot =
+                        conversationSnapshot &&
+                        conversationSnapshot.id === conversationId
+                            ? { ...conversationSnapshot }
+                            : undefined;
+
+                    // Khi nhận được snapshot từ WebSocket, chúng ta phải giữ nguyên name và imageUrl hiện tại
+                    // nếu đó là conversation nhóm và backend đang tự ý map thành tên cá nhân.
+                    if (isGroup && mergedSnapshot) {
+                        if (
+                            mergedSnapshot.name !== undefined &&
+                            mergedSnapshot.name !== null &&
+                            !mergedSnapshot.name.trim()
+                        ) {
+                            mergedSnapshot.name = conv.name;
+                        }
+                        if (
+                            mergedSnapshot.imageUrl !== undefined &&
+                            mergedSnapshot.imageUrl !== null &&
+                            !mergedSnapshot.imageUrl.trim()
+                        ) {
+                            mergedSnapshot.imageUrl = conv.imageUrl;
+                        }
+                    }
+
+                    const baseConversation = mergedSnapshot
+                        ? { ...conv, ...mergedSnapshot }
+                        : conv;
+
                     let newUnreadCount: number;
                     if (isReadUpdate) {
                         // Thu hồi tin nhắn: giữ nguyên unreadCount hiện tại.
-                        newUnreadCount = conv.unreadCount || 0;
+                        newUnreadCount = baseConversation.unreadCount || 0;
                     } else if (!isMyMessage) {
                         // Tin nhắn mới từ người khác:
                         // Đang xem conversation → reset 0; không xem → +1.
                         newUnreadCount = isViewingThisConversation
                             ? 0
-                            : (conv.unreadCount || 0) + 1;
+                            : (baseConversation.unreadCount || 0) + 1;
                     } else {
                         // Tin nhắn của chính mình: không thay đổi unreadCount.
-                        newUnreadCount = conv.unreadCount || 0;
+                        newUnreadCount = baseConversation.unreadCount || 0;
                     }
 
                     return {
-                        ...conv,
+                        ...baseConversation,
                         updatedAt: lastMessage.lastMessageAt,
                         lastMessage: normalizedLastMessage,
                         unreadCount: newUnreadCount,
@@ -245,9 +360,6 @@ export function useMessagesController() {
         },
         [],
     );
-
-
-
 
     useEffect(() => {
         let disposed = false;
@@ -300,14 +412,8 @@ export function useMessagesController() {
         if (!query) return conversations;
 
         return conversations.filter((conversation) => {
-            const otherMember = conversation.members?.find(
-                (member) => member.userId !== currentUserId,
-            );
-
             const candidate = [
                 conversation.name,
-                otherMember?.nickname,
-                otherMember?.username,
                 conversation.lastMessage?.lastMessageContent,
             ]
                 .filter(Boolean)
@@ -316,7 +422,7 @@ export function useMessagesController() {
 
             return candidate.includes(query);
         });
-    }, [conversations, currentUserId, searchQuery]);
+    }, [conversations, searchQuery]);
 
     const clearUnreadCount = useCallback((conversationId: number) => {
         setConversations((prev) =>

@@ -9,18 +9,29 @@ package iuh.fit.edu.backend.service.chat;/*
  * @version: 1.0
  */
 
+import iuh.fit.edu.backend.constant.MemberRole;
+import iuh.fit.edu.backend.dto.request.convesation.AddMemberRequest;
+import iuh.fit.edu.backend.dto.request.convesation.CreateGroupRequest;
 import iuh.fit.edu.backend.dto.response.conversation.ConversationResponse;
+import iuh.fit.edu.backend.dto.response.conversation.ConversationSidebarResponse;
 import jakarta.transaction.Transactional;
 
 import java.util.List;
 
 public interface ConversationService {
-    List<ConversationResponse> getConversationsByUser(Long userId);
+
+
+
+    ConversationResponse createGroup(CreateGroupRequest request, Long creatorId);
+
+    List<ConversationSidebarResponse> getConversationsByUser(Long userId);
+
     ConversationResponse getConversationById(Long conversationId, Long userId);
 
-    @Transactional
     void deleteConversationForMe(Long conversationId, Long userId);
 
     @Transactional
     void markAsRead(Long conversationId, Long userId, String lastMessageId);
+
+
 }

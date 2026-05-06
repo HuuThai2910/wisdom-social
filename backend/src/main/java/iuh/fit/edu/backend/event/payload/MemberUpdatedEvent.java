@@ -7,7 +7,6 @@ package iuh.fit.edu.backend.event.payload;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import iuh.fit.edu.backend.event.type.DomainEventType;
-import lombok.AllArgsConstructor;
 import lombok.Getter;
 
 /*

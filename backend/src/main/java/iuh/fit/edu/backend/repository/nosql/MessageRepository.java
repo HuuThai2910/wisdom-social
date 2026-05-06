@@ -38,7 +38,7 @@ public interface MessageRepository extends MongoRepository<Message, String> {
     @Update("{ '$set' : { 'replyInfo.content' : 'Tin nhắn đã được thu hồi' } }")
     void updateContentOfRepliedMessages(String messageId);
 
-
+    Message findFirstByConversationIdAndDeletedForNotOrderByCreatedAtDesc(Long conversationId, Long userId);
 
     List<Message> findTop10ByConversationIdAndCreatedAtAfterOrderByCreatedAtAsc(Long conversationId, Instant createdAt);
 

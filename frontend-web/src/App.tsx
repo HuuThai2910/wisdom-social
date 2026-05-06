@@ -86,9 +86,9 @@ function App() {
   };
 
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <AvatarProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <AvatarProvider>
           <FriendDataProvider>
             <FriendNotificationProvider>
               <NotificationProvider>
@@ -179,8 +179,8 @@ function App() {
             </FriendNotificationProvider>
           </FriendDataProvider>
         </AvatarProvider>
-      </AuthProvider>
-    </ThemeProvider>
+        </AuthProvider>
+      </ThemeProvider>
   );
 }
 

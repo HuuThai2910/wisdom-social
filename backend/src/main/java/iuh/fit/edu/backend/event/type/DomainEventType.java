@@ -28,9 +28,11 @@ public enum DomainEventType {
 
     // Group membership
     MEMBER_ADDED,
-    MEMBER_REMOVED,
-    MEMBER_ROLE_CHANGED,
+    MEMBER_ROLE_UPDATED,
     MEMBER_UPDATED,
+    MEMBER_LEFT,
+    MEMBER_KICKED,
+    GROUP_DISBANDED
 
 }
 

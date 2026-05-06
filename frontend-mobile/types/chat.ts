@@ -15,7 +15,17 @@ export type MessageType =
     | "AUDIO"
     | "CALL"
     | "SYSTEM_PIN"
-    | "SYSTEM_UPIN";
+    | "SYSTEM_UPIN"
+    | "SYSTEM_CREATE_GROUP"
+    | "SYSTEM_ADD_MEMBER"
+    | "SYSTEM_LEAVE_GROUP"
+    | "SYSTEM_KICK_MEMBER"
+    | "SYSTEM_UPDATE_ROLE"
+    | "SYSTEM_DISBAND_GROUP";
+
+export type MemberRole = "OWNER" | "DEPUTY" | "MEMBER";
+
+export type MemberStatus = "ACTIVE" | "LEFT" | "KICKED" | "GROUP_DISBANDED";
 
 export interface ReplyInfo {
     messageId: string;
@@ -45,6 +55,7 @@ export interface Message {
     isActive?: boolean;
     isRecalled?: boolean;
     attachments?: MessageAttachment[];
+    deletedFor?: number[];
 }
 
 export interface ReferenceUser {
@@ -73,25 +84,38 @@ export interface PinnedMessageDetail {
     messageId: string;
     pinnerId: number;
     pinnedAt: string;
+    originalSenderId?: number;
+    type?: MessageType;
+    content?: string;
 }
 
 export interface ConversationMember {
+    id?: number;
     userId: number;
     username: string;
     nickname: string;
     avatar?: string;
+    unreadCount?: number;
+    clearedAt?: string;
     lastReadMessageId?: string;
+    role?: MemberRole;
+    status?: MemberStatus;
+    joinedAt?: string;
+    leftAt?: string;
 }
 
-export interface Conversation {
+export interface ConversationSidebar {
     id: number;
     name?: string;
     type: "DIRECT" | "GROUP";
     imageUrl?: string;
     updatedAt: string;
     lastMessage?: LastMessage;
-    members?: ConversationMember[];
     unreadCount?: number;
+}
+
+export interface Conversation extends ConversationSidebar {
+    members?: ConversationMember[];
     pinnedMessages?: PinnedMessageDetail[];
 }
 
@@ -106,6 +130,28 @@ export interface SendMessageRequest {
         fileName: string;
         fileSize: number;
     }>;
+}
+export interface SendCallMessageRequest {
+    conversationId: number;
+    callType: "audio" | "video";
+    status: "calling" | "ringing" | "accepted" | "rejected" | "ended";
+    durationSeconds: number;
+}
+
+export interface UpdateNicknameRequest {
+    conversationId: number;
+    targetUserId: number;
+    nickname: string;
+}
+
+export interface CreateGroupRequest {
+    name?: string;
+    imageUrl?: string;
+    memberIds: number[];
+}
+
+export interface AddGroupMembersRequest {
+    newMemberIds: number[];
 }
 
 export interface PresignedUrlResponse {
@@ -179,7 +225,28 @@ export interface MemberUpdatedEvent {
 }
 
 export interface ConversationUpdatedEvent {
-    type: "ROOM_UPDATED";
+    domainEventType?: "ROOM_UPDATED";
+    type?: "ROOM_UPDATED";
     conversationId: number;
     lastMessage: LastMessage;
+}
+
+export interface ConversationCreatedEvent {
+    domainEventType?: "ROOM_CREATED";
+    type?: "ROOM_CREATED";
+    conversationResponse?: Conversation | ConversationSidebar;
+}
+
+export interface ConversationMembershipEvent {
+    domainEventType?:
+        | "MEMBER_ADDED"
+        | "MEMBER_ROLE_UPDATED"
+        | "MEMBER_LEFT"
+        | "MEMBER_KICKED";
+    conversationResponse?: Conversation | ConversationSidebar;
+}
+
+export interface GroupDisbandedEvent {
+    domainEventType?: "GROUP_DISBANDED";
+    conversationId?: number;
 }

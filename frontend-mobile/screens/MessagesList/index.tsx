@@ -1,6 +1,15 @@
-import { AppHeader, EmptyState, MessageItem, SearchBar } from "@/components";
+import {
+    AppHeader,
+    CreateGroupModal,
+    EmptyState,
+    MessageItem,
+    SearchBar,
+} from "@/components";
 import { colors, spacing } from "@/constants";
+import { useGroupManagement } from "@/hooks/useGroupManagement";
 import { useMessagesController } from "@/hooks/useMessagesController";
+import { buildConversationDisplayInfo } from "@/utils/conversationDisplayInfo";
+import { buildConversationLastMessagePreview } from "@/utils/conversationLastMessagePreview";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, useSegments } from "expo-router";
 import React, { useRef, useState } from "react";
@@ -64,7 +73,31 @@ export default function MessagesListScreen() {
         currentUserId,
         clearUnreadCount,
         deleteConversationForMe,
+        reload,
     } = useMessagesController();
+
+    const {
+        availableFriends,
+        friendsLoading,
+        friendsError,
+        isCreateGroupModalOpen,
+        isCreatingGroup,
+        actionError,
+        openCreateGroupModal,
+        closeCreateGroupModal,
+        createGroup,
+    } = useGroupManagement({
+        currentUserId,
+        selectedConversation: null,
+        selectedConversationId: null,
+        reloadConversations: reload,
+        onSelectConversation: (conversationId) => {
+            router.push({
+                pathname: "/(stack)/messages/[conversationId]",
+                params: { conversationId: String(conversationId) },
+            });
+        },
+    });
     const [menuState, setMenuState] = useState<MenuState | null>(null);
     const suppressNextPressRef = useRef(false);
 
@@ -133,6 +166,12 @@ export default function MessagesListScreen() {
                         ? { icon: "arrow-back", onPress: () => router.back() }
                         : undefined
                 }
+                rightActions={[
+                    {
+                        icon: "create-outline",
+                        onPress: openCreateGroupModal,
+                    },
+                ]}
             />
 
             <View style={styles.searchWrap}>
@@ -165,32 +204,30 @@ export default function MessagesListScreen() {
                     />
                 }
                 renderItem={({ item }) => {
-                    const otherMember = item.members?.find(
-                        (member) => member.userId !== currentUserId,
-                    );
+                    // Mapping web -> mobile:
+                    // - Display name/avatar: dung cung quy tac resolve conversation display.
+                    // - Last message preview: dung cung builder de giu nguyen behavior.
+                    const displayInfo = buildConversationDisplayInfo({
+                        conversation: item,
+                        currentUserId,
+                    });
+                    const previewInfo = buildConversationLastMessagePreview({
+                        conversation: item,
+                        currentUserId,
+                    });
 
-                    const displayName =
-                        item.type === "GROUP"
-                            ? item.name || "Group"
-                            : otherMember?.nickname ||
-                              otherMember?.username ||
-                              "Unknown";
-                    const avatar =
-                        item.type === "GROUP"
-                            ? item.imageUrl
-                            : otherMember?.avatar;
-                    const preview =
-                        item.lastMessage?.lastMessageContent ||
-                        "Bat dau tro chuyen";
+                    const preview = previewInfo.showSenderPrefix
+                        ? `${previewInfo.senderLabel}: ${previewInfo.text}`
+                        : previewInfo.text;
 
                     return (
                         <MessageItem
                             user={{
-                                id: String(otherMember?.userId ?? item.id),
-                                username: displayName,
-                                fullName: displayName,
+                                id: String(item.id),
+                                username: displayInfo.name,
+                                fullName: displayInfo.name,
                                 bio: "",
-                                avatar: avatar || "",
+                                avatar: displayInfo.avatarUrl || "",
                                 followers: 0,
                                 following: 0,
                             }}
@@ -217,6 +254,17 @@ export default function MessagesListScreen() {
                         />
                     );
                 }}
+            />
+
+            <CreateGroupModal
+                open={isCreateGroupModalOpen}
+                friends={availableFriends}
+                loadingFriends={friendsLoading}
+                friendsError={friendsError}
+                submitting={isCreatingGroup}
+                error={actionError}
+                onClose={closeCreateGroupModal}
+                onSubmit={createGroup}
             />
 
             <Modal
