@@ -82,19 +82,20 @@ export function useFriendStatus(targetUserId: number | undefined): UseFriendStat
                 
                 // Determine the new status
                 let newStatus: FriendshipStatus = "none";
+                const targetIdStr = String(targetUserId);
                 
                 // 1. Check if they are friends
-                const isFriend = friends.some((f: User) => f.id === targetUserId);
+                const isFriend = friends.some((f: any) => String(f.id) === targetIdStr);
                 if (isFriend) {
                     newStatus = "friends";
                 } else {
                     // 2. Check if they sent us a request
-                    const hasReceivedRequest = receivedRequests.some((u: User) => u.id === targetUserId);
+                    const hasReceivedRequest = receivedRequests.some((u: any) => String(u.id) === targetIdStr);
                     if (hasReceivedRequest) {
                         newStatus = "pending_received";
                     } else {
                         // 3. Check if WE sent a request to them
-                        const hasSentRequest = sentRequests.some((u: User) => u.id === targetUserId);
+                        const hasSentRequest = sentRequests.some((u: any) => String(u.id) === targetIdStr);
                         if (hasSentRequest) {
                             newStatus = "pending_sent";
                         }

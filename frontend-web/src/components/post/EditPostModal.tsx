@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   X,
-  ImageIcon,
+  ImagePlus,
   MapPin,
   Users,
   Globe,
@@ -9,10 +9,13 @@ import {
   ChevronLeft,
   ChevronRight,
   UserCheck,
+  Play,
+  Plus,
 } from "lucide-react";
 import * as postApi from "../../services/postService";
 import { useAuth } from "../../contexts/AuthContext";
 import { buildS3Url } from "../../utils/s3";
+import FriendSelectorModal from "./FriendSelectorModal";
 
 interface MediaItem {
   url: string;
@@ -29,9 +32,12 @@ interface UserData {
 
 interface PostData {
   id: string;
-  content: string;
+  authorId?: string;
+  content?: string;
+  caption?: string;
   privacy?: string;
   media?: MediaItem[];
+  images?: string[];
   mediaList?: MediaItem[];
   location?:
     | string
@@ -48,11 +54,26 @@ interface EditPostModalProps {
 }
 
 const PRIVACY_OPTIONS = [
-  { value: "PUBLIC", label: "Public", Icon: Globe },
-  { value: "FRIENDS", label: "Friends", Icon: Users },
-  { value: "PRIVATE", label: "Only me", Icon: Lock },
-  { value: "SPECIFIC", label: "Specific people", Icon: UserCheck },
-  { value: "EXCEPT", label: "Friends except", Icon: Users },
+  { value: "PUBLIC", label: "Public", Icon: Globe, desc: "Anyone can see" },
+  {
+    value: "FRIENDS",
+    label: "Friends",
+    Icon: Users,
+    desc: "Your friends only",
+  },
+  { value: "ONLY_ME", label: "Only me", Icon: Lock, desc: "Just you" },
+  {
+    value: "SPECIFIC",
+    label: "Specific",
+    Icon: UserCheck,
+    desc: "Choose people",
+  },
+  {
+    value: "EXCEPT",
+    label: "Except...",
+    Icon: Users,
+    desc: "Friends except...",
+  },
 ];
 
 export default function EditPostModal({
@@ -65,7 +86,9 @@ export default function EditPostModal({
   const { currentUser } = useAuth();
 
   // Edit state — pre-filled from post
-  const [editContent, setEditContent] = useState(post.content || "");
+  const [editContent, setEditContent] = useState(
+    post.caption || post.content || ""
+  );
   const [editPrivacy, setEditPrivacy] = useState(post.privacy || "PUBLIC");
   const [editLocation, setEditLocation] = useState(
     typeof post.location === "string"
@@ -73,14 +96,17 @@ export default function EditPostModal({
       : post.location?.name || ""
   );
   const [editExistingMedia, setEditExistingMedia] = useState<MediaItem[]>(
-    (post.media || post.mediaList || []) as MediaItem[]
+    (post.media || post.images || post.mediaList || []).map((item: any) => ({
+      url: typeof item === "string" ? item : item.url,
+      type: item.type,
+      order: item.order,
+    }))
   );
   const [newImages, setNewImages] = useState<File[]>([]);
-  const [editTaggedUsers, setEditTaggedUsers] =
-    useState<UserData[]>(initialTaggedUsers);
-  const [tagSearchQuery, setTagSearchQuery] = useState("");
-  const [tagSearchResults, setTagSearchResults] = useState<UserData[]>([]);
-  const [showTagSearch, setShowTagSearch] = useState(false);
+  const [editTaggedUsers, setEditTaggedUsers] = useState<UserData[]>(
+    initialTaggedUsers || []
+  );
+  const [showTagModal, setShowTagModal] = useState(false);
   const [showPrivacyMenu, setShowPrivacyMenu] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
@@ -96,8 +122,81 @@ export default function EditPostModal({
     .sort()
     .join(",");
 
+  // Refs for DOM behaviors
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const privacyMenuRef = useRef<HTMLDivElement>(null);
+
+  // Textarea auto-height effect
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height =
+        Math.max(80, textareaRef.current.scrollHeight) + "px";
+    }
+  }, [editContent]);
+
+  // Privacy menu click-outside handler
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        privacyMenuRef.current &&
+        !privacyMenuRef.current.contains(event.target as Node)
+      ) {
+        setShowPrivacyMenu(false);
+      }
+    };
+
+    if (showPrivacyMenu) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () =>
+        document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [showPrivacyMenu]);
+
+  // Sync form fields when post prop changes
+  useEffect(() => {
+    console.log("🔄 [DEBUG] EditPostModal sync effect triggered");
+    console.log("📍 [DEBUG] post.location from prop:", post.location);
+    console.log("🎬 [DEBUG] post.id:", post.id);
+
+    const syncedContent = post.caption || post.content || "";
+    const syncedPrivacy = post.privacy || "PUBLIC";
+    const syncedLocation =
+      typeof post.location === "string"
+        ? post.location
+        : post.location?.name || "";
+
+    console.log("✅ [DEBUG] syncedLocation value:", syncedLocation);
+    console.log("📊 [DEBUG] post object keys:", Object.keys(post));
+
+    setEditContent(syncedContent);
+    setEditPrivacy(syncedPrivacy);
+    setEditLocation(syncedLocation);
+    setEditExistingMedia(
+      (post.media || post.images || post.mediaList || []).map((item: any) => ({
+        url: typeof item === "string" ? item : item.url,
+        type: item.type,
+        order: item.order,
+      }))
+    );
+  }, [
+    post.id,
+    post.caption,
+    post.content,
+    post.privacy,
+    post.location,
+    post.media,
+    post.images,
+    post.mediaList,
+  ]);
+
+  // Debug: Log when editLocation state changes
+  useEffect(() => {
+    console.log("🎯 [DEBUG] editLocation state changed to:", editLocation);
+  }, [editLocation]);
+
   const isDirty =
-    editContent !== (post.content || "") ||
+    editContent !== (post.caption || post.content || "") ||
     editPrivacy !== (post.privacy || "PUBLIC") ||
     editLocation !== originalLocation ||
     newImages.length > 0 ||
@@ -107,6 +206,9 @@ export default function EditPostModal({
       .sort()
       .join(",") !== originalTaggedIds;
 
+  const hasAnyMedia = editExistingMedia.length > 0 || newImages.length > 0;
+  const canSave = isDirty && (editContent.trim().length > 0 || hasAnyMedia);
+
   const handleClose = () => {
     if (isDirty) {
       setShowDiscardConfirm(true);
@@ -115,17 +217,46 @@ export default function EditPostModal({
     }
   };
 
+  const resolveMediaUrl = (rawUrl: string) => {
+    if (!rawUrl) return "";
+
+    // Already absolute URL from backend/CDN
+    if (/^https?:\/\//i.test(rawUrl)) {
+      return rawUrl;
+    }
+
+    // Already a key/path in bucket
+    if (rawUrl.includes("/")) {
+      return buildS3Url(rawUrl) || rawUrl;
+    }
+
+    // Filename only -> compose with author's post folder
+    if (post.authorId) {
+      const key = `posts/${post.authorId}/images/${rawUrl}`;
+      return buildS3Url(key) || rawUrl;
+    }
+
+    return buildS3Url(rawUrl) || rawUrl;
+  };
+
   // Image viewer state — combines existing + new file previews
-  const allImages: { url: string; isNew: boolean; idx: number }[] = [
+  const allImages: {
+    url: string;
+    isNew: boolean;
+    idx: number;
+    isVideo: boolean;
+  }[] = [
     ...editExistingMedia.map((m, i) => ({
-      url: buildS3Url(m.url) || m.url,
+      url: resolveMediaUrl(m.url),
       isNew: false,
       idx: i,
+      isVideo: postApi.isVideoMedia(m.url, m.type),
     })),
     ...newImages.map((f, i) => ({
       url: URL.createObjectURL(f),
       isNew: true,
       idx: i,
+      isVideo: f.type.startsWith("video/"),
     })),
   ];
   const [viewIdx, setViewIdx] = useState(0);
@@ -141,7 +272,7 @@ export default function EditPostModal({
   };
 
   const handleSave = async () => {
-    if (!editContent.trim() || !currentUser?.id) return;
+    if (!canSave || !currentUser?.id) return;
     try {
       setIsUpdating(true);
       const postData = {
@@ -211,15 +342,25 @@ export default function EditPostModal({
       >
         {/* ── LEFT: image panel ── */}
         <div className="w-[55%] bg-black flex flex-col">
-          {/* Image viewer */}
-          <div className="flex-1 relative flex items-center justify-center min-h-0 group">
+          {/* Image viewer with fixed height */}
+          <div className="flex-1 relative flex items-center justify-center min-h-0 group bg-black">
             {allImages.length > 0 ? (
               <>
-                <img
-                  src={allImages[safeViewIdx].url}
-                  alt="Post"
-                  className="max-h-full max-w-full object-contain"
-                />
+                <div className="w-full h-150 flex items-center justify-center bg-black overflow-hidden">
+                  {allImages[safeViewIdx].isVideo ? (
+                    <video
+                      src={allImages[safeViewIdx].url}
+                      className="w-full h-full object-contain"
+                      controls
+                    />
+                  ) : (
+                    <img
+                      src={allImages[safeViewIdx].url}
+                      alt="Post"
+                      className="w-full h-full object-contain"
+                    />
+                  )}
+                </div>
                 {/* Remove current image */}
                 <button
                   onClick={() =>
@@ -274,31 +415,81 @@ export default function EditPostModal({
                 )}
               </>
             ) : (
-              <div className="flex flex-col items-center gap-3 text-gray-500">
-                <ImageIcon className="w-16 h-16" />
-                <p className="text-sm">No photos</p>
+              <div className="w-full h-full flex items-center justify-center">
+                <div className="flex flex-col items-center gap-3 text-gray-400">
+                  <ImagePlus className="w-16 h-16" />
+                  <p className="text-sm">No photos</p>
+                </div>
               </div>
             )}
           </div>
 
-          {/* Add photos button */}
-          <label className="flex items-center justify-center gap-2 py-3 border-t border-gray-700 cursor-pointer hover:bg-gray-800 transition-colors text-gray-300 text-sm shrink-0">
-            <ImageIcon className="w-4 h-4" />
-            <span>Add photos</span>
-            <input
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                const files = Array.from(e.target.files || []);
-                if (files.length) {
-                  setNewImages((prev) => [...prev, ...files]);
-                  setViewIdx(allImages.length);
-                }
-              }}
-            />
-          </label>
+          {/* Thumbnail strip with fixed 1:1 aspect */}
+          {allImages.length > 0 && (
+            <div className="px-2 py-3 border-t border-gray-700 flex gap-2 overflow-x-auto bg-gray-950">
+              {allImages.map((img, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setViewIdx(idx)}
+                  className={`shrink-0 w-16 h-16 rounded-lg overflow-hidden border-2 transition-all ${
+                    idx === safeViewIdx
+                      ? "border-blue-500 ring-2 ring-blue-400"
+                      : "border-gray-600 hover:border-gray-400"
+                  }`}
+                >
+                  {img.isVideo ? (
+                    <div className="w-full h-full bg-gray-800 flex items-center justify-center text-gray-500">
+                      <Play size={16} />
+                    </div>
+                  ) : (
+                    <img
+                      src={img.url}
+                      alt={`Thumbnail ${idx}`}
+                      className="w-full h-full object-contain"
+                    />
+                  )}
+                </button>
+              ))}
+              {/* Add media tile */}
+              <label className="shrink-0 w-16 h-16 rounded-lg border-2 border-dashed border-gray-600 flex items-center justify-center cursor-pointer hover:border-gray-400 hover:bg-gray-900 transition-colors text-gray-400 hover:text-gray-300">
+                <Plus size={20} />
+                <input
+                  type="file"
+                  accept="image/*,video/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files || []);
+                    if (files.length) {
+                      setNewImages((prev) => [...prev, ...files]);
+                      setViewIdx(allImages.length);
+                    }
+                  }}
+                />
+              </label>
+            </div>
+          )}
+
+          {/* Add photos button (when no media) */}
+          {allImages.length === 0 && (
+            <label className="flex items-center justify-center gap-2 py-3 border-t border-gray-700 cursor-pointer hover:bg-gray-800 transition-colors text-gray-300 text-sm shrink-0">
+              <ImagePlus className="w-4 h-4" />
+              <span>Add media</span>
+              <input
+                type="file"
+                accept="image/*,video/*"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  const files = Array.from(e.target.files || []);
+                  if (files.length) {
+                    setNewImages((prev) => [...prev, ...files]);
+                    setViewIdx(allImages.length);
+                  }
+                }}
+              />
+            </label>
+          )}
         </div>
 
         {/* ── RIGHT: edit form ── */}
@@ -314,7 +505,7 @@ export default function EditPostModal({
             <h2 className="text-sm font-semibold dark:text-white">Edit post</h2>
             <button
               onClick={handleSave}
-              disabled={isUpdating || !editContent.trim()}
+              disabled={isUpdating || !canSave}
               className="text-sm font-semibold text-blue-500 hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isUpdating ? "Saving..." : "Save"}
@@ -392,7 +583,7 @@ export default function EditPostModal({
             {/* Tag people */}
             <div className="space-y-2">
               <button
-                onClick={() => setShowTagSearch((p) => !p)}
+                onClick={() => setShowTagModal(true)}
                 className="flex items-center gap-2 text-sm text-blue-500 hover:text-blue-600"
               >
                 <Users className="w-4 h-4" />
@@ -423,67 +614,6 @@ export default function EditPostModal({
                       </button>
                     </span>
                   ))}
-                </div>
-              )}
-
-              {/* Tag search */}
-              {showTagSearch && (
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={tagSearchQuery}
-                    onChange={async (e) => {
-                      setTagSearchQuery(e.target.value);
-                      if (e.target.value.trim()) {
-                        try {
-                          const results = await postApi.searchUsers(
-                            currentUser?.id.toString() || "",
-                            e.target.value
-                          );
-                          setTagSearchResults(results);
-                        } catch {
-                          setTagSearchResults([]);
-                        }
-                      } else {
-                        setTagSearchResults([]);
-                      }
-                    }}
-                    placeholder="Search friends..."
-                    className="w-full px-3 py-2 text-sm border dark:border-gray-700 rounded-lg dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  />
-                  {tagSearchResults.length > 0 && (
-                    <div className="absolute z-10 w-full mt-1 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-lg shadow-lg max-h-40 overflow-y-auto">
-                      {tagSearchResults.map((user) => (
-                        <button
-                          key={user.id}
-                          onClick={() => {
-                            if (
-                              !editTaggedUsers.find((u) => u.id === user.id)
-                            ) {
-                              setEditTaggedUsers((prev) => [...prev, user]);
-                            }
-                            setTagSearchQuery("");
-                            setTagSearchResults([]);
-                          }}
-                          className="w-full px-3 py-2 flex items-center gap-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-left"
-                        >
-                          <img
-                            src={user.avatarUrl || "https://i.pravatar.cc/150"}
-                            alt={user.username}
-                            className="w-7 h-7 rounded-full"
-                          />
-                          <div>
-                            <p className="text-sm font-medium dark:text-white">
-                              {user.name || user.username}
-                            </p>
-                            <p className="text-xs text-gray-500">
-                              @{user.username}
-                            </p>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
                 </div>
               )}
             </div>
@@ -525,6 +655,25 @@ export default function EditPostModal({
           </div>
         </div>
       )}
+
+      {/* Friend Selector Modal for Tagging */}
+      <FriendSelectorModal
+        isOpen={showTagModal}
+        onClose={() => setShowTagModal(false)}
+        onConfirm={(_usernames, selectedFriends) => {
+          // Convert Friend[] back to UserData[] for EditPostModal state
+          const convertedUsers: UserData[] = selectedFriends.map(f => ({
+            id: Number(f.id),
+            username: f.username,
+            name: f.fullName,
+            avatarUrl: f.avatar
+          }));
+          setEditTaggedUsers(convertedUsers);
+        }}
+        title="Tag friends"
+        description="Search for friends to tag in your post"
+        initialSelected={editTaggedUsers.map(u => u.username)}
+      />
     </div>
   );
 }

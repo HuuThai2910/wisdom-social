@@ -7,6 +7,7 @@ package iuh.fit.edu.backend.service.post;
 import iuh.fit.edu.backend.constant.ReactionType;
 import iuh.fit.edu.backend.constant.TargetType;
 import iuh.fit.edu.backend.domain.entity.nosql.Reaction;
+import iuh.fit.edu.backend.dto.response.post.ReactionSummaryResponse;
 
 import java.util.List;
 
@@ -32,4 +33,9 @@ public interface ReactionService {
      * Get user's reaction for a target
      */
     Reaction getUserReaction(String userId, TargetType targetType, String targetId);
+
+    /**
+     * Get reaction summary (total + top reaction types) for a target
+     */
+    ReactionSummaryResponse getReactionSummary(TargetType targetType, String targetId, int topLimit);
 }

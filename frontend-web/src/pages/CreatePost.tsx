@@ -11,13 +11,12 @@ import {
   Settings2,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { Theme } from "emoji-picker-react";
 import { useAuth } from "../contexts/AuthContext";
-import EmojiPicker, {
-  type EmojiClickData,
-  type Theme,
-} from "emoji-picker-react";
-import { fetchFriends, createPost } from "../services/postService";
+import { useUserFriends } from "../hooks/useProfileHooks";
+import { createPost } from "../services/postService";
 import FriendSelectorModal from "../components/post/FriendSelectorModal";
+import IconModal from "../components/icon-modal/IconModal";
 
 type PrivacyType =
   | "PUBLIC"
@@ -29,6 +28,10 @@ type PrivacyType =
 export default function CreatePost() {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
+
+  // Use hook to fetch friends
+  const { friends } = useUserFriends(currentUser?.id);
+
   const [caption, setCaption] = useState("");
   const [selectedImages, setSelectedImages] = useState<File[]>([]);
   const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([]);
@@ -36,8 +39,7 @@ export default function CreatePost() {
   const [location, setLocation] = useState("");
   const [showLocationInput, setShowLocationInput] = useState(false);
   const [taggedUsers, setTaggedUsers] = useState<string[]>([]);
-  const [showTagInput, setShowTagInput] = useState(false);
-  const [tagInput, setTagInput] = useState("");
+  const [showTagModal, setShowTagModal] = useState(false);
   const [privacy, setPrivacy] = useState<PrivacyType>("PUBLIC");
   const [showPrivacyMenu, setShowPrivacyMenu] = useState(false);
   const [allowComments, setAllowComments] = useState(true);
@@ -47,24 +49,8 @@ export default function CreatePost() {
   const [excludedUsers, setExcludedUsers] = useState<string[]>([]);
   const [showSpecificModal, setShowSpecificModal] = useState(false);
   const [showExcludedModal, setShowExcludedModal] = useState(false);
-  const [friends, setFriends] = useState<any[]>([]);
   const [locationSuggestions, setLocationSuggestions] = useState<any[]>([]);
-
-  // Fetch friends list from backend
-  useEffect(() => {
-    const loadFriends = async () => {
-      try {
-        if (currentUser?.id) {
-          const friendsList = await fetchFriends(currentUser.id);
-          setFriends(friendsList);
-        }
-      } catch (error) {
-        console.error("Error fetching friends:", error);
-      }
-    };
-
-    loadFriends();
-  }, [currentUser]);
+  const [isLoading, setIsLoading] = useState(false);
 
   // Search location suggestions with debounce
   useEffect(() => {
@@ -116,20 +102,15 @@ export default function CreatePost() {
     let processedCount = 0;
 
     filesToProcess.forEach((file) => {
-      if (file.type.startsWith("image/")) {
+      if (file.type.startsWith("image/") || file.type.startsWith("video/")) {
         newFiles.push(file);
+        newPreviewUrls.push(URL.createObjectURL(file));
+      }
 
-        // Create preview URL
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          newPreviewUrls.push(reader.result as string);
-          processedCount++;
-          if (processedCount === filesToProcess.length) {
-            setSelectedImages([...selectedImages, ...newFiles]);
-            setImagePreviewUrls([...imagePreviewUrls, ...newPreviewUrls]);
-          }
-        };
-        reader.readAsDataURL(file);
+      processedCount++;
+      if (processedCount === filesToProcess.length) {
+        setSelectedImages([...selectedImages, ...newFiles]);
+        setImagePreviewUrls([...imagePreviewUrls, ...newPreviewUrls]);
       }
     });
   };
@@ -154,28 +135,13 @@ export default function CreatePost() {
     setImagePreviewUrls(imagePreviewUrls.filter((_, i) => i !== index));
   };
 
-  const handleAddTag = (username?: string) => {
-    const userToAdd = username || tagInput.trim();
-    if (userToAdd && !taggedUsers.includes(userToAdd)) {
-      setTaggedUsers([...taggedUsers, userToAdd]);
-      setTagInput("");
-    }
-  };
-
-  const filteredFriends = friends.filter(
-    (user) =>
-      user.username !== currentUser?.username &&
-      !taggedUsers.includes(user.username) &&
-      (user.username.toLowerCase().includes(tagInput.toLowerCase()) ||
-        user.fullName.toLowerCase().includes(tagInput.toLowerCase()))
-  );
-
   const handleRemoveTag = (tag: string) => {
     setTaggedUsers(taggedUsers.filter((t) => t !== tag));
   };
 
-  const handleEmojiClick = (emojiClickData: EmojiClickData) => {
-    setCaption(caption + emojiClickData.emoji);
+  const handleEmojiClick = (emoji: string) => {
+    setCaption((prev) => prev + emoji);
+    setShowEmojiPicker(false);
   };
 
   const handlePost = async () => {
@@ -184,6 +150,13 @@ export default function CreatePost() {
         alert("Please login to create post");
         return;
       }
+
+      // Prevent multiple submissions
+      if (isLoading) {
+        return;
+      }
+
+      setIsLoading(true);
 
       // Prepare post data
       const postData = {
@@ -206,12 +179,22 @@ export default function CreatePost() {
         selectedImages
       );
 
+      const createdPostId = String(
+        newPost?.id ?? (newPost as any)?._id ?? ""
+      ).trim();
+
       console.log("Post created:", newPost);
       alert("Post created successfully!");
-      navigate("/");
+
+      if (createdPostId) {
+        sessionStorage.setItem("homeBoostPostId", createdPostId);
+      }
+
+      navigate("/", { state: { boostPostId: createdPostId || undefined } });
     } catch (error) {
       console.error("Error creating post:", error);
       alert("Failed to create post. Please try again.");
+      setIsLoading(false);
     }
   };
 
@@ -236,14 +219,18 @@ export default function CreatePost() {
             </h2>
             <button
               onClick={handlePost}
-              disabled={!caption.trim() && selectedImages.length === 0}
+              disabled={
+                (!caption.trim() && selectedImages.length === 0) || isLoading
+              }
               className={`text-sm font-semibold ${
                 caption.trim() || selectedImages.length > 0
-                  ? "text-[#0095f6] hover:text-[#00376b]"
+                  ? isLoading
+                    ? "text-[#0095f6] opacity-50 cursor-not-allowed"
+                    : "text-[#0095f6] hover:text-[#00376b]"
                   : "text-[#0095f6] opacity-30 cursor-not-allowed"
               }`}
             >
-              Create
+              {isLoading ? "Creating..." : "Create"}
             </button>
           </div>
 
@@ -253,7 +240,9 @@ export default function CreatePost() {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
                 <img
-                  src={currentUser?.avatar || "https://i.pravatar.cc/150?img=5"}
+                  src={
+                    currentUser?.avatarUrl || "https://i.pravatar.cc/150?img=5"
+                  }
                   alt={currentUser?.username || "User"}
                   className="w-10 h-10 rounded-full"
                 />
@@ -347,15 +336,15 @@ export default function CreatePost() {
                   className="text-gray-400 dark:text-gray-600 mb-4 mx-auto"
                 />
                 <p className="text-lg font-medium mb-2 dark:text-white">
-                  Select photos from your computer
+                  Select photos or videos from your computer
                 </p>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                  Or drag and drop them here (up to 10 photos)
+                  Or drag and drop them here (up to 10 files)
                 </p>
                 <input
                   id="image-upload"
                   type="file"
-                  accept="image/*"
+                  accept="image/*,video/*"
                   multiple
                   className="hidden"
                   onChange={handleImageSelect}
@@ -376,11 +365,19 @@ export default function CreatePost() {
                 >
                   {imagePreviewUrls.map((imgUrl, index) => (
                     <div key={index} className="relative">
-                      <img
-                        src={imgUrl}
-                        alt={`Selected ${index + 1}`}
-                        className="w-full h-48 object-cover rounded-lg"
-                      />
+                      {selectedImages[index]?.type?.startsWith("video/") ? (
+                        <video
+                          src={imgUrl}
+                          className="w-full h-48 object-cover rounded-lg"
+                          controls
+                        />
+                      ) : (
+                        <img
+                          src={imgUrl}
+                          alt={`Selected ${index + 1}`}
+                          className="w-full h-48 object-cover rounded-lg"
+                        />
+                      )}
                       <button
                         onClick={() => handleRemoveImage(index)}
                         className="absolute top-2 right-2 p-1.5 bg-black/50 hover:bg-black/70 rounded-full text-white"
@@ -408,7 +405,7 @@ export default function CreatePost() {
                     <input
                       id="image-upload-more"
                       type="file"
-                      accept="image/*"
+                      accept="image/*,video/*"
                       multiple
                       className="hidden"
                       onChange={handleImageSelect}
@@ -424,7 +421,7 @@ export default function CreatePost() {
                 value={caption}
                 onChange={(e) => setCaption(e.target.value)}
                 placeholder="Write a caption..."
-                className="w-full px-4 py-3 border border-gray-200 dark:border-[#363636] rounded-lg outline-none focus:border-gray-400 dark:focus:border-gray-500 resize-none dark:bg-[#000] dark:text-white dark:placeholder-gray-600"
+                className="w-full px-4 py-3 border border-gray-200 dark:border-[#363636] rounded-lg outline-none focus:border-gray-400 dark:focus:border-gray-500 resize-none dark:bg-black dark:text-white dark:placeholder-gray-600"
                 rows={4}
                 maxLength={2200}
               />
@@ -439,23 +436,24 @@ export default function CreatePost() {
                       className="text-gray-500 dark:text-gray-400"
                     />
                   </button>
-                  {showEmojiPicker && (
-                    <div
-                      className="absolute bottom-10 left-0 z-50"
-                      onMouseLeave={() => setShowEmojiPicker(false)}
-                    >
-                      <EmojiPicker
-                        onEmojiClick={handleEmojiClick}
-                        theme={
-                          (document.documentElement.classList.contains("dark")
-                            ? "dark"
-                            : "light") as Theme
-                        }
-                        height={400}
-                        width={320}
-                      />
-                    </div>
-                  )}
+
+                  <IconModal
+                    open={showEmojiPicker}
+                    onClose={() => setShowEmojiPicker(false)}
+                    onEmojiClick={(emojiData) =>
+                      handleEmojiClick(emojiData.emoji)
+                    }
+                    theme={
+                      document.documentElement.classList.contains("dark")
+                        ? Theme.DARK
+                        : Theme.LIGHT
+                    }
+                    containerClassName="absolute bottom-10 left-0 z-50"
+                    pickerProps={{
+                      height: 400,
+                      width: 320,
+                    }}
+                  />
                 </div>
                 <span className="text-xs text-gray-400 dark:text-gray-600">
                   {caption.length}/2,200
@@ -472,70 +470,31 @@ export default function CreatePost() {
                     Tag people
                   </span>
                   <button
-                    onClick={() => setShowTagInput(!showTagInput)}
-                    className="p-1 hover:bg-gray-100 dark:hover:bg-[#363636] rounded"
+                    onClick={() => setShowTagModal(true)}
+                    className="p-1 hover:bg-gray-100 dark:hover:bg-[#363636] rounded text-blue-500 hover:text-blue-600 flex items-center gap-1"
                   >
-                    <Users
-                      size={20}
-                      className="text-gray-600 dark:text-gray-400"
-                    />
+                    <Users size={18} />
+                    <span className="text-xs font-semibold">
+                      {taggedUsers.length > 0 ? `Tagged ${taggedUsers.length}` : "Tag"}
+                    </span>
                   </button>
                 </div>
-                {showTagInput && (
-                  <div className="space-y-2">
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={tagInput}
-                        onChange={(e) => setTagInput(e.target.value)}
-                        placeholder="Search friends..."
-                        className="w-full px-3 py-2 text-sm border border-gray-200 dark:border-[#363636] rounded-lg outline-none focus:border-gray-400 dark:focus:border-gray-500 dark:bg-[#000] dark:text-white"
-                      />
-                      {/* Friends List Dropdown - Show 10 friends by default */}
-                      {filteredFriends.length > 0 && (
-                        <div className="absolute top-full mt-1 w-full bg-white dark:bg-[#262626] border border-gray-200 dark:border-[#363636] rounded-lg shadow-lg max-h-60 overflow-y-auto z-10">
-                          {filteredFriends.slice(0, 10).map((friend) => (
-                            <button
-                              key={friend.id}
-                              onClick={() => handleAddTag(friend.username)}
-                              className="w-full flex items-center gap-3 px-3 py-2 hover:bg-gray-100 dark:hover:bg-[#363636] transition-colors"
-                            >
-                              <img
-                                src={friend.avatar}
-                                alt={friend.username}
-                                className="w-10 h-10 rounded-full"
-                              />
-                              <div className="flex-1 text-left">
-                                <p className="text-sm font-semibold dark:text-white">
-                                  {friend.username}
-                                </p>
-                                <p className="text-xs text-gray-500 dark:text-gray-400">
-                                  {friend.fullName}
-                                </p>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    {taggedUsers.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mt-3">
-                        {taggedUsers.map((tag) => (
-                          <div
-                            key={tag}
-                            className="flex items-center gap-1 px-3 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full text-sm"
-                          >
-                            <span>@{tag}</span>
-                            <button
-                              onClick={() => handleRemoveTag(tag)}
-                              className="hover:text-blue-800 dark:hover:text-blue-200"
-                            >
-                              <X size={14} />
-                            </button>
-                          </div>
-                        ))}
+                {taggedUsers.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {taggedUsers.map((tag) => (
+                      <div
+                        key={tag}
+                        className="flex items-center gap-1 px-3 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full text-sm"
+                      >
+                        <span>@{tag}</span>
+                        <button
+                          onClick={() => handleRemoveTag(tag)}
+                          className="hover:text-blue-800 dark:hover:text-blue-200"
+                        >
+                          <X size={14} />
+                        </button>
                       </div>
-                    )}
+                    ))}
                   </div>
                 )}
               </div>
@@ -564,7 +523,7 @@ export default function CreatePost() {
                         value={location}
                         onChange={(e) => setLocation(e.target.value)}
                         placeholder="Where was this?"
-                        className="flex-1 px-3 py-2 text-sm border border-gray-200 dark:border-[#363636] rounded-lg outline-none focus:border-gray-400 dark:focus:border-gray-500 dark:bg-[#000] dark:text-white"
+                        className="flex-1 px-3 py-2 text-sm border border-gray-200 dark:border-[#363636] rounded-lg outline-none focus:border-gray-400 dark:focus:border-gray-500 dark:bg-black dark:text-white"
                       />
                       {location && (
                         <button
@@ -592,7 +551,7 @@ export default function CreatePost() {
                           >
                             <MapPin
                               size={16}
-                              className="text-gray-500 dark:text-gray-400 flex-shrink-0"
+                              className="text-gray-500 dark:text-gray-400 shrink-0"
                             />
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium dark:text-white truncate">
@@ -700,6 +659,15 @@ export default function CreatePost() {
         title="Hide from"
         description="Selected friends won't be able to see this post"
         initialSelected={excludedUsers}
+      />
+
+      <FriendSelectorModal
+        isOpen={showTagModal}
+        onClose={() => setShowTagModal(false)}
+        onConfirm={(selected) => setTaggedUsers(selected)}
+        title="Tag friends"
+        description="Search for friends to tag in your post"
+        initialSelected={taggedUsers}
       />
     </div>
   );

@@ -4,6 +4,8 @@ import iuh.fit.edu.backend.domain.entity.nosql.Story;
 import iuh.fit.edu.backend.domain.entity.nosql.StoryView;
 import iuh.fit.edu.backend.domain.entity.mysql.User;
 import iuh.fit.edu.backend.dto.response.story.StoryResponse;
+import iuh.fit.edu.backend.dto.response.PresignedUrlResponse;
+import iuh.fit.edu.backend.constant.UploadModule;
 import iuh.fit.edu.backend.service.story.StoryService;
 import iuh.fit.edu.backend.service.story.StoryEventPublisher;
 import iuh.fit.edu.backend.service.s3.S3Service;
@@ -68,18 +70,79 @@ public class StoryController {
 
     /**
      * GET /api/stories/upload-url - Get presigned upload URL for story media
+     * Uses UploadModule.STORY for all story media uploads
+     * @param extension File extension (jpg, png, mp4, etc.)
+     * @param originalFilename Original filename for validation
+     * @param contentType MIME type (image/jpeg, video/mp4, etc.)
+     * @return Presigned URL and S3 object key
      */
     @GetMapping("/upload-url")
-    public ResponseEntity<Map<String, String>> getPresignedUploadUrl(
-            @RequestParam String extension) {
+    public ResponseEntity<PresignedUrlResponse> getPresignedUploadUrl(
+            @RequestParam String extension,
+            @RequestParam(required = false) String originalFilename,
+            @RequestParam(required = false) String contentType) {
         try {
-            getCurrentUserId(); // Verify user is authenticated
-            Map<String, String> uploadUrl = s3Service.generateUploadUrl("stories", extension);
-            return ResponseEntity.ok(uploadUrl);
+            String currentUserId = getCurrentUserId();
+            
+            // Determine content type based on extension if not provided
+            if (contentType == null || contentType.isBlank()) {
+                contentType = getContentType(extension);
+            }
+
+            String filename = originalFilename != null ? originalFilename : "story." + extension;
+            
+            PresignedUrlResponse response = s3Service.generatePresignedUrl(
+                    UploadModule.STORY,
+                    currentUserId,
+                    getMediaType(extension),
+                    filename,
+                    contentType
+            );
+            
+            log.info("Generated presigned URL for story upload: {}", response.getObjectKey());
+            return ResponseEntity.ok(response);
+        } catch (IllegalArgumentException e) {
+            log.error("Invalid file: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
         } catch (Exception e) {
             log.error("Error getting presigned URL", e);
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
         }
+    }
+
+    /**
+     * Determine media type (IMAGE, VIDEO, FILE) based on extension
+     */
+    private String getMediaType(String extension) {
+        if (extension == null) return "FILE";
+        String ext = extension.toLowerCase();
+        
+        if (ext.matches("jpg|jpeg|png|gif|webp")) {
+            return "IMAGE";
+        } else if (ext.matches("mp4|webm|mov|avi|mkv")) {
+            return "VIDEO";
+        }
+        return "FILE";
+    }
+
+    /**
+     * Get MIME type based on extension
+     */
+    private String getContentType(String extension) {
+        if (extension == null) return "application/octet-stream";
+        
+        return switch (extension.toLowerCase()) {
+            case "jpg", "jpeg" -> "image/jpeg";
+            case "png" -> "image/png";
+            case "gif" -> "image/gif";
+            case "webp" -> "image/webp";
+            case "mp4" -> "video/mp4";
+            case "webm" -> "video/webm";
+            case "mov" -> "video/quicktime";
+            case "avi" -> "video/x-msvideo";
+            case "mkv" -> "video/x-matroska";
+            default -> "application/octet-stream";
+        };
     }
 
     /**
@@ -428,6 +491,7 @@ public class StoryController {
 
     /**
      * DELETE /api/stories/{storyId} - Delete story
+     * Also deletes associated media from S3
      */
     @DeleteMapping("/{storyId}")
     public ResponseEntity<Void> deleteStory(@PathVariable String storyId) {
@@ -436,6 +500,22 @@ public class StoryController {
 
             if (!storyService.isStoryOwner(storyId, currentUserId)) {
                 return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+            }
+
+            // Get story to retrieve media URL for S3 deletion
+            Optional<Story> storyOpt = storyService.getStory(storyId);
+            if (storyOpt.isPresent()) {
+                Story story = storyOpt.get();
+                // Story has single media object (not a list)
+                if (story.getMedia() != null && story.getMedia().getUrl() != null) {
+                    try {
+                        s3Service.deleteByKey(UploadModule.STORY, story.getMedia().getUrl());
+                        log.info("Deleted S3 media: {}", story.getMedia().getUrl());
+                    } catch (Exception e) {
+                        log.warn("Failed to delete S3 media {}: {}", story.getMedia().getUrl(), e.getMessage());
+                        // Don't fail story deletion if S3 deletion fails
+                    }
+                }
             }
 
             storyService.deleteStory(storyId);

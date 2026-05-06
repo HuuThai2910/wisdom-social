@@ -61,7 +61,7 @@ public class StoryServiceImpl implements StoryService {
             try {
                 // Move first uploaded file as main media
                 String tempUrl = mediaUrls.get(0);
-                String finalUrl = s3Service.moveUploadUrl("stories", Long.parseLong(createdStory.getId()), tempUrl);
+                String finalUrl = s3Service.moveUploadUrl("stories", createdStory.getId(), tempUrl);
                 
                 // Detect media type from file extension
                 String extension = tempUrl.substring(tempUrl.lastIndexOf(".") + 1).toLowerCase();

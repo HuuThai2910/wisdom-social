@@ -34,4 +34,6 @@ public interface UserService {
     // Hàm cập nhật lần hoạt động cuối cùng user
     @Transactional
     Instant updateLastActiveAt(Long userId);
+
+    PaginatedUserResponse searchMentionUsers(long viewerId, String keyword, int page, int size);
 }

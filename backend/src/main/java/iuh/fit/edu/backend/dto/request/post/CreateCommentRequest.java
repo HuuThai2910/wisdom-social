@@ -5,6 +5,7 @@
 package iuh.fit.edu.backend.dto.request.post;
 
 import iuh.fit.edu.backend.constant.TargetType;
+import java.util.List;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
@@ -34,4 +35,15 @@ public class CreateCommentRequest {
     
     @NotBlank(message = "Content is required")
     private String content;
+
+    private List<MentionRequest> mentions;
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class MentionRequest {
+        private String userId;
+        private String username;
+    }
 }

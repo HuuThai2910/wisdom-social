@@ -5,6 +5,8 @@
 package iuh.fit.edu.backend.repository.mysql;
 
 import iuh.fit.edu.backend.domain.entity.mysql.User;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -25,4 +27,6 @@ public interface UserRepository extends JpaRepository<User,Long> {
     boolean existsUserByUsername(String username);
 
     List<User> findUsersByUsernameContaining(String username);
+
+    Page<User> findByIdInAndUsernameContainingIgnoreCase(List<Long> ids, String username, Pageable pageable);
 }

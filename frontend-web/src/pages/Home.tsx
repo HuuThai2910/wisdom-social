@@ -1,168 +1,152 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import toast from "react-hot-toast";
+import { useLocation, useNavigate } from "react-router-dom";
 import { mockStories } from "../api/mockData";
 import StoriesBar from "../components/story/StoriesBar";
-import PostCard from "../components/post/PostCard";
-import axiosClient from "../api/axiosClient";
+import PostCard from "../components/post/post-card/PostCard";
 import { useCurrentUser } from "../hooks/useCurrentUser";
+import { fetchHomeFeedPosts, normalizePost } from "../services/homeFeedService";
+import useRealtimePosts from "../hooks/useRealtimePosts";
+import * as postApi from "../services/postService";
 import type { Post } from "../types";
 
-interface PostData {
-  id: string;
-  authorId: string;
-  content: string;
-  privacy?: string;
-  media?: Array<{ url: string; type: string; order: number }>;
-  stats?: { reactCount: number; commentCount: number; shareCount: number };
-  createdAt: string;
-}
-
 export default function Home() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const currentUser = useCurrentUser();
-  const [posts, setPosts] = useState<Post[]>([]);
+  const [postsMap, setPostsMap] = useState<Map<string, Post>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Derived sorted posts for rendering
+  const sortedPosts = Array.from(postsMap.values()).sort((a, b) => {
+    const da = new Date(a.lastActivityAt || a.createdAt).getTime();
+    const db = new Date(b.lastActivityAt || b.createdAt).getTime();
+    if (isNaN(da) || isNaN(db)) return 0;
+    return db - da;
+  });
+
+  const handlePostCreated = useCallback(async (newPost: any) => {
+    console.log("🔥 WebSocket: NEW_POST received", newPost);
+    toast.success("New post created!");
+    try {
+      const authorData = await postApi.fetchUserById(newPost.authorId);
+      const normalized = normalizePost(newPost, authorData);
+      setPostsMap((prev) => {
+        const next = new Map(prev);
+        next.set(normalized.id, normalized);
+        return next;
+      });
+    } catch (err) {
+      console.error("Error normalizing created post:", err);
+    }
+  }, []);
+
+  const handlePostUpdated = useCallback((updatedPost: any) => {
+    console.log("🔥 WebSocket: POST_UPDATED received", updatedPost);
+    setPostsMap((prev) => {
+      const postId = updatedPost.id;
+      const existing = prev.get(postId);
+      if (!existing) return prev;
+
+      const next = new Map(prev);
+      next.set(postId, { ...existing, ...updatedPost });
+      return next;
+    });
+  }, []);
+
+  const handlePostDeleted = useCallback((postId: string) => {
+    console.log("🔥 WebSocket: POST_DELETED received", postId);
+    setPostsMap((prev) => {
+      if (!prev.has(postId)) return prev;
+      const next = new Map(prev);
+      next.delete(postId);
+      return next;
+    });
+  }, []);
+
+  const handleActivityBump = useCallback(
+    (postId: string, lastActivityAt: string) => {
+      console.log("🔥 WebSocket: BUMP received", postId, lastActivityAt);
+      setPostsMap((prev) => {
+        const existing = prev.get(postId);
+        if (!existing) return prev;
+
+        // 🔒 Defensive check: Don't bump if post belongs to current user
+        if (currentUser && existing.user.id === currentUser.id) {
+          console.log("⏭️ Skipping BUMP for current user's post:", postId);
+          return prev;
+        }
+
+        // Update only the lastActivityAt to trigger re-sort
+        const next = new Map(prev);
+        next.set(postId, { ...existing, lastActivityAt });
+        return next;
+      });
+    },
+    [currentUser]
+  );
+
+  // Listen to global post events
+  useRealtimePosts({
+    topic: "/topic/posts",
+    onPostCreated: handlePostCreated,
+    onPostUpdated: handlePostUpdated,
+    onPostDeleted: handlePostDeleted,
+    onActivityBump: handleActivityBump,
+  });
 
   useEffect(() => {
     let isMounted = true;
 
     const fetchPosts = async () => {
       try {
-        console.log("🔄 Starting to fetch posts...");
         if (!isMounted) return;
         setLoading(true);
 
         if (!currentUser?.id) {
-          console.log("⚠️ No current user, waiting...");
           if (isMounted) setLoading(false);
           return;
         }
 
-        console.log("✅ Current user:", currentUser.id);
         if (isMounted) setError(null);
 
-        let allPosts: PostData[] = [];
+        const routeBoostPostId = (
+          location.state as { boostPostId?: string } | null
+        )?.boostPostId;
+        const storedBoostPostId =
+          sessionStorage.getItem("homeBoostPostId") || undefined;
+        const boostPostId = routeBoostPostId || storedBoostPostId;
 
-        try {
-          // First, try to fetch from friends
-          console.log("📱 Fetching friends...");
-          const friendsResponse = await axiosClient.get(
-            `/users/${currentUser.id}/friends`
-          );
-
-          if (!isMounted) return;
-
-          const friendsData =
-            friendsResponse.data.data || friendsResponse.data || [];
-
-          console.log("👥 Friends found:", friendsData.length);
-
-          const friendIds = [
-            currentUser.id,
-            ...friendsData.map((friend: any) => friend.userId || friend.id),
-          ];
-
-          console.log("📋 Fetching posts from", friendIds.length, "users...");
-
-          const postsPromises = friendIds.map((id) =>
-            axiosClient.get(`/posts/user/${id}`).catch((err) => {
-              console.log(
-                `⚠️ Failed to fetch posts for user ${id}:`,
-                err.message
-              );
-              return { data: { data: [] } };
-            })
-          );
-
-          const postsResponses = await Promise.all(postsPromises);
-
-          if (!isMounted) return;
-
-          allPosts = postsResponses.flatMap(
-            (response) => response.data.data || []
-          );
-
-          console.log("📝 Total posts fetched:", allPosts.length);
-        } catch (friendsError: any) {
-          console.warn("⚠️ Could not fetch friends:", friendsError.message);
-
-          if (!isMounted) return;
-
-          // If friends API fails, just fetch current user's posts
-          console.log("📝 Fetching own posts only...");
-          const postsResponse = await axiosClient.get(
-            `/posts/user/${currentUser.id}`
-          );
-
-          if (!isMounted) return;
-
-          allPosts = postsResponse.data.data || [];
-          console.log("📝 Own posts fetched:", allPosts.length);
-        }
+        const feedResult = await fetchHomeFeedPosts(200, {
+          prioritizePostId: boostPostId,
+        });
 
         if (!isMounted) return;
-
-        // Sort by createdAt descending
-        allPosts.sort(
-          (a, b) =>
-            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        );
-
-        // Transform posts to match PostCard format
-        console.log("🔄 Transforming posts...");
-        const transformedPosts = await Promise.all(
-          allPosts.map(async (post) => {
-            try {
-              // Fetch author data
-              const userResponse = await axiosClient.get(
-                `/auth/user/${post.authorId}`
-              );
-              const userData = userResponse.data.data;
-
-              return {
-                id: post.id,
-                user: {
-                  id: userData.id.toString(),
-                  username: userData.username,
-                  fullName: userData.name || userData.username,
-                  avatar:
-                    userData.avatarUrl || "https://i.pravatar.cc/150?img=5",
-                },
-                images:
-                  post.media && post.media.length > 0
-                    ? post.media.map((m) => m.url)
-                    : [],
-                caption: post.content,
-                privacy: post.privacy as any,
-                likes: post.stats?.reactCount || 0,
-                comments: [],
-                createdAt: new Date(post.createdAt).toLocaleString("vi-VN"),
-                isLiked: false,
-                isSaved: false,
-              };
-            } catch (userErr: any) {
-              console.error(
-                "❌ Error fetching author for post",
-                post.id,
-                ":",
-                userErr.message
-              );
-              // Return null for failed posts
-              return null;
-            }
-          })
-        );
-
-        if (!isMounted) return;
-
-        // Filter out null posts (ones that failed to fetch author)
-        const validPosts = transformedPosts.filter(
-          (post) => post !== null
-        ) as Post[];
-        console.log("✅ Successfully transformed", validPosts.length, "posts");
 
         if (isMounted) {
-          setPosts(validPosts);
+          setPostsMap(() => {
+            const next = new Map<string, Post>();
+            feedResult.posts.forEach((post) => {
+              next.set(post.id, post);
+            });
+            return next;
+          });
+          // setPostsMap((prev) => {
+          //   const next = new Map(prev);
+          //   feedResult.posts.forEach((post) => {
+          //     if (!next.has(post.id)) {
+          //       next.set(post.id, post);
+          //     }
+          //   });
+          //   return next;
+          // });
           setError(null);
+
+          if (boostPostId) {
+            sessionStorage.removeItem("homeBoostPostId");
+            navigate(location.pathname, { replace: true, state: null });
+          }
         }
       } catch (err: any) {
         console.error("❌ Error fetching posts:", err);
@@ -171,7 +155,6 @@ export default function Home() {
         }
       } finally {
         if (isMounted) {
-          console.log("✅ Finished loading posts");
           setLoading(false);
         }
       }
@@ -180,10 +163,9 @@ export default function Home() {
     fetchPosts();
 
     return () => {
-      console.log("🧹 Cleanup: component unmounting");
       isMounted = false;
     };
-  }, [currentUser]);
+  }, [currentUser, location.pathname, location.state, navigate]);
 
   return (
     <div>
@@ -211,7 +193,7 @@ export default function Home() {
           <div className="p-4 text-center text-red-500">{error}</div>
         )}
 
-        {!loading && currentUser && !error && posts.length === 0 && (
+        {!loading && currentUser && !error && postsMap.size === 0 && (
           <div className="p-8 text-center text-gray-500">
             No posts available. Start following friends to see their posts!
           </div>
@@ -219,7 +201,7 @@ export default function Home() {
 
         {!loading &&
           !error &&
-          posts.map((post) => <PostCard key={post.id} post={post} />)}
+          sortedPosts.map((post) => <PostCard key={post.id} post={post} />)}
       </div>
     </div>
   );

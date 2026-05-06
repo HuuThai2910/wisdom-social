@@ -37,7 +37,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             "https://cognito-idp.ap-southeast-1.amazonaws.com/ap-southeast-1_r9OwliPee";
 
     @Value("$JWT}")
-    private static String LOCAL_SECRET ;
+    private static String LOCAL_SECRET;
     @Override
     protected void doFilterInternal(
             HttpServletRequest request,
