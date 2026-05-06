@@ -42,14 +42,15 @@ export default function Home() {
     }
   }, []);
 
-  const handlePostUpdated = useCallback((postId: string, updatedData: any) => {
-    console.log("🔥 WebSocket: POST_UPDATED received", postId, updatedData);
+  const handlePostUpdated = useCallback((updatedPost: any) => {
+    console.log("🔥 WebSocket: POST_UPDATED received", updatedPost);
     setPostsMap((prev) => {
+      const postId = updatedPost.id;
+      const existing = prev.get(postId);
+      if (!existing) return prev;
+
       const next = new Map(prev);
-      const post = next.get(postId);
-      if (post) {
-        next.set(postId, { ...post, ...updatedData });
-      }
+      next.set(postId, { ...existing, ...updatedPost });
       return next;
     });
   }, []);
@@ -64,18 +65,27 @@ export default function Home() {
     });
   }, []);
 
-  const handleActivityBump = useCallback((postId: string, lastActivityAt: string) => {
-    console.log("🔥 WebSocket: BUMP received", postId, lastActivityAt);
-    setPostsMap((prev) => {
-      const existing = prev.get(postId);
-      if (!existing) return prev;
+  const handleActivityBump = useCallback(
+    (postId: string, lastActivityAt: string) => {
+      console.log("🔥 WebSocket: BUMP received", postId, lastActivityAt);
+      setPostsMap((prev) => {
+        const existing = prev.get(postId);
+        if (!existing) return prev;
 
-      // Update only the lastActivityAt to trigger re-sort
-      const next = new Map(prev);
-      next.set(postId, { ...existing, lastActivityAt });
-      return next;
-    });
-  }, []);
+        // 🔒 Defensive check: Don't bump if post belongs to current user
+        if (currentUser && existing.user.id === currentUser.id) {
+          console.log("⏭️ Skipping BUMP for current user's post:", postId);
+          return prev;
+        }
+
+        // Update only the lastActivityAt to trigger re-sort
+        const next = new Map(prev);
+        next.set(postId, { ...existing, lastActivityAt });
+        return next;
+      });
+    },
+    [currentUser]
+  );
 
   // Listen to global post events
   useRealtimePosts({
@@ -115,15 +125,22 @@ export default function Home() {
         if (!isMounted) return;
 
         if (isMounted) {
-          setPostsMap((prev) => {
-            const next = new Map(prev);
+          setPostsMap(() => {
+            const next = new Map<string, Post>();
             feedResult.posts.forEach((post) => {
-              if (!next.has(post.id)) {
-                next.set(post.id, post);
-              }
+              next.set(post.id, post);
             });
             return next;
           });
+          // setPostsMap((prev) => {
+          //   const next = new Map(prev);
+          //   feedResult.posts.forEach((post) => {
+          //     if (!next.has(post.id)) {
+          //       next.set(post.id, post);
+          //     }
+          //   });
+          //   return next;
+          // });
           setError(null);
 
           if (boostPostId) {

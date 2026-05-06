@@ -153,12 +153,12 @@ public class ReactionServiceImpl implements ReactionService {
         
         if (targetType == TargetType.POST) {
             updatePostLastActivityAt(targetId);
-            publishActivityBump(targetId, Instant.now());
+            publishActivityBump(targetId, Instant.now(), userId);
         } else if (targetType == TargetType.COMMENT) {
             String rootPostId = getRootPostId(targetType, targetId);
             if (rootPostId != null) {
                 updatePostLastActivityAt(rootPostId);
-                publishActivityBump(rootPostId, Instant.now());
+                publishActivityBump(rootPostId, Instant.now(), userId);
             }
         }
 
@@ -195,24 +195,34 @@ public class ReactionServiceImpl implements ReactionService {
         }
     }
 
-    private void publishActivityBump(String postId, Instant lastActivityAt) {
+    private void publishActivityBump(String postId, Instant lastActivityAt, String userId) {
         try {
-            PostRealtimeEvent bumpEvent = PostRealtimeEvent.builder()
-                    .action("BUMP")
-                    .postId(postId)
-                    .lastActivityAt(lastActivityAt)
-                    .build();
+            // 🔒 Only bump post if the user is NOT the post author
+            // (Don't push user's own posts to their own feed)
+            postRepository.findById(postId).ifPresent(post -> {
+                if (post.getAuthorId() != null && post.getAuthorId().equals(userId)) {
+                    log.info("⏭️ Skipping BUMP for post: {} - User {} is the post owner", postId, userId);
+                    return;
+                }
 
-            if (TransactionSynchronizationManager.isActualTransactionActive()) {
-                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                    @Override
-                    public void afterCommit() {
-                        eventPublisher.publishEvent(bumpEvent);
-                    }
-                });
-            } else {
-                eventPublisher.publishEvent(bumpEvent);
-            }
+                PostRealtimeEvent bumpEvent = PostRealtimeEvent.builder()
+                        .action("BUMP")
+                        .postId(postId)
+                        .lastActivityAt(lastActivityAt)
+                        .authorId(post.getAuthorId())
+                        .build();
+
+                if (TransactionSynchronizationManager.isActualTransactionActive()) {
+                    TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            eventPublisher.publishEvent(bumpEvent);
+                        }
+                    });
+                } else {
+                    eventPublisher.publishEvent(bumpEvent);
+                }
+            });
         } catch (Exception e) {
             log.error("Failed to publish PostRealtimeEvent BUMP", e);
         }
