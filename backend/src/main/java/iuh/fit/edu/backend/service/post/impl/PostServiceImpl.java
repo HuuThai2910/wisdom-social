@@ -529,6 +529,14 @@ public class PostServiceImpl implements PostService {
         post.setHashtags(extractHashtags(request.getContent()));
         post.setMentions(extractMentions(request.getContent()));
         
+        // Update interaction settings
+        if (request.getAllowComments() != null) {
+            post.setAllowComments(request.getAllowComments());
+        }
+        if (request.getAllowShares() != null) {
+            post.setAllowShares(request.getAllowShares());
+        }
+        
         post.setUpdatedAt(Instant.now());
         post.setLastActivityAt(Instant.now());
         

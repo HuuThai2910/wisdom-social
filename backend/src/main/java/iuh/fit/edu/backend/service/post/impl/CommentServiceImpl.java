@@ -61,6 +61,19 @@ public class CommentServiceImpl implements CommentService {
     public Comment createComment(CreateCommentRequest request, Long userId) {
         log.info("Creating comment for user: {} on target: {}", userId, request.getTargetId());
 
+        // 🔒 Validate allowComments for POST comments
+        if (request.getTargetType() == TargetType.POST && request.getParentId() == null) {
+            postRepository.findById(request.getTargetId()).ifPresent(post -> {
+                if (!post.isAllowComments()) {
+                    log.warn("Comment creation rejected: Post {} has comments disabled", request.getTargetId());
+                    throw new ResponseStatusException(
+                        HttpStatus.FORBIDDEN,
+                        "Comments are disabled for this post"
+                    );
+                }
+            });
+        }
+
         // Process structured mentions
         List<Comment.Mention> mentions = processMentions(request);
 

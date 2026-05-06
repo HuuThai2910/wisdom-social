@@ -43,6 +43,8 @@ interface PostData {
     | string
     | { name: string; address?: string; latitude?: number; longitude?: number };
   taggedUserIds?: string[];
+  allowComments?: boolean;
+  allowShares?: boolean;
 }
 
 interface EditPostModalProps {
@@ -108,6 +110,12 @@ export default function EditPostModal({
   );
   const [showTagModal, setShowTagModal] = useState(false);
   const [showPrivacyMenu, setShowPrivacyMenu] = useState(false);
+  const [editAllowComments, setEditAllowComments] = useState(
+    post.allowComments !== false
+  );
+  const [editAllowShares, setEditAllowShares] = useState(
+    post.allowShares !== false
+  );
   const [isUpdating, setIsUpdating] = useState(false);
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
 
@@ -172,6 +180,8 @@ export default function EditPostModal({
     setEditContent(syncedContent);
     setEditPrivacy(syncedPrivacy);
     setEditLocation(syncedLocation);
+    setEditAllowComments(post.allowComments !== false);
+    setEditAllowShares(post.allowShares !== false);
     setEditExistingMedia(
       (post.media || post.images || post.mediaList || []).map((item: any) => ({
         url: typeof item === "string" ? item : item.url,
@@ -188,6 +198,8 @@ export default function EditPostModal({
     post.media,
     post.images,
     post.mediaList,
+    post.allowComments,
+    post.allowShares,
   ]);
 
   // Debug: Log when editLocation state changes
@@ -199,6 +211,8 @@ export default function EditPostModal({
     editContent !== (post.caption || post.content || "") ||
     editPrivacy !== (post.privacy || "PUBLIC") ||
     editLocation !== originalLocation ||
+    editAllowComments !== (post.allowComments !== false) ||
+    editAllowShares !== (post.allowShares !== false) ||
     newImages.length > 0 ||
     editExistingMedia.length !== originalMediaCount ||
     editTaggedUsers
@@ -281,6 +295,8 @@ export default function EditPostModal({
         location: editLocation || null,
         taggedUserIds: editTaggedUsers.map((u) => u.id.toString()),
         existingMediaUrls: editExistingMedia.map((m) => m.url),
+        allowComments: editAllowComments,
+        allowShares: editAllowShares,
       };
 
       console.log("📤 Saving post with data:", {
@@ -617,6 +633,51 @@ export default function EditPostModal({
                 </div>
               )}
             </div>
+
+            {/* Interaction Settings */}
+            <div className="border-t dark:border-gray-700 pt-4 space-y-3">
+              <h3 className="text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">
+                Interaction settings
+              </h3>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-700 dark:text-gray-300">
+                  Allow commenting
+                </span>
+                <button
+                  onClick={() => setEditAllowComments(!editAllowComments)}
+                  className={`relative w-11 h-6 rounded-full transition-colors ${
+                    editAllowComments
+                      ? "bg-[#0095f6]"
+                      : "bg-gray-300 dark:bg-gray-600"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
+                      editAllowComments ? "translate-x-5" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-700 dark:text-gray-300">
+                  Allow sharing
+                </span>
+                <button
+                  onClick={() => setEditAllowShares(!editAllowShares)}
+                  className={`relative w-11 h-6 rounded-full transition-colors ${
+                    editAllowShares
+                      ? "bg-[#0095f6]"
+                      : "bg-gray-300 dark:bg-gray-600"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
+                      editAllowShares ? "translate-x-5" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -662,17 +723,17 @@ export default function EditPostModal({
         onClose={() => setShowTagModal(false)}
         onConfirm={(_usernames, selectedFriends) => {
           // Convert Friend[] back to UserData[] for EditPostModal state
-          const convertedUsers: UserData[] = selectedFriends.map(f => ({
+          const convertedUsers: UserData[] = selectedFriends.map((f) => ({
             id: Number(f.id),
             username: f.username,
             name: f.fullName,
-            avatarUrl: f.avatar
+            avatarUrl: f.avatar,
           }));
           setEditTaggedUsers(convertedUsers);
         }}
         title="Tag friends"
         description="Search for friends to tag in your post"
-        initialSelected={editTaggedUsers.map(u => u.username)}
+        initialSelected={editTaggedUsers.map((u) => u.username)}
       />
     </div>
   );

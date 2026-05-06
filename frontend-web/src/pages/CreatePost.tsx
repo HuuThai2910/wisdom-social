@@ -28,10 +28,6 @@ type PrivacyType =
 export default function CreatePost() {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
-
-  // Use hook to fetch friends
-  const { friends } = useUserFriends(currentUser?.id);
-
   const [caption, setCaption] = useState("");
   const [selectedImages, setSelectedImages] = useState<File[]>([]);
   const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([]);
@@ -475,7 +471,9 @@ export default function CreatePost() {
                   >
                     <Users size={18} />
                     <span className="text-xs font-semibold">
-                      {taggedUsers.length > 0 ? `Tagged ${taggedUsers.length}` : "Tag"}
+                      {taggedUsers.length > 0
+                        ? `Tagged ${taggedUsers.length}`
+                        : "Tag"}
                     </span>
                   </button>
                 </div>
@@ -598,7 +596,7 @@ export default function CreatePost() {
                   <div className="mt-3 space-y-3 pl-4">
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-gray-700 dark:text-gray-300">
-                        Turn off commenting
+                        Allow commenting
                       </span>
                       <button
                         onClick={() => setAllowComments(!allowComments)}
@@ -617,7 +615,7 @@ export default function CreatePost() {
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-gray-700 dark:text-gray-300">
-                        Turn off sharing
+                        Allow sharing
                       </span>
                       <button
                         onClick={() => setAllowShares(!allowShares)}

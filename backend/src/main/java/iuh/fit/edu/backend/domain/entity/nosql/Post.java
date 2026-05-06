@@ -85,8 +85,10 @@ public class Post {
     // Visibility settings
     private StatusType status;
     private boolean isEdited;
-    private boolean allowComments;
-    private boolean allowShares;
+    @Builder.Default
+    private boolean allowComments = true;
+    @Builder.Default
+    private boolean allowShares = true;
 
     // Timestamps
     private Instant createdAt;
