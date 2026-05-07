@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import {
     Crown,
     ShieldCheck,
@@ -6,6 +6,10 @@ import {
     UserPlus,
     Users,
     UserRoundX,
+    ChevronDown,
+    ArrowLeft,
+    MoreHorizontal,
+    X,
 } from "lucide-react";
 import type {
     Conversation,
@@ -126,166 +130,227 @@ export default function GroupConversationPanel({
         [conversation.members],
     );
 
+    const [isMemberListOpen, setIsMemberListOpen] = useState(false);
+    const [hoveredMemberId, setHoveredMemberId] = useState<number | null>(null);
+    const [activeMenuMemberId, setActiveMenuMemberId] = useState<number | null>(null);
+    const menuRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+                setActiveMenuMemberId(null);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
+
     const memberCount = members.length;
+    const currentUserMember = members.find(m => m.userId === currentUserId);
+    const isOwner = currentUserMember?.role === "OWNER";
 
     return (
         <section className="py-3">
-            <div className="rounded-xl border border-gray-200 bg-white/80 p-3 dark:border-[#2a2a2a] dark:bg-[#111111]">
-                <div className="mb-3 flex items-start justify-between gap-2">
-                    <div>
-                        <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                            Quản lý nhóm
-                        </p>
-                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                            <Users size={13} className="mr-1 inline-flex" />
-                            {memberCount} thành viên
-                        </p>
+            {/* Summary View in Info Panel */}
+            <div className="group relative rounded-xl border border-transparent px-3 py-2 transition-colors hover:bg-gray-100 dark:hover:bg-[#1a1a1a]">
+                <div className="flex items-center justify-between">
+                    <h3 className="text-[15px] font-semibold text-gray-900 dark:text-white">
+                        Thành viên
+                    </h3>
+                    <ChevronDown size={18} className="text-gray-500" />
+                </div>
+
+                <button
+                    type="button"
+                    onClick={() => setIsMemberListOpen(true)}
+                    className="mt-4 flex w-full items-center gap-3 text-left"
+                >
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 dark:bg-[#262626]">
+                        <Users size={20} className="text-gray-600 dark:text-gray-300" />
                     </div>
-                    {canManageMembers && (
-                        <button
-                            type="button"
-                            onClick={onOpenAddMembersModal}
-                            className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100 dark:border-blue-700/40 dark:bg-blue-900/20 dark:text-blue-200 dark:hover:bg-blue-900/30"
-                        >
-                            <UserPlus size={14} />
-                            Thêm người
-                        </button>
-                    )}
-                </div>
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                        {memberCount} thành viên
+                    </span>
+                </button>
+            </div>
 
-                <div className="mb-3 flex flex-wrap items-center gap-2">
-                    <button
-                        type="button"
-                        onClick={() => onSetConfirmLeaveModalOpen(true)}
-                        disabled={isLeavingGroup || isDisbandingGroup}
-                        className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-[#2f2f2f] dark:text-gray-200 dark:hover:bg-[#1a1a1a]"
-                    >
-                        <UserRoundX size={14} />
-                        {isLeavingGroup ? "Đang rời nhóm..." : "Rời nhóm"}
-                    </button>
-
-                    {canDisbandGroup && (
-                        <button
-                            type="button"
-                            onClick={() => onSetConfirmDisbandModalOpen(true)}
-                            disabled={isDisbandingGroup || isLeavingGroup}
-                            className="inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-medium text-red-700 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-300 dark:hover:bg-red-900/30"
-                        >
-                            <UserMinus size={14} />
-                            {isDisbandingGroup
-                                ? "Đang giải tán..."
-                                : "Giải tán nhóm"}
-                        </button>
-                    )}
-                </div>
-
-                {actionError && (
-                    <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600 dark:bg-red-900/20 dark:text-red-300">
-                        {actionError}
-                    </p>
-                )}
-
-                <div className="space-y-2">
-                    {members.map((member) => {
-                        const isCurrentUser = member.userId === currentUserId;
-                        const isOwner = member.role === "OWNER";
-                        const isUpdatingRole =
-                            pendingRoleUserId === member.userId;
-                        const isKicking = pendingKickUserId === member.userId;
-
-                        return (
-                            <div
-                                key={member.userId}
-                                className="rounded-lg border border-gray-200 px-3 py-2 dark:border-[#2f2f2f]"
+            {/* Member List Modal (Side Overlay style) */}
+            {isMemberListOpen && (
+                <div className="fixed inset-0 z-[60] flex justify-end bg-black/50 transition-opacity">
+                    <div className="flex h-full w-full max-w-md flex-col bg-white animate-in slide-in-from-right duration-300 dark:bg-[#111111]">
+                        {/* Modal Header */}
+                        <div className="flex h-14 items-center border-b border-gray-100 px-4 dark:border-[#262626]">
+                            <button
+                                type="button"
+                                onClick={() => setIsMemberListOpen(false)}
+                                className="mr-2 rounded-full p-2 hover:bg-gray-100 dark:hover:bg-[#262626]"
                             >
-                                <div className="flex items-start justify-between gap-3">
-                                    <div className="flex min-w-0 items-center gap-2.5">
-                                        <img
-                                            src={
-                                                member.avatar ||
-                                                DEFAULT_AVATAR_URL
-                                            }
-                                            alt={member.nickname}
-                                            className="h-9 w-9 rounded-full object-cover"
-                                        />
-                                        <div className="min-w-0">
-                                            <p className="truncate text-sm font-medium text-gray-900 dark:text-white">
-                                                {member.nickname ||
-                                                    "Người dùng"}
-                                                {isCurrentUser ? " (Bạn)" : ""}
-                                            </p>
-                                            {member.username && (
-                                                <p className="truncate text-xs text-gray-500 dark:text-gray-400">
-                                                    @{member.username}
-                                                </p>
-                                            )}
-                                        </div>
-                                    </div>
+                                <ArrowLeft size={20} className="text-gray-700 dark:text-gray-300" />
+                            </button>
+                            <h2 className="text-base font-bold text-gray-900 dark:text-white">
+                                Thành viên
+                            </h2>
+                        </div>
 
-                                    <span
-                                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${roleBadgeClass(member.role)}`}
+                        <div className="flex-1 overflow-y-auto p-4">
+                            {/* Action Buttons */}
+                            <div className="space-y-2">
+                                {canManageMembers && (
+                                    <button
+                                        type="button"
+                                        onClick={onOpenAddMembersModal}
+                                        className="flex w-full items-center justify-center gap-2 rounded-lg bg-gray-100 py-2.5 text-sm font-semibold text-gray-900 transition-colors hover:bg-gray-200 dark:bg-[#262626] dark:text-white dark:hover:bg-[#333333]"
                                     >
-                                        {member.role === "OWNER" ? (
-                                            <Crown size={11} />
-                                        ) : member.role === "DEPUTY" ? (
-                                            <ShieldCheck size={11} />
-                                        ) : null}
-                                        {roleLabel(member.role)}
-                                    </span>
+                                        <UserPlus size={18} />
+                                        Thêm thành viên
+                                    </button>
+                                )}
+
+                                {canDisbandGroup && (
+                                    <button
+                                        type="button"
+                                        onClick={() => onSetConfirmDisbandModalOpen(true)}
+                                        disabled={isDisbandingGroup || isLeavingGroup}
+                                        className="flex w-full items-center justify-center gap-2 rounded-lg bg-red-50 py-2.5 text-sm font-semibold text-red-600 transition-colors hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/30"
+                                    >
+                                        <UserMinus size={18} />
+                                        {isDisbandingGroup ? "Đang giải tán..." : "Giải tán nhóm"}
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Members List */}
+                            <div className="mt-6">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="text-sm font-bold text-gray-900 dark:text-white">
+                                        Danh sách thành viên ({memberCount})
+                                    </h3>
+                                    <MoreHorizontal size={18} className="text-gray-500 cursor-pointer" />
                                 </div>
 
-                                {(canUpdateRole || canKickMembers) &&
-                                    !isCurrentUser && (
-                                        <div className="mt-2 flex flex-wrap items-center gap-2">
-                                            {canUpdateRole && !isOwner && (
-                                                <select
-                                                    value={
-                                                        member.role ?? "MEMBER"
-                                                    }
-                                                    onChange={(event) =>
-                                                        void onUpdateMemberRole(
-                                                            member.userId,
-                                                            event.target
-                                                                .value as MemberRole,
-                                                        )
-                                                    }
-                                                    disabled={isUpdatingRole}
-                                                    className="rounded-md border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700 outline-none focus:border-blue-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-[#2f2f2f] dark:bg-[#1a1a1a] dark:text-gray-200"
-                                                >
-                                                    <option value="MEMBER">
-                                                        Thành viên
-                                                    </option>
-                                                    <option value="DEPUTY">
-                                                        Phó nhóm
-                                                    </option>
-                                                    <option value="OWNER">
-                                                        Trưởng nhóm
-                                                    </option>
-                                                </select>
-                                            )}
-                                            {canKickMembers && !isOwner && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        onOpenConfirmKick(
-                                                            member.userId,
-                                                        );
-                                                    }}
-                                                    disabled={isKicking}
-                                                    className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-700 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-300 dark:hover:bg-red-900/30"
-                                                >
-                                                    {isKicking
-                                                        ? "Đang đuổi..."
-                                                        : "Đuổi khỏi nhóm"}
-                                                </button>
-                                            )}
-                                        </div>
-                                    )}
+                                <div className="space-y-1">
+                                    {members.map((member) => {
+                                        const isMe = member.userId === currentUserId;
+                                        const canShowMenu = isMe || isOwner;
+                                        
+                                        return (
+                                            <div
+                                                key={member.userId}
+                                                onMouseEnter={() => setHoveredMemberId(member.userId)}
+                                                onMouseLeave={() => setHoveredMemberId(null)}
+                                                className="relative flex items-center justify-between rounded-xl px-2 py-2.5 transition-colors hover:bg-gray-50 dark:hover:bg-[#1a1a1a]"
+                                            >
+                                                <div className="flex items-center gap-3">
+                                                    <div className="relative">
+                                                        <img
+                                                            src={member.avatar || DEFAULT_AVATAR_URL}
+                                                            alt={member.nickname}
+                                                            className="h-10 w-10 rounded-full object-cover"
+                                                        />
+                                                        {member.role === "OWNER" && (
+                                                            <div className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-gray-100 dark:bg-[#111111] dark:ring-[#262626]">
+                                                                <Crown size={10} className="text-amber-500" />
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                                                            {isMe ? "Bạn" : member.nickname || "Người dùng"}
+                                                        </p>
+                                                        {member.role === "OWNER" && (
+                                                            <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                                                                Trưởng nhóm
+                                                            </p>
+                                                        )}
+                                                        {member.role === "DEPUTY" && (
+                                                            <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                                                                Phó nhóm
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                {/* Triple dot menu on hover */}
+                                                {canShowMenu && (hoveredMemberId === member.userId || activeMenuMemberId === member.userId) && (
+                                                    <div className="relative">
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setActiveMenuMemberId(member.userId);
+                                                            }}
+                                                            className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-[#333333]"
+                                                        >
+                                                            <MoreHorizontal size={18} className="text-gray-600 dark:text-gray-400" />
+                                                        </button>
+
+                                                        {activeMenuMemberId === member.userId && (
+                                                            <div 
+                                                                ref={menuRef}
+                                                                className="absolute right-0 top-full z-10 mt-1 w-40 rounded-xl bg-white p-1.5 shadow-2xl ring-1 ring-black/5 dark:bg-[#262626]"
+                                                            >
+                                                                {isMe ? (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            setActiveMenuMemberId(null);
+                                                                            void onLeaveGroup();
+                                                                        }}
+                                                                        className="flex w-full items-center px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg dark:text-gray-200 dark:hover:bg-[#333333]"
+                                                                    >
+                                                                        Rời nhóm
+                                                                    </button>
+                                                                ) : isOwner ? (
+                                                                    <div className="flex flex-col">
+                                                                        {member.role === "MEMBER" ? (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => {
+                                                                                    setActiveMenuMemberId(null);
+                                                                                    void onUpdateMemberRole(member.userId, "DEPUTY");
+                                                                                }}
+                                                                                className="flex w-full items-center px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg dark:text-gray-200 dark:hover:bg-[#333333]"
+                                                                            >
+                                                                                Thêm phó nhóm
+                                                                            </button>
+                                                                        ) : member.role === "DEPUTY" ? (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => {
+                                                                                    setActiveMenuMemberId(null);
+                                                                                    void onUpdateMemberRole(member.userId, "MEMBER");
+                                                                                }}
+                                                                                className="flex w-full items-center pl-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg dark:text-gray-200 dark:hover:bg-[#333333]"
+                                                                            >
+                                                                                Gỡ quyền phó nhóm
+                                                                            </button>
+                                                                        ) : null}
+                                                                        
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                setActiveMenuMemberId(null);
+                                                                                void onKickMember(member.userId);
+                                                                            }}
+                                                                            className="flex w-full items-center px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg dark:text-red-400 dark:hover:bg-red-900/20"
+                                                                        >
+                                                                            Xóa khỏi nhóm
+                                                                        </button>
+                                                                    </div>
+                                                                ) : null}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
                             </div>
-                        );
-                    })}
+                        </div>
+                    </div>
                 </div>
-            </div>
+            )}
 
             <TransferOwnershipModal
                 open={isTransferOwnerModalOpen}

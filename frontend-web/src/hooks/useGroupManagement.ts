@@ -60,6 +60,7 @@ export function useGroupManagement({
     const [isAddingMembers, setIsAddingMembers] = useState(false);
     const [isLeavingGroup, setIsLeavingGroup] = useState(false);
     const [isDisbandingGroup, setIsDisbandingGroup] = useState(false);
+    const [isUpdatingMessageRestriction, setIsUpdatingMessageRestriction] = useState(false);
 
     const [pendingKickUserId, setPendingKickUserId] = useState<number | null>(
         null,
@@ -104,13 +105,13 @@ export function useGroupManagement({
     }, [currentUserId, groupMembers]);
 
     const canManageMembers = currentMemberRole !== null;
-    const canKickMembers =
-        currentMemberRole === "OWNER" || currentMemberRole === "DEPUTY";
+    const canKickMembers = currentMemberRole === "OWNER" || currentMemberRole === "DEPUTY";
+    const canManageSettings = currentMemberRole === "OWNER" || currentMemberRole === "DEPUTY";
     const canUpdateRole = currentMemberRole === "OWNER";
     const canDisbandGroup = currentMemberRole === "OWNER";
 
     const groupMemberIds = useMemo(
-        () => new Set(groupMembers.map((member) => member.userId)),
+        () => new Set(groupMembers.map((member) => Number(member.userId))),
         [groupMembers],
     );
 
@@ -124,9 +125,19 @@ export function useGroupManagement({
         [currentUserId, groupMembers],
     );
 
-    const availableFriends = useMemo(
+    const friendsForCreateGroup = useMemo(
         () => friends.filter((friend) => friend.id !== currentUserId),
         [currentUserId, friends],
+    );
+
+    const friendsForAddMembers = useMemo(
+        () =>
+            friends.filter(
+                (friend) =>
+                    Number(friend.id) !== Number(currentUserId) &&
+                    !groupMemberIds.has(Number(friend.id)),
+            ),
+        [currentUserId, friends, groupMemberIds],
     );
 
     const loadFriends = useCallback(
@@ -240,8 +251,8 @@ export function useGroupManagement({
                 new Set(
                     memberIds.filter(
                         (memberId) =>
-                            memberId !== currentUserId &&
-                            !groupMemberIds.has(memberId),
+                            Number(memberId) !== Number(currentUserId) &&
+                            !groupMemberIds.has(Number(memberId)),
                     ),
                 ),
             );
@@ -337,7 +348,7 @@ export function useGroupManagement({
         [canKickMembers, reloadConversations, selectedConversationId],
     );
 
-    const leaveGroupDirectly = useCallback(async () => {
+    const executeLeaveGroup = useCallback(async () => {
         if (!selectedConversationId || !selectedGroupConversation) {
             return false;
         }
@@ -345,45 +356,42 @@ export function useGroupManagement({
         try {
             setIsLeavingGroup(true);
             setActionError(null);
+
+            if (currentMemberRole === "OWNER" && pendingTransferOwnerUserId) {
+                await chatService.updateGroupMemberRole(
+                    selectedConversationId,
+                    pendingTransferOwnerUserId,
+                    "OWNER",
+                );
+            }
+
             await chatService.leaveGroup(selectedConversationId);
             await reloadConversations();
+            
+            setIsConfirmLeaveModalOpen(false);
+            setPendingTransferOwnerUserId(null);
             onClearSelection();
             return true;
         } catch (error) {
-            setActionError(normalizeErrorMessage(error, "Không thể rời nhóm."));
+            setActionError(
+                normalizeErrorMessage(error, "Không thể rời nhóm."),
+            );
             return false;
         } finally {
             setIsLeavingGroup(false);
         }
     }, [
+        currentMemberRole,
         onClearSelection,
+        pendingTransferOwnerUserId,
         reloadConversations,
         selectedConversationId,
         selectedGroupConversation,
     ]);
 
-    const leaveGroup = useCallback(async () => {
-        if (!selectedConversationId || !selectedGroupConversation) {
-            return false;
-        }
-
-        const shouldTransferOwnerFirst =
-            currentMemberRole === "OWNER" && ownerTransferCandidates.length > 0;
-
-        if (shouldTransferOwnerFirst) {
-            setActionError(null);
-            setIsTransferOwnerModalOpen(true);
-            return false;
-        }
-
-        return leaveGroupDirectly();
-    }, [
-        currentMemberRole,
-        leaveGroupDirectly,
-        ownerTransferCandidates.length,
-        selectedConversationId,
-        selectedGroupConversation,
-    ]);
+    const leaveGroupDirectly = useCallback(async () => {
+        return executeLeaveGroup();
+    }, [executeLeaveGroup]);
 
     const transferOwnershipAndLeave = useCallback(
         async (newOwnerUserId: number) => {
@@ -392,7 +400,8 @@ export function useGroupManagement({
             }
 
             if (currentMemberRole !== "OWNER") {
-                return leaveGroupDirectly();
+                setIsConfirmLeaveModalOpen(true);
+                return false;
             }
 
             if (
@@ -405,45 +414,41 @@ export function useGroupManagement({
                 return false;
             }
 
-            try {
-                setIsLeavingGroup(true);
-                setPendingTransferOwnerUserId(newOwnerUserId);
-                setActionError(null);
-
-                await chatService.updateGroupMemberRole(
-                    selectedConversationId,
-                    newOwnerUserId,
-                    "OWNER",
-                );
-                await chatService.leaveGroup(selectedConversationId);
-
-                await reloadConversations();
-                setIsTransferOwnerModalOpen(false);
-                onClearSelection();
-                return true;
-            } catch (error) {
-                setActionError(
-                    normalizeErrorMessage(
-                        error,
-                        "Không thể chuyển trưởng nhóm và rời nhóm.",
-                    ),
-                );
-                return false;
-            } finally {
-                setIsLeavingGroup(false);
-                setPendingTransferOwnerUserId(null);
-            }
+            setPendingTransferOwnerUserId(newOwnerUserId);
+            setIsTransferOwnerModalOpen(false);
+            setIsConfirmLeaveModalOpen(true);
+            return true;
         },
         [
             currentMemberRole,
-            leaveGroupDirectly,
-            onClearSelection,
             ownerTransferCandidates,
-            reloadConversations,
             selectedConversationId,
             selectedGroupConversation,
         ],
     );
+
+    const leaveGroup = useCallback(async () => {
+        if (!selectedConversationId || !selectedGroupConversation) {
+            return false;
+        }
+
+        const shouldTransferOwnerFirst =
+            currentMemberRole === "OWNER" && ownerTransferCandidates.length > 0;
+
+        if (shouldTransferOwnerFirst) {
+            setActionError(null);
+            setIsTransferOwnerModalOpen(true);
+        } else {
+            setIsConfirmLeaveModalOpen(true);
+        }
+        
+        return true;
+    }, [
+        currentMemberRole,
+        ownerTransferCandidates.length,
+        selectedConversationId,
+        selectedGroupConversation,
+    ]);
 
     const disbandGroup = useCallback(async () => {
         if (!selectedConversationId || !canDisbandGroup) {
@@ -472,6 +477,33 @@ export function useGroupManagement({
         selectedConversationId,
     ]);
 
+    const updateMessageRestriction = useCallback(
+        async (isRestricted: boolean) => {
+            if (!selectedConversationId || !canManageSettings) {
+                return false;
+            }
+
+            try {
+                setIsUpdatingMessageRestriction(true);
+                setActionError(null);
+                await chatService.updateMessageRestriction(
+                    selectedConversationId,
+                    isRestricted,
+                );
+                await reloadConversations();
+                return true;
+            } catch (error) {
+                setActionError(
+                    normalizeErrorMessage(error, "Không thể cập nhật cài đặt."),
+                );
+                return false;
+            } finally {
+                setIsUpdatingMessageRestriction(false);
+            }
+        },
+        [canManageSettings, reloadConversations, selectedConversationId],
+    );
+
     const clearGroupActionError = useCallback(() => {
         setActionError(null);
     }, []);
@@ -492,11 +524,13 @@ export function useGroupManagement({
         currentMemberRole,
         canManageMembers,
         canKickMembers,
+        canManageSettings,
         canUpdateRole,
         canDisbandGroup,
         groupMemberIds,
 
-        availableFriends,
+        friendsForCreateGroup,
+        friendsForAddMembers,
         friendsLoading,
         friendsError,
 
@@ -507,6 +541,7 @@ export function useGroupManagement({
         isAddingMembers,
         isLeavingGroup,
         isDisbandingGroup,
+        isUpdatingMessageRestriction,
         pendingKickUserId,
         pendingRoleUserId,
         pendingTransferOwnerUserId,
@@ -527,7 +562,9 @@ export function useGroupManagement({
         kickMember,
         leaveGroup,
         transferOwnershipAndLeave,
+        executeLeaveGroup,
         disbandGroup,
+        updateMessageRestriction,
         refreshFriends: loadFriends,
 
         isConfirmLeaveModalOpen,

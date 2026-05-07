@@ -4,6 +4,7 @@
  */
 package iuh.fit.edu.backend.dto.response.conversation;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import iuh.fit.edu.backend.constant.ConversationType;
 import iuh.fit.edu.backend.domain.entity.mysql.PinnedMessageDetail;
 import iuh.fit.edu.backend.dto.response.message.LastMessageResponse;
@@ -27,6 +28,9 @@ public class ConversationResponse {
     private Instant updatedAt;
     private int unreadCount;
     private LastMessageResponse lastMessage;
+    @JsonProperty("isMessageRestricted")
+    private boolean isMessageRestricted;
     private List<ConversationMemberResponse> members;
     private List<PinnedMessageDetail> pinnedMessages;
 }
+

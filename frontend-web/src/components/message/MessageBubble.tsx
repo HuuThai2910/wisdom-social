@@ -560,7 +560,8 @@ export function MessageBubble({
                 | "SYSTEM_UPDATE_ROLE"
                 | "SYSTEM_KICK_MEMBER"
                 | "SYSTEM_LEAVE_GROUP"
-                | "SYSTEM_DISBAND_GROUP",
+                | "SYSTEM_DISBAND_GROUP"
+                | "SYSTEM_UPDATE_SETTING",
             content: message.content,
             isOwn,
             senderName,

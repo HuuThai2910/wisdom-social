@@ -32,9 +32,9 @@ public class Conversation {
     private Long id;
     @Enumerated(EnumType.STRING)
     private ConversationType type;
-//    Tên nhóm (null nếu là direct chat)
+    //    Tên nhóm (null nếu là direct chat)
     private String name;
-//    Avatar nhom
+    //    Avatar nhom
     private String imageUrl;
     private Instant updatedAt;
 
@@ -47,6 +47,14 @@ public class Conversation {
     private Long lastSenderId;
     private String lastSenderName;
 
+    // Bật lên thì chỉ Trưởng/Phó nhóm mới được gửi tin nhắn
+    @Column(name = "is_message_restricted", columnDefinition = "boolean default false")
+    private boolean isMessageRestricted = false;
+
+//    // Bật lên thì ai vào nhóm cũng phải chờ duyệt
+//    @Column(name = "is_join_approval_required", columnDefinition = "boolean default false")
+//    private boolean isJoinApprovalRequired = false;
+
     @OneToMany(mappedBy = "conversation")
     private List<ConversationMember> members;
 
@@ -54,3 +62,4 @@ public class Conversation {
     @Convert(converter = PinnedMessagesConverter.class)
     private List<PinnedMessageDetail> pinnedMessages = new ArrayList<>();
 }
+

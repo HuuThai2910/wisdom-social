@@ -8,6 +8,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import iuh.fit.edu.backend.constant.ConversationMemberStatus;
+import iuh.fit.edu.backend.constant.MemberRole;
 import iuh.fit.edu.backend.constant.MessageType;
 import iuh.fit.edu.backend.constant.UploadModule;
 import iuh.fit.edu.backend.domain.entity.mysql.Conversation;
@@ -83,6 +84,12 @@ public class MessageCommandService {
         // Lấy ra thông tin của người gửi (lần đầu tiên thì lấy từ db, những lần khác còn trong thời gian thì lấy từ redis cache)
         ConversationMemberResponse senderInfo = conversationMemberService
                 .getMemberInfo(sendMessageRequest.getConversationId(), userId);
+
+        if (conversation.isMessageRestricted()) {
+            if (senderInfo.getRole() != MemberRole.OWNER && senderInfo.getRole() != MemberRole.DEPUTY) {
+                throw new AccessDeniedException("Nhóm đang bật chế độ chỉ Trưởng/Phó nhóm mới được gửi tin nhắn.");
+            }
+        }
 
         // Lưu tin nhắn vào mongo
         Message newMessage = new Message();
