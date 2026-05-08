@@ -275,6 +275,7 @@ public class UserServiceImpl implements UserService {
     @Override
     public void resendConfirmationOtp(String phone) {
         String formattedPhone = "+84" + phone.substring(1, 10);
+        System.out.println("Test resend OTP:"+phone);
         try {
             ResendConfirmationCodeRequest request = ResendConfirmationCodeRequest.builder()
                     .clientId(userClientId)

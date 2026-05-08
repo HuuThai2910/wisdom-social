@@ -26,6 +26,7 @@ export default function VerifyOTPScreen() {
     const [otp, setOtp] = useState(['', '', '', '', '', '']);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [successMsg, setSuccessMsg] = useState('');
     const inputRefs = useRef<Array<TextInput | null>>([]);
 
     const handleOtpChange = (value: string, index: number) => {
@@ -57,6 +58,7 @@ export default function VerifyOTPScreen() {
         }
 
         setError('');
+        setSuccessMsg('');
         setLoading(true);
         try {
             if (type === 'register') {
@@ -80,18 +82,16 @@ export default function VerifyOTPScreen() {
     const handleResend = async () => {
         setLoading(true);
         setError('');
+        setSuccessMsg('');
         try {
             if (type === 'register') {
                 const result = await resendRegisterOtp(phone);
-                if (!result.success) {
+                if (result.success) {
+                    setSuccessMsg('Đã gửi lại mã OTP. Vui lòng kiểm tra tin nhắn.');
+                } else {
                     setError(result.message || 'Không thể gửi lại mã OTP. Vui lòng thử lại.');
                 }
-            } else if (type === 'reset-password') {
-                const result = await forgotPassword(phone);
-                if (!result.success) {
-                    setError(result.message || 'Không thể gửi lại mã OTP. Vui lòng thử lại.');
-                }
-            }
+            } 
         } catch {
             setError('Đã xảy ra lỗi, vui lòng thử lại.');
         } finally {
@@ -148,6 +148,7 @@ export default function VerifyOTPScreen() {
                             ))}
                         </View>
 
+                        {successMsg ? <Text style={styles.successText}>{successMsg}</Text> : null}
                         {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
                         <TouchableOpacity
@@ -266,6 +267,12 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.05,
         shadowRadius: 4,
         elevation: 2,
+    },
+    successText: {
+        color: '#22C55E',
+        fontSize: 14,
+        marginBottom: 12,
+        textAlign: 'center',
     },
     errorText: {
         color: '#EF4444',
