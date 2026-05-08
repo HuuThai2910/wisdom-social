@@ -6,6 +6,7 @@ import type { User } from "../../types";
 import { getCurrentUser } from "../../utils/auth";
 import userService from "../../services/userService";
 import friendService from "../../services/friendService";
+import blockService from "../../services/blockService";
 import websocketService from "../../services/websocket";
 import { convertPhoneToInternational } from "../../hooks/useCurrentUser";
 
@@ -50,7 +51,7 @@ export default function ProfileLayout() {
           } else if (currentUser) {
             // Check if this user has blocked the current user
             try {
-              const blockedByThis = await friendService.getBlockedUsers(userData.id);
+              const blockedByThis = await blockService.getBlockedUsers(userData.id);
               const isBlockedByThisUser = blockedByThis.some((u: User) => u.id === currentUser.id);
 
               if (isBlockedByThisUser) {

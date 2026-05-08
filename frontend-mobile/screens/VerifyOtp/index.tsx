@@ -12,7 +12,7 @@ export default function VerifyOtpScreen() {
         phone?: string;
         type?: string;
     }>();
-    const { verifySignupOtp, resendSignupOtp, requestPasswordReset } = useAppContext();
+    const { verifySignupOtp, resendSignupOtp } = useAppContext();
 
     const [otp, setOtp] = useState("");
     const [error, setError] = useState("");
@@ -70,9 +70,8 @@ export default function VerifyOtpScreen() {
         }
 
         setResending(true);
-        const result = normalizedType === "register"
-            ? await resendSignupOtp(phone)
-            : await requestPasswordReset(phone);
+        const result= await resendSignupOtp(phone)
+        
         setResending(false);
 
         if (!result.success) {

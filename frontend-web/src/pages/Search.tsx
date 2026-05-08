@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Search as SearchIcon, X, Loader2 } from "lucide-react";
 import userService from "../services/userService";
 import pageService from "../services/pageService";
-import friendService from "../services/friendService";
+import blockService from "../services/blockService";
 import { useCurrentUser } from "../hooks/useCurrentUser";
 import { buildS3Url } from "../utils/s3";
 import type { User } from "../types";
@@ -48,7 +48,7 @@ export default function Search() {
             const [users, pages, blockedUsers] = await Promise.all([
                 userService.getAllUsersSearch(currentUser?.id),
                 pageService.getAllPages(),
-                friendService.getBlockedUsers(userId),
+                blockService.getBlockedUsers(userId),
             ]);
 
             // Create set of blocked user IDs for quick lookup

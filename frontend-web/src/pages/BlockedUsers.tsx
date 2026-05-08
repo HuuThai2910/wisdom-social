@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { UserX, Loader2, AlertCircle } from "lucide-react";
 import userService from "../services/userService";
-import friendService from "../services/friendService";
+import blockService from "../services/blockService";
 import type { User } from "../types";
 import { useCurrentUser } from "../hooks/useCurrentUser";
 import { buildS3Url } from "../utils/s3";
@@ -51,10 +51,7 @@ export default function BlockedUsers() {
 
         setUnblockingUserId(userId);
         try {
-            await friendService.unblockUser({
-                senderId: currentUser.id,
-                receivedId: userId,
-            });
+            await blockService.unblockUser(currentUser.id, userId);
 
             // Remove from list
             setBlockedByMe((prev) => prev.filter((u) => u.id !== userId));

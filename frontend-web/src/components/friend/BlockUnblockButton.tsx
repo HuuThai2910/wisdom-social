@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Ban, Loader2 } from "lucide-react";
-import friendService from "../../services/friendService";
+import blockService from "../../services/blockService";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 
 interface BlockUnblockButtonProps {
@@ -41,7 +41,7 @@ export default function BlockUnblockButton({
         setChecking(true);
         try {
             // Get list of blocked users and check if this user is in it
-            const blockedUsers = await friendService.getBlockedUsers(currentUser.id);
+            const blockedUsers = await blockService.getBlockedUsers(currentUser.id);
             const blocked = blockedUsers.some((u) => u.id === userId);
             setIsBlocked(blocked);
         } catch (error) {
@@ -83,18 +83,13 @@ export default function BlockUnblockButton({
 
         setLoading(true);
         try {
-            const requestData = {
-                senderId: currentUser.id,
-                receivedId: userId,
-            };
-
             if (isBlocked) {
-                await friendService.unblockUser(requestData);
+                await blockService.unblockUser(currentUser.id, userId);
                 setIsBlocked(false);
                 onBlockStatusChange?.(userId, false);
                 alert(`Đã bỏ chặn "${username}" thành công!`);
             } else {
-                await friendService.blockUser(requestData);
+                await blockService.blockUser(currentUser.id, userId);
                 setIsBlocked(true);
                 onBlockStatusChange?.(userId, true);
                 alert(`Đã chặn "${username}" thành công!`);
