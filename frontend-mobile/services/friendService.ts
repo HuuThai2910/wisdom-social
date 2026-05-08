@@ -1,5 +1,4 @@
 import apiClient from "@/api/apiClient";
-import { mockFeatureFriends, mockFeatureRequests } from "@/constants";
 
 export type FriendUser = {
     id: number;
@@ -11,22 +10,13 @@ export type FriendUser = {
 };
 
 class FriendService {
-    private localFriends: FriendUser[] = [...mockFeatureFriends];
-
-    private localRequests: FriendUser[] = [...mockFeatureRequests];
-
-    private localSentRequests: FriendUser[] = [];
-
     async getFriends(userId: number): Promise<FriendUser[]> {
         try {
             const response = await apiClient.get(`/friends/${userId}`);
             const data = response.data?.data ?? [];
-            if (Array.isArray(data) && data.length > 0) {
-                return data;
-            }
-            return this.localFriends;
+            return Array.isArray(data) ? data : [];
         } catch {
-            return this.localFriends;
+            return [];
         }
     }
 
@@ -34,9 +24,9 @@ class FriendService {
         try {
             const response = await apiClient.get(`/friends/sent-requests/${userId}`);
             const data = response.data?.data ?? [];
-            return Array.isArray(data) ? data : this.localSentRequests;
+            return Array.isArray(data) ? data : [];
         } catch {
-            return this.localSentRequests;
+            return [];
         }
     }
 
@@ -44,12 +34,9 @@ class FriendService {
         try {
             const response = await apiClient.get(`/friends/requests/${userId}`);
             const data = response.data?.data ?? [];
-            if (Array.isArray(data) && data.length > 0) {
-                return data;
-            }
-            return this.localRequests;
+            return Array.isArray(data) ? data : [];
         } catch {
-            return this.localRequests;
+            return [];
         }
     }
 
@@ -58,16 +45,6 @@ class FriendService {
             await apiClient.post("/friends/request", { senderId, receivedId });
             return true;
         } catch {
-            if (!this.localRequests.some((user) => user.id === receivedId)) {
-                this.localRequests = [
-                    ...this.localRequests,
-                    {
-                        id: receivedId,
-                        name: `User ${receivedId}`,
-                        username: `user${receivedId}`,
-                    },
-                ];
-            }
             return false;
         }
     }
@@ -77,11 +54,6 @@ class FriendService {
             await apiClient.post("/friends/accept", { senderId, receivedId });
             return true;
         } catch {
-            const accepted = this.localRequests.find((user) => user.id === senderId);
-            if (accepted && !this.localFriends.some((user) => user.id === senderId)) {
-                this.localFriends = [accepted, ...this.localFriends];
-            }
-            this.localRequests = this.localRequests.filter((user) => user.id !== senderId);
             return false;
         }
     }
@@ -91,7 +63,6 @@ class FriendService {
             await apiClient.post("/friends/reject", { senderId, receivedId });
             return true;
         } catch {
-            this.localRequests = this.localRequests.filter((user) => user.id !== senderId);
             return false;
         }
     }
@@ -101,8 +72,6 @@ class FriendService {
             await apiClient.post("/friends/cancel", { senderId, receivedId });
             return true;
         } catch {
-            this.localFriends = this.localFriends.filter((user) => user.id !== receivedId);
-            this.localRequests = this.localRequests.filter((user) => user.id !== receivedId);
             return false;
         }
     }
@@ -124,8 +93,6 @@ class FriendService {
             if (hasId(sentRequests, targetId)) return "SENT";
             return "NONE";
         } catch {
-            if (this.localFriends.some((u) => u.id === targetId)) return "FRIEND";
-            if (this.localRequests.some((u) => u.id === targetId)) return "RECEIVED";
             return "NONE";
         }
     }

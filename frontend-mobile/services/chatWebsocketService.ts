@@ -649,30 +649,6 @@ class ChatWebsocketService {
         this.removeSubscription(destination);
     }
 
-    subscribeToUserFriendEvents(
-        phone: string,
-        onEvent: (eventType: string, message: string) => void,
-    ): void {
-        const eventTypes = ["friend-request", "friend-accept", "friend-reject", "friend-cancel"];
-        eventTypes.forEach((eventType) => {
-            const destination = `/topic/user/${phone}/${eventType}`;
-            this.registerSubscription(destination, () => {
-                const client = this.client;
-                if (!client?.connected) throw new Error("WebSocket not connected");
-                return client.subscribe(destination, (msg: IMessage) => {
-                    onEvent(eventType, msg.body);
-                });
-            });
-        });
-    }
-
-    unsubscribeFromUserFriendEvents(phone: string): void {
-        const eventTypes = ["friend-request", "friend-accept", "friend-reject", "friend-cancel"];
-        eventTypes.forEach((eventType) => {
-            this.removeSubscription(`/topic/user/${phone}/${eventType}`);
-        });
-    }
-
     subscribeToProfileUpdates(
         phone: string,
         onProfileUpdated: (payload: Record<string, unknown>) => void,

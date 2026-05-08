@@ -16,7 +16,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import { useRouter, useLocalSearchParams } from "expo-router";
+import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets, SafeAreaView } from "react-native-safe-area-context";
 import { useAppContext } from "@/context/AppContext";
 import { colors } from "@/constants";
@@ -24,6 +24,7 @@ import userService from "@/services/userService";
 import friendService from "@/services/friendService";
 import blockService from "@/services/blockService";
 import { useFriendNotifications } from "@/hooks/useFriendNotifications";
+import { useBlockNotifications } from "@/hooks/useBlockNotifications";
 import type { User } from "@/services/userService";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -116,6 +117,7 @@ export default function InstagramProfileScreen() {
     }, [isViewingOther, targetId]);
 
     const refreshTrigger = useFriendNotifications();
+    const blockTrigger = useBlockNotifications();
 
     useEffect(() => {
         if (isViewingOther) {
@@ -125,11 +127,14 @@ export default function InstagramProfileScreen() {
         }
     }, [isViewingOther, loadProfile, loadFriendStatus, loadOtherFriendsCount, refreshTrigger]);
 
+
     // ── Effects: own-profile view ─────────────────────────────────────────────
-    useEffect(() => {
-        if (isViewingOther || !currentUser?.id) return;
-        friendService.getFriends(Number(currentUser.id)).then((list) => setFriendsCount(list.length)).catch(() => {});
-    }, [isViewingOther, currentUser?.id]);
+    useFocusEffect(
+        useCallback(() => {
+            if (isViewingOther || !currentUser?.id) return;
+            friendService.getFriends(Number(currentUser.id)).then((list) => setFriendsCount(list.length)).catch(() => {});
+        }, [isViewingOther, currentUser?.id]),
+    );
 
     useEffect(() => {
         if (showEditModal && currentUser) {
@@ -203,6 +208,37 @@ export default function InstagramProfileScreen() {
                 },
             },
         ]);
+    };
+
+    const handleUnblockOther = () => {
+        Alert.alert("Bỏ chặn", "Bạn có chắc muốn bỏ chặn người này?", [
+            { text: "Hủy", style: "cancel" },
+            {
+                text: "Bỏ chặn",
+                style: "destructive",
+                onPress: async () => {
+                    setActionLoading(true);
+                    await blockService.unblockUser(myId, targetId);
+                    setFriendStatus("NONE");
+                    setActionLoading(false);
+                },
+            },
+        ]);
+    };
+
+    const handleMoreOptions = () => {
+        if (friendStatus === "BLOCKED") {
+            handleUnblockOther();
+        } else {
+            Alert.alert(
+                profileUser?.name || profileUser?.username || "Người dùng",
+                undefined,
+                [
+                    { text: "Chặn người dùng", style: "destructive", onPress: handleBlock },
+                    { text: "Hủy", style: "cancel" },
+                ],
+            );
+        }
     };
 
     const renderFriendButton = () => {
@@ -308,10 +344,21 @@ export default function InstagramProfileScreen() {
         }
         if (friendStatus === "BLOCKED") {
             return (
-                <View style={[os.friendBtn, os.friendBtnOutline]}>
-                    <Ionicons name="ban-outline" size={16} color={colors.textMuted} />
-                    <Text style={os.friendBtnTextMuted}>Đã chặn</Text>
-                </View>
+                <TouchableOpacity
+                    style={[os.friendBtn, os.friendBtnOutline]}
+                    onPress={handleUnblockOther}
+                    disabled={actionLoading}
+                    activeOpacity={0.75}
+                >
+                    {actionLoading ? (
+                        <ActivityIndicator size="small" color={colors.textMuted} />
+                    ) : (
+                        <>
+                            <Ionicons name="ban-outline" size={16} color={colors.danger} />
+                            <Text style={[os.friendBtnTextMuted, { color: colors.danger }]}>Bỏ chặn</Text>
+                        </>
+                    )}
+                </TouchableOpacity>
             );
         }
         return null;
@@ -379,6 +426,12 @@ export default function InstagramProfileScreen() {
         finally { setIsLoadingBlocked(false); }
     }, [currentUser?.id]);
 
+    useEffect(() => {
+        if (!isViewingOther && selectedTab === "blocked") {
+            void loadBlockedUsers();
+        }
+    }, [blockTrigger, isViewingOther, selectedTab, loadBlockedUsers]);
+
     const handleUnblock = async (userId: string) => {
         Alert.alert("Bỏ chặn", "Bạn có chắc muốn bỏ chặn người dùng này?", [
             { text: "Hủy", style: "cancel" },
@@ -408,7 +461,7 @@ export default function InstagramProfileScreen() {
                     <Text style={os.headerTitle} numberOfLines={1}>
                         {profileUser?.username || profileUser?.name || "Hồ sơ"}
                     </Text>
-                    <TouchableOpacity style={os.iconBtn} onPress={handleBlock} hitSlop={12}>
+                    <TouchableOpacity style={os.iconBtn} onPress={handleMoreOptions} hitSlop={12}>
                         <Ionicons name="ellipsis-vertical" size={22} color={colors.textMuted} />
                     </TouchableOpacity>
                 </View>

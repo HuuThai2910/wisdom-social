@@ -11,11 +11,12 @@ import {
     SafeAreaView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { colors, spacing } from "@/constants";
 import { useAppContext } from "@/context/AppContext";
 import userService from "@/services/userService";
 import pageService from "@/services/pageService";
+import { useBlockNotifications } from "@/hooks/useBlockNotifications";
 import type { User } from "@/services/userService";
 import type { PageData } from "@/services/pageService";
 
@@ -72,7 +73,12 @@ export default function InstagramSearchScreen() {
         }
     }, [currentUser?.id]);
 
-    useEffect(() => { void loadData(); }, [loadData]);
+    // Reload khi screen lấy focus lại (vd: sau khi bỏ chặn ở profile rồi back)
+    useFocusEffect(useCallback(() => { void loadData(); }, [loadData]));
+
+    // Reload realtime khi có block/unblock event qua WebSocket
+    const blockTrigger = useBlockNotifications();
+    useEffect(() => { void loadData(); }, [blockTrigger, loadData]);
 
     const handleSearch = (text: string) => {
         setSearchQuery(text);

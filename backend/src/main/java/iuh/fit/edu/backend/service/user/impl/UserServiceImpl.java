@@ -7,6 +7,7 @@ package iuh.fit.edu.backend.service.user.impl;
 import iuh.fit.edu.backend.domain.entity.mysql.*;
 import iuh.fit.edu.backend.dto.request.friend.FriendRequest;
 import iuh.fit.edu.backend.dto.request.user.*;
+import iuh.fit.edu.backend.dto.response.friend.BlockEventPayload;
 import iuh.fit.edu.backend.dto.response.user.*;
 import iuh.fit.edu.backend.config.filter.JwtAuthFilter;
 import iuh.fit.edu.backend.mapper.UserMapper;
@@ -456,14 +457,14 @@ public class UserServiceImpl implements UserService {
             blockUserService.blockUser(blockedUser);
             String blockerPhone = convertToInternationalFormat(blocker.getPhone());
             String blockedPhone = convertToInternationalFormat(blocked.getPhone());
-            simpMessagingTemplate.convertAndSend(
-                    "/topic/user/" + blockerPhone + "/save-block",
-                    "Người dùng này đã bị chặn"
-            );
-            simpMessagingTemplate.convertAndSend(
-                    "/topic/user/" + blockedPhone + "/save-block",
-                    "Bạn đã bị chặn"
-            );
+            BlockEventPayload blockPayload = BlockEventPayload.builder()
+                    .eventType("save-block")
+                    .blockerId(friendRequest.getSenderId())
+                    .blockedId(friendRequest.getReceivedId())
+                    .timestamp(OffsetDateTime.now().toString())
+                    .build();
+            simpMessagingTemplate.convertAndSend("/topic/user/" + blockerPhone + "/save-block", blockPayload);
+            simpMessagingTemplate.convertAndSend("/topic/user/" + blockedPhone + "/save-block", blockPayload);
             return true;
         }
         return false;
@@ -478,14 +479,14 @@ public class UserServiceImpl implements UserService {
             blockUserService.cancelBlockUser(blockedUser);
             String blockerPhone = convertToInternationalFormat(blocker.getPhone());
             String blockedPhone = convertToInternationalFormat(blocked.getPhone());
-            simpMessagingTemplate.convertAndSend(
-                    "/topic/user/" + blockerPhone + "/cancel-block",
-                    "Người dùng này đã được gỡ chặn"
-            );
-            simpMessagingTemplate.convertAndSend(
-                    "/topic/user/" + blockedPhone + "/cancel-block",
-                    "Bạn đã được gỡ chặn"
-            );
+            BlockEventPayload cancelPayload = BlockEventPayload.builder()
+                    .eventType("cancel-block")
+                    .blockerId(friendRequest.getSenderId())
+                    .blockedId(friendRequest.getReceivedId())
+                    .timestamp(OffsetDateTime.now().toString())
+                    .build();
+            simpMessagingTemplate.convertAndSend("/topic/user/" + blockerPhone + "/cancel-block", cancelPayload);
+            simpMessagingTemplate.convertAndSend("/topic/user/" + blockedPhone + "/cancel-block", cancelPayload);
             return true;
         }
         return false;

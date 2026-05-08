@@ -3,6 +3,7 @@ package iuh.fit.edu.backend.service.user.impl;
 import iuh.fit.edu.backend.constant.FriendStatus;
 import iuh.fit.edu.backend.domain.entity.mysql.Friend;
 import iuh.fit.edu.backend.domain.entity.mysql.User;
+import iuh.fit.edu.backend.dto.response.friend.FriendEventPayload;
 import iuh.fit.edu.backend.repository.mysql.FriendRepository;
 import iuh.fit.edu.backend.service.user.FriendService;
 import iuh.fit.edu.backend.service.user.UserService;
@@ -56,16 +57,15 @@ public class FriendServiceImpl implements FriendService {
             //push websocket to receiver
             if(receiver != null && receiver.getPhone() != null) {
                 String receiverPhone = convertToInternationalFormat(receiver.getPhone());
-                String senderName = sender.getName() != null && !sender.getName().isEmpty()
-                    ? sender.getName()
-                    : (sender.getUsername() != null && !sender.getUsername().isEmpty()
-                        ? sender.getUsername()
-                        : sender.getPhone());
-                String message = "Bạn có lời mời kết bạn từ " + senderName;
-                
+                FriendEventPayload payload = FriendEventPayload.builder()
+                        .eventType("friend-request")
+                        .senderId(senderId)
+                        .receiverId(receiverId)
+                        .timestamp(OffsetDateTime.now().toString())
+                        .build();
                 messagingTemplate.convertAndSend(
                         "/topic/user/" + receiverPhone + "/friend-request",
-                        message
+                        payload
                 );
             }
 
@@ -117,11 +117,15 @@ public class FriendServiceImpl implements FriendService {
             // 3. Push realtime cho sender
             if(sender != null && sender.getPhone() != null) {
                 String senderPhone = convertToInternationalFormat(sender.getPhone());
-                String message = (receiver.getName() != null ? receiver.getName() : receiver.getPhone()) + " đã chấp nhận lời mời kết bạn của bạn";
-                
+                FriendEventPayload payload = FriendEventPayload.builder()
+                        .eventType("friend-accept")
+                        .senderId(senderId)
+                        .receiverId(receiverId)
+                        .timestamp(OffsetDateTime.now().toString())
+                        .build();
                 messagingTemplate.convertAndSend(
                         "/topic/user/" + senderPhone + "/friend-accept",
-                        message
+                        payload
                 );
             }
             return true;
@@ -162,11 +166,15 @@ public class FriendServiceImpl implements FriendService {
             User receiver = userService.findUserById(receiverId);
             if(receiver != null && receiver.getPhone() != null) {
                 String receiverPhone = convertToInternationalFormat(receiver.getPhone());
-                String message = "Lời mời kết bạn đã bị hủy";
-                
+                FriendEventPayload payload = FriendEventPayload.builder()
+                        .eventType("friend-cancel")
+                        .senderId(senderId)
+                        .receiverId(receiverId)
+                        .timestamp(OffsetDateTime.now().toString())
+                        .build();
                 messagingTemplate.convertAndSend(
                         "/topic/user/" + receiverPhone + "/friend-cancel",
-                        message
+                        payload
                 );
             }
             return true;
@@ -203,11 +211,15 @@ public class FriendServiceImpl implements FriendService {
 
             if(senderUser != null && senderUser.getPhone() != null) {
                 String senderPhone = convertToInternationalFormat(senderUser.getPhone());
-                String message = (receiverUser != null && receiverUser.getName() != null ? receiverUser.getName() : "Người dùng") + " đã từ chối lời mời kết bạn";
-                
+                FriendEventPayload payload = FriendEventPayload.builder()
+                        .eventType("friend-reject")
+                        .senderId(senderId)
+                        .receiverId(receiverId)
+                        .timestamp(OffsetDateTime.now().toString())
+                        .build();
                 messagingTemplate.convertAndSend(
                         "/topic/user/" + senderPhone + "/friend-reject",
-                        message
+                        payload
                 );
             }
             return true;
