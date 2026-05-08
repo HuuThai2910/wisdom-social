@@ -156,8 +156,12 @@ export async function confirmRegisterOtp(
     try {
         await apiClient.post("/auth/confirm", { phone, otp });
         return { success: true };
-    } catch {
-        return { success: false, message: "Xác thực OTP thất bại." };
+    } catch (error: any) {
+        const msg: string = (error?.response?.data?.message || error?.message || '').toLowerCase();
+        if (msg.includes('expired') || msg.includes('codeexpired')) {
+            return { success: false, message: "Mã xác thực đã hết hạn. Vui lòng yêu cầu gửi lại." };
+        }
+        return { success: false, message: "Mã xác thực không đúng, vui lòng thử lại." };
     }
 }
 
@@ -211,6 +215,26 @@ export async function loginWithPhone(
     }
 }
 
+const mapResendOtpError = (rawMessage?: string): string => {
+    const lower = (rawMessage || '').toLowerCase();
+    if (lower.includes('attempt limit exceeded')) {
+        return 'Bạn đã gửi lại quá nhiều lần. Vui lòng thử lại sau ít phút.';
+    }
+    return 'Không thể gửi lại mã OTP. Vui lòng thử lại.';
+};
+
+export async function resendRegisterOtp(
+    phone: string,
+): Promise<{ success: boolean; message?: string }> {
+    try {
+        await apiClient.post("/auth/resend-otp", { phone });
+        return { success: true };
+    } catch (error: any) {
+        const msg = error?.response?.data?.message || error?.message || '';
+        return { success: false, message: mapResendOtpError(msg) };
+    }
+}
+
 export async function forgotPassword(
     phone: string,
 ): Promise<{ success: boolean; message?: string }> {
@@ -220,8 +244,9 @@ export async function forgotPassword(
             instant: new Date().toISOString(),
         });
         return { success: true };
-    } catch {
-        return { success: false, message: "Không thể gửi OTP. Vui lòng thử lại." };
+    } catch (error: any) {
+        const msg = error?.response?.data?.message || error?.message || '';
+        return { success: false, message: mapResendOtpError(msg) };
     }
 }
 

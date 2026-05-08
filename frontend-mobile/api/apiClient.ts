@@ -52,6 +52,7 @@ const PUBLIC_ENDPOINTS = [
     "/auth/login",
     "/auth/register",
     "/auth/confirm",
+    "/auth/resend-otp",
     "/auth/forgot-password",
     "/auth/reset-password",
     "/session/qr-login/confirm",

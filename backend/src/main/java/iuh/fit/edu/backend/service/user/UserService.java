@@ -18,6 +18,7 @@ public interface UserService {
     User getCurrentUser();
     String getNewAccessToken(String refreshToken);
     String getNewQrAccessToken(String refreshToken);
+    void resendConfirmationOtp(String phone);
     UserResponseOTPPassword forgotPasswordUser(UserRequestForgotPassword requestForgotPassword);
     boolean resetPassword(UserRequestResetPassword requestResetPassword);
     boolean deleteUser(long id);

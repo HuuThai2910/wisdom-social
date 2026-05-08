@@ -7,42 +7,45 @@ import {
     StyleSheet,
     KeyboardAvoidingView,
     Platform,
+    ScrollView,
     ActivityIndicator,
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useAppContext } from '@/context/AppContext';
+import { forgotPassword } from '@/services/authService';
 import Logo from '@/components/Logo';
 import { validatePhone } from '@/utils/validators';
 
 export default function ForgotPasswordScreen() {
     const router = useRouter();
-    const { requestPasswordReset, loadingAuth } = useAppContext();
     const [phone, setPhone] = useState('');
+    const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
     const handleSubmit = async () => {
-        // Validate phone number
-        const phoneValidation = validatePhone(phone);
-        if (!phoneValidation.isValid) {
-            setError(phoneValidation.error || '');
+        const validation = validatePhone(phone);
+        if (!validation.isValid) {
+            setError(validation.error || '');
             return;
         }
 
         setError('');
+        setLoading(true);
         try {
-            const result = await requestPasswordReset(phone);
+            const result = await forgotPassword(phone);
             if (result.success) {
                 router.push({
-                    pathname: '/(auth)/verify-otp',
-                    params: { phone, type: 'reset-password' },
+                    pathname: '/(auth)/reset-password',
+                    params: { phone },
                 });
             } else {
-                setError(result.message || 'Không thể gửi OTP');
+                setError(result.message || 'Không thể gửi OTP. Vui lòng thử lại.');
             }
-        } catch (err) {
-            setError('Có lỗi xảy ra, vui lòng thử lại');
+        } catch {
+            setError('Đã xảy ra lỗi, vui lòng thử lại.');
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -55,7 +58,11 @@ export default function ForgotPasswordScreen() {
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                 style={styles.container}
             >
-                <View style={styles.content}>
+                <ScrollView
+                    contentContainerStyle={styles.content}
+                    keyboardShouldPersistTaps="handled"
+                    showsVerticalScrollIndicator={false}
+                >
                     <Logo showSubtitle />
 
                     <View style={styles.iconContainer}>
@@ -88,21 +95,21 @@ export default function ForgotPasswordScreen() {
                     {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
                     <TouchableOpacity
-                        style={[styles.submitButton, loadingAuth && styles.disabledButton]}
+                        style={[styles.submitButton, loading && styles.disabledButton]}
                         onPress={handleSubmit}
-                        disabled={loadingAuth}
+                        disabled={loading}
                     >
                         <LinearGradient
-                            colors={loadingAuth ? ['#93C5FD', '#93C5FD'] : ['#3B82F6', '#2563EB']}
+                            colors={loading ? ['#93C5FD', '#93C5FD'] : ['#3B82F6', '#2563EB']}
                             start={{ x: 0, y: 0 }}
                             end={{ x: 1, y: 0 }}
                             style={styles.submitButtonGradient}
                         >
-                            {loadingAuth ? (
+                            {loading ? (
                                 <ActivityIndicator color="#fff" />
                             ) : (
                                 <View style={styles.buttonContent}>
-                                    <Text style={styles.submitButtonText}>Send OTP Code</Text>
+                                    <Text style={styles.submitButtonText}>Confirm</Text>
                                     <Ionicons name="send" size={20} color="#fff" />
                                 </View>
                             )}
@@ -115,41 +122,127 @@ export default function ForgotPasswordScreen() {
                             <Text style={styles.backButtonText}>Back to Login</Text>
                         </TouchableOpacity>
                     </Link>
-                </View>
+                </ScrollView>
             </KeyboardAvoidingView>
         </LinearGradient>
     );
 }
 
 const styles = StyleSheet.create({
-    gradient: { flex: 1 },
-    container: { flex: 1, backgroundColor: 'transparent' },
-    content: { flex: 1, justifyContent: 'center', padding: 24 },
-    iconContainer: { alignItems: 'center', marginBottom: 24 },
+    gradient: {
+        flex: 1,
+    },
+    container: {
+        flex: 1,
+        backgroundColor: 'transparent',
+    },
+    content: {
+        flexGrow: 1,
+        justifyContent: 'center',
+        padding: 24,
+    },
+    iconContainer: {
+        alignItems: 'center',
+        marginBottom: 24,
+    },
     iconBackground: {
-        width: 100, height: 100, borderRadius: 50,
-        backgroundColor: '#EFF6FF', alignItems: 'center', justifyContent: 'center',
-        shadowColor: '#3B82F6', shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.2, shadowRadius: 8, elevation: 6,
+        width: 100,
+        height: 100,
+        borderRadius: 50,
+        backgroundColor: '#EFF6FF',
+        alignItems: 'center',
+        justifyContent: 'center',
+        shadowColor: '#3B82F6',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 8,
+        elevation: 6,
     },
-    title: { fontSize: 28, fontWeight: 'bold', textAlign: 'center', color: '#1F2937', marginBottom: 12 },
-    description: { fontSize: 15, color: '#6B7280', textAlign: 'center', marginBottom: 40, paddingHorizontal: 16, lineHeight: 22 },
+    title: {
+        fontSize: 28,
+        fontWeight: 'bold',
+        textAlign: 'center',
+        color: '#1F2937',
+        marginBottom: 12,
+    },
+    description: {
+        fontSize: 15,
+        color: '#6B7280',
+        textAlign: 'center',
+        marginBottom: 40,
+        paddingHorizontal: 16,
+        lineHeight: 22,
+    },
     inputWrapper: {
-        flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF',
-        borderRadius: 12, marginBottom: 24, borderWidth: 1, borderColor: '#E5E7EB',
-        shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FFFFFF',
+        borderRadius: 12,
+        marginBottom: 24,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 4,
+        elevation: 2,
     },
-    inputIconContainer: { paddingLeft: 16, paddingRight: 12 },
-    input: { flex: 1, padding: 16, fontSize: 15, color: '#1F2937' },
-    errorText: { color: '#EF4444', fontSize: 14, marginBottom: 12, marginTop: -12 },
+    inputIconContainer: {
+        paddingLeft: 16,
+        paddingRight: 12,
+    },
+    input: {
+        flex: 1,
+        padding: 16,
+        fontSize: 15,
+        color: '#1F2937',
+    },
+    errorText: {
+        color: '#EF4444',
+        fontSize: 14,
+        marginBottom: 12,
+        textAlign: 'center',
+    },
     submitButton: {
-        borderRadius: 12, overflow: 'hidden', marginBottom: 20,
-        shadowColor: '#3B82F6', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 6,
+        borderRadius: 12,
+        overflow: 'hidden',
+        marginBottom: 20,
+        shadowColor: '#3B82F6',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 6,
     },
-    submitButtonGradient: { paddingVertical: 16, paddingHorizontal: 24, alignItems: 'center', justifyContent: 'center' },
-    buttonContent: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    disabledButton: { opacity: 0.6 },
-    submitButtonText: { color: '#fff', fontSize: 16, fontWeight: '700', letterSpacing: 0.5 },
-    backButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 12, gap: 8 },
-    backButtonText: { color: '#3B82F6', fontSize: 15, fontWeight: '600' },
+    submitButtonGradient: {
+        paddingVertical: 16,
+        paddingHorizontal: 24,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    buttonContent: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    disabledButton: {
+        opacity: 0.6,
+    },
+    submitButtonText: {
+        color: '#fff',
+        fontSize: 16,
+        fontWeight: '700',
+        letterSpacing: 0.5,
+    },
+    backButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 12,
+        gap: 8,
+    },
+    backButtonText: {
+        color: '#3B82F6',
+        fontSize: 15,
+        fontWeight: '600',
+    },
 });

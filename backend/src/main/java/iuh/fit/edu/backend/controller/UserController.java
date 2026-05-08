@@ -116,6 +116,13 @@ public class UserController {
         return ResponseEntity.ok(ApiResponse.success(200, "Get current user successfully", currentUser));
     }
 
+    @PostMapping("/resend-otp")
+    @ApiMessage("OTP resent successfully")
+    public ResponseEntity<Void> resendOtp(@RequestBody UserRequestForgotPassword request) {
+        userService.resendConfirmationOtp(request.getPhone());
+        return ResponseEntity.ok().build();
+    }
+
     @PostMapping("/forgot-password")
     @ApiMessage("OTP sent successfully")
     public ResponseEntity<UserResponseOTPPassword> forgotPassword(@RequestBody UserRequestForgotPassword requestForgotPassword) {

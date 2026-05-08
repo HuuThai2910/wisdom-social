@@ -13,22 +13,21 @@ import {
 import { Link, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useAppContext } from '@/context/AppContext';
+import { registerWithPhone } from '@/services/authService';
 import Logo from '@/components/Logo';
 import { validateSignupForm } from '@/utils/validators';
 
 export default function SignUpScreen() {
     const router = useRouter();
-    const { signupWithPhone, loadingAuth } = useAppContext();
     const [phone, setPhone] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+    const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
     const handleSignUp = async () => {
-        // Validate signup form
         const validation = validateSignupForm(phone, password, confirmPassword);
         if (!validation.isValid) {
             setError(validation.error || '');
@@ -36,8 +35,9 @@ export default function SignUpScreen() {
         }
 
         setError('');
+        setLoading(true);
         try {
-            const result = await signupWithPhone(phone, password, confirmPassword);
+            const result = await registerWithPhone({ phone, password, confirmPassword });
             if (result.success) {
                 router.push({
                     pathname: '/(auth)/verify-otp',
@@ -46,8 +46,10 @@ export default function SignUpScreen() {
             } else {
                 setError(result.message || 'Đăng ký thất bại');
             }
-        } catch (err) {
+        } catch {
             setError('Có lỗi xảy ra, vui lòng thử lại');
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -66,7 +68,7 @@ export default function SignUpScreen() {
                     showsVerticalScrollIndicator={false}
                 >
                     <Logo showSubtitle />
-                    
+
                     <Text style={styles.welcomeText}>
                         Create Account
                     </Text>
@@ -141,17 +143,17 @@ export default function SignUpScreen() {
                         {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
                         <TouchableOpacity
-                            style={[styles.signUpButton, loadingAuth && styles.disabledButton]}
+                            style={[styles.signUpButton, loading && styles.disabledButton]}
                             onPress={handleSignUp}
-                            disabled={loadingAuth}
+                            disabled={loading}
                         >
                             <LinearGradient
-                                colors={loadingAuth ? ['#93C5FD', '#93C5FD'] : ['#3B82F6', '#2563EB']}
+                                colors={loading ? ['#93C5FD', '#93C5FD'] : ['#3B82F6', '#2563EB']}
                                 start={{ x: 0, y: 0 }}
                                 end={{ x: 1, y: 0 }}
                                 style={styles.signUpButtonGradient}
                             >
-                                {loadingAuth ? (
+                                {loading ? (
                                     <ActivityIndicator color="#fff" />
                                 ) : (
                                     <View style={styles.buttonContent}>

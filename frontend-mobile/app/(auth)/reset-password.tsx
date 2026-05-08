@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
     View,
     Text,
@@ -13,25 +13,68 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { useAppContext } from '@/context/AppContext';
+import { resetPassword, forgotPassword } from '@/services/authService';
 import Logo from '@/components/Logo';
-import { validateResetPasswordForm } from '@/utils/validators';
+import { validateResetPasswordForm, validateOTP } from '@/utils/validators';
 
 export default function ResetPasswordScreen() {
     const router = useRouter();
-    const { resetPasswordByOtp, loadingAuth } = useAppContext();
     const params = useLocalSearchParams();
     const phone = params.phone as string;
-    const otp = params.otp as string;
 
+    const [otp, setOtp] = useState(['', '', '', '', '', '']);
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+    const [loading, setLoading] = useState(false);
+    const [resendLoading, setResendLoading] = useState(false);
     const [error, setError] = useState('');
+    const [resendSuccess, setResendSuccess] = useState(false);
+    const inputRefs = useRef<Array<TextInput | null>>([]);
+
+    const handleOtpChange = (value: string, index: number) => {
+        if (value.length > 1) value = value[0];
+        const newOtp = [...otp];
+        newOtp[index] = value;
+        setOtp(newOtp);
+        if (value && index < 5) {
+            inputRefs.current[index + 1]?.focus();
+        }
+    };
+
+    const handleKeyPress = (key: string, index: number) => {
+        if (key === 'Backspace' && !otp[index] && index > 0) {
+            inputRefs.current[index - 1]?.focus();
+        }
+    };
+
+    const handleResend = async () => {
+        setResendLoading(true);
+        setError('');
+        setResendSuccess(false);
+        try {
+            const result = await forgotPassword(phone);
+            if (result.success) {
+                setResendSuccess(true);
+            } else {
+                setError(result.message || 'Không thể gửi lại mã OTP. Vui lòng thử lại.');
+            }
+        } catch {
+            setError('Đã xảy ra lỗi, vui lòng thử lại.');
+        } finally {
+            setResendLoading(false);
+        }
+    };
 
     const handleResetPassword = async () => {
-        // Validate reset password form
+        const otpCode = otp.join('');
+        const otpValidation = validateOTP(otpCode);
+        if (!otpValidation.isValid) {
+            setError(otpValidation.error || '');
+            return;
+        }
+
         const validation = validateResetPasswordForm(password, confirmPassword);
         if (!validation.isValid) {
             setError(validation.error || '');
@@ -39,21 +82,24 @@ export default function ResetPasswordScreen() {
         }
 
         setError('');
+        setLoading(true);
         try {
-            const result = await resetPasswordByOtp({
+            const result = await resetPassword({
                 phone,
                 password,
                 confirmPassword,
-                confirmationCode: otp,
+                confirmationCode: otpCode,
             });
 
             if (result.success) {
                 router.replace('/(auth)/login');
             } else {
-                setError(result.message || 'Đặt lại mật khẩu thất bại');
+                setError(result.message || 'Đặt lại mật khẩu thất bại. Vui lòng thử lại.');
             }
-        } catch (err) {
-            setError('Có lỗi xảy ra, vui lòng thử lại');
+        } catch {
+            setError('Đã xảy ra lỗi, vui lòng thử lại.');
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -64,11 +110,12 @@ export default function ResetPasswordScreen() {
         >
             <KeyboardAvoidingView
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                style={styles.container}
+                style={styles.keyboardView}
             >
                 <ScrollView
                     contentContainerStyle={styles.scrollContent}
                     keyboardShouldPersistTaps="handled"
+                    showsVerticalScrollIndicator={false}
                 >
                     <View style={styles.logoContainer}>
                         <Logo size="medium" showSubtitle={false} />
@@ -80,8 +127,41 @@ export default function ResetPasswordScreen() {
                         </View>
                     </View>
 
-                    <Text style={styles.title}>Reset Password</Text>
-                    <Text style={styles.subtitle}>Enter your new password</Text>
+                    <Text style={styles.title}>Reset Password 11</Text>
+                    <Text style={styles.subtitle}>
+                        Enter the OTP sent to{' '}
+                        <Text style={styles.phoneHighlight}>{phone}</Text>
+                        {' '}and your new password
+                    </Text>
+
+                    <View style={styles.otpContainer}>
+                        {otp.map((digit, index) => (
+                            <TextInput
+                                key={index}
+                                ref={(ref) => { inputRefs.current[index] = ref; }}
+                                style={styles.otpInput}
+                                value={digit}
+                                onChangeText={(value) => handleOtpChange(value, index)}
+                                onKeyPress={({ nativeEvent: { key } }) => handleKeyPress(key, index)}
+                                keyboardType="number-pad"
+                                maxLength={1}
+                                selectTextOnFocus
+                            />
+                        ))}
+                    </View>
+
+                    <TouchableOpacity style={styles.resendButton} onPress={handleResend} disabled={resendLoading || loading}>
+                        <Text style={styles.resendText}>
+                            Chưa nhận được mã?{' '}
+                            <Text style={styles.resendLink}>
+                                {resendLoading ? 'Đang gửi...' : 'Gửi lại'}
+                            </Text>
+                        </Text>
+                    </TouchableOpacity>
+
+                    {resendSuccess ? (
+                        <Text style={styles.successText}>Mã OTP mới đã được gửi.</Text>
+                    ) : null}
 
                     <View style={styles.form}>
                         <View style={styles.inputWrapper}>
@@ -90,7 +170,7 @@ export default function ResetPasswordScreen() {
                             </View>
                             <TextInput
                                 style={styles.input}
-                                placeholder="New Password"
+                                placeholder="Mật khẩu mới"
                                 placeholderTextColor="#9CA3AF"
                                 value={password}
                                 onChangeText={setPassword}
@@ -114,7 +194,7 @@ export default function ResetPasswordScreen() {
                             </View>
                             <TextInput
                                 style={styles.input}
-                                placeholder="Confirm New Password"
+                                placeholder="Xác nhận mật khẩu mới"
                                 placeholderTextColor="#9CA3AF"
                                 value={confirmPassword}
                                 onChangeText={setConfirmPassword}
@@ -135,21 +215,21 @@ export default function ResetPasswordScreen() {
                         {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
                         <TouchableOpacity
-                            style={[styles.submitButton, loadingAuth && styles.disabledButton]}
+                            style={[styles.submitButton, loading && styles.disabledButton]}
                             onPress={handleResetPassword}
-                            disabled={loadingAuth}
+                            disabled={loading}
                         >
                             <LinearGradient
-                                colors={loadingAuth ? ['#93C5FD', '#93C5FD'] : ['#3B82F6', '#2563EB']}
+                                colors={loading ? ['#93C5FD', '#93C5FD'] : ['#3B82F6', '#2563EB']}
                                 start={{ x: 0, y: 0 }}
                                 end={{ x: 1, y: 0 }}
                                 style={styles.submitButtonGradient}
                             >
-                                {loadingAuth ? (
+                                {loading ? (
                                     <ActivityIndicator color="#fff" />
                                 ) : (
                                     <View style={styles.buttonContent}>
-                                        <Text style={styles.submitButtonText}>Reset Password</Text>
+                                        <Text style={styles.submitButtonText}>Đặt lại mật khẩu</Text>
                                         <Ionicons name="checkmark-done" size={20} color="#fff" />
                                     </View>
                                 )}
@@ -166,7 +246,7 @@ const styles = StyleSheet.create({
     gradient: {
         flex: 1,
     },
-    container: {
+    keyboardView: {
         flex: 1,
         backgroundColor: 'transparent',
     },
@@ -177,7 +257,7 @@ const styles = StyleSheet.create({
     },
     logoContainer: {
         alignItems: 'center',
-        marginBottom: 40,
+        marginBottom: 32,
     },
     iconContainer: {
         alignItems: 'center',
@@ -207,11 +287,58 @@ const styles = StyleSheet.create({
         fontSize: 15,
         color: '#6B7280',
         textAlign: 'center',
-        marginBottom: 40,
+        marginBottom: 28,
         lineHeight: 22,
+        paddingHorizontal: 8,
+    },
+    phoneHighlight: {
+        color: '#3B82F6',
+        fontWeight: '600',
+    },
+    otpContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginBottom: 12,
+        paddingHorizontal: 4,
+    },
+    otpInput: {
+        width: 50,
+        height: 60,
+        borderWidth: 2,
+        borderColor: '#E5E7EB',
+        backgroundColor: '#FFFFFF',
+        borderRadius: 12,
+        fontSize: 24,
+        textAlign: 'center',
+        fontWeight: '700',
+        color: '#1F2937',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 4,
+        elevation: 2,
+    },
+    resendButton: {
+        alignItems: 'center',
+        paddingVertical: 8,
+        marginBottom: 24,
+    },
+    resendText: {
+        fontSize: 14,
+        color: '#6B7280',
+    },
+    resendLink: {
+        color: '#3B82F6',
+        fontWeight: '600',
+    },
+    successText: {
+        color: '#10B981',
+        fontSize: 13,
+        textAlign: 'center',
+        marginBottom: 8,
     },
     form: {
-        marginBottom: 24,
+        marginBottom: 8,
     },
     inputWrapper: {
         flexDirection: 'row',
@@ -245,6 +372,7 @@ const styles = StyleSheet.create({
         fontSize: 14,
         marginBottom: 12,
         marginTop: -4,
+        textAlign: 'center',
     },
     submitButton: {
         borderRadius: 12,
@@ -277,5 +405,3 @@ const styles = StyleSheet.create({
         letterSpacing: 0.5,
     },
 });
-
-    

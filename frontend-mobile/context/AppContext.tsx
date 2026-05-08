@@ -17,6 +17,7 @@ import {
     loginWithPhone,
     logoutApi,
     registerWithPhone,
+    resendRegisterOtp,
     resetPassword,
 } from "@/services/authService";
 import chatWebsocketService from "@/services/chatWebsocketService";
@@ -106,6 +107,7 @@ type AppContextValue = {
     signup: (payload: SignupPayload) => Promise<AuthResult>;
     signupWithPhone: (payload: PhoneSignupPayload) => Promise<AuthResult>;
     verifySignupOtp: (phone: string, otp: string) => Promise<AuthResult>;
+    resendSignupOtp: (phone: string) => Promise<AuthResult>;
     requestPasswordReset: (phone: string) => Promise<AuthResult>;
     resetPasswordByOtp: (payload: ResetPasswordPayload) => Promise<AuthResult>;
     logout: () => void;
@@ -418,6 +420,10 @@ export function AppProvider({ children }: PropsWithChildren) {
         return confirmRegisterOtp(phone, otp);
     };
 
+    const resendSignupOtp = async (phone: string): Promise<AuthResult> => {
+        return resendRegisterOtp(phone);
+    };
+
     const requestPasswordReset = async (phone: string): Promise<AuthResult> => {
         return forgotPassword(phone);
     };
@@ -674,6 +680,7 @@ export function AppProvider({ children }: PropsWithChildren) {
             signup,
             signupWithPhone,
             verifySignupOtp,
+            resendSignupOtp,
             requestPasswordReset,
             resetPasswordByOtp,
             logout,

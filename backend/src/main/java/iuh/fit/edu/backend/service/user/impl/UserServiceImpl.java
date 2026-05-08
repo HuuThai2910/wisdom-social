@@ -272,6 +272,20 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    public void resendConfirmationOtp(String phone) {
+        String formattedPhone = "+84" + phone.substring(1, 10);
+        try {
+            ResendConfirmationCodeRequest request = ResendConfirmationCodeRequest.builder()
+                    .clientId(userClientId)
+                    .username(formattedPhone)
+                    .build();
+            cognitoClient.resendConfirmationCode(request);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to resend OTP: " + e.getMessage());
+        }
+    }
+
+    @Override
     public UserResponseOTPPassword forgotPasswordUser(UserRequestForgotPassword requestForgotPassword) {
         String phone = "+84" + requestForgotPassword.getPhone().substring(1, 10);
         

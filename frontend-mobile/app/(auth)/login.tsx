@@ -19,14 +19,14 @@ import { validateLoginForm } from '@/utils/validators';
 
 export default function LoginScreen() {
     const router = useRouter();
-    const { login, loadingAuth } = useAppContext();
+    const { login } = useAppContext();
     const [phone, setPhone] = useState('');
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
+    const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
     const handleLogin = async () => {
-        // Validate login form
         const validation = validateLoginForm(phone, password);
         if (!validation.isValid) {
             setError(validation.error || '');
@@ -34,6 +34,7 @@ export default function LoginScreen() {
         }
 
         setError('');
+        setLoading(true);
         try {
             const result = await login(phone, password);
             if (result.success) {
@@ -41,8 +42,10 @@ export default function LoginScreen() {
             } else {
                 setError(result.message || 'Đăng nhập thất bại');
             }
-        } catch (err) {
+        } catch {
             setError('Có lỗi xảy ra, vui lòng thử lại');
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -61,7 +64,7 @@ export default function LoginScreen() {
                     showsVerticalScrollIndicator={false}
                 >
                     <Logo showSubtitle />
-                    
+
                     <Text style={styles.welcomeText}>
                         Welcome Back!
                     </Text>
@@ -118,17 +121,17 @@ export default function LoginScreen() {
                         </Link>
 
                         <TouchableOpacity
-                            style={[styles.loginButton, loadingAuth && styles.disabledButton]}
+                            style={[styles.loginButton, loading && styles.disabledButton]}
                             onPress={handleLogin}
-                            disabled={loadingAuth}
+                            disabled={loading}
                         >
                             <LinearGradient
-                                colors={loadingAuth ? ['#93C5FD', '#93C5FD'] : ['#3B82F6', '#2563EB']}
+                                colors={loading ? ['#93C5FD', '#93C5FD'] : ['#3B82F6', '#2563EB']}
                                 start={{ x: 0, y: 0 }}
                                 end={{ x: 1, y: 0 }}
                                 style={styles.loginButtonGradient}
                             >
-                                {loadingAuth ? (
+                                {loading ? (
                                     <ActivityIndicator color="#fff" />
                                 ) : (
                                     <View style={styles.buttonContent}>
@@ -275,5 +278,3 @@ const styles = StyleSheet.create({
         fontWeight: '700',
     },
 });
-
-

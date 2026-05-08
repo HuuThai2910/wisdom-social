@@ -6,22 +6,25 @@ import {
     TouchableOpacity,
     StyleSheet,
     ActivityIndicator,
+    KeyboardAvoidingView,
+    ScrollView,
+    Platform,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { useAppContext } from '@/context/AppContext';
+import { confirmRegisterOtp, forgotPassword, resendRegisterOtp } from '@/services/authService';
 import Logo from '@/components/Logo';
 import { validateOTP } from '@/utils/validators';
 
 export default function VerifyOTPScreen() {
     const router = useRouter();
-    const { verifySignupOtp, requestPasswordReset, loadingAuth } = useAppContext();
     const params = useLocalSearchParams();
     const phone = params.phone as string;
     const type = params.type as 'register' | 'reset-password';
 
     const [otp, setOtp] = useState(['', '', '', '', '', '']);
+    const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const inputRefs = useRef<Array<TextInput | null>>([]);
 
@@ -47,48 +50,52 @@ export default function VerifyOTPScreen() {
 
     const handleVerify = async () => {
         const otpCode = otp.join('');
-        
-        // Validate OTP
-        const otpValidation = validateOTP(otpCode);
-        if (!otpValidation.isValid) {
-            setError(otpValidation.error || '');
+        const validation = validateOTP(otpCode);
+        if (!validation.isValid) {
+            setError(validation.error || '');
             return;
         }
 
         setError('');
+        setLoading(true);
         try {
             if (type === 'register') {
-                const result = await verifySignupOtp(phone, otpCode);
+                const result = await confirmRegisterOtp(phone, otpCode);
                 if (result.success) {
                     router.replace('/(auth)/login');
                 } else {
-                    setError(result.message || 'Xác thực OTP thất bại');
+                    setError(
+                      result.message ||
+                        "Mã xác thực không đúng, vui lòng thử lại.",
+                    );
                 }
-            } else if (type === 'reset-password') {
-                router.push({
-                    pathname: '/(auth)/reset-password',
-                    params: { phone, otp: otpCode },
-                });
             }
-        } catch (err) {
-            setError('Có lỗi xảy ra, vui lòng thử lại');
+        } catch {
+            setError('Đã xảy ra lỗi, vui lòng thử lại.');
+        } finally {
+            setLoading(false);
         }
     };
 
     const handleResend = async () => {
+        setLoading(true);
         setError('');
         try {
-            if (type === 'reset-password') {
-                const result = await requestPasswordReset(phone);
-                if (result.success) {
-                    // Reset OTP inputs
-                    setOtp(['', '', '', '', '', '']);
-                } else {
-                    setError('Không thể gửi lại OTP');
+            if (type === 'register') {
+                const result = await resendRegisterOtp(phone);
+                if (!result.success) {
+                    setError(result.message || 'Không thể gửi lại mã OTP. Vui lòng thử lại.');
+                }
+            } else if (type === 'reset-password') {
+                const result = await forgotPassword(phone);
+                if (!result.success) {
+                    setError(result.message || 'Không thể gửi lại mã OTP. Vui lòng thử lại.');
                 }
             }
-        } catch (err) {
-            setError('Có lỗi xảy ra, vui lòng thử lại');
+        } catch {
+            setError('Đã xảy ra lỗi, vui lòng thử lại.');
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -97,75 +104,86 @@ export default function VerifyOTPScreen() {
             colors={['#EFF6FF', '#FFFFFF', '#F9FAFB']}
             style={styles.gradient}
         >
-            <View style={styles.container}>
-                <View style={styles.logoContainer}>
-                    <Logo size="medium" showSubtitle={false} />
-                </View>
-
-                <View style={styles.iconContainer}>
-                    <View style={styles.iconBackground}>
-                        <Ionicons name="shield-checkmark" size={48} color="#3B82F6" />
-                    </View>
-                </View>
-
-                <Text style={styles.title}>Verify OTP</Text>
-                <Text style={styles.subtitle}>
-                    Enter the 6-digit code sent to
-                </Text>
-                <Text style={styles.phoneNumber}>{phone}</Text>
-
-                <View style={styles.otpContainer}>
-                    {otp.map((digit, index) => (
-                        <TextInput
-                            key={index}
-                            ref={(ref) => {
-                                inputRefs.current[index] = ref;
-                            }}
-                            style={styles.otpInput}
-                            value={digit}
-                            onChangeText={(value) => handleOtpChange(value, index)}
-                            onKeyPress={({ nativeEvent: { key } }) => handleKeyPress(key, index)}
-                            keyboardType="number-pad"
-                            maxLength={1}
-                            selectTextOnFocus
-                        />
-                    ))}
-                </View>
-
-                {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
-                <TouchableOpacity
-                    style={[styles.verifyButton, loadingAuth && styles.disabledButton]}
-                    onPress={handleVerify}
-                    disabled={loadingAuth}
+            <KeyboardAvoidingView
+                style={styles.keyboardAvoidingView}
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            >
+                <ScrollView
+                    contentContainerStyle={styles.scrollContent}
+                    keyboardShouldPersistTaps="handled"
+                    showsVerticalScrollIndicator={false}
                 >
-                    <LinearGradient
-                        colors={loadingAuth ? ['#93C5FD', '#93C5FD'] : ['#3B82F6', '#2563EB']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
-                        style={styles.verifyButtonGradient}
-                    >
-                        {loadingAuth ? (
-                            <ActivityIndicator color="#fff" />
-                        ) : (
-                            <View style={styles.buttonContent}>
-                                <Text style={styles.verifyButtonText}>Verify Code</Text>
-                                <Ionicons name="checkmark-circle" size={20} color="#fff" />
+                    <View style={styles.container}>
+                        <View style={styles.logoContainer}>
+                            <Logo size="medium" showSubtitle={false} />
+                        </View>
+
+                        <View style={styles.iconContainer}>
+                            <View style={styles.iconBackground}>
+                                <Ionicons name="shield-checkmark" size={48} color="#3B82F6" />
                             </View>
-                        )}
-                    </LinearGradient>
-                </TouchableOpacity>
+                        </View>
 
-                <TouchableOpacity 
-                    style={styles.resendButton}
-                    onPress={handleResend} 
-                    disabled={loadingAuth}
-                >
-                    <Text style={styles.resendText}>
-                        Didn't receive code? <Text style={styles.resendLink}>Resend</Text>
-                    </Text>
-                </TouchableOpacity>
-            </View>
+                        <Text style={styles.title}>Verify OTP</Text>
+                        <Text style={styles.subtitle}>
+                            Enter the 6-digit code sent to
+                        </Text>
+                        <Text style={styles.phoneNumber}>{phone}</Text>
+
+                        <View style={styles.otpContainer}>
+                            {otp.map((digit, index) => (
+                                <TextInput
+                                    key={index}
+                                    ref={(ref) => {
+                                        inputRefs.current[index] = ref;
+                                    }}
+                                    style={styles.otpInput}
+                                    value={digit}
+                                    onChangeText={(value) => handleOtpChange(value, index)}
+                                    onKeyPress={({ nativeEvent: { key } }) => handleKeyPress(key, index)}
+                                    keyboardType="number-pad"
+                                    maxLength={1}
+                                    selectTextOnFocus
+                                />
+                            ))}
+                        </View>
+
+                        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+                        <TouchableOpacity
+                            style={[styles.verifyButton, loading && styles.disabledButton]}
+                            onPress={handleVerify}
+                            disabled={loading}
+                        >
+                            <LinearGradient
+                                colors={loading ? ['#93C5FD', '#93C5FD'] : ['#3B82F6', '#2563EB']}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 0 }}
+                                style={styles.verifyButtonGradient}
+                            >
+                                {loading ? (
+                                    <ActivityIndicator color="#fff" />
+                                ) : (
+                                    <View style={styles.buttonContent}>
+                                        <Text style={styles.verifyButtonText}>Verify Code</Text>
+                                        <Ionicons name="checkmark-circle" size={20} color="#fff" />
+                                    </View>
+                                )}
+                            </LinearGradient>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={styles.resendButton}
+                            onPress={handleResend}
+                            disabled={loading}
+                        >
+                            <Text style={styles.resendText}>
+                                Didn't receive code? <Text style={styles.resendLink}>Resend</Text>
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
+                </ScrollView>
+            </KeyboardAvoidingView>
         </LinearGradient>
     );
 }
@@ -174,11 +192,16 @@ const styles = StyleSheet.create({
     gradient: {
         flex: 1,
     },
-    container: {
+    keyboardAvoidingView: {
         flex: 1,
+    },
+    scrollContent: {
+        flexGrow: 1,
+        justifyContent: 'center',
+    },
+    container: {
         backgroundColor: 'transparent',
         padding: 24,
-        justifyContent: 'center',
     },
     logoContainer: {
         alignItems: 'center',
@@ -249,7 +272,6 @@ const styles = StyleSheet.create({
         fontSize: 14,
         marginBottom: 12,
         textAlign: 'center',
-        marginTop: -16,
     },
     verifyButton: {
         borderRadius: 12,
