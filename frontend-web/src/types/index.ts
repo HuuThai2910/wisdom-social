@@ -42,6 +42,8 @@ export interface Post {
     isLiked?: boolean;
     isSaved?: boolean;
     privacy?: PrivacyType;
+    allowComments?: boolean;
+    allowShares?: boolean;
 }
 
 export interface Comment {

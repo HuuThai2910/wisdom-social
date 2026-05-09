@@ -88,6 +88,8 @@ export const normalizePost = (post: any, userData: any): Post => {
         media: transformedMedia,
         caption: post.content || post.caption || "",
         privacy: (post.privacy as any) || "PUBLIC",
+        allowComments: post.allowComments !== false,
+        allowShares: post.allowShares !== false,
         likes: post.stats?.reactCount || 0,
         comments: [],
         createdAt: post.createdAt || new Date().toISOString(),

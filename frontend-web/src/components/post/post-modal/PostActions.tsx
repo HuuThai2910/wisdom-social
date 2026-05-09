@@ -46,6 +46,7 @@ interface PostActionsProps {
   reactionsTimeoutRef: React.MutableRefObject<ReturnType<
     typeof setTimeout
   > | null>;
+  allowShares?: boolean;
 }
 
 const REACTION_TYPES = ["LIKE", "LOVE", "HAHA", "WOW", "SAD", "ANGRY"] as const;
@@ -69,6 +70,7 @@ const PostActions: React.FC<PostActionsProps> = ({
   onSave,
   onShare,
   reactionsTimeoutRef,
+  allowShares,
 }) => {
   const handleMouseEnter = () => {
     if (reactionsTimeoutRef.current) {
@@ -135,12 +137,14 @@ const PostActions: React.FC<PostActionsProps> = ({
             </div>
 
             {/* Send/Share Button */}
-            <button 
-              onClick={onShare}
-              className="hover:opacity-70 transition-opacity"
-            >
-              <Send className="w-6 h-6 dark:text-white" />
-            </button>
+            {allowShares !== false && (
+              <button 
+                onClick={onShare}
+                className="hover:opacity-70 transition-opacity"
+              >
+                <Send className="w-6 h-6 dark:text-white" />
+              </button>
+            )}
           </div>
 
           {/* Save/Bookmark Button */}

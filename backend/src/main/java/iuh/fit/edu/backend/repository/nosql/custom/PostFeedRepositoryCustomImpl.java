@@ -60,16 +60,14 @@ public class PostFeedRepositoryCustomImpl implements PostFeedRepositoryCustom {
         List<Criteria> andCriteria = new ArrayList<>();
         andCriteria.add(Criteria.where("authorId").is(userId));
         andCriteria.add(Criteria.where("status").is(StatusType.ACTIVE));
-        
-        // Only include self-posts if they have interactions (lastActivityAt > createdAt)
-        // This makes new posts "disappear" on reload for the author unless there is activity.
-        andCriteria.add(new Criteria().andOperator(
-            new Criteria("$expr").is(new org.bson.Document("$gt", List.of("$lastActivityAt", "$createdAt"))),
-            Criteria.where("lastActivityAt").gte(recentThreshold.minus(22, java.time.temporal.ChronoUnit.HOURS))
-        ));
+        // Only include recently CREATED self-posts.
+        // We do not want other users' interactions to bump self-posts back into the feed forever.
+        // "Nhìn 1 lần thôi chứ" - meaning self posts should naturally fade out based on creation time,
+        // rather than persisting due to lastActivityAt updates.
+        andCriteria.add(Criteria.where("createdAt").gte(recentThreshold));
 
         Query query = new Query(new Criteria().andOperator(andCriteria));
-        query.with(Sort.by(Sort.Order.desc("lastActivityAt")));
+        query.with(Sort.by(Sort.Order.desc("createdAt")));
         query.limit(size);
 
         return mongoTemplate.find(query, Post.class);

@@ -463,7 +463,11 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
           />
 
           {/* Comments */}
-          <PostComments postId={postId} viewerId={viewerId} />
+          <PostComments 
+            postId={postId} 
+            viewerId={viewerId} 
+            allowComments={post.allowComments}
+          />
 
           {/* Actions & Reactions */}
           <PostActions
@@ -476,6 +480,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
             onSave={handleSave}
             onShare={handleShare}
             reactionsTimeoutRef={reactionsTimeoutRef}
+            allowShares={post.allowShares}
           />
         </div>
       </div>

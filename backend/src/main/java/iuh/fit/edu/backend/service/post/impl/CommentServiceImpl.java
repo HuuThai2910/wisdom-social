@@ -8,12 +8,12 @@ import iuh.fit.edu.backend.dto.response.post.CommentResponse;
 import iuh.fit.edu.backend.dto.response.post.PaginatedCommentsResponse;
 import iuh.fit.edu.backend.repository.nosql.CommentRepository;
 import iuh.fit.edu.backend.repository.nosql.PostRepository;
-import iuh.fit.edu.backend.event.post.CommentRealtimeEvent;
-import iuh.fit.edu.backend.event.post.PostRealtimeEvent;
 import iuh.fit.edu.backend.repository.mysql.UserRepository;
 import iuh.fit.edu.backend.service.post.CommentService;
 import iuh.fit.edu.backend.service.notification.NotificationService;
-import iuh.fit.edu.backend.event.notification.NotificationEvent;
+import iuh.fit.edu.backend.event.payload.CommentEvent;
+import iuh.fit.edu.backend.event.payload.NotificationEvent;
+import iuh.fit.edu.backend.event.payload.PostEvent;
 import iuh.fit.edu.backend.constant.NotificationType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -173,7 +173,7 @@ public class CommentServiceImpl implements CommentService {
             String rootPostId = getRootPostId(savedComment);
             
             if (rootPostId != null) {
-                CommentRealtimeEvent event = new CommentRealtimeEvent("CREATE", rootPostId, responsePayload);
+                CommentEvent event = new CommentEvent("CREATE", rootPostId, responsePayload);
                 if (TransactionSynchronizationManager.isActualTransactionActive()) {
                     TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                         @Override
@@ -444,7 +444,7 @@ public class CommentServiceImpl implements CommentService {
                         .id(commentId)
                         .parentId(parentId)
                         .build();
-                CommentRealtimeEvent event = new CommentRealtimeEvent("DELETE", rootPostId, deletePayload);
+                CommentEvent event = new CommentEvent("DELETE", rootPostId, deletePayload);
                 
                 if (TransactionSynchronizationManager.isActualTransactionActive()) {
                     TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
@@ -472,7 +472,7 @@ public class CommentServiceImpl implements CommentService {
                     return;
                 }
 
-                PostRealtimeEvent bumpEvent = PostRealtimeEvent.builder()
+                PostEvent bumpEvent = PostEvent.builder()
                         .action("BUMP")
                         .postId(postId)
                         .lastActivityAt(lastActivityAt)

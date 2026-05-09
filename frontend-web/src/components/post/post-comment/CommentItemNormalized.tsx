@@ -26,6 +26,7 @@ interface CommentItemNormalizedProps {
   postId: string;
   level?: number;
   currentUserId?: string;
+  allowComments?: boolean;
 }
 
 export default function CommentItemNormalized({
@@ -43,6 +44,7 @@ export default function CommentItemNormalized({
   postId,
   level = 0,
   currentUserId,
+  allowComments,
 }: CommentItemNormalizedProps) {
   const comment = commentsById[commentId];
   if (!comment) return null;
@@ -476,12 +478,14 @@ export default function CommentItemNormalized({
               )}
             </div>
 
-            <button
-              onClick={handleReplyClick}
-              className="text-xs text-gray-500 dark:text-gray-400 font-semibold hover:underline"
-            >
-              Reply
-            </button>
+            {allowComments !== false && (
+              <button
+                onClick={handleReplyClick}
+                className="text-xs text-gray-500 dark:text-gray-400 font-semibold hover:underline"
+              >
+                Reply
+              </button>
+            )}
 
             {/* Delete Button */}
             {activeUserId && comment.userId === activeUserId && (
@@ -774,6 +778,7 @@ export default function CommentItemNormalized({
               postId={postId}
               level={level + 1}
               currentUserId={activeUserId}
+              allowComments={allowComments}
             />
           ))}
 

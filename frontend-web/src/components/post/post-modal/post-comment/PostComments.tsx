@@ -83,9 +83,10 @@ import useMentions from "../../../../hooks/useMentions";
 interface PostCommentsProps {
   postId: string;
   viewerId: string;
+  allowComments?: boolean;
 }
 
-const PostComments: React.FC<PostCommentsProps> = ({ postId, viewerId }) => {
+const PostComments: React.FC<PostCommentsProps> = ({ postId, viewerId, allowComments }) => {
   const location = useLocation();
   const commentInputRef = useRef<HTMLInputElement>(null);
 
@@ -445,6 +446,7 @@ const PostComments: React.FC<PostCommentsProps> = ({ postId, viewerId }) => {
                   loadingMap={loadingMap}
                   postId={postId}
                   currentUserId={viewerId}
+                  allowComments={allowComments}
                 />
               ))}
 
@@ -465,21 +467,23 @@ const PostComments: React.FC<PostCommentsProps> = ({ postId, viewerId }) => {
       </div>
 
       {/* Comment Input Section */}
-      <CommentInput
-        inputRef={commentInputRef}
-        commentInput={commentInput}
-        submittingComment={submittingComment}
-        showMentionDropdown={showMentionDropdown}
-        mentionUsers={mentionUsers}
-        mentionLoading={mentionLoading}
-        mentionHasMore={mentionHasMore}
-        onLoadMoreMentions={loadMoreMentions}
-        onCommentChange={handleCommentInputChange}
-        onCursorChange={handleCommentCursorChange}
-        onInsertEmoji={handleInsertEmoji}
-        onSelectMention={handleSelectMention}
-        onSubmitComment={handleSubmitComment}
-      />
+      {allowComments !== false && (
+        <CommentInput
+          inputRef={commentInputRef}
+          commentInput={commentInput}
+          submittingComment={submittingComment}
+          showMentionDropdown={showMentionDropdown}
+          mentionUsers={mentionUsers}
+          mentionLoading={mentionLoading}
+          mentionHasMore={mentionHasMore}
+          onLoadMoreMentions={loadMoreMentions}
+          onCommentChange={handleCommentInputChange}
+          onCursorChange={handleCommentCursorChange}
+          onInsertEmoji={handleInsertEmoji}
+          onSelectMention={handleSelectMention}
+          onSubmitComment={handleSubmitComment}
+        />
+      )}
     </>
   );
 };

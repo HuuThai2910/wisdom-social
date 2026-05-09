@@ -674,6 +674,8 @@ export const getSavedPostsWithDetails = async (userId: string | number): Promise
                     comments: post.stats?.commentCount || 0,
                     caption: post.content,
                     privacy: post.privacy,
+                    allowComments: post.allowComments !== false,
+                    allowShares: post.allowShares !== false,
                     images: images,
                     media,
                     user: {
@@ -737,6 +739,8 @@ export const getTaggedPostsWithDetails = async (userId: string | number): Promis
                     comments: post.stats?.commentCount || 0,
                     caption: post.content,
                     privacy: post.privacy,
+                    allowComments: post.allowComments !== false,
+                    allowShares: post.allowShares !== false,
                     images: images,
                     media,
                     user: {

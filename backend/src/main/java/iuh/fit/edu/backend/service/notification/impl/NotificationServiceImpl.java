@@ -2,7 +2,7 @@ package iuh.fit.edu.backend.service.notification.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import iuh.fit.edu.backend.domain.entity.nosql.Notification;
-import iuh.fit.edu.backend.event.notification.NotificationEvent;
+import iuh.fit.edu.backend.event.payload.NotificationEvent;
 import iuh.fit.edu.backend.repository.nosql.NotificationRepository;
 import iuh.fit.edu.backend.service.notification.NotificationService;
 import lombok.extern.slf4j.Slf4j;

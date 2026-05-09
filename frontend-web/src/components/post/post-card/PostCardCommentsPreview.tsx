@@ -14,6 +14,7 @@ interface PostCardCommentsPreviewProps {
   onNavigateToPost: () => void;
   onNavigateToPostWithExpand: (commentId: string) => void;
   onCreateReply: () => void;
+  allowComments?: boolean;
 }
 
 export default function PostCardCommentsPreview({
@@ -29,6 +30,7 @@ export default function PostCardCommentsPreview({
   onNavigateToPost,
   onNavigateToPostWithExpand,
   onCreateReply,
+  allowComments,
 }: PostCardCommentsPreviewProps) {
   const visibleCommentIds = showFullCommentsPreview
     ? Array.from(
@@ -69,6 +71,7 @@ export default function PostCardCommentsPreview({
           loadingMap={loadingMap}
           postId={postId}
           level={0}
+          allowComments={allowComments}
         />
       ))}
     </div>
