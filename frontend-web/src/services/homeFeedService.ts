@@ -19,6 +19,7 @@ interface FeedPostData {
     stats?: { reactCount: number; commentCount: number; shareCount: number };
     createdAt: string;
     lastActivityAt?: string;
+    rankingTime?: string;
     taggedUserIds?: string[];
 }
 
@@ -94,6 +95,7 @@ export const normalizePost = (post: any, userData: any): Post => {
         comments: [],
         createdAt: post.createdAt || new Date().toISOString(),
         lastActivityAt: post.lastActivityAt || post.createdAt || new Date().toISOString(),
+        rankingTime: post.rankingTime || post.createdAt || new Date().toISOString(),
         isLiked: false,
         isSaved: false,
         taggedUserIds: post.taggedUserIds || [],

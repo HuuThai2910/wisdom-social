@@ -254,9 +254,10 @@ public class ReactionServiceImpl implements ReactionService {
             if (post.getStats() != null) {
                 long newCount = Math.max(0L, post.getStats().getReactCount() + delta);
                 post.getStats().setReactCount(newCount);
+                post.recalculateRankingTime();
                 post.setLastActivityAt(Instant.now());
                 postRepository.save(post);
-                log.info("Updated post {} reactCount to: {} and bumped lastActivityAt", postId, newCount);
+                log.info("Updated post {} reactCount to: {} and recalculated ranking time", postId, newCount);
             }
         });
     }

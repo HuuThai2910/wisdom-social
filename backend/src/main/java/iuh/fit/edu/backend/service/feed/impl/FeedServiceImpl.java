@@ -30,7 +30,7 @@ public class FeedServiceImpl implements FeedService {
     private final PostRepository postRepository;
 
     @Override
-    public FeedSliceResponse getFeed(Long userId, Instant lastLastActivityAt, String lastPostId, int size, String prioritizePostId) {
+    public FeedSliceResponse getFeed(Long userId, Instant lastRankingTime, String lastPostId, int size, String prioritizePostId) {
         int pageSize = normalizePageSize(size);
         Instant recentThreshold = Instant.now().minus(24, ChronoUnit.HOURS);
 
@@ -46,7 +46,7 @@ public class FeedServiceImpl implements FeedService {
         List<Post> friendRecent = postRepository.findRecentFriendPosts(
                 friendIds,
                 currentUserId,
-                lastLastActivityAt,
+                lastRankingTime,
                 lastPostId,
                 recentThreshold,
                 friendQueryLimit
@@ -55,7 +55,7 @@ public class FeedServiceImpl implements FeedService {
         // Fetch self's "active" posts separately to avoid cluttering with all self posts
         // "Active" = very new (last 2h) or has interactions
         Instant selfActiveThreshold = Instant.now().minus(2, java.time.temporal.ChronoUnit.HOURS);
-        List<Post> selfActive = (lastLastActivityAt == null) 
+        List<Post> selfActive = (lastRankingTime == null) 
             ? postRepository.findActiveSelfPosts(currentUserId, selfActiveThreshold, 10)
             : new ArrayList<>();
 
@@ -67,7 +67,7 @@ public class FeedServiceImpl implements FeedService {
 
         // One-time boost: pin the prioritized post on top only on the first page load.
         Post prioritizedPost = null;
-        if (lastLastActivityAt == null && prioritizePostId != null && !prioritizePostId.isBlank()) {
+        if (lastRankingTime == null && prioritizePostId != null && !prioritizePostId.isBlank()) {
             prioritizedPost = postRepository.findById(prioritizePostId)
                     .filter(post -> post.getStatus() != null && "ACTIVE".equals(post.getStatus().name()))
                     .orElse(null);
@@ -98,7 +98,7 @@ public class FeedServiceImpl implements FeedService {
             List<Post> randomPosts = postRepository.findRandomFallbackPosts(
                     friendIds,
                     currentUserId,
-                    lastLastActivityAt,
+                    lastRankingTime,
                     lastPostId,
                     recentThreshold,
                     new ArrayList<>(seenPostIds),
@@ -125,8 +125,8 @@ public class FeedServiceImpl implements FeedService {
             if (Objects.equals(a.getId(), pinnedId)) return -1;
             if (Objects.equals(b.getId(), pinnedId)) return 1;
             
-            Instant ta = a.getLastActivityAt();
-            Instant tb = b.getLastActivityAt();
+            Instant ta = a.getRankingTime();
+            Instant tb = b.getRankingTime();
             if (ta == null && tb == null) return Objects.compare(b.getId(), a.getId(), Comparator.nullsLast(Comparator.naturalOrder()));
             if (ta == null) return 1;
             if (tb == null) return -1;
@@ -142,17 +142,17 @@ public class FeedServiceImpl implements FeedService {
 
         boolean hasNext = hasMoreFriendRecent || hasMoreRandom;
 
-        Instant nextCursorLastActivityAt = null;
+        Instant nextCursorRankingTime = null;
         String nextCursorPostId = null;
         if (hasNext && !merged.isEmpty()) {
             Post lastPost = merged.get(merged.size() - 1);
-            nextCursorLastActivityAt = lastPost.getLastActivityAt();
+            nextCursorRankingTime = lastPost.getRankingTime();
             nextCursorPostId = lastPost.getId();
         }
 
         return FeedSliceResponse.builder()
                 .posts(merged)
-                .nextCursorCreatedAt(nextCursorLastActivityAt) // Reusing field for simplicity but populating with lastActivityAt
+                .nextCursorCreatedAt(nextCursorRankingTime) // Reusing field for simplicity but populating with rankingTime
                 .nextCursorPostId(nextCursorPostId)
                 .hasNext(hasNext)
                 .build();
