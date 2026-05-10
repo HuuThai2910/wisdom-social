@@ -199,6 +199,7 @@ const mapApiUserToAppUser = (apiUser: ApiAuthUser): User => {
         phone: apiUser.phone,
         followers: 0,
         following: 0,
+        hasPinCode: apiUser.hasPinCode,
     };
 };
 

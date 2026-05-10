@@ -24,4 +24,6 @@ public class UserResponseLogin {
     private boolean deletionPending;
     private Long deletionRemainingDays;
     private Instant deletionScheduledFor;
+    
+    private boolean hasPinCode;
 }

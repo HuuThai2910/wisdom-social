@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useState, useRef } from "react";
 import {
     View,
     Text,
@@ -8,6 +8,11 @@ import {
     Alert,
     SafeAreaView,
     ActivityIndicator,
+    Modal,
+    TextInput,
+    KeyboardAvoidingView,
+    Platform,
+    Pressable,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -18,16 +23,116 @@ import {
     cancelAccountDeletion,
     logoutAllDevices,
     requestAccountDeletion,
+    setupPinCode,
+    removePinCode,
 } from "@/services/securityService";
 
 export default function SecuritySettingsScreen() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
-    const { logout, deletionPending, deletionRemainingDays, clearDeletionPending } = useAppContext();
+    const { currentUser, refreshCurrentUser, logout, deletionPending, deletionRemainingDays, clearDeletionPending } = useAppContext();
 
     const [loadingLogoutAll, setLoadingLogoutAll] = useState(false);
     const [loadingDelete, setLoadingDelete] = useState(false);
     const [loadingCancel, setLoadingCancel] = useState(false);
+
+    // PIN Setup State
+    const [setupPinModalVisible, setSetupPinModalVisible] = useState(false);
+    const [setupPin, setSetupPin] = useState(['', '', '', '', '', '']);
+    const [setupPinError, setSetupPinError] = useState("");
+    const [loadingSetupPin, setLoadingSetupPin] = useState(false);
+    const setupInputRefs = useRef<Array<TextInput | null>>([]);
+
+    // PIN Delete State
+    const [deletePinModalVisible, setDeletePinModalVisible] = useState(false);
+    const [deletePin, setDeletePin] = useState(['', '', '', '', '', '']);
+    const [deletePinError, setDeletePinError] = useState("");
+    const deleteInputRefs = useRef<Array<TextInput | null>>([]);
+
+    // PIN Remove State
+    const [removePinModalVisible, setRemovePinModalVisible] = useState(false);
+    const [removePin, setRemovePin] = useState(['', '', '', '', '', '']);
+    const [removePinError, setRemovePinError] = useState("");
+    const [loadingRemovePin, setLoadingRemovePin] = useState(false);
+    const removeInputRefs = useRef<Array<TextInput | null>>([]);
+
+    // PIN Cancel Delete State
+    const [cancelDeletePinModalVisible, setCancelDeletePinModalVisible] = useState(false);
+    const [cancelDeletePin, setCancelDeletePin] = useState(['', '', '', '', '', '']);
+    const [cancelDeletePinError, setCancelDeletePinError] = useState("");
+    const cancelDeleteInputRefs = useRef<Array<TextInput | null>>([]);
+
+    const handleSetupPinChange = (value: string, index: number) => {
+        if (value.length > 1) value = value[value.length - 1];
+        const newPin = [...setupPin];
+        newPin[index] = value;
+        setSetupPin(newPin);
+        setSetupPinError("");
+
+        if (value && index < 5) {
+            setupInputRefs.current[index + 1]?.focus();
+        }
+    };
+
+    const handleSetupPinKeyPress = (key: string, index: number) => {
+        if (key === 'Backspace' && !setupPin[index] && index > 0) {
+            setupInputRefs.current[index - 1]?.focus();
+        }
+    };
+
+    const handleDeletePinChange = (value: string, index: number) => {
+        if (value.length > 1) value = value[value.length - 1];
+        const newPin = [...deletePin];
+        newPin[index] = value;
+        setDeletePin(newPin);
+        setDeletePinError("");
+
+        if (value && index < 5) {
+            deleteInputRefs.current[index + 1]?.focus();
+        }
+    };
+
+    const handleDeletePinKeyPress = (key: string, index: number) => {
+        if (key === 'Backspace' && !deletePin[index] && index > 0) {
+            deleteInputRefs.current[index - 1]?.focus();
+        }
+    };
+
+    const handleRemovePinChange = (value: string, index: number) => {
+        if (value.length > 1) value = value[value.length - 1];
+        const newPin = [...removePin];
+        newPin[index] = value;
+        setRemovePin(newPin);
+        setRemovePinError("");
+
+        if (value && index < 5) {
+            removeInputRefs.current[index + 1]?.focus();
+        }
+    };
+
+    const handleRemovePinKeyPress = (key: string, index: number) => {
+        if (key === 'Backspace' && !removePin[index] && index > 0) {
+            removeInputRefs.current[index - 1]?.focus();
+        }
+    };
+
+    const handleCancelDeletePinChange = (value: string, index: number) => {
+        if (value.length > 1) value = value[value.length - 1];
+        const newPin = [...cancelDeletePin];
+        newPin[index] = value;
+        setCancelDeletePin(newPin);
+        setCancelDeletePinError("");
+
+        if (value && index < 5) {
+            cancelDeleteInputRefs.current[index + 1]?.focus();
+        }
+    };
+
+    const handleCancelDeletePinKeyPress = (key: string, index: number) => {
+        if (key === 'Backspace' && !cancelDeletePin[index] && index > 0) {
+            cancelDeleteInputRefs.current[index - 1]?.focus();
+        }
+    };
 
     const handleLogoutAll = useCallback(async () => {
         Alert.alert(
@@ -54,7 +159,66 @@ export default function SecuritySettingsScreen() {
         );
     }, [logout, router]);
 
-    const handleDeleteAccount = useCallback(async () => {
+    const handleSetupPin = useCallback(async () => {
+        const pinCode = setupPin.join('');
+        if (pinCode.length !== 6 || !/^\d+$/.test(pinCode)) {
+            setSetupPinError("Mã PIN phải đủ 6 chữ số.");
+            return;
+        }
+        setLoadingSetupPin(true);
+        const result = await setupPinCode(pinCode);
+        setLoadingSetupPin(false);
+        if (result.success) {
+            setSetupPinModalVisible(false);
+            setSetupPin(['', '', '', '', '', '']);
+            setSetupPinError("");
+            await refreshCurrentUser();
+            Alert.alert("Thành công", "Cài đặt mã PIN 2 lớp thành công.");
+        } else {
+            setSetupPinError(result.message || "Không thể cài đặt mã PIN.");
+        }
+    }, [setupPin, refreshCurrentUser]);
+
+    const handleConfirmRemovePin = useCallback(async () => {
+        const pinCode = removePin.join('');
+        if (pinCode.length !== 6 || !/^\d+$/.test(pinCode)) {
+            setRemovePinError("Mã PIN phải đủ 6 chữ số.");
+            return;
+        }
+        setLoadingRemovePin(true);
+        const result = await removePinCode(pinCode);
+        setLoadingRemovePin(false);
+        if (result.success) {
+            setRemovePinModalVisible(false);
+            setRemovePin(['', '', '', '', '', '']);
+            setRemovePinError("");
+            await refreshCurrentUser();
+            Alert.alert("Thành công", "Xóa mã PIN 2 lớp thành công.");
+        } else {
+            setRemovePinError(result.message || "Không thể xóa mã PIN.");
+        }
+    }, [removePin, refreshCurrentUser]);
+
+    const handleConfirmDeleteWithPin = useCallback(async () => {
+        const pinCode = deletePin.join('');
+        if (pinCode.length !== 6 || !/^\d+$/.test(pinCode)) {
+            setDeletePinError("Mã PIN phải đủ 6 chữ số.");
+            return;
+        }
+        setLoadingDelete(true);
+        const result = await requestAccountDeletion(pinCode);
+        setLoadingDelete(false);
+        if (result.success) {
+            setDeletePinModalVisible(false);
+            setDeletePin(['', '', '', '', '', '']);
+            await logout();
+            router.replace("/(auth)/login");
+        } else {
+            setDeletePinError(result.message || "Mã PIN không chính xác hoặc chưa được cài đặt.");
+        }
+    }, [deletePin, logout, router]);
+
+    const handleDeleteAccount = useCallback(() => {
         Alert.alert(
             "Xóa tài khoản",
             "Tài khoản của bạn sẽ bị xóa vĩnh viễn sau 30 ngày. Trong thời gian này bạn có thể đăng nhập lại để hủy yêu cầu xóa.\n\nBạn có chắc chắn muốn xóa tài khoản?",
@@ -64,22 +228,28 @@ export default function SecuritySettingsScreen() {
                     text: "Xóa tài khoản",
                     style: "destructive",
                     onPress: async () => {
-                        setLoadingDelete(true);
-                        const result = await requestAccountDeletion();
-                        setLoadingDelete(false);
-                        if (result.success) {
-                            await logout();
-                            router.replace("/(auth)/login");
+                        if (currentUser?.hasPinCode) {
+                            setDeletePin(['', '', '', '', '', '']);
+                            setDeletePinError("");
+                            setDeletePinModalVisible(true);
                         } else {
-                            Alert.alert("Lỗi", result.message || "Không thể yêu cầu xóa tài khoản.");
+                            setLoadingDelete(true);
+                            const result = await requestAccountDeletion();
+                            setLoadingDelete(false);
+                            if (result.success) {
+                                await logout();
+                                router.replace("/(auth)/login");
+                            } else {
+                                Alert.alert("Lỗi", result.message || "Không thể yêu cầu xóa tài khoản.");
+                            }
                         }
                     },
                 },
             ],
         );
-    }, [logout, router]);
+    }, []);
 
-    const handleCancelDelete = useCallback(async () => {
+    const handleCancelDelete = useCallback(() => {
         Alert.alert(
             "Hủy xóa tài khoản",
             `Tài khoản của bạn đang được lên lịch xóa sau ${deletionRemainingDays ?? 30} ngày nữa. Bạn có muốn hủy yêu cầu xóa?`,
@@ -89,24 +259,53 @@ export default function SecuritySettingsScreen() {
                     text: "Hủy xóa tài khoản",
                     style: "default",
                     onPress: async () => {
-                        setLoadingCancel(true);
-                        const result = await cancelAccountDeletion();
-                        setLoadingCancel(false);
-                        if (result.success) {
-                            clearDeletionPending();
-                            Alert.alert(
-                                "Đã hủy thành công",
-                                "Yêu cầu xóa tài khoản đã được hủy. Tài khoản của bạn sẽ không bị xóa.",
-                                [{ text: "OK" }],
-                            );
+                        if (currentUser?.hasPinCode) {
+                            setCancelDeletePin(['', '', '', '', '', '']);
+                            setCancelDeletePinError("");
+                            setCancelDeletePinModalVisible(true);
                         } else {
-                            Alert.alert("Lỗi", result.message || "Không thể hủy yêu cầu xóa tài khoản.");
+                            setLoadingCancel(true);
+                            const result = await cancelAccountDeletion();
+                            setLoadingCancel(false);
+                            if (result.success) {
+                                clearDeletionPending();
+                                Alert.alert(
+                                    "Đã hủy thành công",
+                                    "Yêu cầu xóa tài khoản đã được hủy. Tài khoản của bạn sẽ không bị xóa.",
+                                    [{ text: "OK" }],
+                                );
+                            } else {
+                                Alert.alert("Lỗi", result.message || "Không thể hủy yêu cầu xóa tài khoản.");
+                            }
                         }
                     },
                 },
             ],
         );
-    }, [deletionRemainingDays, clearDeletionPending]);
+    }, [deletionRemainingDays, currentUser?.hasPinCode, clearDeletionPending]);
+
+    const handleConfirmCancelDeleteWithPin = useCallback(async () => {
+        const pinCode = cancelDeletePin.join('');
+        if (pinCode.length !== 6 || !/^\d+$/.test(pinCode)) {
+            setCancelDeletePinError("Mã PIN phải đủ 6 chữ số.");
+            return;
+        }
+        setLoadingCancel(true);
+        const result = await cancelAccountDeletion(pinCode);
+        setLoadingCancel(false);
+        if (result.success) {
+            setCancelDeletePinModalVisible(false);
+            setCancelDeletePin(['', '', '', '', '', '']);
+            clearDeletionPending();
+            Alert.alert(
+                "Đã hủy thành công",
+                "Yêu cầu xóa tài khoản đã được hủy. Tài khoản của bạn sẽ không bị xóa.",
+                [{ text: "OK" }],
+            );
+        } else {
+            setCancelDeletePinError(result.message || "Mã PIN không chính xác.");
+        }
+    }, [cancelDeletePin, clearDeletionPending]);
 
     return (
         <SafeAreaView style={styles.container}>
@@ -148,6 +347,57 @@ export default function SecuritySettingsScreen() {
                         </View>
                         <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
                     </TouchableOpacity>
+                </View>
+
+                <Text style={styles.sectionTitle}>Mật khẩu 2 lớp (PIN)</Text>
+                <View style={styles.card}>
+                    {currentUser?.hasPinCode ? (
+                        <TouchableOpacity
+                            style={styles.menuItem}
+                            onPress={() => {
+                                setRemovePin(['', '', '', '', '', '']);
+                                setRemovePinError("");
+                                setRemovePinModalVisible(true);
+                            }}
+                            activeOpacity={0.7}
+                        >
+                            <View style={styles.settingInfo}>
+                                <View style={[styles.iconWrap, { backgroundColor: "#FFE5E5" }]}>
+                                    <Ionicons name="keypad" size={20} color={colors.danger} />
+                                </View>
+                                <View>
+                                    <Text style={[styles.settingLabel, { color: colors.danger }]}>Xóa mã PIN</Text>
+                                    <Text style={styles.settingDesc}>
+                                        Tắt bảo vệ tài khoản bằng mã PIN
+                                    </Text>
+                                </View>
+                            </View>
+                            <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+                        </TouchableOpacity>
+                    ) : (
+                        <TouchableOpacity
+                            style={styles.menuItem}
+                            onPress={() => {
+                                setSetupPin(['', '', '', '', '', '']);
+                                setSetupPinError("");
+                                setSetupPinModalVisible(true);
+                            }}
+                            activeOpacity={0.7}
+                        >
+                            <View style={styles.settingInfo}>
+                                <View style={[styles.iconWrap, { backgroundColor: "#E3F2FD" }]}>
+                                    <Ionicons name="keypad" size={20} color="#3B82F6" />
+                                </View>
+                                <View>
+                                    <Text style={styles.settingLabel}>Cài đặt mã PIN</Text>
+                                    <Text style={styles.settingDesc}>
+                                        Bảo vệ tài khoản bằng mã PIN 6 chữ số
+                                    </Text>
+                                </View>
+                            </View>
+                            <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+                        </TouchableOpacity>
+                    )}
                 </View>
 
                 <Text style={styles.sectionTitle}>Tài khoản</Text>
@@ -231,6 +481,274 @@ export default function SecuritySettingsScreen() {
                     )}
                 </View>
             </ScrollView>
+
+            {/* Modal Thiết lập mã PIN */}
+            <Modal
+                visible={setupPinModalVisible}
+                transparent
+                animationType="slide"
+                onRequestClose={() => setSetupPinModalVisible(false)}
+            >
+                <Pressable style={styles.modalOverlay} onPress={() => setSetupPinModalVisible(false)}>
+                    <KeyboardAvoidingView
+                        behavior={Platform.OS === "ios" ? "padding" : "height"}
+                        style={styles.modalKeyboard}
+                    >
+                        <Pressable style={styles.modalSheet}>
+                            <View style={styles.modalHandle} />
+                            <View style={styles.modalIconWrap}>
+                                <Ionicons name="keypad" size={32} color={colors.primary} />
+                            </View>
+                            <Text style={styles.modalTitle}>Thiết lập mã PIN</Text>
+                            <Text style={styles.modalDesc}>
+                                Nhập mã PIN 6 chữ số để bảo vệ tài khoản của bạn.
+                            </Text>
+
+                            <View style={styles.otpContainer}>
+                                {setupPin.map((digit, index) => (
+                                    <TextInput
+                                        key={index}
+                                        ref={(ref) => { setupInputRefs.current[index] = ref; }}
+                                        style={[styles.otpInput, setupPinError ? styles.passwordInputError : null]}
+                                        value={digit}
+                                        onChangeText={(value) => handleSetupPinChange(value, index)}
+                                        onKeyPress={({ nativeEvent: { key } }) => handleSetupPinKeyPress(key, index)}
+                                        keyboardType="number-pad"
+                                        maxLength={1}
+                                        selectTextOnFocus
+                                        secureTextEntry
+                                    />
+                                ))}
+                            </View>
+                            {setupPinError ? (
+                                <Text style={styles.passwordErrorText}>{setupPinError}</Text>
+                            ) : null}
+
+                            <TouchableOpacity
+                                style={[styles.modalConfirmBtn, loadingSetupPin && { opacity: 0.7 }]}
+                                onPress={handleSetupPin}
+                                disabled={loadingSetupPin}
+                                activeOpacity={0.8}
+                            >
+                                {loadingSetupPin ? (
+                                    <ActivityIndicator size="small" color="#fff" />
+                                ) : (
+                                    <Text style={styles.modalConfirmText}>Cài đặt</Text>
+                                )}
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={styles.modalCancelBtn}
+                                onPress={() => setSetupPinModalVisible(false)}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={styles.modalCancelText}>Hủy</Text>
+                            </TouchableOpacity>
+                        </Pressable>
+                    </KeyboardAvoidingView>
+                </Pressable>
+            </Modal>
+
+            {/* Modal Nhập PIN để xoá tài khoản */}
+            <Modal
+                visible={deletePinModalVisible}
+                transparent
+                animationType="slide"
+                onRequestClose={() => setDeletePinModalVisible(false)}
+            >
+                <Pressable style={styles.modalOverlay} onPress={() => setDeletePinModalVisible(false)}>
+                    <KeyboardAvoidingView
+                        behavior={Platform.OS === "ios" ? "padding" : "height"}
+                        style={styles.modalKeyboard}
+                    >
+                        <Pressable style={styles.modalSheet}>
+                            <View style={styles.modalHandle} />
+                            <View style={[styles.modalIconWrap, { backgroundColor: "#FFE5E5" }]}>
+                                <Ionicons name="warning" size={32} color={colors.danger} />
+                            </View>
+                            <Text style={styles.modalTitle}>Xác nhận mã PIN</Text>
+                            <Text style={styles.modalDesc}>
+                                Nhập mã PIN 2 lớp của bạn để xác nhận xóa tài khoản.
+                            </Text>
+
+                            <View style={styles.otpContainer}>
+                                {deletePin.map((digit, index) => (
+                                    <TextInput
+                                        key={index}
+                                        ref={(ref) => { deleteInputRefs.current[index] = ref; }}
+                                        style={[styles.otpInput, deletePinError ? styles.passwordInputError : null]}
+                                        value={digit}
+                                        onChangeText={(value) => handleDeletePinChange(value, index)}
+                                        onKeyPress={({ nativeEvent: { key } }) => handleDeletePinKeyPress(key, index)}
+                                        keyboardType="number-pad"
+                                        maxLength={1}
+                                        selectTextOnFocus
+                                        secureTextEntry
+                                    />
+                                ))}
+                            </View>
+                            {deletePinError ? (
+                                <Text style={styles.passwordErrorText}>{deletePinError}</Text>
+                            ) : null}
+
+                            <TouchableOpacity
+                                style={[styles.modalConfirmBtn, { backgroundColor: colors.danger }, loadingDelete && { opacity: 0.7 }]}
+                                onPress={handleConfirmDeleteWithPin}
+                                disabled={loadingDelete}
+                                activeOpacity={0.8}
+                            >
+                                {loadingDelete ? (
+                                    <ActivityIndicator size="small" color="#fff" />
+                                ) : (
+                                    <Text style={styles.modalConfirmText}>Xác nhận xóa</Text>
+                                )}
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={styles.modalCancelBtn}
+                                onPress={() => setDeletePinModalVisible(false)}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={styles.modalCancelText}>Hủy</Text>
+                            </TouchableOpacity>
+                        </Pressable>
+                    </KeyboardAvoidingView>
+                </Pressable>
+            </Modal>
+
+            {/* Modal Nhập PIN để xóa mã PIN */}
+            <Modal
+                visible={removePinModalVisible}
+                transparent
+                animationType="slide"
+                onRequestClose={() => setRemovePinModalVisible(false)}
+            >
+                <Pressable style={styles.modalOverlay} onPress={() => setRemovePinModalVisible(false)}>
+                    <KeyboardAvoidingView
+                        behavior={Platform.OS === "ios" ? "padding" : "height"}
+                        style={styles.modalKeyboard}
+                    >
+                        <Pressable style={styles.modalSheet}>
+                            <View style={styles.modalHandle} />
+                            <View style={[styles.modalIconWrap, { backgroundColor: "#FFE5E5" }]}>
+                                <Ionicons name="trash" size={32} color={colors.danger} />
+                            </View>
+                            <Text style={styles.modalTitle}>Xóa mã PIN</Text>
+                            <Text style={styles.modalDesc}>
+                                Nhập mã PIN hiện tại để xác nhận tắt bảo mật 2 lớp.
+                            </Text>
+
+                            <View style={styles.otpContainer}>
+                                {removePin.map((digit, index) => (
+                                    <TextInput
+                                        key={index}
+                                        ref={(ref) => { removeInputRefs.current[index] = ref; }}
+                                        style={[styles.otpInput, removePinError ? styles.passwordInputError : null]}
+                                        value={digit}
+                                        onChangeText={(value) => handleRemovePinChange(value, index)}
+                                        onKeyPress={({ nativeEvent: { key } }) => handleRemovePinKeyPress(key, index)}
+                                        keyboardType="number-pad"
+                                        maxLength={1}
+                                        selectTextOnFocus
+                                        secureTextEntry
+                                    />
+                                ))}
+                            </View>
+                            {removePinError ? (
+                                <Text style={styles.passwordErrorText}>{removePinError}</Text>
+                            ) : null}
+
+                            <TouchableOpacity
+                                style={[styles.modalConfirmBtn, { backgroundColor: colors.danger }, loadingRemovePin && { opacity: 0.7 }]}
+                                onPress={handleConfirmRemovePin}
+                                disabled={loadingRemovePin}
+                                activeOpacity={0.8}
+                            >
+                                {loadingRemovePin ? (
+                                    <ActivityIndicator size="small" color="#fff" />
+                                ) : (
+                                    <Text style={styles.modalConfirmText}>Xóa mã PIN</Text>
+                                )}
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={styles.modalCancelBtn}
+                                onPress={() => setRemovePinModalVisible(false)}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={styles.modalCancelText}>Hủy</Text>
+                            </TouchableOpacity>
+                        </Pressable>
+                    </KeyboardAvoidingView>
+                </Pressable>
+            </Modal>
+
+            {/* Modal Nhập PIN để hủy xóa tài khoản */}
+            <Modal
+                visible={cancelDeletePinModalVisible}
+                transparent
+                animationType="slide"
+                onRequestClose={() => setCancelDeletePinModalVisible(false)}
+            >
+                <Pressable style={styles.modalOverlay} onPress={() => setCancelDeletePinModalVisible(false)}>
+                    <KeyboardAvoidingView
+                        behavior={Platform.OS === "ios" ? "padding" : "height"}
+                        style={styles.modalKeyboard}
+                    >
+                        <Pressable style={styles.modalSheet}>
+                            <View style={styles.modalHandle} />
+                            <View style={[styles.modalIconWrap, { backgroundColor: "#E8F5E9" }]}>
+                                <Ionicons name="shield-checkmark" size={32} color="#22C55E" />
+                            </View>
+                            <Text style={styles.modalTitle}>Xác nhận hủy xóa</Text>
+                            <Text style={styles.modalDesc}>
+                                Nhập mã PIN 2 lớp của bạn để xác nhận hủy yêu cầu xóa tài khoản.
+                            </Text>
+
+                            <View style={styles.otpContainer}>
+                                {cancelDeletePin.map((digit, index) => (
+                                    <TextInput
+                                        key={index}
+                                        ref={(ref) => { cancelDeleteInputRefs.current[index] = ref; }}
+                                        style={[styles.otpInput, cancelDeletePinError ? styles.passwordInputError : null]}
+                                        value={digit}
+                                        onChangeText={(value) => handleCancelDeletePinChange(value, index)}
+                                        onKeyPress={({ nativeEvent: { key } }) => handleCancelDeletePinKeyPress(key, index)}
+                                        keyboardType="number-pad"
+                                        maxLength={1}
+                                        selectTextOnFocus
+                                        secureTextEntry
+                                    />
+                                ))}
+                            </View>
+                            {cancelDeletePinError ? (
+                                <Text style={styles.passwordErrorText}>{cancelDeletePinError}</Text>
+                            ) : null}
+
+                            <TouchableOpacity
+                                style={[styles.modalConfirmBtn, { backgroundColor: "#22C55E" }, loadingCancel && { opacity: 0.7 }]}
+                                onPress={handleConfirmCancelDeleteWithPin}
+                                disabled={loadingCancel}
+                                activeOpacity={0.8}
+                            >
+                                {loadingCancel ? (
+                                    <ActivityIndicator size="small" color="#fff" />
+                                ) : (
+                                    <Text style={styles.modalConfirmText}>Hủy xóa tài khoản</Text>
+                                )}
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={styles.modalCancelBtn}
+                                onPress={() => setCancelDeletePinModalVisible(false)}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={styles.modalCancelText}>Đóng</Text>
+                            </TouchableOpacity>
+                        </Pressable>
+                    </KeyboardAvoidingView>
+                </Pressable>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -349,5 +867,119 @@ const styles = StyleSheet.create({
         color: "#B45309",
         fontWeight: "500",
         flex: 1,
+    },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: "rgba(0,0,0,0.5)",
+        justifyContent: "flex-end",
+    },
+    modalKeyboard: {
+        justifyContent: "flex-end",
+    },
+    modalSheet: {
+        backgroundColor: colors.background,
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+        padding: 24,
+        paddingBottom: Platform.OS === "ios" ? 40 : 24,
+        alignItems: "center",
+    },
+    modalHandle: {
+        width: 40,
+        height: 4,
+        backgroundColor: colors.border,
+        borderRadius: 2,
+        marginBottom: 20,
+    },
+    modalIconWrap: {
+        width: 64,
+        height: 64,
+        borderRadius: 32,
+        backgroundColor: "#E3F2FD",
+        alignItems: "center",
+        justifyContent: "center",
+        marginBottom: 16,
+    },
+    modalTitle: {
+        fontSize: 20,
+        fontWeight: "700",
+        color: colors.text,
+        marginBottom: 8,
+        textAlign: "center",
+    },
+    modalDesc: {
+        fontSize: 14,
+        color: colors.textMuted,
+        textAlign: "center",
+        marginBottom: 24,
+        paddingHorizontal: 20,
+    },
+    passwordInput: {
+        width: "100%",
+        height: 52,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: 12,
+        paddingHorizontal: 16,
+        fontSize: 16,
+        color: colors.text,
+        backgroundColor: colors.surface,
+        marginBottom: 16,
+        textAlign: "center",
+        letterSpacing: 8,
+    },
+    passwordInputError: {
+        borderColor: colors.danger,
+    },
+    passwordErrorText: {
+        color: colors.danger,
+        fontSize: 13,
+        marginBottom: 16,
+        alignSelf: "center",
+    },
+    otpContainer: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        gap: 8,
+        marginBottom: 24,
+        paddingHorizontal: 16,
+    },
+    otpInput: {
+        width: 45,
+        height: 55,
+        borderWidth: 2,
+        borderColor: colors.border,
+        backgroundColor: colors.surface,
+        borderRadius: 12,
+        fontSize: 24,
+        textAlign: 'center',
+        fontWeight: '700',
+        color: colors.text,
+    },
+    modalConfirmBtn: {
+        width: "100%",
+        height: 52,
+        backgroundColor: colors.primary,
+        borderRadius: 26,
+        alignItems: "center",
+        justifyContent: "center",
+        marginBottom: 12,
+    },
+    modalConfirmText: {
+        color: "#fff",
+        fontSize: 16,
+        fontWeight: "600",
+    },
+    modalCancelBtn: {
+        width: "100%",
+        height: 52,
+        borderRadius: 26,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    modalCancelText: {
+        color: colors.textMuted,
+        fontSize: 16,
+        fontWeight: "600",
     },
 });

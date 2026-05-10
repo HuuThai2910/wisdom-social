@@ -5,6 +5,7 @@
 package iuh.fit.edu.backend.domain.entity.mysql;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import iuh.fit.edu.backend.constant.Gender;
 import jakarta.persistence.*;
 import lombok.*;
@@ -61,6 +62,15 @@ public class User {
     // Account deletion
     private OffsetDateTime deletionRequestedAt;
     private OffsetDateTime deletionScheduledFor;
+
+    // 2FA PIN code
+    @JsonIgnore
+    private String pinCode;
+
+    @JsonProperty("hasPinCode")
+    public boolean hasPinCode() {
+        return this.pinCode != null && !this.pinCode.isEmpty();
+    }
 
     @OneToMany(mappedBy = "user")
     @JsonIgnore

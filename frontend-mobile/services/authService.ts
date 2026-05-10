@@ -55,6 +55,7 @@ export type ApiAuthUser = {
     // Computed from deletionScheduledFor - populated by getCurrentUser()
     deletionPending?: boolean;
     deletionRemainingDays?: number;
+    hasPinCode?: boolean;
 };
 
 const sleep = (ms: number): Promise<void> =>

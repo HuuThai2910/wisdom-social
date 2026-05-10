@@ -12,6 +12,7 @@ export type User = {
     website?: string;
     birthday?: string;
     gender?: "MALE" | "FEMALE" | "HIDDEN";
+    hasPinCode?: boolean;
 };
 
 export type Story = {

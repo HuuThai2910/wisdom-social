@@ -35,6 +35,10 @@ public interface UserService {
     void requestAccountDeletion(User user);
     void cancelAccountDeletion(User user);
 
+    void setupPinCode(User user, String pinCode);
+    boolean verifyPinCode(User user, String pinCode);
+    void removePinCode(User user);
+
     @Transactional
     Instant updateLastActiveAt(Long userId);
 }

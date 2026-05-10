@@ -236,7 +236,8 @@ public class UserServiceImpl implements UserService {
                         .createdAt(user.getCreatedAt() != null ? user.getCreatedAt().toInstant() : null)
                         .token(accessToken)
                         .refreskToken(refreshToken)
-                        .idToken(idToken);
+                        .idToken(idToken)
+                        .hasPinCode(user.hasPinCode());
 
                 if (user.getDeletionRequestedAt() != null) {
                     long remainingDays = ChronoUnit.DAYS.between(OffsetDateTime.now(), user.getDeletionScheduledFor());
@@ -699,6 +700,28 @@ public class UserServiceImpl implements UserService {
     public void cancelAccountDeletion(User user) {
         user.setDeletionRequestedAt(null);
         user.setDeletionScheduledFor(null);
+        userRepository.save(user);
+    }
+
+    @Override
+    @Transactional
+    public void setupPinCode(User user, String pinCode) {
+        user.setPinCode(pinCode);
+        userRepository.save(user);
+    }
+
+    @Override
+    public boolean verifyPinCode(User user, String pinCode) {
+        if (user.getPinCode() == null) {
+            return false; // Chưa cài đặt mã PIN
+        }
+        return user.getPinCode().equals(pinCode);
+    }
+
+    @Override
+    @Transactional
+    public void removePinCode(User user) {
+        user.setPinCode(null);
         userRepository.save(user);
     }
 }
