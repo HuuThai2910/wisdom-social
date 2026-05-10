@@ -1035,6 +1035,59 @@ class WebSocketService {
         }
     }
 
+    // ── Force logout realtime ──────────────────────────────────────────────
+
+    /**
+     * Subscribe để nhận sự kiện force-logout từ backend khi logoutAllDevices được gọi.
+     * Topic: /topic/user/{phone}/force-logout
+     *
+     * @param phone - Số điện thoại quốc tế của user đang đăng nhập (ví dụ: +84912345678)
+     * @param callback - Hàm được gọi ngay khi nhận được sự kiện force logout
+     */
+    subscribeToForceLogout(phone: string, callback: () => void) {
+        if (!this.client?.connected) {
+            console.error("WebSocket not connected, cannot subscribe to force logout");
+            return;
+        }
+
+        const destination = `/topic/user/${phone}/force-logout`;
+        const existingSubscription = this.subscriptions.get(destination);
+        if (existingSubscription) return;
+
+        const subscription = this.client.subscribe(
+            destination,
+            (message: IMessage) => {
+                try {
+                    const payload = JSON.parse(message.body);
+                    console.log("🔴 Force logout event received:", payload);
+                    if (payload?.event === "FORCE_LOGOUT") {
+                        callback();
+                    }
+                } catch (error) {
+                    console.error("Error parsing force-logout event:", error);
+                }
+            },
+        );
+
+        this.subscriptions.set(destination, subscription);
+        console.log(`🔒 Subscribed to force-logout for ${phone}`);
+    }
+
+    /**
+     * Unsubscribe khỏi sự kiện force-logout
+     *
+     * @param phone - Số điện thoại quốc tế của user
+     */
+    unsubscribeFromForceLogout(phone: string) {
+        const destination = `/topic/user/${phone}/force-logout`;
+        const subscription = this.subscriptions.get(destination);
+        if (subscription) {
+            subscription.unsubscribe();
+            this.subscriptions.delete(destination);
+            console.log(`🔓 Unsubscribed from force-logout for ${phone}`);
+        }
+    }
+
     // ── Page realtime ─────────────────────────────────────────────────────
 
     subscribeToPageMembers(pageId: number, onEvent: (event: Record<string, unknown>) => void) {

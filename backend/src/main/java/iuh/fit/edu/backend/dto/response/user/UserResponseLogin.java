@@ -20,4 +20,8 @@ public class UserResponseLogin {
     private String token;
     private String refreskToken;
     private String idToken;
+
+    private boolean deletionPending;
+    private Long deletionRemainingDays;
+    private Instant deletionScheduledFor;
 }

@@ -1,10 +1,14 @@
 package iuh.fit.edu.backend.service.user.impl;
 
 import iuh.fit.edu.backend.constant.FriendStatus;
+import iuh.fit.edu.backend.domain.entity.mysql.BlockedUser;
 import iuh.fit.edu.backend.domain.entity.mysql.Friend;
 import iuh.fit.edu.backend.domain.entity.mysql.User;
 import iuh.fit.edu.backend.dto.response.friend.FriendEventPayload;
+import iuh.fit.edu.backend.dto.response.friend.FriendSuggestionResponse;
+import iuh.fit.edu.backend.repository.mysql.BlockUserRepository;
 import iuh.fit.edu.backend.repository.mysql.FriendRepository;
+import iuh.fit.edu.backend.repository.mysql.UserRepository;
 import iuh.fit.edu.backend.service.user.FriendService;
 import iuh.fit.edu.backend.service.user.UserService;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -14,9 +18,13 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /*
  * @description
@@ -30,13 +38,19 @@ public class FriendServiceImpl implements FriendService {
     SimpMessagingTemplate messagingTemplate;
     FriendRepository friendRepository;
     UserService userService;
+    UserRepository userRepository;
+    BlockUserRepository blockUserRepository;
 
     public FriendServiceImpl(FriendRepository friendRepository,
-                             SimpMessagingTemplate messagingTemplate, StringRedisTemplate redisTemplate, UserService userService) {
+                             SimpMessagingTemplate messagingTemplate, StringRedisTemplate redisTemplate,
+                             UserService userService, UserRepository userRepository,
+                             BlockUserRepository blockUserRepository) {
         this.friendRepository = friendRepository;
         this.messagingTemplate = messagingTemplate;
         this.redisTemplate = redisTemplate;
         this.userService = userService;
+        this.userRepository = userRepository;
+        this.blockUserRepository = blockUserRepository;
     }
 
     @Override
@@ -370,6 +384,125 @@ public class FriendServiceImpl implements FriendService {
             return listUser;
         }
         return null;
+    }
+
+    @Override
+    public List<FriendSuggestionResponse> getFriendSuggestions(long userId, int limit) {
+        User me = userService.findUserById(userId);
+        if (me == null) return new ArrayList<>();
+        int safeLimit = limit <= 0 ? 20 : Math.min(limit, 100);
+
+        Set<Long> myFriendIds = collectFriendIds(me);
+
+        Set<Long> exclude = new HashSet<>();
+        exclude.add(userId);
+        exclude.addAll(myFriendIds);
+        exclude.addAll(collectPendingPartnerIds(me));
+        exclude.addAll(collectBlockRelatedIds(me));
+
+        Map<Long, Integer> mutualCount = new HashMap<>();
+        for (Long friendId : myFriendIds) {
+            User friend = userService.findUserById(friendId);
+            if (friend == null) continue;
+            for (Long candidateId : collectFriendIds(friend)) {
+                if (exclude.contains(candidateId)) continue;
+                mutualCount.merge(candidateId, 1, Integer::sum);
+            }
+        }
+
+        List<FriendSuggestionResponse> result = mutualCount.entrySet().stream()
+                .sorted(Comparator.<Map.Entry<Long, Integer>>comparingInt(Map.Entry::getValue).reversed())
+                .limit(safeLimit)
+                .map(e -> toSuggestion(userService.findUserById(e.getKey()), e.getValue()))
+                .filter(s -> s != null && isCandidateActive(s.getId()))
+                .collect(Collectors.toList());
+
+        if (result.size() < safeLimit) {
+            Set<Long> alreadyIn = result.stream().map(FriendSuggestionResponse::getId).collect(Collectors.toSet());
+            int need = safeLimit - result.size();
+            List<FriendSuggestionResponse> fillers = userRepository.findAll().stream()
+                    .filter(u -> u.getId() != null
+                            && !exclude.contains(u.getId())
+                            && !alreadyIn.contains(u.getId())
+                            && isUserActive(u))
+                    .limit(need)
+                    .map(u -> toSuggestion(u, 0))
+                    .filter(s -> s != null)
+                    .collect(Collectors.toList());
+            result.addAll(fillers);
+        }
+
+        return result;
+    }
+
+    private Set<Long> collectFriendIds(User user) {
+        Set<Long> ids = new HashSet<>();
+        for (Friend f : friendRepository.findFriendsByUser(user)) {
+            if (FriendStatus.ACCEPTED.equals(f.getStatus()) && f.getFriend() != null) {
+                ids.add(f.getFriend().getId());
+            }
+        }
+        for (Friend f : friendRepository.findFriendsByFriend(user)) {
+            if (FriendStatus.ACCEPTED.equals(f.getStatus()) && f.getUser() != null) {
+                ids.add(f.getUser().getId());
+            }
+        }
+        return ids;
+    }
+
+    private Set<Long> collectPendingPartnerIds(User user) {
+        Set<Long> ids = new HashSet<>();
+        for (Friend f : friendRepository.findFriendsByUser(user)) {
+            if (FriendStatus.PENDING.equals(f.getStatus()) && f.getFriend() != null) {
+                ids.add(f.getFriend().getId());
+            }
+        }
+        for (Friend f : friendRepository.findFriendsByFriend(user)) {
+            if (FriendStatus.PENDING.equals(f.getStatus()) && f.getUser() != null) {
+                ids.add(f.getUser().getId());
+            }
+        }
+        Set<String> sent = redisTemplate.opsForSet().members(buildSentRequestKey(user.getId()));
+        if (sent != null) sent.forEach(s -> ids.add(Long.parseLong(s)));
+        Set<String> received = redisTemplate.opsForSet().members(buildReceivedRequestKey(user.getId()));
+        if (received != null) received.forEach(s -> ids.add(Long.parseLong(s)));
+        return ids;
+    }
+
+    private Set<Long> collectBlockRelatedIds(User user) {
+        Set<Long> ids = new HashSet<>();
+        for (BlockedUser b : blockUserRepository.findBlockedUsersByBlocker(user)) {
+            if (b.getBlocked() != null) ids.add(b.getBlocked().getId());
+        }
+        for (BlockedUser b : blockUserRepository.findBlockedUsersByBlocked(user)) {
+            if (b.getBlocker() != null) ids.add(b.getBlocker().getId());
+        }
+        return ids;
+    }
+
+    private boolean isCandidateActive(Long id) {
+        if (id == null) return false;
+        User u = userService.findUserById(id);
+        return isUserActive(u);
+    }
+
+    private boolean isUserActive(User u) {
+        if (u == null) return false;
+        if (u.isLocked()) return false;
+        return u.getDeletionScheduledFor() == null;
+    }
+
+    private FriendSuggestionResponse toSuggestion(User u, int mutual) {
+        if (u == null) return null;
+        return FriendSuggestionResponse.builder()
+                .id(u.getId())
+                .name(u.getName())
+                .username(u.getUsername())
+                .phone(u.getPhone())
+                .avatarUrl(u.getAvatarUrl())
+                .bio(u.getBio())
+                .mutualFriendsCount(mutual)
+                .build();
     }
 
     private String buildSentRequestKey(long userId){

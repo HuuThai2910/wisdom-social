@@ -140,6 +140,42 @@ public class UserController {
         return ResponseEntity.badRequest().body("Failed to reset password");
     }
 
+    @PostMapping("/logout-all")
+    @ApiMessage("All sessions terminated")
+    public ResponseEntity<String> logoutAllDevices() {
+        User user = userService.getCurrentUser();
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Unauthorized");
+        }
+        userService.logoutAllDevices(user);
+        return ResponseEntity.ok("All devices logged out");
+    }
+
+    @PostMapping("/request-deletion")
+    @ApiMessage("Account deletion requested")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> requestDeletion() {
+        User user = userService.getCurrentUser();
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "Unauthorized", null));
+        }
+        userService.requestAccountDeletion(user);
+        return ResponseEntity.ok(ApiResponse.success(200, "Yêu cầu xóa tài khoản thành công",
+                Map.of("scheduledFor", user.getDeletionScheduledFor().toString(),
+                        "remainingDays", 30)));
+    }
+
+    @PostMapping("/cancel-deletion")
+    @ApiMessage("Account deletion cancelled")
+    public ResponseEntity<String> cancelDeletion() {
+        User user = userService.getCurrentUser();
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Unauthorized");
+        }
+        userService.cancelAccountDeletion(user);
+        return ResponseEntity.ok("Đã hủy yêu cầu xóa tài khoản");
+    }
+
     @GetMapping("/users")
     @ApiMessage("Get all User")
     public ResponseEntity<List<User>> getAllUser(){

@@ -50,6 +50,11 @@ export type ApiAuthUser = {
     createdAt?: string | null;
     updatedAt?: string | null;
     confirmUseAI?: boolean;
+    deletionRequestedAt?: string | null;
+    deletionScheduledFor?: string | null;
+    // Computed from deletionScheduledFor - populated by getCurrentUser()
+    deletionPending?: boolean;
+    deletionRemainingDays?: number;
 };
 
 const sleep = (ms: number): Promise<void> =>
@@ -149,14 +154,32 @@ export async function registerWithPhone(
     }
 }
 
+export type OtpResult = {
+    success: boolean;
+    message?: string;
+    remainingSeconds?: number;
+};
+
 export async function confirmRegisterOtp(
     phone: string,
     otp: string,
-): Promise<{ success: boolean; message?: string }> {
+): Promise<OtpResult> {
     try {
         await apiClient.post("/auth/confirm", { phone, otp });
         return { success: true };
     } catch (error: any) {
+        const status = error?.response?.status;
+        const errors = error?.response?.data?.errors;
+
+        if (status === 429 && errors?.remainingSeconds) {
+            const minutes = Math.ceil(errors.remainingSeconds / 60);
+            return {
+                success: false,
+                message: `Nhập sai OTP quá nhiều lần. Thử lại sau ${minutes} phút.`,
+                remainingSeconds: errors.remainingSeconds,
+            };
+        }
+
         const msg: string = (error?.response?.data?.message || error?.message || '').toLowerCase();
         if (msg.includes('expired') || msg.includes('codeexpired')) {
             return { success: false, message: "Mã xác thực đã hết hạn. Vui lòng yêu cầu gửi lại." };
@@ -165,12 +188,21 @@ export async function confirmRegisterOtp(
     }
 }
 
+export type LoginResult = {
+    success: boolean;
+    message?: string;
+    user?: ApiAuthUser;
+    remainingSeconds?: number;
+    lockReason?: string;
+    deletionPending?: boolean;
+    deletionRemainingDays?: number;
+};
+
 export async function loginWithPhone(
     data: PhoneLoginPayload,
-): Promise<{ success: boolean; message?: string; user?: ApiAuthUser }> {
+): Promise<LoginResult> {
     try {
         const device = await getDeviceInfo();
-        console.log("Data:", data)
         const response = await apiClient.post("/auth/login", {
             ...data,
             deviceType: device.deviceType,
@@ -190,8 +222,6 @@ export async function loginWithPhone(
         if (refreshToken) {
             await saveRefreshToken(refreshToken);
         }
-        // Save idToken if returned; otherwise use the accessToken
-        // so the request interceptor (which reads getIdToken()) always has a value
         if (idToken) {
             await saveIdToken(idToken);
         } else if (accessToken) {
@@ -203,14 +233,36 @@ export async function loginWithPhone(
             await saveUser(userProfile);
         }
 
-        return { success: true, user: userProfile ?? undefined };
+        const result: LoginResult = { success: true, user: userProfile ?? undefined };
+        if (loginData?.deletionPending) {
+            result.deletionPending = true;
+            result.deletionRemainingDays = loginData.deletionRemainingDays;
+        }
+        return result;
     } catch (error: unknown) {
-        console.log(error)
-        const backendMessage =
-            error && typeof error === "object"
-                ? (error as { response?: { data?: { message?: string } }; message?: string }).response?.data?.message ||
-                (error as { message?: string }).message
-                : undefined;
+        const err = error as { response?: { status?: number; data?: { message?: string; errors?: { remainingSeconds?: number; lockReason?: string; code?: string } } } };
+        const status = err?.response?.status;
+        const errors = err?.response?.data?.errors;
+        const backendMessage = err?.response?.data?.message;
+
+        if (status === 429 && errors?.remainingSeconds) {
+            const minutes = Math.ceil(errors.remainingSeconds / 60);
+            return {
+                success: false,
+                message: `Tài khoản bị khóa tạm do nhập sai quá nhiều lần. Thử lại sau ${minutes} phút.`,
+                remainingSeconds: errors.remainingSeconds,
+            };
+        }
+
+        if (status === 403 && errors?.code === 'ACCOUNT_LOCKED') {
+            return {
+                success: false,
+                message: `Tài khoản đã bị khóa: ${errors.lockReason || 'Vi phạm chính sách'}`,
+                remainingSeconds: errors.remainingSeconds,
+                lockReason: errors.lockReason,
+            };
+        }
+
         return { success: false, message: mapLoginError(backendMessage) };
     }
 }
@@ -252,19 +304,27 @@ export async function forgotPassword(
 
 export async function resetPassword(
     data: ResetPasswordPayload,
-): Promise<{ success: boolean; message?: string }> {
+): Promise<OtpResult> {
     try {
         await apiClient.post("/auth/reset-password", {
             ...data,
             instant: new Date().toISOString(),
         });
         return { success: true };
-    } catch (error: unknown) {
-        const backendMessage =
-            error && typeof error === "object"
-                ? (error as { response?: { data?: { message?: string } }; message?: string }).response?.data?.message ||
-                (error as { message?: string }).message
-                : undefined;
+    } catch (error: any) {
+        const status = error?.response?.status;
+        const errors = error?.response?.data?.errors;
+
+        if (status === 429 && errors?.remainingSeconds) {
+            const minutes = Math.ceil(errors.remainingSeconds / 60);
+            return {
+                success: false,
+                message: `Nhập sai OTP quá nhiều lần. Thử lại sau ${minutes} phút.`,
+                remainingSeconds: errors.remainingSeconds,
+            };
+        }
+
+        const backendMessage = error?.response?.data?.message || error?.message;
         return {
             success: false,
             message: mapResetPasswordError(backendMessage),
@@ -275,7 +335,24 @@ export async function resetPassword(
 export async function getCurrentUser(): Promise<ApiAuthUser | null> {
     try {
         const response = await apiClient.get("/auth/me");
-        return response.data?.data ?? null;
+        const userData: ApiAuthUser | null = response.data?.data ?? null;
+        if (!userData) return null;
+
+        // Compute deletionPending from server fields so bootstrap can also detect it
+        if (userData.deletionScheduledFor) {
+            const scheduledFor = new Date(userData.deletionScheduledFor);
+            const now = new Date();
+            if (scheduledFor > now) {
+                const msRemaining = scheduledFor.getTime() - now.getTime();
+                userData.deletionPending = true;
+                userData.deletionRemainingDays = Math.max(
+                    0,
+                    Math.floor(msRemaining / (1000 * 60 * 60 * 24)),
+                );
+            }
+        }
+
+        return userData;
     } catch {
         return null;
     }

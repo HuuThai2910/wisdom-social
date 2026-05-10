@@ -31,8 +31,10 @@ public interface UserService {
     boolean cancelBlockUser(FriendRequest friendRequest);
     List<User> searchUserByUsername(String keyword);
     void saveDevice(User user, String deviceType, String deviceName, String ipAddress);
+    void logoutAllDevices(User user);
+    void requestAccountDeletion(User user);
+    void cancelAccountDeletion(User user);
 
-    // Hàm cập nhật lần hoạt động cuối cùng user
     @Transactional
     Instant updateLastActiveAt(Long userId);
 }

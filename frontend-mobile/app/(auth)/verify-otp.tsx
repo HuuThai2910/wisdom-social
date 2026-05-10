@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
     View,
     Text,
@@ -27,7 +27,38 @@ export default function VerifyOTPScreen() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [successMsg, setSuccessMsg] = useState('');
+    const [lockCountdown, setLockCountdown] = useState(0);
+    const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const inputRefs = useRef<Array<TextInput | null>>([]);
+
+    useEffect(() => {
+        return () => {
+            if (timerRef.current) clearInterval(timerRef.current);
+        };
+    }, []);
+
+    const startCountdown = useCallback((seconds: number) => {
+        if (timerRef.current) clearInterval(timerRef.current);
+        setLockCountdown(seconds);
+        timerRef.current = setInterval(() => {
+            setLockCountdown((prev) => {
+                if (prev <= 1) {
+                    if (timerRef.current) clearInterval(timerRef.current);
+                    timerRef.current = null;
+                    return 0;
+                }
+                return prev - 1;
+            });
+        }, 1000);
+    }, []);
+
+    const formatCountdown = (seconds: number) => {
+        const m = Math.floor(seconds / 60);
+        const s = seconds % 60;
+        return `${m}:${s.toString().padStart(2, '0')}`;
+    };
+
+    const isLocked = lockCountdown > 0;
 
     const handleOtpChange = (value: string, index: number) => {
         if (value.length > 1) {
@@ -50,6 +81,8 @@ export default function VerifyOTPScreen() {
     };
 
     const handleVerify = async () => {
+        if (isLocked) return;
+
         const otpCode = otp.join('');
         const validation = validateOTP(otpCode);
         if (!validation.isValid) {
@@ -66,6 +99,9 @@ export default function VerifyOTPScreen() {
                 if (result.success) {
                     router.replace('/(auth)/login');
                 } else {
+                    if (result.remainingSeconds && result.remainingSeconds > 0) {
+                        startCountdown(result.remainingSeconds);
+                    }
                     setError(
                       result.message ||
                         "Mã xác thực không đúng, vui lòng thử lại.",
@@ -150,11 +186,16 @@ export default function VerifyOTPScreen() {
 
                         {successMsg ? <Text style={styles.successText}>{successMsg}</Text> : null}
                         {error ? <Text style={styles.errorText}>{error}</Text> : null}
+                        {isLocked ? (
+                            <Text style={styles.lockTimer}>
+                                Thử lại sau {formatCountdown(lockCountdown)}
+                            </Text>
+                        ) : null}
 
                         <TouchableOpacity
-                            style={[styles.verifyButton, loading && styles.disabledButton]}
+                            style={[styles.verifyButton, (loading || isLocked) && styles.disabledButton]}
                             onPress={handleVerify}
-                            disabled={loading}
+                            disabled={loading || isLocked}
                         >
                             <LinearGradient
                                 colors={loading ? ['#93C5FD', '#93C5FD'] : ['#3B82F6', '#2563EB']}
@@ -273,6 +314,13 @@ const styles = StyleSheet.create({
         fontSize: 14,
         marginBottom: 12,
         textAlign: 'center',
+    },
+    lockTimer: {
+        color: '#F59E0B',
+        fontWeight: '600',
+        fontSize: 16,
+        textAlign: 'center',
+        marginBottom: 12,
     },
     errorText: {
         color: '#EF4444',

@@ -83,4 +83,8 @@ export type ProfileStats = {
 export type AuthResult = {
     success: boolean;
     message?: string;
+    remainingSeconds?: number;
+    lockReason?: string;
+    deletionPending?: boolean;
+    deletionRemainingDays?: number;
 };

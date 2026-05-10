@@ -226,14 +226,18 @@ export default function InstagramProfileMenuScreen() {
 
                     <View style={ds.divider} />
 
-                    <TouchableOpacity style={ds.menuItem} activeOpacity={0.7}>
+                    <TouchableOpacity
+                        style={ds.menuItem}
+                        onPress={() => router.push("/(stack)/profile/security")}
+                        activeOpacity={0.7}
+                    >
                         <View style={ds.settingInfo}>
                             <View style={[ds.iconWrap, { backgroundColor: colors.surface }]}>
                                 <Ionicons name="lock-closed" size={20} color={colors.primary} />
                             </View>
                             <View>
                                 <Text style={ds.settingLabel}>Bảo mật</Text>
-                                <Text style={ds.settingDesc}>Mật khẩu và xác minh</Text>
+                                <Text style={ds.settingDesc}>Sinh trắc học, đăng xuất, xóa tài khoản</Text>
                             </View>
                         </View>
                         <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />

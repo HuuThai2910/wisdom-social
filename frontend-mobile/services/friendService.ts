@@ -7,6 +7,8 @@ export type FriendUser = {
     avatar?: string;
     avatarUrl?: string;
     phone?: string;
+    bio?: string;
+    mutualFriendsCount?: number;
 };
 
 class FriendService {
@@ -73,6 +75,18 @@ class FriendService {
             return true;
         } catch {
             return false;
+        }
+    }
+
+    async getFriendSuggestions(userId: number, limit = 20): Promise<FriendUser[]> {
+        try {
+            const response = await apiClient.get(`/friends/suggestions/${userId}`, {
+                params: { limit },
+            });
+            const data = response.data?.data ?? [];
+            return Array.isArray(data) ? data : [];
+        } catch {
+            return [];
         }
     }
 

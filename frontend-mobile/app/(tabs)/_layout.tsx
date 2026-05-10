@@ -1,11 +1,58 @@
 import { colors } from "@/constants";
 import { useAppContext } from "@/context/AppContext";
+import { cancelAccountDeletion } from "@/services/securityService";
 import { Ionicons } from "@expo/vector-icons";
-import { Redirect, Tabs } from "expo-router";
-import { Image, StyleSheet, View } from "react-native";
+import { Redirect, Tabs, useRouter } from "expo-router";
+import { useEffect, useRef } from "react";
+import { Alert, Image, StyleSheet, View } from "react-native";
 
 export default function TabsLayout() {
-    const { currentUser, loggedIn } = useAppContext();
+    const { currentUser, loggedIn, deletionPending, deletionRemainingDays, clearDeletionPending, logout } = useAppContext();
+    const router = useRouter();
+    // Flag để đảm bảo alert chỉ hiện đúng 1 lần dù effect chạy lại nhiều lần
+    const alertShownRef = useRef(false);
+
+    // Hiện cảnh báo hủy xóa tài khoản ngay khi vào app (cả cold start lẫn sau đăng nhập lại)
+    useEffect(() => {
+        if (!loggedIn || !deletionPending) return; // Không reset ref ở đây
+
+        if (alertShownRef.current) return;
+        alertShownRef.current = true;
+
+        Alert.alert(
+            "⚠️ Tài khoản đang chờ xóa",
+            `Tài khoản của bạn sẽ bị xóa vĩnh viễn sau ${deletionRemainingDays ?? 30} ngày. Bạn có muốn hủy yêu cầu xóa không?`,
+            [
+                {
+                    text: "Tiếp tục dùng app",
+                    style: "cancel",
+                    // Không làm gì — cảnh báo sẽ xuất hiện lại ở lần mở app tiếp theo
+                },
+                {
+                    text: "Đăng xuất",
+                    style: "default",
+                    onPress: () => {
+                        logout();
+                        router.replace("/(auth)/login");
+                    },
+                },
+                {
+                    text: "Hủy xóa tài khoản",
+                    style: "destructive",
+                    onPress: async () => {
+                        const result = await cancelAccountDeletion();
+                        if (result.success) {
+                            clearDeletionPending();
+                            Alert.alert("Thành công", "Yêu cầu xóa tài khoản đã được hủy. Tài khoản của bạn sẽ không bị xóa.");
+                        } else {
+                            alertShownRef.current = false; // Cho phép hiện lại nếu thất bại
+                            Alert.alert("Lỗi", result.message || "Không thể hủy yêu cầu xóa tài khoản.");
+                        }
+                    },
+                },
+            ],
+        );
+    }, [loggedIn, deletionPending]); // eslint-disable-line react-hooks/exhaustive-deps
 
     if (!loggedIn) {
         return <Redirect href="/(auth)/login" />;

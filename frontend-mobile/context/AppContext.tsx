@@ -103,6 +103,11 @@ type AppContextValue = {
     igtvVideos: IgtvVideo[];
     themeMode: ThemeMode;
     notificationSettings: NotificationSettings;
+    /** true khi user đang trong trạng thái chờ xóa tài khoản */
+    deletionPending: boolean;
+    deletionRemainingDays: number | undefined;
+    /** Gọi để reset trạng thái deletionPending (sau khi user hủy xóa) */
+    clearDeletionPending: () => void;
     login: (phone: string, password: string) => Promise<AuthResult>;
     signup: (payload: SignupPayload) => Promise<AuthResult>;
     signupWithPhone: (payload: PhoneSignupPayload) => Promise<AuthResult>;
@@ -217,6 +222,8 @@ export function AppProvider({ children }: PropsWithChildren) {
     const [themeMode, setThemeModeState] = useState<ThemeMode>("light");
     const [notificationSettings, setNotificationSettings] =
         useState<NotificationSettings>(defaultNotificationSettings);
+    const [deletionPending, setDeletionPending] = useState(false);
+    const [deletionRemainingDays, setDeletionRemainingDays] = useState<number | undefined>(undefined);
 
     const currentUser = useMemo(
         () => users.find((user) => user.id === currentUserId) ?? null,
@@ -244,6 +251,15 @@ export function AppProvider({ children }: PropsWithChildren) {
 
         await saveUser(latestUser);
         upsertMappedUser(mapApiUserToAppUser(latestUser));
+
+        // Surface deletion status if still pending
+        if (latestUser.deletionPending) {
+            setDeletionPending(true);
+            setDeletionRemainingDays(latestUser.deletionRemainingDays);
+        } else {
+            setDeletionPending(false);
+            setDeletionRemainingDays(undefined);
+        }
     }, [upsertMappedUser]);
 
     useEffect(() => {
@@ -385,14 +401,28 @@ export function AppProvider({ children }: PropsWithChildren) {
 
         if (apiResult.success && apiResult.user) {
             upsertMappedUser(mapApiUserToAppUser(apiResult.user));
+            // Surface deletion status
+            if (apiResult.deletionPending) {
+                setDeletionPending(true);
+                setDeletionRemainingDays(apiResult.deletionRemainingDays);
+            } else {
+                setDeletionPending(false);
+                setDeletionRemainingDays(undefined);
+            }
             setLoadingAuth(false);
-            return { success: true };
+            return {
+                success: true,
+                deletionPending: apiResult.deletionPending,
+                deletionRemainingDays: apiResult.deletionRemainingDays,
+            };
         }
 
         setLoadingAuth(false);
         return {
             success: false,
             message: apiResult.message ?? "Đăng nhập thất bại.",
+            remainingSeconds: apiResult.remainingSeconds,
+            lockReason: apiResult.lockReason,
         };
     };
 
@@ -434,8 +464,15 @@ export function AppProvider({ children }: PropsWithChildren) {
         return resetPassword(payload);
     };
 
+    const clearDeletionPending = useCallback(() => {
+        setDeletionPending(false);
+        setDeletionRemainingDays(undefined);
+    }, []);
+
     const logout = () => {
         setCurrentUserId(null);
+        setDeletionPending(false);
+        setDeletionRemainingDays(undefined);
         void logoutApi();
     };
 
@@ -676,6 +713,9 @@ export function AppProvider({ children }: PropsWithChildren) {
             igtvVideos,
             themeMode,
             notificationSettings,
+            deletionPending,
+            deletionRemainingDays,
+            clearDeletionPending,
             login,
             signup,
             signupWithPhone,
@@ -716,6 +756,9 @@ export function AppProvider({ children }: PropsWithChildren) {
             igtvVideos,
             themeMode,
             notificationSettings,
+            deletionPending,
+            deletionRemainingDays,
+            clearDeletionPending,
             refreshCurrentUser,
         ],
     );

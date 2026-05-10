@@ -19,7 +19,7 @@ import blockService from "@/services/blockService";
 import friendService, { FriendUser } from "@/services/friendService";
 import { useFriendNotifications } from "@/hooks/useFriendNotifications";
 
-type TabType = "friends" | "requests" | "sent" | "blocked";
+type TabType = "friends" | "requests" | "sent" | "blocked" | "suggestions";
 
 export default function FriendsListScreen() {
     const router = useRouter();
@@ -28,7 +28,7 @@ export default function FriendsListScreen() {
     const params = useLocalSearchParams<{ userId?: string; tab?: string }>();
 
     const [tab, setTab] = useState<TabType>(
-        params.tab === "requests" || params.tab === "sent" || params.tab === "blocked"
+        params.tab === "requests" || params.tab === "sent" || params.tab === "blocked" || params.tab === "suggestions"
             ? params.tab
             : "friends",
     );
@@ -58,11 +58,23 @@ export default function FriendsListScreen() {
                 setList(await friendService.getFriendRequests(actingUserId));
             } else if (tab === "sent") {
                 setList(await friendService.getSentRequests(actingUserId));
+            } else if (tab === "suggestions") {
+                setList(await friendService.getFriendSuggestions(actingUserId, 30));
             } else {
                 setList(await blockService.getBlockedUsers(actingUserId));
             }
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleSendRequest = async (targetId: number) => {
+        const myId = numericUserId ?? 0;
+        const ok = await friendService.sendFriendRequest(myId, targetId);
+        if (ok) {
+            setList((prev) => prev.filter((u) => u.id !== targetId));
+        } else {
+            Alert.alert("Lỗi", "Không thể gửi lời mời. Vui lòng thử lại.");
         }
     };
 
@@ -129,6 +141,8 @@ export default function FriendsListScreen() {
                 return "Đã gửi";
             case "blocked":
                 return "Đã chặn";
+            case "suggestions":
+                return "Gợi ý kết bạn";
             default:
                 return "Bạn bè";
         }
@@ -158,6 +172,11 @@ export default function FriendsListScreen() {
                     </Text>
                     {item.username && item.name && (
                         <Text style={styles.username}>@{item.username}</Text>
+                    )}
+                    {tab === "suggestions" && (item.mutualFriendsCount ?? 0) > 0 && (
+                        <Text style={styles.mutualText}>
+                            {item.mutualFriendsCount} bạn chung
+                        </Text>
                     )}
                 </View>
             </TouchableOpacity>
@@ -202,6 +221,15 @@ export default function FriendsListScreen() {
                     <Text style={styles.unblockText}>Bỏ chặn</Text>
                 </TouchableOpacity>
             )}
+            {tab === "suggestions" && (
+                <TouchableOpacity
+                    style={styles.addFriendButton}
+                    onPress={() => handleSendRequest(item.id)}
+                >
+                    <Ionicons name="person-add" size={16} color="#fff" />
+                    <Text style={styles.addFriendText}>Kết bạn</Text>
+                </TouchableOpacity>
+            )}
         </View>
     );
 
@@ -235,6 +263,23 @@ export default function FriendsListScreen() {
 
                 {isCurrentUser && (
                     <>
+                        <TouchableOpacity
+                            style={[styles.tab, tab === "suggestions" && styles.tabActive]}
+                            onPress={() => {
+                                setTab("suggestions");
+                                setSearchQuery("");
+                            }}
+                        >
+                            <Text
+                                style={[
+                                    styles.tabText,
+                                    tab === "suggestions" && styles.tabTextActive,
+                                ]}
+                            >
+                                Gợi ý
+                            </Text>
+                        </TouchableOpacity>
+
                         <TouchableOpacity
                             style={[styles.tab, tab === "requests" && styles.tabActive]}
                             onPress={() => {
@@ -321,7 +366,9 @@ export default function FriendsListScreen() {
                                   ? "person-add-outline"
                                   : tab === "sent"
                                     ? "send-outline"
-                                    : "ban-outline"
+                                    : tab === "suggestions"
+                                      ? "sparkles-outline"
+                                      : "ban-outline"
                         }
                         size={60}
                         color="#D1D5DB"
@@ -333,9 +380,11 @@ export default function FriendsListScreen() {
                               ? "Không có lời mời"
                               : tab === "sent"
                                 ? "Chưa gửi lời mời"
-                                : searchQuery
-                                  ? "Không tìm thấy"
-                                  : "Chưa chặn ai"}
+                                : tab === "suggestions"
+                                  ? "Chưa có gợi ý nào"
+                                  : searchQuery
+                                    ? "Không tìm thấy"
+                                    : "Chưa chặn ai"}
                     </Text>
                 </View>
             ) : (
@@ -508,5 +557,24 @@ const styles = StyleSheet.create({
         fontSize: 13,
         fontWeight: "600",
         color: colors.danger,
+    },
+    mutualText: {
+        fontSize: 12,
+        color: colors.primary,
+        marginTop: 2,
+    },
+    addFriendButton: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 8,
+        backgroundColor: colors.primary,
+    },
+    addFriendText: {
+        fontSize: 13,
+        fontWeight: "600",
+        color: "#fff",
     },
 });

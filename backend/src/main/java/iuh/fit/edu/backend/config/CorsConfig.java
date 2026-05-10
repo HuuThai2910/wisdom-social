@@ -24,7 +24,8 @@ public class CorsConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(Arrays.asList(
-                "http://localhost:5173",     // Web frontend (dev)
+                "http://localhost:5173",
+                "http://localhost:5174",// Web frontend (dev)
                 "http://localhost:4173",     // Web frontend (preview)
                 "http://localhost:8081",     // Mobile Expo dev server
                 "http://localhost:19000",    // Expo Go

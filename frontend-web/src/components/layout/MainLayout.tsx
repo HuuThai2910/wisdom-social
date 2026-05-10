@@ -5,6 +5,7 @@ import BottomNav from "../nav/BottomNav";
 import { suggestedUsers } from "../../api/mockData";
 import { Link } from "react-router-dom";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
+import { useForceLogout } from "../../hooks/useForceLogout";
 import { useAvatarBuster } from "../../context/AvatarContext";
 import { FriendNotificationProvider } from "../../contexts/FriendNotificationContext";
 import {
@@ -22,6 +23,9 @@ function MainLayoutContent() {
     const { sidebarWidth } = useSidebarLayout();
     const [isRightSidebarExpanded, setIsRightSidebarExpanded] = useState(false);
     const isMessagesRoute = location.pathname.startsWith("/messages");
+
+    // Lắng nghe force-logout event từ backend (khi logoutAllDevices được gọi từ thiết bị khác)
+    useForceLogout(currentUser?.phone);
 
     console.log(
         "🔴 MainLayoutContent re-render with currentUser:",

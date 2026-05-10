@@ -2,6 +2,7 @@ package iuh.fit.edu.backend.controller;
 
 import iuh.fit.edu.backend.domain.entity.mysql.User;
 import iuh.fit.edu.backend.dto.request.friend.FriendRequest;
+import iuh.fit.edu.backend.dto.response.friend.FriendSuggestionResponse;
 import iuh.fit.edu.backend.service.user.FriendService;
 import iuh.fit.edu.backend.util.anotation.ApiMessage;
 import org.springframework.http.ResponseEntity;
@@ -74,5 +75,13 @@ public class FriendController {
     @ApiMessage("Get all friends for User")
     public ResponseEntity<List<User>> getFriendsForUser(@PathVariable long userId){
         return ResponseEntity.ok(friendService.getFriendsOfUser(userId));
+    }
+
+    @GetMapping("/suggestions/{userId}")
+    @ApiMessage("Get friend suggestions for User")
+    public ResponseEntity<List<FriendSuggestionResponse>> getFriendSuggestions(
+            @PathVariable long userId,
+            @RequestParam(value = "limit", defaultValue = "20") int limit) {
+        return ResponseEntity.ok(friendService.getFriendSuggestions(userId, limit));
     }
 }

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
     View,
     Text,
@@ -31,7 +31,38 @@ export default function ResetPasswordScreen() {
     const [resendLoading, setResendLoading] = useState(false);
     const [error, setError] = useState('');
     const [resendSuccess, setResendSuccess] = useState(false);
+    const [lockCountdown, setLockCountdown] = useState(0);
+    const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const inputRefs = useRef<Array<TextInput | null>>([]);
+
+    useEffect(() => {
+        return () => {
+            if (timerRef.current) clearInterval(timerRef.current);
+        };
+    }, []);
+
+    const startCountdown = useCallback((seconds: number) => {
+        if (timerRef.current) clearInterval(timerRef.current);
+        setLockCountdown(seconds);
+        timerRef.current = setInterval(() => {
+            setLockCountdown((prev) => {
+                if (prev <= 1) {
+                    if (timerRef.current) clearInterval(timerRef.current);
+                    timerRef.current = null;
+                    return 0;
+                }
+                return prev - 1;
+            });
+        }, 1000);
+    }, []);
+
+    const formatCountdown = (seconds: number) => {
+        const m = Math.floor(seconds / 60);
+        const s = seconds % 60;
+        return `${m}:${s.toString().padStart(2, '0')}`;
+    };
+
+    const isLocked = lockCountdown > 0;
 
     const handleOtpChange = (value: string, index: number) => {
         if (value.length > 1) value = value[0];
@@ -68,6 +99,8 @@ export default function ResetPasswordScreen() {
     };
 
     const handleResetPassword = async () => {
+        if (isLocked) return;
+
         const otpCode = otp.join('');
         const otpValidation = validateOTP(otpCode);
         if (!otpValidation.isValid) {
@@ -94,6 +127,9 @@ export default function ResetPasswordScreen() {
             if (result.success) {
                 router.replace('/(auth)/login');
             } else {
+                if (result.remainingSeconds && result.remainingSeconds > 0) {
+                    startCountdown(result.remainingSeconds);
+                }
                 setError(result.message || 'Đặt lại mật khẩu thất bại. Vui lòng thử lại.');
             }
         } catch {
@@ -213,11 +249,16 @@ export default function ResetPasswordScreen() {
                         </View>
 
                         {error ? <Text style={styles.errorText}>{error}</Text> : null}
+                        {isLocked ? (
+                            <Text style={styles.lockTimer}>
+                                Thử lại sau {formatCountdown(lockCountdown)}
+                            </Text>
+                        ) : null}
 
                         <TouchableOpacity
-                            style={[styles.submitButton, loading && styles.disabledButton]}
+                            style={[styles.submitButton, (loading || isLocked) && styles.disabledButton]}
                             onPress={handleResetPassword}
-                            disabled={loading}
+                            disabled={loading || isLocked}
                         >
                             <LinearGradient
                                 colors={loading ? ['#93C5FD', '#93C5FD'] : ['#3B82F6', '#2563EB']}
@@ -373,6 +414,13 @@ const styles = StyleSheet.create({
         marginBottom: 12,
         marginTop: -4,
         textAlign: 'center',
+    },
+    lockTimer: {
+        color: '#F59E0B',
+        fontWeight: '600',
+        fontSize: 16,
+        textAlign: 'center',
+        marginBottom: 12,
     },
     submitButton: {
         borderRadius: 12,

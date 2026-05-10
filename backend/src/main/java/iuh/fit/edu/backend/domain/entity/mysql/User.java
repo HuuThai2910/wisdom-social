@@ -50,6 +50,18 @@ public class User {
 
     private Instant lastActiveAt;
 
+    // Account locking
+    @Builder.Default
+    private boolean locked = false;
+    private OffsetDateTime lockedAt;
+    private String lockReason;
+    private OffsetDateTime lockedUntil;
+    private String lockedBy;
+
+    // Account deletion
+    private OffsetDateTime deletionRequestedAt;
+    private OffsetDateTime deletionScheduledFor;
+
     @OneToMany(mappedBy = "user")
     @JsonIgnore
     private List<Device> devices;
