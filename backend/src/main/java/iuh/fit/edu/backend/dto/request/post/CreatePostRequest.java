@@ -5,6 +5,8 @@
 package iuh.fit.edu.backend.dto.request.post;
 
 import iuh.fit.edu.backend.constant.PrivacyType;
+import iuh.fit.edu.backend.domain.entity.nosql.Music;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.Data;
 
 import java.util.List;
@@ -16,6 +18,7 @@ import java.util.List;
  * @version: 1.0
  */
 @Data
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class CreatePostRequest {
     private String content;
     private PrivacyType privacy;
@@ -28,4 +31,5 @@ public class CreatePostRequest {
     private List<MediaUploadMetadataRequest> mediaMetadatas; // metadata aligned with uploaded media order
     private Boolean allowComments;
     private Boolean allowShares;
+    private Music music;
 }

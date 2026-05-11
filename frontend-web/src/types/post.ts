@@ -1,3 +1,5 @@
+import type { NoteMusic } from "./note";
+
 /**
  * Post Related Types
  */
@@ -21,6 +23,9 @@ export interface PostData {
         placeId: string;
     };
     taggedUserIds?: string[];
+    allowComments?: boolean;
+    allowShares?: boolean;
+    music?: NoteMusic;
 }
 
 export interface UserData {

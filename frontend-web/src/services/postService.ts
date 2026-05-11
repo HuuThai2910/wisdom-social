@@ -4,7 +4,7 @@
  */
 
 import axiosClient from "../api/axiosClient";
-import type { PostData, UserData, CommentData } from "../types/postType";
+import type { PostData, UserData, CommentData } from "../types/post";
 import { uploadMediaAndGetFormat, buildS3Url } from "../utils/s3";
 
 export type MediaKind = "video" | "image";
@@ -601,23 +601,25 @@ export const createPost = async (
         console.log("📝 Creating post with image URLs...");
         console.log("Image URLs to send:", uploadedImageUrls);
 
-        // Build query parameters (uploadedImageUrls already contains uuid.extension format)
-        const params = new URLSearchParams();
         const payload = {
             ...postData,
             mediaMetadatas,
         };
-        params.append("postData", JSON.stringify(payload));
 
-        // Add each image URL as a separate query parameter
+        const formData = new FormData();
+        formData.append("postData", JSON.stringify(payload));
         uploadedImageUrls.forEach((url) => {
-            params.append("imageUrls", url);
+            formData.append("imageUrls", url);
         });
 
-        console.log("📤 Sending to backend with params:", params.toString());
-
         const response = await axiosClient.post(
-            `/posts?${params.toString()}`
+            `/posts?userId=${userId}`,
+            formData,
+            {
+                headers: {
+                    "Content-Type": "multipart/form-data",
+                },
+            }
         );
 
         console.log("✅ Post created response:", response.data);
@@ -752,7 +754,7 @@ export const getTaggedPostsWithDetails = async (userId: string | number): Promis
                 };
             } catch (error) {
                 console.error(`❌ Error fetching author for tagged post ${post.id}:`, error);
-                
+
                 const rawMedia = post.media || post.mediaList || [];
                 const images = transformMediaToS3Urls(rawMedia, post.authorId);
                 return {
@@ -808,20 +810,20 @@ export const getSharedPostsWithDetails = async (userId: string | number): Promis
     try {
         console.log(`📥 Fetching shared posts for user: ${userId}`);
         const response = await axiosClient.get(`/post-shares/user/${userId}`);
-        
+
         if (!response.data.success) {
             return [];
         }
 
         const sharesData = response.data.data || [];
-        
+
         // Fetch full post details for each shared post
         const transformedPostsPromises = sharesData.map(async (share: any) => {
             try {
                 // We use the originalPostId to get the actual post content
                 const postResponse = await axiosClient.get(`/posts/${share.originalPostId}`);
                 const post = postResponse.data.data;
-                
+
                 if (!post) return null;
 
                 // Fetch author data for the original post
@@ -864,7 +866,7 @@ export const getSharedPostsWithDetails = async (userId: string | number): Promis
         const transformedPosts = (await Promise.all(transformedPostsPromises)).filter(
             (post) => post !== null
         );
-        
+
         console.log(`✅ Shared posts fetched: ${transformedPosts.length}`);
         return transformedPosts;
     } catch (error) {

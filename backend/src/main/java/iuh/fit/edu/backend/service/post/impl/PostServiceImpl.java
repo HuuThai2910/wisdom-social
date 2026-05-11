@@ -113,6 +113,7 @@ public class PostServiceImpl implements PostService {
                 .mentions(mentions)
                 .allowComments(request.getAllowComments() != null ? request.getAllowComments() : true)
                 .allowShares(request.getAllowShares() != null ? request.getAllowShares() : true)
+                .music(request.getMusic())
                 .stats(Stats.builder()
                         .reactCount(0)
                         .commentCount(0)
@@ -535,6 +536,10 @@ public class PostServiceImpl implements PostService {
         }
         if (request.getAllowShares() != null) {
             post.setAllowShares(request.getAllowShares());
+        }
+        
+        if (request.getMusic() != null) {
+            post.setMusic(request.getMusic());
         }
         
         post.setUpdatedAt(Instant.now());

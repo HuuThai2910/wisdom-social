@@ -32,7 +32,7 @@
 import React, { useEffect, useRef } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import * as postApi from "../../../services/postService";
-import type { PostData } from "../../../types/postType";
+import type { PostData } from "../../../types/post";
 
 interface PostMediaViewerProps {
   post: PostData;

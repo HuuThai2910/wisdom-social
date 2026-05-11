@@ -32,7 +32,7 @@
  */
 
 import React, { useRef } from "react";
-import { Bookmark, Heart, Send } from "lucide-react";
+import { Bookmark, Heart, Send, MessageCircle } from "lucide-react";
 
 interface PostActionsProps {
   currentReaction: string | null;
@@ -88,8 +88,8 @@ const PostActions: React.FC<PostActionsProps> = ({
   return (
     <>
       {/* Action Buttons */}
-      <div className="border-t dark:border-gray-800">
-        <div className="p-4 flex items-center justify-between">
+      <div className="border-t dark:border-[#363636]">
+        <div className="px-3 py-2 flex items-center justify-between">
           <div className="flex gap-4">
             {/* Reaction Button with Picker */}
             <div
@@ -108,17 +108,21 @@ const PostActions: React.FC<PostActionsProps> = ({
                 className="hover:scale-110 transition-transform"
               >
                 {currentReaction ? (
-                  <span className="text-2xl">
-                    {REACTION_EMOJI[currentReaction] || "👍"}
-                  </span>
+                  currentReaction === "LIKE" ? (
+                    <Heart className="w-6 h-6 text-red-500 fill-red-500" />
+                  ) : (
+                    <span className="text-2xl">
+                      {REACTION_EMOJI[currentReaction] || "👍"}
+                    </span>
+                  )
                 ) : (
-                  <Heart className="w-6 h-6 dark:text-white" />
+                  <Heart className="w-6 h-6 dark:text-white hover:text-gray-500 transition-colors" />
                 )}
               </button>
 
               {/* Reaction Picker */}
               {showReactions && (
-                <div className="absolute bottom-full left-0 mb-0 pb-2 bg-white dark:bg-gray-800 rounded-full shadow-2xl border dark:border-gray-700 px-4 py-3 flex gap-2 z-50 animate-in fade-in zoom-in duration-200">
+                <div className="absolute bottom-full left-0 mb-0 pb-2 bg-white dark:bg-[#262626] rounded-full shadow-2xl border dark:border-[#363636] px-4 py-3 flex gap-2 z-50 animate-in fade-in zoom-in duration-200">
                   {REACTION_TYPES.map((type) => (
                     <button
                       key={type}
@@ -153,16 +157,15 @@ const PostActions: React.FC<PostActionsProps> = ({
             className="hover:opacity-70 transition-opacity"
           >
             <Bookmark
-              className="w-6 h-6 dark:text-white"
-              fill={isSaved ? "currentColor" : "none"}
+              className={`w-6 h-6 dark:text-white ${isSaved ? "fill-black dark:fill-white" : ""}`}
             />
           </button>
         </div>
 
         {/* Reaction Count */}
         <div className="px-4 pb-2">
-          <p className="font-semibold text-sm dark:text-white">
-            {reactCount} like{reactCount !== 1 ? "s" : ""}
+          <p className="font-bold text-sm dark:text-white">
+            {reactCount.toLocaleString()} lượt thích
           </p>
         </div>
       </div>

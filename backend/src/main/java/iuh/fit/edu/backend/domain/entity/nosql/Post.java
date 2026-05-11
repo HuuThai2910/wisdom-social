@@ -82,6 +82,8 @@ public class Post {
     // Feeling/Activity (VD: "feeling happy", "watching Avengers")
     private Activity activity;
 
+    private Music music;
+
     // Background cho text post (như Facebook colored background)
     private String backgroundStyle;
 

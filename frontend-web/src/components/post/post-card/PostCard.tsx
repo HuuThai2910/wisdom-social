@@ -10,7 +10,7 @@ import useRealtimeReactions from "../../../hooks/useRealtimeReactions";
 import { commentService } from "../../../services/commentService";
 import toast from "react-hot-toast";
 import EditPostModal from "../EditPostModal";
-import type { PostData } from "../../../types/postType";
+import type { PostData } from "../../../types/post";
 import { getPrivacyDisplay } from "./privacy";
 import type { PostCardProps } from "./types";
 import PostCardHeader from "./PostCardHeader";

@@ -7,7 +7,7 @@ import { useAuth } from "../../../contexts/AuthContext";
 import * as postApi from "../../../services/postService";
 import { commentService } from "../../../services/commentService";
 import type { Comment } from "../../../services/commentService";
-import type { UserData } from "../../../types/postType";
+import type { UserData } from "../../../types/post";
 import IconModal from "../../icon-modal/IconModal";
 import { getAvatarUrl } from "../../../utils/s3";
 
