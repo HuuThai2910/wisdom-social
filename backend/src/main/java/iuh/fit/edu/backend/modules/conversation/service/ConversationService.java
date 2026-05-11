@@ -1,0 +1,36 @@
+/*
+ * @ (#) .java    1.0       
+ * Copyright (c)  IUH. All rights reserved.
+ */
+package iuh.fit.edu.backend.modules.conversation.service;/*
+ * @description
+ * @author: Huu Thai
+ * @date:   
+ * @version: 1.0
+ */
+
+import iuh.fit.edu.backend.modules.conversation.dto.request.CreateGroupRequest;
+import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationResponse;
+import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationSidebarResponse;
+import jakarta.transaction.Transactional;
+
+import java.util.List;
+
+public interface ConversationService {
+
+
+
+    ConversationResponse createGroup(CreateGroupRequest request, Long creatorId);
+
+    List<ConversationSidebarResponse> getConversationsByUser(Long userId);
+
+    ConversationResponse getConversationById(Long conversationId, Long userId);
+
+    void deleteConversationForMe(Long conversationId, Long userId);
+
+    @Transactional
+    void markAsRead(Long conversationId, Long userId, String lastMessageId);
+
+    ConversationResponse updateMessageRestriction(Long conversationId, Long requesterId, boolean isRestricted);
+}
+
