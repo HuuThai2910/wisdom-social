@@ -5,7 +5,6 @@
 package iuh.fit.edu.backend.event.handler;
 
 import iuh.fit.edu.backend.event.payload.ConversationUpdatedEvent;
-import iuh.fit.edu.backend.event.payload.MemberUpdatedEvent;
 import iuh.fit.edu.backend.event.type.DomainEventType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -43,15 +42,14 @@ public class ConversationUpdatedEventHandler implements RedisEventHandler {
      */
     @Override
     public void handle(Object eventPayload, Set<Long> targetMemberIds) {
-        log.info("BUg");
         ConversationUpdatedEvent event = (ConversationUpdatedEvent) eventPayload;
 
         if (targetMemberIds == null || targetMemberIds.isEmpty())
             return;
-        for(Long memberId : event.getMemberIds()){
+        for(Long memberId : targetMemberIds){
             String destination = "/topic/user/" + memberId + "/conversations";
             messagingTemplate.convertAndSend(destination, event);
         }
-        log.info("Broadcast conversation update to {} members", event.getMemberIds());
+        log.info("Broadcast add member to {} members", event.getMemberIds());
     }
 }

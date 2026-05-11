@@ -17,13 +17,13 @@ interface CurrentUser {
 
 // Helper: convert phone to international format
 export const convertPhoneToInternational = (phone: string | undefined): string => {
-  if (!phone) return '';
-  const normalized = phone.trim().replace(/\s+/g, '');
-  if (!normalized) return '';
-  if (normalized.startsWith('+84')) return normalized;
-  if (normalized.startsWith('0')) return '+84' + normalized.substring(1);
-  if (normalized.startsWith('84')) return '+' + normalized;
-  return '+84' + normalized;
+    if (!phone) return '';
+    const normalized = phone.trim().replace(/\s+/g, '');
+    if (!normalized) return '';
+    if (normalized.startsWith('+84')) return normalized;
+    if (normalized.startsWith('0')) return '+84' + normalized.substring(1);
+    if (normalized.startsWith('84')) return '+' + normalized;
+    return '+84' + normalized;
 };
 
 export function useCurrentUser() {

@@ -28,9 +28,11 @@ public enum DomainEventType {
 
     // Group membership
     MEMBER_ADDED,
-    MEMBER_REMOVED,
-    MEMBER_ROLE_CHANGED,
+    MEMBER_ROLE_UPDATED,
     MEMBER_UPDATED,
+    MEMBER_LEFT,
+    MEMBER_KICKED,
+    GROUP_DISBANDED,
 
     // Page membership
     PAGE_MEMBER_JOINED,
@@ -43,5 +45,10 @@ public enum DomainEventType {
     PAGE_JOIN_REJECTED,
     PAGE_JOIN_CANCELLED,
 
+    // Post, Comment, Reaction, Notification
+    POST,
+    COMMENT,
+    REACTION,
+    NOTIFICATION
 }
 

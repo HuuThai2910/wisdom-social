@@ -27,7 +27,7 @@ public class S3ServiceImpl implements S3Service {
     private final S3Client s3Client;
     @Value("${aws.s3.bucket-name}")
     private String bucketName;
-    private static final Set<String> ALLOWED_EXTENSIONS=
+    private static final Set<String> ALLOWED_EXTENSIONS =
             Set.of("png","jpg","jpeg","mp4","webm","mov","avi","mkv");
 
 
@@ -39,7 +39,7 @@ public class S3ServiceImpl implements S3Service {
     }
 
     @Override
-    public Map<String, String> generateUpdateUploadUrl(String type,long id,String extension) {
+    public Map<String, String> generateUpdateUploadUrl(String type, String id, String extension) {
         String contentType=getContentType(extension);
 
         String uuid= UUID.randomUUID().toString();
@@ -99,7 +99,7 @@ public class S3ServiceImpl implements S3Service {
     }
 
     @Override
-    public String moveUploadUrl(String type,long id, String url) {
+    public String moveUploadUrl(String type, String id, String url) {
 
         String uuid = url.substring(0, url.lastIndexOf("."));
         String extension = url.substring(url.lastIndexOf(".") + 1);
@@ -121,6 +121,7 @@ public class S3ServiceImpl implements S3Service {
         return "images/avatars/"+type+"/" + id + "/" + uuid + "."+extension;
     }
 
+    @Override
     public String getContentType(String extension) {
         if (extension == null) return "application/octet-stream";
         
@@ -130,8 +131,10 @@ public class S3ServiceImpl implements S3Service {
             case "jpg":
             case "jpeg":
                 return "image/jpeg";
+            case "gif" : return "image/gif";
             case "mp4":
                 return "video/mp4";
+            case "webp": return "image/webp";
             case "webm":
                 return "video/webm";
             case "mov":
@@ -143,6 +146,19 @@ public class S3ServiceImpl implements S3Service {
             default:
                 return "application/octet-stream";
         }
+    }
+    
+    @Override
+    public String resolveMediaType(String extension) {
+        if (extension == null) return "FILE";
+        String ext = extension.toLowerCase();
+        
+        if (ext.matches("jpg|jpeg|png|gif|webp")) {
+            return "IMAGE";
+        } else if (ext.matches("mp4|webm|mov|avi|mkv")) {
+            return "VIDEO";
+        }
+        return "FILE";
     }
     
     /**
@@ -219,13 +235,14 @@ public class S3ServiceImpl implements S3Service {
             case CONVERSATION -> "conversations";
             case USER -> "users";
             case POST -> "posts";
+            case STORY -> "stories";
         };
         // TẠO S3 OBJECT KEY
         // Quy hoạch file gọn gàng: {rootFolder}/{targetId}/{subFolder}/{uuid}.ext
         // Ví dụ: users/15/images/abc-xyz.jpg
         // Ví dụ: posts/99/videos/def-123.mp4
         String uuid = UUID.randomUUID().toString();
-        String s3ObjectKey = String.format("%s/%d/%s/%s%s", rootFolder, rootFolder.equals("conversations") ? Integer.parseInt(targetId) : targetId, subFolder, uuid, extension);
+        String s3ObjectKey = String.format("%s/%s/%s/%s%s", rootFolder, targetId, subFolder, uuid, extension);
 
         try {
             // ạo PutObjectRequest (Cấu hình file tải lên)
@@ -272,6 +289,7 @@ public class S3ServiceImpl implements S3Service {
             case CONVERSATION -> "conversations";
             case USER -> "users";
             case POST -> "posts";
+            case STORY -> "stories";
         };
         // Validate key phải khớp với module được chỉ định
         if (!s3ObjectKey.startsWith(expectedRootFolder + "/")) {
@@ -289,5 +307,65 @@ public class S3ServiceImpl implements S3Service {
         } catch (Exception e) {
             log.error("Lỗi xóa file S3 từ module {}: {}", module, e.getMessage()); // Nuốt lỗi để không block luồng thu hồi
         }
+    }
+
+    @Override
+    public String relocatePostMediaKey(String sourceKey, String postId, String mediaType) {
+        if (sourceKey == null || sourceKey.isBlank() || postId == null || postId.isBlank()) {
+            return sourceKey;
+        }
+
+        String normalized = sourceKey.trim();
+        int queryIndex = normalized.indexOf('?');
+        if (queryIndex >= 0) {
+            normalized = normalized.substring(0, queryIndex);
+        }
+        int fragmentIndex = normalized.indexOf('#');
+        if (fragmentIndex >= 0) {
+            normalized = normalized.substring(0, fragmentIndex);
+        }
+        while (normalized.startsWith("/")) {
+            normalized = normalized.substring(1);
+        }
+
+        if (!normalized.startsWith("posts/")) {
+            return normalized;
+        }
+
+        String[] parts = normalized.split("/");
+        if (parts.length < 4) {
+            return normalized;
+        }
+
+        String fileName = parts[parts.length - 1];
+        String subFolder = parts[2];
+        if (mediaType != null && !mediaType.isBlank()) {
+            String t = mediaType.toLowerCase();
+            if (t.contains("video")) subFolder = "videos";
+            else if (t.contains("file")) subFolder = "files";
+            else if (t.contains("audio")) subFolder = "audios";
+            else if (t.contains("image")) subFolder = "images";
+        }
+
+        String destinationKey = "posts/" + postId + "/" + subFolder + "/" + fileName;
+        if (destinationKey.equals(normalized)) {
+            return normalized;
+        }
+
+        CopyObjectRequest copyRequest = CopyObjectRequest.builder()
+                .sourceBucket(bucketName)
+                .sourceKey(normalized)
+                .destinationBucket(bucketName)
+                .destinationKey(destinationKey)
+                .build();
+
+        s3Client.copyObject(copyRequest);
+        s3Client.deleteObject(DeleteObjectRequest.builder()
+                .bucket(bucketName)
+                .key(normalized)
+                .build());
+
+        log.info("Relocated media key from {} to {}", normalized, destinationKey);
+        return destinationKey;
     }
 }

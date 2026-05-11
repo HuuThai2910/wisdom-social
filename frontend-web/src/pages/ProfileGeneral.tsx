@@ -7,6 +7,7 @@ import type { User } from "../types";
 import { useCurrentUser } from "../hooks/useCurrentUser";
 import websocketService from "../services/websocket";
 import { convertPhoneToInternational } from "../hooks/useCurrentUser";
+import { buildS3Url } from "../utils/s3";
 
 const API_BASE_URL = "http://localhost:8080/api";
 
@@ -28,7 +29,10 @@ export default function ProfileGeneral() {
             id: userData.id.toString(),
             username: userData.username,
             fullName: userData.name || userData.username,
-            avatarUrl: userData.avatarUrl || "https://i.pravatar.cc/150?img=5",
+            avatarUrl:
+              buildS3Url(userData.avatarUrl) ||
+              userData.avatarUrl ||
+              "https://i.pravatar.cc/150?img=5",
             bio: userData.bio,
             birthday: userData.birthday || "",
             gender: userData.gender || "HIDDEN",
@@ -63,11 +67,17 @@ export default function ProfileGeneral() {
         if (!prev) return prev;
         return {
           ...prev,
-          ...(updatedData.username != null && { username: updatedData.username }),
+          ...(updatedData.username != null && {
+            username: updatedData.username,
+          }),
           ...(updatedData.name != null && { fullName: updatedData.name }),
-          ...(updatedData.avatarUrl != null && { avatarUrl: updatedData.avatarUrl }),
+          ...(updatedData.avatarUrl != null && {
+            avatarUrl: updatedData.avatarUrl,
+          }),
           ...(updatedData.bio != null && { bio: updatedData.bio }),
-          ...(updatedData.birthday != null && { birthday: updatedData.birthday }),
+          ...(updatedData.birthday != null && {
+            birthday: updatedData.birthday,
+          }),
           ...(updatedData.gender != null && { gender: updatedData.gender }),
         };
       });
@@ -83,7 +93,10 @@ export default function ProfileGeneral() {
     setup();
 
     return () => {
-      websocketService.unsubscribeFromProfileUpdates(phone, handleProfileUpdate);
+      websocketService.unsubscribeFromProfileUpdates(
+        phone,
+        handleProfileUpdate
+      );
     };
   }, [user?.phone]);
 

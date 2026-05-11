@@ -199,7 +199,7 @@ apiClient.interceptors.response.use(
         const status = error.response?.status;
 
         if (
-            (status === 401 || status === 403) &&
+            status === 401 &&
             !originalRequest?._retry &&
             !isPublicEndpoint(originalRequest?.url)
         ) {

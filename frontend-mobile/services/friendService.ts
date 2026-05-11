@@ -11,6 +11,52 @@ export type FriendUser = {
     mutualFriendsCount?: number;
 };
 
+function toFriendUsers(payload: unknown): FriendUser[] | null {
+    const candidates = [
+        payload,
+        (payload as { data?: unknown } | null)?.data,
+        (payload as { data?: { data?: unknown } } | null)?.data?.data,
+    ];
+
+    for (const candidate of candidates) {
+        if (!Array.isArray(candidate)) {
+            continue;
+        }
+
+        const normalized = candidate
+            .map((item) => {
+                if (!item || typeof item !== "object") return null;
+
+                const raw = item as Record<string, unknown>;
+                const id = Number(raw.id);
+                if (!Number.isFinite(id)) return null;
+
+                return {
+                    id,
+                    name:
+                        (typeof raw.name === "string" && raw.name.trim()) ||
+                        undefined,
+                    username:
+                        (typeof raw.username === "string" &&
+                            raw.username.trim()) ||
+                        undefined,
+                    avatarUrl:
+                        (typeof raw.avatarUrl === "string" &&
+                            raw.avatarUrl.trim()) ||
+                        undefined,
+                    phone:
+                        (typeof raw.phone === "string" && raw.phone.trim()) ||
+                        undefined,
+                } as FriendUser;
+            })
+            .filter((item): item is FriendUser => Boolean(item));
+
+        return normalized;
+    }
+
+    return null;
+}
+
 class FriendService {
     async getFriends(userId: number): Promise<FriendUser[]> {
         try {

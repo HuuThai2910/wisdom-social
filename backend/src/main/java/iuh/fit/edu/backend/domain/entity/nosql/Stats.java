@@ -22,6 +22,8 @@ import lombok.NoArgsConstructor;
 public class Stats {
     private long reactCount;
     private long commentCount;
+    private long replyCount; // To track replies separately from top-level comments
+    private long friendCommentCount; // To track comments from friends for engagement boost
     private long shareCount;
     private long viewCount; // View count cho video
 }

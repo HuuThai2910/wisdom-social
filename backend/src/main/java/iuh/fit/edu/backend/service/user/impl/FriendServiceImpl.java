@@ -7,19 +7,24 @@ import iuh.fit.edu.backend.domain.entity.mysql.User;
 import iuh.fit.edu.backend.dto.response.friend.FriendEventPayload;
 import iuh.fit.edu.backend.dto.response.friend.FriendSuggestionResponse;
 import iuh.fit.edu.backend.repository.mysql.BlockUserRepository;
+import iuh.fit.edu.backend.event.payload.NotificationEvent;
 import iuh.fit.edu.backend.repository.mysql.FriendRepository;
 import iuh.fit.edu.backend.repository.mysql.UserRepository;
 import iuh.fit.edu.backend.service.user.FriendService;
 import iuh.fit.edu.backend.service.user.UserService;
+import iuh.fit.edu.backend.service.notification.NotificationService;
+import iuh.fit.edu.backend.constant.NotificationType;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -33,6 +38,7 @@ import java.util.stream.Collectors;
  * @version: 1.0
  */
 @Service
+@Slf4j
 public class FriendServiceImpl implements FriendService {
     StringRedisTemplate redisTemplate;
     SimpMessagingTemplate messagingTemplate;

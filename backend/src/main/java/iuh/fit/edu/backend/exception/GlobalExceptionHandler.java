@@ -44,9 +44,18 @@ public class GlobalExceptionHandler {
         return buildErrorResponse(HttpStatus.FORBIDDEN, ex.getMessage(), "CONVERSATION_ACCESS_DENIED");
     }
 
+    @ExceptionHandler(ConversationMemberKickedException.class)
+    public ResponseEntity<ApiResponse<Object>> handleConversationMemberKicked(ConversationMemberKickedException ex) {
+        return buildErrorResponse(HttpStatus.FORBIDDEN, ex.getMessage(), "CONVERSATION_MEMBER_KICKED");
+    }
+
     @ExceptionHandler(InvalidAIRequestException.class)
     public ResponseEntity<ApiResponse<Object>> handleInvalidAIRequest(InvalidAIRequestException ex) {
         return buildErrorResponse(HttpStatus.BAD_REQUEST, ex.getMessage(), "INVALID_AI_REQUEST");
+    }
+    @ExceptionHandler(ConversationMemberLeftException.class)
+    public ResponseEntity<ApiResponse<Object>> handleConversationMemberLeft(ConversationMemberLeftException ex) {
+        return buildErrorResponse(HttpStatus.FORBIDDEN, ex.getMessage(), "CONVERSATION_MEMBER_LEFT");
     }
 
     @ExceptionHandler(ExternalAIServiceException.class)
@@ -99,14 +108,14 @@ public class GlobalExceptionHandler {
         return buildErrorResponse(HttpStatus.FORBIDDEN, ex.getMessage(), "ACCESS_DENIED");
     }
 
-    @ExceptionHandler(Exception.class)
-    public ResponseEntity<ApiResponse<Object>> handleException(Exception ex) {
-        LOGGER.error("Unhandled exception caught in GlobalExceptionHandler", ex);
-        return buildErrorResponse(
-                HttpStatus.INTERNAL_SERVER_ERROR,
-                "Đã xảy ra lỗi hệ thống, vui lòng thử lại sau",
-                "INTERNAL_SERVER_ERROR");
-    }
+//    @ExceptionHandler(Exception.class)
+//    public ResponseEntity<ApiResponse<Object>> handleException(Exception ex) {
+//        LOGGER.error("Unhandled exception caught in GlobalExceptionHandler", ex);
+//        return buildErrorResponse(
+//                HttpStatus.INTERNAL_SERVER_ERROR,
+//                "Đã xảy ra lỗi hệ thống, vui lòng thử lại sau",
+//                "INTERNAL_SERVER_ERROR");
+//    }
 
     private ResponseEntity<ApiResponse<Object>> buildErrorResponse(HttpStatus status, String message, String code) {
         AIErrorResponse errorResponse = AIErrorResponse.builder()

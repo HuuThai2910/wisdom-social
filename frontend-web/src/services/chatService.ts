@@ -9,7 +9,18 @@ export type MessageType =
     | "AUDIO"
     | "CALL"
     | "SYSTEM_PIN"
-    | "SYSTEM_UPIN";
+    | "SYSTEM_UPIN"
+    | "SYSTEM_CREATE_GROUP"
+    | "SYSTEM_ADD_MEMBER"
+    | "SYSTEM_LEAVE_GROUP"
+    | "SYSTEM_KICK_MEMBER"
+    | "SYSTEM_UPDATE_ROLE"
+    | "SYSTEM_DISBAND_GROUP"
+    | "SYSTEM_UPDATE_SETTING";
+
+export type MemberRole = "OWNER" | "DEPUTY" | "MEMBER";
+
+export type MemberStatus = "ACTIVE" | "LEFT" | "KICKED" | "GROUP_DISBANDED";
 
 export interface ReplyInfo {
     messageId: string;
@@ -32,6 +43,7 @@ export interface Message {
     isActive?: boolean;
     isRecalled?: boolean;
     attachments?: MessageAttachment[];
+    deletedFor?: number[];
 }
 
 export interface MessageAttachment {
@@ -67,26 +79,40 @@ export interface PinnedMessageDetail {
     messageId: string;
     pinnerId: number;
     pinnedAt: string;
+    originalSenderId?: number;
+    type?: MessageType;
+    content?: string;
 }
 
-export interface Conversation {
+export interface ConversationSidebar {
     id: number;
     name?: string;
     type: "DIRECT" | "GROUP";
     imageUrl?: string;
     updatedAt: string;
     lastMessage?: LastMessage;
-    members?: ConversationMember[];
     unreadCount?: number;
+}
+
+export interface Conversation extends ConversationSidebar {
+    members?: ConversationMember[];
     pinnedMessages?: PinnedMessageDetail[];
+    isMessageRestricted?: boolean;
 }
 
 export interface ConversationMember {
+    id?: number;
     userId: number;
-    username: string;
+    username?: string;
     nickname: string;
     avatar?: string;
+    unreadCount?: number;
+    clearedAt?: string;
     lastReadMessageId?: string; // Mốc tin nhắn đã đọc (watermark)
+    role?: MemberRole;
+    status?: MemberStatus;
+    joinedAt?: string;
+    leftAt?: string;
 }
 
 export interface SendMessageRequest {
@@ -138,6 +164,16 @@ export interface UpdateNicknameRequest {
     nickname: string;
 }
 
+export interface CreateGroupRequest {
+    name?: string;
+    imageUrl?: string;
+    memberIds: number[];
+}
+
+export interface AddGroupMembersRequest {
+    newMemberIds: number[];
+}
+
 function normalizeMembersPayload(
     payload: unknown,
 ): Record<string, ConversationMember> {
@@ -160,13 +196,25 @@ function normalizeMembersPayload(
     return payload as Record<string, ConversationMember>;
 }
 
+function unwrapApiData<T>(payload: ApiResponse<T> | T): T {
+    if (
+        payload &&
+        typeof payload === "object" &&
+        "data" in (payload as Record<string, unknown>)
+    ) {
+        const wrapped = payload as ApiResponse<T>;
+        if (wrapped.data != null) {
+            return wrapped.data;
+        }
+    }
+    return payload as T;
+}
+
 const chatService = {
     async getConversations(
         userId: number,
-    ): Promise<ApiResponse<Conversation[]>> {
-        const response = await axiosClient.get(
-            `/conversations?userId=${userId}`,
-        );
+    ): Promise<ApiResponse<ConversationSidebar[]>> {
+        const response = await axiosClient.get("/conversations");
         return response.data;
     },
 
@@ -178,7 +226,6 @@ const chatService = {
         signal?: AbortSignal,
     ): Promise<ApiResponse<CursorResponse<Message[]>>> {
         const params = new URLSearchParams({
-            userId: userId.toString(),
             limit: limit.toString(),
         });
         if (before) params.append("before", before);
@@ -197,7 +244,6 @@ const chatService = {
         limit: number = 20,
     ): Promise<ApiResponse<CursorResponse<Message[]>>> {
         const params = new URLSearchParams({
-            userId: userId.toString(),
             limit: limit.toString(),
             after,
         });
@@ -212,11 +258,8 @@ const chatService = {
         targetMessageId: string,
         userId: number,
     ): Promise<ApiResponse<CursorResponse<Message[]>>> {
-        const params = new URLSearchParams({
-            userId: userId.toString(),
-        });
         const response = await axiosClient.get(
-            `/conversations/${conversationId}/messages/${targetMessageId}/jump?${params.toString()}`,
+            `/conversations/${conversationId}/messages/${targetMessageId}/jump`,
         );
         return response.data;
     },
@@ -225,10 +268,7 @@ const chatService = {
         request: SendMessageRequest,
         userId: number,
     ): Promise<Message> {
-        const response = await axiosClient.post(
-            `/messages/send?userId=${userId}`,
-            request,
-        );
+        const response = await axiosClient.post("/messages/send", request);
         return response.data;
     },
 
@@ -236,10 +276,7 @@ const chatService = {
         request: SendCallMessageRequest,
         userId: number,
     ): Promise<Message> {
-        const response = await axiosClient.post(
-            `/messages/call?userId=${userId}`,
-            request,
-        );
+        const response = await axiosClient.post("/messages/call", request);
         return response.data;
     },
 
@@ -248,7 +285,7 @@ const chatService = {
         userId: number,
     ): Promise<ApiResponse<Conversation>> {
         const response = await axiosClient.get(
-            `/conversations/${conversationId}?userId=${userId}`,
+            `/conversations/${conversationId}`,
         );
         return response.data;
     },
@@ -259,7 +296,7 @@ const chatService = {
         lastMessageId: string,
     ): Promise<void> {
         await axiosClient.put(
-            `/conversations/${conversationId}/read?userId=${userId}&lastMessageId=${lastMessageId}`,
+            `/conversations/${conversationId}/read?lastMessageId=${lastMessageId}`,
         );
     },
 
@@ -272,6 +309,93 @@ const chatService = {
         // Trả ra đúng map members theo userId để controller dùng join dữ liệu
         // senderId <-> nickname/avatar một cách ổn định.
         return normalizeMembersPayload(response.data);
+    },
+
+    async createGroupConversation(
+        request: CreateGroupRequest,
+    ): Promise<Conversation> {
+        const response = await axiosClient.post(
+            "/conversations/group",
+            request,
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async addMembersToGroup(
+        conversationId: number,
+        request: AddGroupMembersRequest,
+    ): Promise<Conversation> {
+        const response = await axiosClient.post(
+            `/conversations/${conversationId}/members`,
+            request,
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async leaveGroup(conversationId: number): Promise<Conversation> {
+        const response = await axiosClient.delete(
+            `/conversations/${conversationId}/leave`,
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async kickGroupMember(
+        conversationId: number,
+        targetUserId: number,
+    ): Promise<Conversation> {
+        const response = await axiosClient.delete(
+            `/conversations/${conversationId}/members/${targetUserId}`,
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async updateGroupMemberRole(
+        conversationId: number,
+        targetUserId: number,
+        newRole: MemberRole,
+    ): Promise<Conversation> {
+        const response = await axiosClient.patch(
+            `/conversations/${conversationId}/members/${targetUserId}/role`,
+            null,
+            {
+                params: {
+                    newRole,
+                },
+            },
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async disbandGroup(conversationId: number): Promise<void> {
+        await axiosClient.delete(`/conversations/${conversationId}/disband`);
+    },
+
+    async updateMessageRestriction(
+        conversationId: number,
+        isRestricted: boolean,
+    ): Promise<Conversation> {
+        const response = await axiosClient.patch(
+            `/conversations/${conversationId}/settings/message-restriction`,
+            null,
+            {
+                params: {
+                    isRestricted,
+                },
+            },
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
     },
 
     async updateConversationMemberNickname(
@@ -289,17 +413,15 @@ const chatService = {
     },
 
     async recallMessage(messageId: string, userId: number): Promise<void> {
-        await axiosClient.delete(
-            `/messages/${messageId}/recall?userId=${userId}`,
-        );
+        await axiosClient.delete(`/messages/${messageId}/recall`);
     },
 
     async pinMessage(messageId: string, userId: number): Promise<void> {
-        await axiosClient.post(`/messages/${messageId}/pin?userId=${userId}`);
+        await axiosClient.post(`/messages/${messageId}/pin`);
     },
 
     async unpinMessage(messageId: string, userId: number): Promise<void> {
-        await axiosClient.delete(`/messages/${messageId}/pin?userId=${userId}`);
+        await axiosClient.delete(`/messages/${messageId}/pin`);
     },
 
     // Bước 1: Xin presigned URL từ BE để upload file lên S3
@@ -383,9 +505,7 @@ const chatService = {
 
     // Xóa tin nhắn ở phía tôi (chỉ user hiện tại không thấy, người khác vẫn thấy)
     async deleteMessageForMe(messageId: string, userId: number): Promise<void> {
-        await axiosClient.delete(
-            `/messages/${messageId}/delete-for-me?userId=${userId}`,
-        );
+        await axiosClient.delete(`/messages/${messageId}/delete-for-me`);
     },
 
     // Xóa cuộc trò chuyện ở phía tôi (xóa lịch sử chat cho user hiện tại)
@@ -394,7 +514,7 @@ const chatService = {
         userId: number,
     ): Promise<void> {
         await axiosClient.delete(
-            `/conversations/${conversationId}/delete-for-me?userId=${userId}`,
+            `/conversations/${conversationId}/delete-for-me`,
         );
     },
 };

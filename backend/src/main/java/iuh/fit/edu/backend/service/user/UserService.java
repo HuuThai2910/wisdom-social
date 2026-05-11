@@ -41,4 +41,6 @@ public interface UserService {
 
     @Transactional
     Instant updateLastActiveAt(Long userId);
+
+    PaginatedUserResponse searchMentionUsers(long viewerId, String keyword, int page, int size);
 }

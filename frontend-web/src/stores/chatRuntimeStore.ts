@@ -2,12 +2,16 @@ import type {
     Conversation,
     ConversationMember,
     Message,
+    MessageType,
 } from "../services/chatService";
 
 export interface PinnedMessageDetail {
     messageId: string;
     pinnerId: number;
     pinnedAt: string;
+    originalSenderId?: number;
+    type?: MessageType;
+    content?: string;
 }
 
 export interface ConversationPagingState {

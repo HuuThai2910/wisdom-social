@@ -5,19 +5,25 @@
 package iuh.fit.edu.backend.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import iuh.fit.edu.backend.constant.UploadModule;
 import iuh.fit.edu.backend.domain.entity.nosql.Post;
 import iuh.fit.edu.backend.dto.request.post.CreatePostRequest;
 import iuh.fit.edu.backend.dto.response.ApiResponse;
+import iuh.fit.edu.backend.dto.response.feed.FeedSliceResponse;
+import iuh.fit.edu.backend.dto.response.PresignedUrlResponse;
+import iuh.fit.edu.backend.service.feed.FeedService;
 import iuh.fit.edu.backend.service.post.PostService;
 import iuh.fit.edu.backend.service.s3.S3Service;
 import iuh.fit.edu.backend.service.user.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 
 /*
  * @description: Post management controller
@@ -32,28 +38,81 @@ import java.util.Map;
 public class PostController {
 
     private final PostService postService;
+    private final FeedService feedService;
     private final ObjectMapper objectMapper;
     private final UserService userService;
     private final S3Service s3Service;
 
+// API này dùng để lấy danh sách bài viết (newsfeed) cho user hiện tại, bao gồm:
+// Bài viết của chính user
+// Bài viết của bạn bè (dựa trên quan hệ Friend)
+// Áp dụng filter theo privacy và status
+// Hỗ trợ pagination dạng cursor (không dùng page/skip)
+    @GetMapping("/feed")
+    public ResponseEntity<ApiResponse<FeedSliceResponse>> getFeed(
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+            Instant lastActivityAt,
+            @RequestParam(required = false) String lastPostId,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String prioritizePostId) {
+        try {
+            var currentUser = userService.getCurrentUser();
+            if (currentUser == null) {
+                return ResponseEntity.badRequest()
+                        .body(ApiResponse.error(401, "Bạn cần đăng nhập để xem feed", null));
+            }
+            
+            FeedSliceResponse feed = feedService.getFeed(currentUser.getId(), lastActivityAt, lastPostId, size, prioritizePostId);
+            return ResponseEntity.ok(ApiResponse.success(200, "Lấy feed thành công", feed));
+        } catch (Exception e) {
+            log.error("Error fetching feed", e);
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error(400, "Lỗi khi lấy feed: " + e.getMessage(), null));
+        }
+    }
+
     /**
      * Get presigned upload URL for images
-     * @param extension File extension (jpg, png, etc.)
-     * @return Presigned URL
+     * Uses UploadModule.POST for all post media uploads
+     * @param extension File extension (jpg, png, mp4, etc.)
+     * @param originalFilename Original filename for validation
+     * @param contentType MIME type (image/jpeg, video/mp4, etc.)
+     * @return Presigned URL and S3 object key
      */
     @GetMapping("/upload-url")
-    public ResponseEntity<ApiResponse<Map<String, String>>> getPresignedUploadUrl(
-            @RequestParam String extension) {
+    public ResponseEntity<ApiResponse<PresignedUrlResponse>> getPresignedUploadUrl(
+            @RequestParam String extension,
+            @RequestParam(required = false) String originalFilename,
+            @RequestParam(required = false) String contentType) {
         try {
             var currentUser = userService.getCurrentUser();
             if (currentUser == null) {
                 return ResponseEntity.badRequest()
                         .body(ApiResponse.error(401, "Bạn cần đăng nhập", null));
             }
+
+            // Determine content type based on extension if not provided
+            if (contentType == null || contentType.isBlank()) {
+                contentType = s3Service.getContentType(extension);
+            }
+
+            String filename = originalFilename != null ? originalFilename : "post." + extension;
             
-            Map<String, String> uploadUrl = s3Service.generateUploadUrl("posts", extension);
-            log.info("Alo {}", uploadUrl);
-            return ResponseEntity.ok(ApiResponse.success(200, "Lấy link upload thành công", uploadUrl));
+            PresignedUrlResponse response = s3Service.generatePresignedUrl(
+                    UploadModule.POST,
+                    String.valueOf(currentUser.getId()),
+                    s3Service.resolveMediaType(extension),
+                    filename,
+                    contentType
+            );
+            
+            log.info("Generated presigned URL for post upload: {}", response.getObjectKey());
+            return ResponseEntity.ok(ApiResponse.success(200, "Lấy link upload thành công", response));
+        } catch (IllegalArgumentException e) {
+            log.error("Invalid file: {}", e.getMessage());
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error(400, e.getMessage(), null));
         } catch (Exception e) {
             log.error("Error getting presigned URL", e);
             return ResponseEntity.badRequest()
@@ -83,7 +142,12 @@ public class PostController {
             Long authorId = currentUser.getId();
             log.info("Creating post for user: {}", authorId);
             log.info("Post data: {}", postDataJson);
-            log.info("Image URLs: {}", imageUrls);
+            log.info("Image URLs received: {} items", imageUrls == null ? "null" : imageUrls.size());
+            if (imageUrls != null && !imageUrls.isEmpty()) {
+                for (int i = 0; i < imageUrls.size(); i++) {
+                    log.info("  Image {}: {}", i, imageUrls.get(i));
+                }
+            }
             
             // Parse JSON to CreatePostRequest
             CreatePostRequest request = objectMapper.readValue(postDataJson, CreatePostRequest.class);
@@ -100,20 +164,56 @@ public class PostController {
     }
 
     /**
-     * Get all posts by user ID
+     * Get posts by user ID with pagination
      * @param userId User ID
-     * @return List of posts
+     * @param page 0-based page index
+     * @param size page size
+     * @return Page of posts with metadata
      */
     @GetMapping("/user/{userId}")
-    public ResponseEntity<ApiResponse<List<Post>>> getPostsByUserId(@PathVariable Long userId) {
+    public ResponseEntity<ApiResponse<Page<Post>>> getPostsByUserId(
+            @PathVariable Long userId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
         try {
-            log.info("Fetching posts for user: {}", userId);
-            List<Post> posts = postService.getPostsByUserId(userId);
+            if (page < 0 || size <= 0) {
+                return ResponseEntity.badRequest()
+                        .body(ApiResponse.error(400, "Tham số phân trang không hợp lệ", null));
+            }
+
+            log.info("Fetching posts for user: {}, page={}, size={}", userId, page, size);
+            
+            var currentUser = userService.getCurrentUser();
+            Long currentUserId = currentUser != null ? currentUser.getId() : null;
+            
+            Page<Post> posts = postService.getPostsByUserId(userId, currentUserId, page, size);
             return ResponseEntity.ok(ApiResponse.success(200, "Lấy danh sách post thành công", posts));
         } catch (Exception e) {
             log.error("Error fetching posts", e);
             return ResponseEntity.badRequest()
                     .body(ApiResponse.error(400, "Lỗi khi lấy danh sách post: " + e.getMessage(), null));
+        }
+    }
+
+    /**
+     * Count total posts by user ID
+     * @param userId User ID
+     * @return total number of posts
+     */
+    @GetMapping("/user/{userId}/count")
+    public ResponseEntity<ApiResponse<Long>> countPostsByUserId(@PathVariable Long userId) {
+        try {
+            log.info("Counting posts for user: {}", userId);
+            
+            var currentUser = userService.getCurrentUser();
+            Long currentUserId = currentUser != null ? currentUser.getId() : null;
+            
+            long postCount = postService.countPostsByUserId(userId, currentUserId);
+            return ResponseEntity.ok(ApiResponse.success(200, "Lấy số lượng post thành công", postCount));
+        } catch (Exception e) {
+            log.error("Error counting posts", e);
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error(400, "Lỗi khi đếm số lượng post: " + e.getMessage(), null));
         }
     }
 
@@ -137,6 +237,7 @@ public class PostController {
 
     /**
      * Delete post by ID
+     * Also deletes associated media from S3
      * @param id Post ID
      * @return Success message
      */
@@ -153,6 +254,7 @@ public class PostController {
             
             Long userId = currentUser.getId();
             log.info("Deleting post {} by user {}", id, userId);
+            
             postService.deletePost(id, userId);
             return ResponseEntity.ok(ApiResponse.success(200, "Xóa post thành công", null));
         } catch (Exception e) {

@@ -31,4 +31,6 @@ public class MediaMetadata {
     private Instant capturedAt; // Thời gian chụp/quay thực tế
     private String resolution; // Độ phân giải
     private Long fileSize; // Kích thước file (bytes)
+    private String mimeType; // image/jpeg, video/mp4...
+    private String originalFileName; // Tên file gốc từ client
 }

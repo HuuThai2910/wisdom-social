@@ -11,10 +11,12 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.index.CompoundIndexes;
+import org.springframework.data.mongodb.core.index.IndexDirection;
 import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 /*
@@ -37,8 +39,12 @@ import java.util.List;
                 def = "{'authorId': 1, 'createdAt': -1}"
         ),
         @CompoundIndex(
-                name = "status_created_idx",
-                def = "{'status': 1, 'createdAt': -1}"
+                name = "status_ranking_idx",
+                def = "{'status': 1, 'rankingTime': -1}"
+        ),
+        @CompoundIndex(
+                name = "author_status_ranking_idx",
+                def = "{'authorId': 1, 'status': 1, 'rankingTime': -1}"
         )
 })
 public class Post {
@@ -46,7 +52,7 @@ public class Post {
     @Id
     private String id;
 
-    @Indexed
+        @Indexed(name = "post_author_idx")
     private String authorId;
     
     // Text search index cho content
@@ -76,6 +82,8 @@ public class Post {
     // Feeling/Activity (VD: "feeling happy", "watching Avengers")
     private Activity activity;
 
+    private Music music;
+
     // Background cho text post (như Facebook colored background)
     private String backgroundStyle;
 
@@ -84,11 +92,60 @@ public class Post {
     // Visibility settings
     private StatusType status;
     private boolean isEdited;
-    private boolean allowComments;
-    private boolean allowShares;
+    @Builder.Default
+    private boolean allowComments = true;
+    @Builder.Default
+    private boolean allowShares = true;
 
     // Timestamps
     private Instant createdAt;
     private Instant updatedAt;
+
+    @Indexed(direction = IndexDirection.DESCENDING)
+    @Builder.Default
+    private Instant lastActivityAt = Instant.now();
+
+    @Indexed(direction = IndexDirection.DESCENDING)
+    @Builder.Default
+    private Instant rankingTime = Instant.now();
+
     private Instant scheduledAt; // Hẹn giờ đăng
+
+    // Add manual constructor to ensure lastActivityAt is never null for old-style instantiation
+    public void setLastActivityAt(Instant lastActivityAt) {
+        this.lastActivityAt = lastActivityAt != null ? lastActivityAt : (this.createdAt != null ? this.createdAt : Instant.now());
+    }
+
+    public void recalculateRankingTime() {
+        if (this.stats == null) {
+            this.rankingTime = this.createdAt != null ? this.createdAt : Instant.now();
+            return;
+        }
+
+        long reactionBoost = (long) (Math.log1p(stats.getReactCount()) * 2);
+        long commentBoost = (long) (Math.log1p(stats.getCommentCount()) * 12);
+        long replyBoost = (long) (Math.log1p(stats.getReplyCount()) * 5);
+        long friendCommentBoost = (long) (Math.log1p(stats.getFriendCommentCount()) * 30);
+
+        long totalBoost = reactionBoost + commentBoost + replyBoost + friendCommentBoost;
+
+        Instant baseTime = this.createdAt != null ? this.createdAt : Instant.now();
+        long ageHours = ChronoUnit.HOURS.between(baseTime, Instant.now());
+        
+        double freshnessMultiplier;
+        if (ageHours < 24) {
+            freshnessMultiplier = 1.0;
+        } else if (ageHours < 72) {
+            freshnessMultiplier = 0.4;
+        } else {
+            freshnessMultiplier = 0.0;
+        }
+
+        long finalBoostMinutes = (long) (totalBoost * freshnessMultiplier);
+        
+        // Cap the maximum boost to 6 hours
+        finalBoostMinutes = Math.min(finalBoostMinutes, 360);
+
+        this.rankingTime = baseTime.plus(finalBoostMinutes, ChronoUnit.MINUTES);
+    }
 }

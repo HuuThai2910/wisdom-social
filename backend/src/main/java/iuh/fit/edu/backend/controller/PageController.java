@@ -21,7 +21,6 @@ import org.bson.types.ObjectId;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.Map;
@@ -65,11 +64,11 @@ public class PageController {
 
             UserRequestUpdatePage userRequestUpdatePage=new UserRequestUpdatePage();
             if (createPage.getAvatarUrl()!=null){
-                String key=s3Service.moveUploadUrl("pages", page.getId(), createPage.getAvatarUrl());
+                String key=s3Service.moveUploadUrl("pages", String.valueOf(page.getId()), createPage.getAvatarUrl());
                 userRequestUpdatePage.setAvatarUrl(key);
             }
             if (createPage.getCoverUrl()!=null){
-                String key=s3Service.moveUploadUrl("pages", page.getId(), createPage.getCoverUrl());
+                String key=s3Service.moveUploadUrl("pages", String.valueOf(page.getId()), createPage.getCoverUrl());
                 userRequestUpdatePage.setCoverUrl(key);
             }
             if (userRequestUpdatePage.getAvatarUrl()!=null || userRequestUpdatePage.getCoverUrl()!=null){
@@ -178,7 +177,7 @@ public class PageController {
                                                           @RequestParam long id,
                                                           @RequestParam String extension){
         Page page=pageService.findPageById(id);
-        Map<String,String> image= s3Service.generateUpdateUploadUrl(type,id,extension);
+        Map<String,String> image= s3Service.generateUpdateUploadUrl(type,String.valueOf(id),extension);
         if (page!=null){
             UserRequestUpdatePage update=new UserRequestUpdatePage();
             update.setAvatarUrl(image.get("imageUrl"));
@@ -193,7 +192,7 @@ public class PageController {
                                                          @RequestParam long id,
                                                          @RequestParam String extension){
         Page page=pageService.findPageById(id);
-        Map<String,String> image= s3Service.generateUpdateUploadUrl(type,id,extension);
+        Map<String,String> image= s3Service.generateUpdateUploadUrl(type,String.valueOf(id),extension);
         if (page!=null){
             UserRequestUpdatePage update=new UserRequestUpdatePage();
             update.setCoverUrl(image.get("imageUrl"));

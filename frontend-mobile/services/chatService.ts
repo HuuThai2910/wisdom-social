@@ -1,15 +1,21 @@
 import apiClient from "@/api/apiClient";
 import type {
+    AddGroupMembersRequest,
     ApiResponse,
     BulkPresignedRequest,
     Conversation,
+    ConversationSidebar,
     ConversationMember,
+    CreateGroupRequest,
     CursorResponse,
     LocalUploadFile,
+    MemberRole,
     Message,
     PinnedMessageDetail,
     PresignedUrlResponse,
+    SendCallMessageRequest,
     SendMessageRequest,
+    UpdateNicknameRequest,
 } from "@/types/chat";
 
 function normalizeMembersPayload(
@@ -44,11 +50,26 @@ function normalizeMessagePayload(payload: unknown): Message {
     return raw as Message;
 }
 
+function unwrapApiData<T>(payload: ApiResponse<T> | T): T {
+    if (
+        payload &&
+        typeof payload === "object" &&
+        "data" in (payload as Record<string, unknown>)
+    ) {
+        const wrapped = payload as ApiResponse<T>;
+        if (wrapped.data != null) {
+            return wrapped.data;
+        }
+    }
+
+    return payload as T;
+}
+
 const chatService = {
     async getConversations(
         userId: number,
-    ): Promise<ApiResponse<Conversation[]>> {
-        const response = await apiClient.get(`/conversations?userId=${userId}`);
+    ): Promise<ApiResponse<ConversationSidebar[]>> {
+        const response = await apiClient.get(`/conversations`);
         return response.data;
     },
 
@@ -57,7 +78,7 @@ const chatService = {
         userId: number,
     ): Promise<ApiResponse<Conversation>> {
         const response = await apiClient.get(
-            `/conversations/${conversationId}?userId=${userId}`,
+            `/conversations/${conversationId}`,
         );
         return response.data;
     },
@@ -79,7 +100,6 @@ const chatService = {
         signal?: AbortSignal,
     ): Promise<ApiResponse<CursorResponse<Message[]>>> {
         const params = new URLSearchParams({
-            userId: String(userId),
             limit: String(limit),
         });
 
@@ -102,7 +122,6 @@ const chatService = {
         limit = 20,
     ): Promise<ApiResponse<CursorResponse<Message[]>>> {
         const params = new URLSearchParams({
-            userId: String(userId),
             limit: String(limit),
             after,
         });
@@ -119,12 +138,8 @@ const chatService = {
         targetMessageId: string,
         userId: number,
     ): Promise<ApiResponse<CursorResponse<Message[]>>> {
-        const params = new URLSearchParams({
-            userId: String(userId),
-        });
-
         const response = await apiClient.get(
-            `/conversations/${conversationId}/messages/${targetMessageId}/jump?${params.toString()}`,
+            `/conversations/${conversationId}/messages/${targetMessageId}/jump`,
         );
 
         return response.data;
@@ -134,8 +149,16 @@ const chatService = {
         request: SendMessageRequest,
         userId: number,
     ): Promise<Message> {
+        const response = await apiClient.post(`/messages/send`, request);
+        return normalizeMessagePayload(response.data);
+    },
+
+    async sendCallMessage(
+        request: SendCallMessageRequest,
+        userId: number,
+    ): Promise<Message> {
         const response = await apiClient.post(
-            `/messages/send?userId=${userId}`,
+            `/messages/call?userId=${userId}`,
             request,
         );
         return normalizeMessagePayload(response.data);
@@ -146,9 +169,7 @@ const chatService = {
         userId: number,
         lastMessageId?: string,
     ): Promise<void> {
-        const params = new URLSearchParams({
-            userId: String(userId),
-        });
+        const params = new URLSearchParams({});
 
         if (lastMessageId) {
             params.set("lastMessageId", lastMessageId);
@@ -160,23 +181,19 @@ const chatService = {
     },
 
     async recallMessage(messageId: string, userId: number): Promise<void> {
-        await apiClient.delete(
-            `/messages/${messageId}/recall?userId=${userId}`,
-        );
+        await apiClient.delete(`/messages/${messageId}/recall`);
     },
 
     async pinMessage(messageId: string, userId: number): Promise<void> {
-        await apiClient.post(`/messages/${messageId}/pin?userId=${userId}`);
+        await apiClient.post(`/messages/${messageId}/pin`);
     },
 
     async unpinMessage(messageId: string, userId: number): Promise<void> {
-        await apiClient.delete(`/messages/${messageId}/pin?userId=${userId}`);
+        await apiClient.delete(`/messages/${messageId}/pin`);
     },
 
     async deleteMessageForMe(messageId: string, userId: number): Promise<void> {
-        await apiClient.delete(
-            `/messages/${messageId}/delete-for-me?userId=${userId}`,
-        );
+        await apiClient.delete(`/messages/${messageId}/delete-for-me`);
     },
 
     async deleteConversationForMe(
@@ -184,7 +201,107 @@ const chatService = {
         userId: number,
     ): Promise<void> {
         await apiClient.delete(
-            `/conversations/${conversationId}/delete-for-me?userId=${userId}`,
+            `/conversations/${conversationId}/delete-for-me`,
+        );
+    },
+
+    async createGroupConversation(
+        request: CreateGroupRequest,
+    ): Promise<Conversation> {
+        const response = await apiClient.post("/conversations/group", request);
+
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async addMembersToGroup(
+        conversationId: number,
+        request: AddGroupMembersRequest,
+    ): Promise<Conversation> {
+        const response = await apiClient.post(
+            `/conversations/${conversationId}/members`,
+            request,
+        );
+
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async leaveGroup(conversationId: number): Promise<Conversation> {
+        const response = await apiClient.delete(
+            `/conversations/${conversationId}/leave`,
+        );
+
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async kickGroupMember(
+        conversationId: number,
+        targetUserId: number,
+    ): Promise<Conversation> {
+        const response = await apiClient.delete(
+            `/conversations/${conversationId}/members/${targetUserId}`,
+        );
+
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async updateGroupMemberRole(
+        conversationId: number,
+        targetUserId: number,
+        newRole: MemberRole,
+    ): Promise<Conversation> {
+        const response = await apiClient.patch(
+            `/conversations/${conversationId}/members/${targetUserId}/role`,
+            null,
+            {
+                params: {
+                    newRole,
+                },
+            },
+        );
+
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async disbandGroup(conversationId: number): Promise<void> {
+        await apiClient.delete(`/conversations/${conversationId}/disband`);
+    },
+
+    async updateMessageRestriction(
+        conversationId: number,
+        isRestricted: boolean,
+    ): Promise<void> {
+        await apiClient.patch(
+            `/conversations/${conversationId}/settings/message-restriction`,
+            null,
+            {
+                params: {
+                    isRestricted,
+                },
+            },
+        );
+    },
+
+    async updateConversationMemberNickname(
+        request: UpdateNicknameRequest,
+    ): Promise<void> {
+        await apiClient.patch(
+            `/conversations/${request.conversationId}/members/${request.targetUserId}/nickname`,
+            request.nickname,
+            {
+                headers: {
+                    "Content-Type": "text/plain",
+                },
+            },
         );
     },
 

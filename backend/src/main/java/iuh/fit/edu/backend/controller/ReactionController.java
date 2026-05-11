@@ -8,6 +8,7 @@ import iuh.fit.edu.backend.constant.ReactionType;
 import iuh.fit.edu.backend.constant.TargetType;
 import iuh.fit.edu.backend.domain.entity.nosql.Reaction;
 import iuh.fit.edu.backend.dto.response.ApiResponse;
+import iuh.fit.edu.backend.dto.response.post.ReactionSummaryResponse;
 import iuh.fit.edu.backend.service.post.ReactionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -17,7 +18,7 @@ import java.util.List;
 
 /*
  * @description: Controller for Reaction operations
- * @author: GitHub Copilot
+ * @author: The Bao
  * @date: 2026-01-31
  * @version: 1.0
  */
@@ -70,5 +71,18 @@ public class ReactionController {
         
         Reaction reaction = reactionService.getUserReaction(userId, targetType, targetId);
         return ResponseEntity.ok(ApiResponse.success(200, "User reaction retrieved successfully", reaction));
+    }
+
+    /**
+     * Get reaction summary for a target
+     */
+    @GetMapping("/summary")
+    public ResponseEntity<ApiResponse<ReactionSummaryResponse>> getReactionSummary(
+            @RequestParam TargetType targetType,
+            @RequestParam String targetId,
+            @RequestParam(defaultValue = "3") int top) {
+
+        ReactionSummaryResponse summary = reactionService.getReactionSummary(targetType, targetId, top);
+        return ResponseEntity.ok(ApiResponse.success(200, "Reaction summary retrieved successfully", summary));
     }
 }

@@ -1,7 +1,9 @@
 import { useParams } from "react-router-dom";
 import { useEffect, useState } from "react";
-import PostCard from "../components/post/PostCard";
+import PostCard from "../components/post/post-card/PostCard";
 import axiosClient from "../api/axiosClient";
+import { transformMediaToS3Urls } from "../services/postService";
+import { buildS3Url } from "../utils/s3";
 
 interface PostData {
   id: string;
@@ -11,6 +13,8 @@ interface PostData {
   media?: Array<{ url: string; type: string; order: number }>;
   stats?: { reactCount: number; commentCount: number; shareCount: number };
   createdAt: string;
+  allowComments?: boolean;
+  allowShares?: boolean;
 }
 
 export default function Post() {
@@ -39,11 +43,14 @@ export default function Post() {
             id: userData.id,
             username: userData.username,
             fullName: userData.name || userData.username,
-            avatar: userData.avatarUrl || "https://i.pravatar.cc/150?img=5",
+            avatarUrl:
+              buildS3Url(userData.avatarUrl) ||
+              userData.avatarUrl ||
+              "https://i.pravatar.cc/150?img=5",
           },
           images:
             postData.media && postData.media.length > 0
-              ? postData.media.map((m) => m.url)
+              ? transformMediaToS3Urls(postData.media, postData.authorId)
               : [],
           caption: postData.content,
           privacy: postData.privacy as any,
@@ -51,6 +58,8 @@ export default function Post() {
           comments: postData.stats?.commentCount || 0,
           shares: postData.stats?.shareCount || 0,
           timestamp: new Date(postData.createdAt).toISOString(),
+          allowComments: postData.allowComments !== false,
+          allowShares: postData.allowShares !== false,
         };
 
         setPost(transformedPost);

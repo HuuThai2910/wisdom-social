@@ -55,6 +55,9 @@ public class MongoIndexConfig {
             createTTLIndex("hashtag_trending", "expireAt", 30, TimeUnit.DAYS);
             */
 
+            // Posts - lastActivityAt index DESC
+            createIndex("posts", "lastActivityAt", Sort.Direction.DESC);
+
             log.info("MongoDB indexes initialized successfully (TTL enabled for Notes only)");
         } catch (Exception e) {
             log.error("Error initializing MongoDB indexes", e);
@@ -88,6 +91,19 @@ public class MongoIndexConfig {
                     collectionName, fieldName, duration, timeUnit.toString().toLowerCase());
         } catch (Exception e) {
             log.warn("Failed to create TTL index for collection '{}': {}",
+                    collectionName, e.getMessage());
+        }
+    }
+
+    private void createIndex(String collectionName, String fieldName, Sort.Direction direction) {
+        try {
+            IndexOperations indexOps = mongoTemplate.indexOps(collectionName);
+            Index index = new Index().on(fieldName, direction).named(fieldName + "_idx");
+            indexOps.createIndex(index);
+            log.info("Created index for collection '{}' on field '{}' with direction {}",
+                    collectionName, fieldName, direction);
+        } catch (Exception e) {
+            log.warn("Failed to create index for collection '{}': {}",
                     collectionName, e.getMessage());
         }
     }

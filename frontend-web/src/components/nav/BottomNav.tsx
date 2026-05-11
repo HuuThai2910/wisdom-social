@@ -1,17 +1,19 @@
 import { Link, useLocation } from "react-router-dom";
 import { Home, Search, PlusSquare, Heart, Clapperboard } from "lucide-react";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
+import { useNotificationContext } from "../../contexts/NotificationContext";
 
 export default function BottomNav() {
   const location = useLocation();
   const currentUser = useCurrentUser();
+  const { unreadCount } = useNotificationContext();
 
   const navItems = [
     { icon: Home, label: "Home", path: "/" },
     { icon: Search, label: "Search", path: "/search" },
     { icon: PlusSquare, label: "Create", path: "/create" },
     { icon: Clapperboard, label: "Reels", path: "/reels" },
-    { icon: Heart, label: "Notifications", path: "/notifications" },
+    { icon: Heart, label: "Notifications", path: "/notifications", badge: unreadCount },
   ];
 
   const isActive = (path: string) => {
@@ -34,11 +36,18 @@ export default function BottomNav() {
           return (
             <li key={item.path}>
               <Link to={item.path} className="flex items-center justify-center">
-                <Icon
-                  className={active ? "fill-current" : ""}
-                  size={26}
-                  strokeWidth={active ? 2.5 : 1.8}
-                />
+                <div className="relative">
+                  <Icon
+                    className={active ? "fill-current" : ""}
+                    size={26}
+                    strokeWidth={active ? 2.5 : 1.8}
+                  />
+                  {item.badge !== undefined && item.badge > 0 && (
+                    <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-1">
+                      {item.badge > 99 ? "99+" : item.badge}
+                    </span>
+                  )}
+                </div>
               </Link>
             </li>
           );
@@ -55,7 +64,7 @@ export default function BottomNav() {
                 }`}
               >
                 <img
-                  src={currentUser.avatar}
+                  src={currentUser.avatarUrl}
                   alt={currentUser.username}
                   className="w-[26px] h-[26px] rounded-full object-cover"
                 />

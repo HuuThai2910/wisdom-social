@@ -4,6 +4,7 @@
  */
 package iuh.fit.edu.backend.repository.mysql;
 
+import iuh.fit.edu.backend.constant.ConversationMemberStatus;
 import iuh.fit.edu.backend.domain.entity.mysql.Conversation;
 import iuh.fit.edu.backend.domain.entity.mysql.ConversationMember;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -24,7 +25,7 @@ import java.util.Set;
  */
 @Repository
 public interface ConversationMemberRepository extends JpaRepository<ConversationMember, Long> {
-    Optional<ConversationMember> findByConversation_IdAndUser_Id(Long conversationId, Long userId);
+    Optional<ConversationMember> findByConversation_IdAndUser_IdAndStatus(Long conversationId, Long userId, ConversationMemberStatus conversationMemberStatus);
 
     // Lay danh sach cuoc hoi thoai ma user tham gia (chỉ lấy những conversation chưa bị ẩn)
     @Query("""
@@ -36,6 +37,14 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
     List<Conversation> findConversationsByUserIdOrderByLastMessageAtDesc(
             @Param("userId") Long userId
     );
+
+    // Trong ConversationMemberRepository.java
+    @Query("SELECT cm FROM ConversationMember cm " +
+            "JOIN FETCH cm.conversation c " +
+            "JOIN FETCH c.members " +
+            "WHERE cm.user.id = :userId AND cm.isHidden = false " +
+            "ORDER BY c.lastMessageAt DESC")
+    List<ConversationMember> findActiveSidebarByUserId(@Param("userId") Long userId);
 
     // Lay ra danh sach member o trong mot cuoc hoi thoai
     List<ConversationMember> findByConversationIdAndUserIdIn(Long conversationId, Set<Long> userIds);
@@ -51,8 +60,13 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
 
     // Tăng số tin nhắn chưa đọc cho tất cả các thành viên trong cuộc hội thoại (trừ người nhắn)
     @Modifying
-    @Query("UPDATE ConversationMember cu SET cu.unreadCount = cu.unreadCount + 1 " +
-            "WHERE cu.conversation.id = :conversationId AND cu.user.id != :senderId")
+    @Query("""
+    UPDATE ConversationMember cu
+    SET cu.unreadCount = cu.unreadCount + 1
+    WHERE cu.conversation.id = :conversationId
+      AND cu.user.id != :senderId
+      AND cu.status = iuh.fit.edu.backend.constant.ConversationMemberStatus.ACTIVE
+""")
     void incrementUnreadCount(@Param("conversationId") Long conversationId,
                               @Param("senderId") Long senderId);
 
@@ -69,4 +83,21 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
     @Query("UPDATE ConversationMember cm SET cm.isHidden = false " +
             "WHERE cm.conversation.id = :conversationId AND cm.isHidden = true")
     void unhideConversationForAllMembers(@Param("conversationId") Long conversationId);
+
+    @Query("""
+    SELECT cm.user.id
+    FROM ConversationMember cm
+    WHERE cm.conversation.id = :conversationId
+      AND cm.status = :status
+""")
+    Set<Long> findUserIdsByConversationIdAndStatus(
+            @Param("conversationId") Long conversationId,
+            @Param("status") ConversationMemberStatus status
+    );
+
+    long countByConversationIdAndStatus(Long convId, ConversationMemberStatus ConversationMemberStatus);
+
+    List<ConversationMember> findByConversationIdAndStatus(Long conversationId, ConversationMemberStatus ConversationMemberStatus);
+
+   Optional<ConversationMember> findByConversation_IdAndUser_Id(Long conversationId, Long userId);
 }

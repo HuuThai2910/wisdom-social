@@ -16,4 +16,5 @@ public interface FriendService {
     List<User> getSentRequestsOfUser(long userId);
     List<User> getFriendsOfUser(long userId);
     List<FriendSuggestionResponse> getFriendSuggestions(long userId, int limit);
+    List<Long> getAcceptedFriendIds(long userId);
 }

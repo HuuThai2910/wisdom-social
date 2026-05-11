@@ -5,7 +5,6 @@
 package iuh.fit.edu.backend.dto.response.message;
 
 import iuh.fit.edu.backend.constant.MessageType;
-import lombok.Builder;
 import lombok.Data;
 
 import java.time.Instant;

@@ -7,11 +7,34 @@ export interface FriendRequest {
 }
 
 export const friendService = {
-    async getFriends(userId: string | number): Promise<User[]> {
-        const response = await axiosClient.get(`friends/${userId}`, {
-            params: { _t: Date.now() }
-        });
-        return response.data.data;
+    // Get all friends for a user
+    async getFriends(userId: string | number): Promise<any[]> {
+        try {
+            // Add timestamp to prevent browser caching
+            const response = await axiosClient.get(`friends/${userId}`, {
+                params: { _t: Date.now() }
+            });
+
+            const rawData = response.data.data || response.data || [];
+
+            // Map friends data to expected format for frontend components
+            return rawData.map((friend: any) => ({
+                id: friend.userId?.toString() || friend.id?.toString(),
+                username: friend.username,
+                fullName: friend.fullName || friend.name || friend.username,
+                name: friend.name || friend.fullName || friend.username,
+                avatarUrl: friend.avatarUrl || friend.avatar || "https://i.pravatar.cc/150?img=5",
+                avatar: friend.avatar || friend.avatarUrl || "https://i.pravatar.cc/150?img=5",
+            }));
+        } catch (error) {
+            console.error(`Error fetching friends for user ${userId}:`, error);
+            return [];
+        }
+    },
+
+    // Alias for getFriends to support legacy code/consistency
+    async fetchFriends(userId: string | number): Promise<any[]> {
+        return this.getFriends(userId);
     },
 
     async getFriendRequests(userId: string | number): Promise<User[]> {

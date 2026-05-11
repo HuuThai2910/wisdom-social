@@ -8,6 +8,8 @@ import iuh.fit.edu.backend.constant.TargetType;
 import iuh.fit.edu.backend.domain.entity.nosql.Comment;
 import iuh.fit.edu.backend.dto.request.post.CreateCommentRequest;
 import iuh.fit.edu.backend.dto.response.ApiResponse;
+import iuh.fit.edu.backend.dto.response.post.CommentResponse;
+import iuh.fit.edu.backend.dto.response.post.PaginatedCommentsResponse;
 import iuh.fit.edu.backend.service.post.CommentService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -15,11 +17,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-
 /*
- * @description: Controller for Comment operations
- * @author: GitHub Copilot
+ * @description: Controller for Comment operations with tree-based pagination
+ * @author: The Bao
  * @date: 2026-01-31
  * @version: 1.0
  */
@@ -43,23 +43,46 @@ public class CommentController {
     }
 
     /**
-     * Get comments by target (post, story, etc.)
+     * Get root comments (cấp 1) of post/target with pagination
+     * Sorted: mới → cũ
+     * Each comment includes initial replies (first 3)
      */
-    @GetMapping
-    public ResponseEntity<ApiResponse<List<Comment>>> getCommentsByTarget(
+    @GetMapping("/root")
+    public ResponseEntity<ApiResponse<PaginatedCommentsResponse>> getRootComments(
             @RequestParam TargetType targetType,
-            @RequestParam String targetId) {
-        List<Comment> comments = commentService.getCommentsByTarget(targetType, targetId);
-        return ResponseEntity.ok(ApiResponse.success(200, "Comments retrieved successfully", comments));
+            @RequestParam String targetId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        
+        PaginatedCommentsResponse response = commentService.getRootComments(targetType, targetId, page, size);
+        return ResponseEntity.ok(ApiResponse.success(200, "Root comments retrieved successfully", response));
     }
 
     /**
-     * Get replies for a comment
+     * Get a specific comment with its initial replies
+     * Replies sorted: cũ → mới, limit to 3
      */
-    @GetMapping("/{commentId}/replies")
-    public ResponseEntity<ApiResponse<List<Comment>>> getReplies(@PathVariable String commentId) {
-        List<Comment> replies = commentService.getRepliesByParentId(commentId);
-        return ResponseEntity.ok(ApiResponse.success(200, "Replies retrieved successfully", replies));
+    @GetMapping("/{commentId}/with-replies")
+    public ResponseEntity<ApiResponse<CommentResponse>> getCommentWithReplies(
+            @PathVariable String commentId,
+            @RequestParam(defaultValue = "3") int replyLimit) {
+        
+        CommentResponse response = commentService.getCommentWithReplies(commentId, replyLimit);
+        return ResponseEntity.ok(ApiResponse.success(200, "Comment with replies retrieved successfully", response));
+    }
+
+    /**
+     * Get more replies using cursor-based pagination
+     * Sorted: cũ → mới
+     */
+    @GetMapping("/{parentId}/replies")
+    public ResponseEntity<ApiResponse<PaginatedCommentsResponse>> getMoreReplies(
+            @PathVariable String parentId,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = "10") int size) {
+        
+        PaginatedCommentsResponse response = commentService.getMoreReplies(parentId, cursor, size);
+        return ResponseEntity.ok(ApiResponse.success(200, "Replies retrieved successfully", response));
     }
 
     /**

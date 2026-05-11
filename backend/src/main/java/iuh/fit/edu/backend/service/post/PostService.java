@@ -1,11 +1,8 @@
-/*
- * @ (#) PostService.java    1.0
- * Copyright (c)  IUH. All rights reserved.
- */
 package iuh.fit.edu.backend.service.post;
 
 import iuh.fit.edu.backend.domain.entity.nosql.Post;
 import iuh.fit.edu.backend.dto.request.post.CreatePostRequest;
+import org.springframework.data.domain.Page;
 
 import java.util.List;
 
@@ -17,7 +14,8 @@ import java.util.List;
  */
 public interface PostService {
     Post createPost(CreatePostRequest request, List<String> imageUrls, Long authorId);
-    List<Post> getPostsByUserId(Long userId);
+    Page<Post> getPostsByUserId(Long userId, Long currentUserId, int page, int size);
+    long countPostsByUserId(Long userId, Long currentUserId);
     Post getPostById(String postId);
     void deletePost(String postId, Long userId);
     Post updatePost(String postId, CreatePostRequest request, List<String> newImageUrls, Long userId);

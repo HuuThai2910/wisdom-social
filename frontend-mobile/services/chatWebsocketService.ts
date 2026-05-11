@@ -1,7 +1,12 @@
 import { Client, type IMessage } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
 import type {
+    Conversation,
+    ConversationCreatedEvent,
+    ConversationMembershipEvent,
     ConversationUpdatedEvent,
+    GroupDisbandedEvent,
+    LastMessage,
     MemberUpdatedEvent,
     Message,
     MessageCreatedEvent,
@@ -17,6 +22,114 @@ type ConversationEvent =
     | MessageRecalledEvent
     | MessageSeenEvent
     | TypingEvent;
+
+type ConversationSnapshot = Conversation;
+
+type UserConversationEvent =
+    | ConversationUpdatedEvent
+    | ConversationCreatedEvent
+    | ConversationMembershipEvent
+    | GroupDisbandedEvent;
+
+function toLastMessageUpdate(conversation: Conversation): LastMessage | null {
+    return conversation.lastMessage ?? null;
+}
+
+function buildFallbackLastMessageUpdate(conversation: Conversation): LastMessage {
+    return {
+        lastMessageContent: "",
+        lastMessageType: "SYSTEM_CREATE_GROUP",
+        lastSenderId: 0,
+        lastSenderName: "",
+        lastMessageAt: conversation.updatedAt,
+        read: false,
+    };
+}
+
+function buildSystemFallbackByDomainEvent(
+    domainEventType?: string,
+): LastMessage {
+    const now = new Date().toISOString();
+
+    if (domainEventType === "MEMBER_ADDED") {
+        return {
+            lastMessageContent: "",
+            lastMessageType: "SYSTEM_ADD_MEMBER",
+            lastSenderId: 0,
+            lastSenderName: "",
+            lastMessageAt: now,
+            read: false,
+        };
+    }
+
+    if (domainEventType === "MEMBER_ROLE_UPDATED") {
+        return {
+            lastMessageContent: "",
+            lastMessageType: "SYSTEM_UPDATE_ROLE",
+            lastSenderId: 0,
+            lastSenderName: "",
+            lastMessageAt: now,
+            read: false,
+        };
+    }
+
+    if (domainEventType === "MEMBER_KICKED") {
+        return {
+            lastMessageContent: "",
+            lastMessageType: "SYSTEM_KICK_MEMBER",
+            lastSenderId: 0,
+            lastSenderName: "",
+            lastMessageAt: now,
+            read: false,
+        };
+    }
+
+    if (domainEventType === "MEMBER_LEFT") {
+        return {
+            lastMessageContent: "",
+            lastMessageType: "SYSTEM_LEAVE_GROUP",
+            lastSenderId: 0,
+            lastSenderName: "",
+            lastMessageAt: now,
+            read: false,
+        };
+    }
+
+    return {
+        lastMessageContent: "",
+        lastMessageType: "SYSTEM_DISBAND_GROUP",
+        lastSenderId: 0,
+        lastSenderName: "",
+        lastMessageAt: now,
+        read: false,
+    };
+}
+export type CallStatus =
+    | "calling"
+    | "ringing"
+    | "accepted"
+    | "rejected"
+    | "ended";
+
+export type CallSignalEvent =
+    | "call-user"
+    | "incoming-call"
+    | "answer-call"
+    | "ice-candidate"
+    | "reject-call"
+    | "end-call";
+
+export interface CallSignalPayload {
+    event: CallSignalEvent;
+    conversationId: number;
+    callId: string;
+    callType: "audio" | "video";
+    fromUserId: number;
+    targetUserId: number;
+    sdp?: RTCSessionDescriptionInit;
+    candidate?: RTCIceCandidateInit;
+    timestamp?: string;
+}
 
 function resolveWsBrokerUrl(): string {
     const baseUrl = apiClient.defaults.baseURL ?? "http://10.0.2.2:8080/api";
@@ -41,6 +154,10 @@ class ChatWebsocketService {
         () => { unsubscribe: () => void }
     >();
     private connectPromise: Promise<void> | null = null;
+    private callEventListeners = new Map<
+        number,
+        Set<(event: CallSignalPayload) => void>
+    >();
 
     private syncSubscriptions(): void {
         if (!this.client?.connected) return;
@@ -295,10 +412,10 @@ class ChatWebsocketService {
             | { mode: "sockjs"; sockJsUrl: string }
             | { mode: "raw"; brokerURL: string }
         )[] = [
-            { mode: "sockjs", sockJsUrl },
-            { mode: "raw", brokerURL: rawBrokerPrimary },
-            { mode: "raw", brokerURL: rawBrokerFallback },
-        ];
+                { mode: "sockjs", sockJsUrl },
+                { mode: "raw", brokerURL: rawBrokerPrimary },
+                { mode: "raw", brokerURL: rawBrokerFallback },
+            ];
 
         const candidateLabels = Array.from(
             new Set(
@@ -363,6 +480,7 @@ class ChatWebsocketService {
         this.subscriptions.forEach((sub) => sub.unsubscribe());
         this.subscriptions.clear();
         this.subscriptionFactories.clear();
+        this.callEventListeners.clear();
 
         if (this.client) {
             void this.client.deactivate();
@@ -399,11 +517,11 @@ class ChatWebsocketService {
                     const raw = JSON.parse(message.body) as
                         | ConversationEvent
                         | {
-                              payload?: unknown;
-                              data?: unknown;
-                              domainEventType?: unknown;
-                              type?: unknown;
-                          };
+                            payload?: unknown;
+                            data?: unknown;
+                            domainEventType?: unknown;
+                            type?: unknown;
+                        };
 
                     const container =
                         (raw as { payload?: unknown }).payload ??
@@ -417,25 +535,25 @@ class ChatWebsocketService {
                                 type?: unknown;
                             }
                         ).domainEventType ??
-                            (
-                                container as {
-                                    domainEventType?: unknown;
-                                    type?: unknown;
-                                }
-                            ).type ??
-                            (
-                                raw as {
-                                    domainEventType?: unknown;
-                                    type?: unknown;
-                                }
-                            ).domainEventType ??
-                            (
-                                raw as {
-                                    domainEventType?: unknown;
-                                    type?: unknown;
-                                }
-                            ).type ??
-                            "",
+                        (
+                            container as {
+                                domainEventType?: unknown;
+                                type?: unknown;
+                            }
+                        ).type ??
+                        (
+                            raw as {
+                                domainEventType?: unknown;
+                                type?: unknown;
+                            }
+                        ).domainEventType ??
+                        (
+                            raw as {
+                                domainEventType?: unknown;
+                                type?: unknown;
+                            }
+                        ).type ??
+                        "",
                     );
 
                     if (domainType === "MESSAGE_CREATED") {
@@ -586,7 +704,9 @@ class ChatWebsocketService {
         onConversationUpdated: (
             conversationId: number,
             lastMessage: ConversationUpdatedEvent["lastMessage"],
+            conversation?: ConversationSnapshot,
         ) => void,
+        onDisbanded?: (conversationId: number) => void,
     ): void {
         const destination = `/topic/user/${userId}/conversations`;
         this.registerSubscription(destination, () => {
@@ -597,73 +717,167 @@ class ChatWebsocketService {
 
             return client.subscribe(destination, (message: IMessage) => {
                 try {
-                    const raw = JSON.parse(message.body) as
-                        | ConversationUpdatedEvent
-                        | {
-                              payload?: ConversationUpdatedEvent;
-                              data?: ConversationUpdatedEvent;
-                              conversationId?: unknown;
-                              lastMessage?: unknown;
-                              lastMessageResponse?: unknown;
-                          };
-                    const container =
-                        (raw as { payload?: ConversationUpdatedEvent })
-                            .payload ??
-                        (raw as { data?: ConversationUpdatedEvent }).data ??
-                        raw;
+                    const payload = JSON.parse(message.body) as UserConversationEvent;
 
-                    const conversationIdRaw = (
-                        container as { conversationId?: unknown }
-                    ).conversationId;
-                    const parsedConversationId = Number(conversationIdRaw);
-                    if (!Number.isFinite(parsedConversationId)) {
+                    const createdConversation = (
+                        payload as { conversationResponse?: Conversation }
+                    ).conversationResponse;
+
+                    if (createdConversation?.id) {
+                        const lastMessageData =
+                            toLastMessageUpdate(createdConversation);
+                        const resolvedLastMessage =
+                            lastMessageData ??
+                            buildFallbackLastMessageUpdate(createdConversation);
+                        const conversationSnapshot: ConversationSnapshot = {
+                            ...createdConversation,
+                            lastMessage:
+                                createdConversation.lastMessage ??
+                                resolvedLastMessage,
+                        };
+
+                        onConversationUpdated(
+                            createdConversation.id,
+                            resolvedLastMessage,
+                            conversationSnapshot,
+                        );
                         return;
                     }
 
-                    const lastMessageRaw =
-                        (
-                            container as {
-                                lastMessage?: ConversationUpdatedEvent["lastMessage"];
-                            }
-                        ).lastMessage ??
-                        (
-                            container as {
-                                lastMessageResponse?: ConversationUpdatedEvent["lastMessage"];
-                            }
-                        ).lastMessageResponse;
+                    const disbandPayload = payload as GroupDisbandedEvent;
+                    if (
+                        disbandPayload.domainEventType === "GROUP_DISBANDED" &&
+                        typeof disbandPayload.conversationId === "number"
+                    ) {
+                        // Gọi callback chuyên biệt nếu có (dùng trong useChatWindowController)
+                        onDisbanded?.(disbandPayload.conversationId);
 
-                    if (!lastMessageRaw) {
+                        // Vẫn gọi onConversationUpdated để cập nhật sidebar list
+                        onConversationUpdated(
+                            disbandPayload.conversationId,
+                            buildSystemFallbackByDomainEvent(
+                                disbandPayload.domainEventType,
+                            ),
+                        );
                         return;
                     }
 
-                    onConversationUpdated(parsedConversationId, lastMessageRaw);
+                    const updatedEvent = payload as ConversationUpdatedEvent;
+                    if (
+                        typeof updatedEvent.conversationId === "number" &&
+                        updatedEvent.lastMessage
+                    ) {
+                        onConversationUpdated(
+                            updatedEvent.conversationId,
+                            updatedEvent.lastMessage,
+                        );
+                    }
                 } catch {
                     // no-op
                 }
             });
         });
     }
+
+
+    /**
+     * Subscribe to GROUP_DISBANDED events for a specific conversation.
+     * Uses a unique internal key so it doesn't overwrite the generic
+     * subscribeToUserConversations subscription used by the sidebar.
+     */
+    subscribeToGroupDisbanded(
+        userId: number,
+        conversationId: number,
+        onDisbanded: () => void,
+    ): void {
+        const destination = `/topic/user/${userId}/conversations`;
+        const key = `${destination}::disband-watch::${conversationId}`;
+
+        this.subscriptionFactories.set(key, () => {
+            const client = this.client;
+            if (!client?.connected) {
+                throw new Error("WebSocket not connected");
+            }
+
+            // Không subscribe STOMP mới — chỉ forward từ topic gốc.
+            // Thay vào đó ta tạo một subscriber độc lập lên cùng topic.
+            return client.subscribe(destination, (message: IMessage) => {
+                try {
+                    const payload = JSON.parse(message.body) as {
+                        domainEventType?: string;
+                        conversationId?: number;
+                    };
+                    const disbandCid =
+                        payload.domainEventType === "GROUP_DISBANDED"
+                            ? payload.conversationId
+                            : undefined;
+                    if (disbandCid === conversationId) {
+                        onDisbanded();
+                    }
+                } catch {
+                    // no-op
+                }
+            });
+        });
+
+        // Kích hoạt ngay nếu đã kết nối
+        if (this.client?.connected && !this.subscriptions.has(key)) {
+            try {
+                const sub = this.subscriptionFactories.get(key)!();
+                this.subscriptions.set(key, sub);
+            } catch {
+                // retry sẽ được thực hiện ở syncSubscriptions()
+            }
+        }
+    }
+
+    unsubscribeFromGroupDisbanded(
+        userId: number,
+        conversationId: number,
+    ): void {
+        const destination = `/topic/user/${userId}/conversations`;
+        const key = `${destination}::disband-watch::${conversationId}`;
+        this.removeSubscription(key);
+    }
+
 
     unsubscribeFromUserConversations(userId: number): void {
         const destination = `/topic/user/${userId}/conversations`;
         this.removeSubscription(destination);
     }
 
-    subscribeToProfileUpdates(
-        phone: string,
-        onProfileUpdated: (payload: Record<string, unknown>) => void,
+    subscribeToCallEvents(
+        userId: number,
+        callback: (event: CallSignalPayload) => void,
     ): void {
-        const destination = `/topic/user/${phone}/profile-update`;
+        const existingListeners = this.callEventListeners.get(userId);
+        if (existingListeners) {
+            existingListeners.add(callback);
+        } else {
+            this.callEventListeners.set(userId, new Set([callback]));
+        }
+
+        const destination = `/topic/user/${userId}/calls`;
+        if (this.subscriptions.has(destination)) {
+            return;
+        }
+
+        if (this.subscriptionFactories.has(destination)) {
+            this.syncSubscriptions();
+            return;
+        }
+
         this.registerSubscription(destination, () => {
             const client = this.client;
             if (!client?.connected) {
                 throw new Error("WebSocket not connected");
             }
 
-            return client.subscribe(destination, (msg: IMessage) => {
+            return client.subscribe(destination, (message: IMessage) => {
                 try {
-                    const raw = JSON.parse(msg.body) as Record<string, unknown>;
-                    onProfileUpdated(raw);
+                    const payload = JSON.parse(message.body) as CallSignalPayload;
+                    const listeners = this.callEventListeners.get(userId);
+                    listeners?.forEach((listener) => listener(payload));
                 } catch {
                     // no-op
                 }
@@ -671,26 +885,37 @@ class ChatWebsocketService {
         });
     }
 
-    unsubscribeFromProfileUpdates(phone: string): void {
-        this.removeSubscription(`/topic/user/${phone}/profile-update`);
-    }
-
-    // Generic topic subscription — used by pageWebsocketService and others
-    subscribeToTopic(
-        destination: string,
-        onMessage: (body: string) => void,
+    unsubscribeFromCallEvents(
+        userId: number,
+        callback?: (event: CallSignalPayload) => void,
     ): void {
-        this.registerSubscription(destination, () => {
-            const client = this.client;
-            if (!client?.connected) throw new Error("WebSocket not connected");
-            return client.subscribe(destination, (msg: IMessage) => {
-                onMessage(msg.body);
-            });
-        });
+        const listeners = this.callEventListeners.get(userId);
+
+        if (callback && listeners) {
+            listeners.delete(callback);
+            if (listeners.size > 0) {
+                return;
+            }
+        }
+
+        if (!callback || !listeners || listeners.size === 0) {
+            this.callEventListeners.delete(userId);
+        }
+
+        const destination = `/topic/user/${userId}/calls`;
+        this.removeSubscription(destination);
     }
 
-    unsubscribeFromTopic(destination: string): void {
-        this.removeSubscription(destination);
+    sendCallSignal(payload: CallSignalPayload): void {
+        if (!this.client?.connected) {
+            console.log(`${WS_DEBUG_PREFIX} sendCallSignal skipped: disconnected`);
+            return;
+        }
+
+        this.client.publish({
+            destination: "/app/call.signal",
+            body: JSON.stringify(payload),
+        });
     }
 
     sendTypingSignal(
