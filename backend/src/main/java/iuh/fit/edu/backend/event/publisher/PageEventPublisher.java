@@ -1,115 +1,84 @@
 package iuh.fit.edu.backend.event.publisher;
 
-import lombok.RequiredArgsConstructor;
+import iuh.fit.edu.backend.config.RedisPubSubConfig;
+import iuh.fit.edu.backend.event.payload.PageEvent;
+import iuh.fit.edu.backend.event.payload.RedisEnvelope;
+import iuh.fit.edu.backend.event.type.DomainEventType;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
-import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.stereotype.Component;
 
 import java.time.Instant;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.Collections;
 
 /**
- * Broadcasts real-time page membership events via WebSocket STOMP.
- *
- * Topics:
- *   /topic/page/{pageId}/members  — all member-change events for a page
- *   /topic/user/{userId}/page-events — personal notifications (request approved/rejected)
+ * Broadcasts real-time page membership events via Redis Pub/Sub.
  */
-@Service
-@RequiredArgsConstructor
+@Component
 @Slf4j
 public class PageEventPublisher {
 
-    private final SimpMessagingTemplate messagingTemplate;
+    private final RedisTemplate<String, Object> pubSubRedisTemplate;
 
-    // ── helpers ──────────────────────────────────────────────────────────────
-
-    private Map<String, Object> base(String eventType, long pageId) {
-        Map<String, Object> payload = new HashMap<>();
-        payload.put("eventType", eventType);
-        payload.put("pageId", pageId);
-        payload.put("timestamp", Instant.now().toString());
-        return payload;
+    public PageEventPublisher(@Qualifier("pubSubRedisTemplate") RedisTemplate<String, Object> pubSubRedisTemplate) {
+        this.pubSubRedisTemplate = pubSubRedisTemplate;
     }
 
-    private void sendToPage(long pageId, Map<String, Object> payload) {
-        try {
-            messagingTemplate.convertAndSend("/topic/page/" + pageId + "/members", payload);
-        } catch (Exception e) {
-            log.error("PageEventPublisher sendToPage failed: {}", e.getMessage());
-        }
-    }
+    private void publishToRedis(DomainEventType type, long pageId, long userId, String newRole, boolean sendToPage, boolean sendToUser) {
+        PageEvent event = PageEvent.builder()
+                .eventType(type)
+                .pageId(pageId)
+                .userId(userId)
+                .newRole(newRole)
+                .timestamp(Instant.now().toString())
+                .sendToPage(sendToPage)
+                .sendToUser(sendToUser)
+                .build();
 
-    private void sendToUser(long userId, Map<String, Object> payload) {
-        try {
-            messagingTemplate.convertAndSend("/topic/user/" + userId + "/page-events", payload);
-        } catch (Exception e) {
-            log.error("PageEventPublisher sendToUser failed: {}", e.getMessage());
-        }
-    }
+        RedisEnvelope envelope = new RedisEnvelope(
+                Collections.emptySet(),
+                type,
+                event
+        );
 
-    // ── public API ───────────────────────────────────────────────────────────
+        pubSubRedisTemplate.convertAndSend(RedisPubSubConfig.CHAT_CHANNEL, envelope);
+        log.info("Published {} to Redis for Page {} and User {}", type, pageId, userId);
+    }
 
     public void publishMemberJoined(long pageId, long userId) {
-        Map<String, Object> payload = base("PAGE_MEMBER_JOINED", pageId);
-        payload.put("userId", userId);
-        sendToPage(pageId, payload);
+        publishToRedis(DomainEventType.PAGE_MEMBER_JOINED, pageId, userId, null, true, false);
     }
 
     public void publishMemberLeft(long pageId, long userId) {
-        Map<String, Object> payload = base("PAGE_MEMBER_LEFT", pageId);
-        payload.put("userId", userId);
-        sendToPage(pageId, payload);
+        publishToRedis(DomainEventType.PAGE_MEMBER_LEFT, pageId, userId, null, true, false);
     }
 
     public void publishMemberBlocked(long pageId, long userId) {
-        Map<String, Object> payload = base("PAGE_MEMBER_BLOCKED", pageId);
-        payload.put("userId", userId);
-        sendToPage(pageId, payload);
-        sendToUser(userId, payload);
+        publishToRedis(DomainEventType.PAGE_MEMBER_BLOCKED, pageId, userId, null, true, true);
     }
 
     public void publishMemberUnblocked(long pageId, long userId) {
-        Map<String, Object> payload = base("PAGE_MEMBER_UNBLOCKED", pageId);
-        payload.put("userId", userId);
-        sendToPage(pageId, payload);
-        sendToUser(userId, payload);
+        publishToRedis(DomainEventType.PAGE_MEMBER_UNBLOCKED, pageId, userId, null, true, true);
     }
 
     public void publishMemberRoleChanged(long pageId, long userId, String newRole) {
-        Map<String, Object> payload = base("PAGE_MEMBER_ROLE_CHANGED", pageId);
-        payload.put("userId", userId);
-        payload.put("newRole", newRole);
-        sendToPage(pageId, payload);
-        sendToUser(userId, payload);
+        publishToRedis(DomainEventType.PAGE_MEMBER_ROLE_CHANGED, pageId, userId, newRole, true, true);
     }
 
     public void publishJoinRequested(long pageId, long userId) {
-        Map<String, Object> payload = base("PAGE_JOIN_REQUESTED", pageId);
-        payload.put("userId", userId);
-        // notify admins/mods via the page members channel
-        sendToPage(pageId, payload);
+        publishToRedis(DomainEventType.PAGE_JOIN_REQUESTED, pageId, userId, null, true, false);
     }
 
     public void publishJoinApproved(long pageId, long userId) {
-        Map<String, Object> payload = base("PAGE_JOIN_APPROVED", pageId);
-        payload.put("userId", userId);
-        sendToPage(pageId, payload);
-        // notify the user who was approved
-        sendToUser(userId, payload);
+        publishToRedis(DomainEventType.PAGE_JOIN_APPROVED, pageId, userId, null, true, true);
     }
 
     public void publishJoinRejected(long pageId, long userId) {
-        Map<String, Object> payload = base("PAGE_JOIN_REJECTED", pageId);
-        payload.put("userId", userId);
-        // only notify the affected user
-        sendToUser(userId, payload);
+        publishToRedis(DomainEventType.PAGE_JOIN_REJECTED, pageId, userId, null, false, true);
     }
 
     public void publishJoinCancelled(long pageId, long userId) {
-        Map<String, Object> payload = base("PAGE_JOIN_CANCELLED", pageId);
-        payload.put("userId", userId);
-        sendToPage(pageId, payload);
+        publishToRedis(DomainEventType.PAGE_JOIN_CANCELLED, pageId, userId, null, true, false);
     }
 }
