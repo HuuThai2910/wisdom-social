@@ -41,6 +41,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST,"/api/auth/register").permitAll()
                         .requestMatchers(HttpMethod.POST,"/api/auth/login").permitAll()
                         .requestMatchers(HttpMethod.POST,"/api/auth/confirm").permitAll()
+                        .requestMatchers(HttpMethod.POST,"/api/auth/resend-otp").permitAll()
                         .requestMatchers(HttpMethod.POST,"/api/auth/reset-password").permitAll()
                         .requestMatchers(HttpMethod.POST,"/api/auth/forgot-password").permitAll()
                         .requestMatchers(HttpMethod.GET,"/api/session/qr-login/create").permitAll()

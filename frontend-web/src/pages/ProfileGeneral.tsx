@@ -5,12 +5,15 @@ import ProfileTabs from "../components/profile/ProfileTabs";
 import axios from "axios";
 import type { User } from "../types";
 import { useCurrentUser } from "../hooks/useCurrentUser";
+import websocketService from "../services/websocket";
+import { convertPhoneToInternational } from "../hooks/useCurrentUser";
 import { buildS3Url } from "../utils/s3";
 
 const API_BASE_URL = "http://localhost:8080/api";
 
 export default function ProfileGeneral() {
   const { username } = useParams();
+  const currentUser = useCurrentUser();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -33,6 +36,7 @@ export default function ProfileGeneral() {
             bio: userData.bio,
             birthday: userData.birthday || "",
             gender: userData.gender || "HIDDEN",
+            phone: userData.phone,
             friendsCount: userData.friendCount || 0,
             followersCount: userData.followerCount || 0,
             followingCount: userData.followingCount || 0,
@@ -51,6 +55,53 @@ export default function ProfileGeneral() {
     }
   }, [username]);
 
+  // Subscribe to real-time profile updates via WebSocket
+  useEffect(() => {
+    if (!user?.phone) return;
+
+    const phone = convertPhoneToInternational(user.phone);
+    if (!phone) return;
+
+    const handleProfileUpdate = (updatedData: any) => {
+      setUser((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          ...(updatedData.username != null && {
+            username: updatedData.username,
+          }),
+          ...(updatedData.name != null && { fullName: updatedData.name }),
+          ...(updatedData.avatarUrl != null && {
+            avatarUrl: updatedData.avatarUrl,
+          }),
+          ...(updatedData.bio != null && { bio: updatedData.bio }),
+          ...(updatedData.birthday != null && {
+            birthday: updatedData.birthday,
+          }),
+          ...(updatedData.gender != null && { gender: updatedData.gender }),
+        };
+      });
+    };
+
+    const setup = async () => {
+      if (!websocketService.isConnected()) {
+        await websocketService.connect();
+      }
+      websocketService.subscribeToProfileUpdates(phone, handleProfileUpdate);
+    };
+
+    setup();
+
+    return () => {
+      websocketService.unsubscribeFromProfileUpdates(
+        phone,
+        handleProfileUpdate
+      );
+    };
+  }, [user?.phone]);
+
+  const isOwnProfile = currentUser?.username === username;
+
   if (loading) {
     return <div className="p-4 text-center">Loading...</div>;
   }
@@ -58,9 +109,6 @@ export default function ProfileGeneral() {
   if (!user) {
     return <div className="p-4 text-center">User not found</div>;
   }
-
-  const currentUser = useCurrentUser();
-  const isOwnProfile = currentUser?.username === username;
 
   return (
     <div className="max-w-4xl mx-auto">

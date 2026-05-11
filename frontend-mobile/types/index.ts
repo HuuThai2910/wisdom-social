@@ -2,11 +2,17 @@ export type User = {
     id: string;
     username: string;
     fullName: string;
+    name?: string;
     bio: string;
     avatar: string;
+    avatarUrl?: string;
+    phone?: string;
     followers: number;
     following: number;
     website?: string;
+    birthday?: string;
+    gender?: "MALE" | "FEMALE" | "HIDDEN";
+    hasPinCode?: boolean;
 };
 
 export type Story = {
@@ -78,4 +84,8 @@ export type ProfileStats = {
 export type AuthResult = {
     success: boolean;
     message?: string;
+    remainingSeconds?: number;
+    lockReason?: string;
+    deletionPending?: boolean;
+    deletionRemainingDays?: number;
 };

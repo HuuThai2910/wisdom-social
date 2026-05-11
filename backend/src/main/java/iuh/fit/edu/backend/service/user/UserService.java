@@ -18,6 +18,7 @@ public interface UserService {
     User getCurrentUser();
     String getNewAccessToken(String refreshToken);
     String getNewQrAccessToken(String refreshToken);
+    void resendConfirmationOtp(String phone);
     UserResponseOTPPassword forgotPasswordUser(UserRequestForgotPassword requestForgotPassword);
     boolean resetPassword(UserRequestResetPassword requestResetPassword);
     boolean deleteUser(long id);
@@ -30,8 +31,14 @@ public interface UserService {
     boolean cancelBlockUser(FriendRequest friendRequest);
     List<User> searchUserByUsername(String keyword);
     void saveDevice(User user, String deviceType, String deviceName, String ipAddress);
+    void logoutAllDevices(User user);
+    void requestAccountDeletion(User user);
+    void cancelAccountDeletion(User user);
 
-    // Hàm cập nhật lần hoạt động cuối cùng user
+    void setupPinCode(User user, String pinCode);
+    boolean verifyPinCode(User user, String pinCode);
+    void removePinCode(User user);
+
     @Transactional
     Instant updateLastActiveAt(Long userId);
 

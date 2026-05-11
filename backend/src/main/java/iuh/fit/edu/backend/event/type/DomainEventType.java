@@ -34,6 +34,17 @@ public enum DomainEventType {
     MEMBER_KICKED,
     GROUP_DISBANDED,
 
+    // Page membership
+    PAGE_MEMBER_JOINED,
+    PAGE_MEMBER_LEFT,
+    PAGE_MEMBER_BLOCKED,
+    PAGE_MEMBER_UNBLOCKED,
+    PAGE_MEMBER_ROLE_CHANGED,
+    PAGE_JOIN_REQUESTED,
+    PAGE_JOIN_APPROVED,
+    PAGE_JOIN_REJECTED,
+    PAGE_JOIN_CANCELLED,
+
     // Post, Comment, Reaction, Notification
     POST,
     COMMENT,

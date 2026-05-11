@@ -1,6 +1,7 @@
 package iuh.fit.edu.backend.service.user;
 
 import iuh.fit.edu.backend.domain.entity.mysql.User;
+import iuh.fit.edu.backend.dto.response.friend.FriendSuggestionResponse;
 
 import java.util.List;
 
@@ -14,5 +15,6 @@ public interface FriendService {
     List<User> getFriendRequestOfUser(long userId);
     List<User> getSentRequestsOfUser(long userId);
     List<User> getFriendsOfUser(long userId);
+    List<FriendSuggestionResponse> getFriendSuggestions(long userId, int limit);
     List<Long> getAcceptedFriendIds(long userId);
 }

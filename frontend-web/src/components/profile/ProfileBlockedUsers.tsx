@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Ban, Loader2, AlertCircle } from "lucide-react";
 import type { User } from "../../types";
-import { friendService } from "../../services/friendService";
+import blockService from "../../services/blockService";
 import { buildS3Url } from "../../utils/s3";
 
 interface ProfileBlockedUsersProps {
@@ -27,7 +27,7 @@ export default function ProfileBlockedUsers({
       setLoading(true);
       setError("");
       try {
-        const users = await friendService.getBlockedUsers(userId);
+        const users = await blockService.getBlockedUsers(Number(userId));
         setBlockedUsers(users || []);
       } catch (err) {
         console.error("Error loading blocked users:", err);
@@ -89,10 +89,7 @@ export default function ProfileBlockedUsers({
 
   const handleUnblock = async (blockedId: string | number) => {
     try {
-      await friendService.unblockUser({
-        senderId: Number(userId),
-        receivedId: Number(blockedId),
-      });
+      await blockService.unblockUser(Number(userId), Number(blockedId));
       setBlockedUsers((prev) =>
         prev.filter((u) => u.id !== blockedId)
       );

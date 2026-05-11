@@ -84,6 +84,25 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(apiResponse);
     }
 
+    @ExceptionHandler(RateLimitExceededException.class)
+    public ResponseEntity<ApiResponse<Object>> handleRateLimit(RateLimitExceededException ex) {
+        Map<String, Object> errorData = new HashMap<>();
+        errorData.put("code", "RATE_LIMIT_EXCEEDED");
+        errorData.put("remainingSeconds", ex.getRemainingSeconds());
+        ApiResponse<Object> response = ApiResponse.error(429, ex.getMessage(), errorData);
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(response);
+    }
+
+    @ExceptionHandler(AccountLockedException.class)
+    public ResponseEntity<ApiResponse<Object>> handleAccountLocked(AccountLockedException ex) {
+        Map<String, Object> errorData = new HashMap<>();
+        errorData.put("code", "ACCOUNT_LOCKED");
+        errorData.put("remainingSeconds", ex.getRemainingSeconds());
+        errorData.put("lockReason", ex.getLockReason());
+        ApiResponse<Object> response = ApiResponse.error(403, ex.getMessage(), errorData);
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+    }
+
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ApiResponse<Object>> handleAccessDenied(AccessDeniedException ex) {
         return buildErrorResponse(HttpStatus.FORBIDDEN, ex.getMessage(), "ACCESS_DENIED");

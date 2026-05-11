@@ -44,13 +44,13 @@ export default function PagePosts() {
             
             // Check if current user is owner or admin
             const currentUserId = Number(currentUser.id);
-            const pageOwnerId = pageData.createdBy?.id 
-                ? Number(pageData.createdBy.id) 
+            const pageOwnerId = pageData.createdBy?.id
+                ? Number(pageData.createdBy.id)
                 : (pageData.userId ? Number(pageData.userId) : null);
-            
+
             const isOwner = currentUserId === pageOwnerId;
-            const currentMember = membersList?.find(m => Number(m.userId) === currentUserId);
-            const hasAdminRole = currentMember?.pageRole === "ADMIN" || currentMember?.pageRole === "MODERATOR";
+            const currentMember = membersList?.find(m => Number(m.user?.id) === currentUserId);
+            const hasAdminRole = currentMember?.role === "ADMIN" || currentMember?.role === "MODERATOR";
             
             const hasAccess = isOwner || hasAdminRole;
             setIsAdmin(hasAccess);

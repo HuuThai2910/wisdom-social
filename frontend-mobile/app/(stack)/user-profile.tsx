@@ -1,1 +1,1 @@
-export { default } from "@/screens/UserProfile";
+export { default } from "@/screens/InstagramProfile";
