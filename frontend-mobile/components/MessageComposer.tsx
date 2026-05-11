@@ -144,235 +144,228 @@ export const MessageComposer = React.memo(
                         </View>
                     ) : null}
 
-                    <View style={styles.composerBar}>
-                        {isRecordingVoice ? (
-                            <View style={styles.recordingComposerRow}>
-                                <Pressable
-                                    style={styles.recordingSideBtn}
-                                    hitSlop={8}
-                                    onPress={onCancelRecording}
-                                    disabled={
-                                        uploading || sending || isReadOnly
-                                    }
-                                >
-                                    <Ionicons
-                                        name="trash"
-                                        size={24}
-                                        color="#1D4ED8"
-                                    />
-                                </Pressable>
+                    {isReadOnly ? (
+                        <View style={styles.restrictedNoticeBar}>
+                            <Ionicons
+                                name="lock-closed-outline"
+                                size={16}
+                                color={colors.textMuted}
+                            />
+                            <Text style={styles.restrictedNoticeText}>
+                                {readOnlyNotice}
+                            </Text>
+                        </View>
+                    ) : (
+                        <View style={styles.composerBar}>
+                            {isRecordingVoice ? (
+                                <View style={styles.recordingComposerRow}>
+                                    <Pressable
+                                        style={styles.recordingSideBtn}
+                                        hitSlop={8}
+                                        onPress={onCancelRecording}
+                                        disabled={uploading || sending}
+                                    >
+                                        <Ionicons
+                                            name="trash"
+                                            size={24}
+                                            color="#1D4ED8"
+                                        />
+                                    </Pressable>
 
-                                <View style={styles.recordingPill}>
-                                    <Ionicons
-                                        name="pause"
-                                        size={18}
-                                        color={colors.white}
+                                    <View style={styles.recordingPill}>
+                                        <Ionicons
+                                            name="pause"
+                                            size={18}
+                                            color={colors.white}
+                                        />
+                                        <View style={styles.recordingWaveTrack}>
+                                            {Array.from({ length: 20 }).map(
+                                                (_, index) => (
+                                                    <View
+                                                        key={`wave-${index}`}
+                                                        style={[
+                                                            styles.recordingWaveBar,
+                                                            {
+                                                                height:
+                                                                    index % 5 === 0
+                                                                        ? 18
+                                                                        : index %
+                                                                                2 ===
+                                                                            0
+                                                                          ? 12
+                                                                          : 8,
+                                                            },
+                                                        ]}
+                                                    />
+                                                ),
+                                            )}
+                                        </View>
+                                        <Text style={styles.recordingPillTime}>
+                                            {formatDurationMillis(
+                                                recordingSeconds * 1000,
+                                            )}
+                                        </Text>
+                                    </View>
+
+                                    <Pressable
+                                        style={styles.recordingSideBtn}
+                                        hitSlop={8}
+                                        onPress={onStopRecordingAndSend}
+                                        disabled={uploading || sending}
+                                    >
+                                        <Ionicons
+                                            name="send"
+                                            size={24}
+                                            color="#1D4ED8"
+                                        />
+                                    </Pressable>
+                                </View>
+                            ) : (
+                                <>
+                                    <Pressable
+                                        style={styles.cameraBtn}
+                                        hitSlop={8}
+                                        onPress={handleCapturePhotoPress}
+                                        disabled={uploading || sending}
+                                    >
+                                        <Ionicons
+                                            name="camera"
+                                            size={20}
+                                            color={colors.white}
+                                        />
+                                    </Pressable>
+
+                                    <TextInput
+                                        ref={messageInputRef}
+                                        value={messageText}
+                                        onChangeText={(value) => {
+                                            setMessageText(value);
+                                            sendTypingSignal(Boolean(value.trim()));
+                                        }}
+                                        onBlur={() => sendTypingSignal(false)}
+                                        onSelectionChange={(event) => {
+                                            setInputSelection(
+                                                event.nativeEvent.selection,
+                                            );
+                                        }}
+                                        selection={inputSelection}
+                                        placeholder={
+                                            uploading
+                                                ? "Đang tải tệp..."
+                                                : "Nhắn tin..."
+                                        }
+                                        placeholderTextColor={colors.textMuted}
+                                        style={styles.input}
+                                        returnKeyType="send"
+                                        onSubmitEditing={onSend}
+                                        editable={!uploading && !sending}
                                     />
-                                    <View style={styles.recordingWaveTrack}>
-                                        {Array.from({ length: 20 }).map(
-                                            (_, index) => (
-                                                <View
-                                                    key={`wave-${index}`}
-                                                    style={[
-                                                        styles.recordingWaveBar,
-                                                        {
-                                                            height:
-                                                                index % 5 === 0
-                                                                    ? 18
-                                                                    : index %
-                                                                            2 ===
-                                                                        0
-                                                                      ? 12
-                                                                      : 8,
-                                                        },
-                                                    ]}
-                                                />
-                                            ),
+
+                                    <View style={styles.composerActions}>
+                                        {hasTypedText ? (
+                                            <>
+                                                <Pressable
+                                                    style={styles.composerActionBtn}
+                                                    hitSlop={8}
+                                                    onPress={onToggleEmojiPicker}
+                                                    disabled={
+                                                        uploading || sending
+                                                    }
+                                                >
+                                                    <Ionicons
+                                                        name={
+                                                            emojiPickerOpen
+                                                                ? "happy"
+                                                                : "happy-outline"
+                                                        }
+                                                        size={23}
+                                                        color="#1D4ED8"
+                                                    />
+                                                </Pressable>
+                                                <Pressable
+                                                    style={styles.sendArrowBtn}
+                                                    hitSlop={8}
+                                                    onPress={onSend}
+                                                    disabled={
+                                                        uploading || sending
+                                                    }
+                                                >
+                                                    <Ionicons
+                                                        name="send"
+                                                        size={24}
+                                                        color="#1D4ED8"
+                                                    />
+                                                </Pressable>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Pressable
+                                                    style={styles.composerActionBtn}
+                                                    hitSlop={8}
+                                                    onPress={onStartRecording}
+                                                    disabled={
+                                                        uploading || sending
+                                                    }
+                                                >
+                                                    <Ionicons
+                                                        name="mic-outline"
+                                                        size={24}
+                                                        color={colors.text}
+                                                    />
+                                                </Pressable>
+                                                <Pressable
+                                                    style={styles.composerActionBtn}
+                                                    hitSlop={8}
+                                                    onPress={onPickMediaAndSend}
+                                                    disabled={
+                                                        uploading || sending
+                                                    }
+                                                >
+                                                    <Ionicons
+                                                        name="image-outline"
+                                                        size={24}
+                                                        color={colors.text}
+                                                    />
+                                                </Pressable>
+                                                <Pressable
+                                                    style={styles.composerActionBtn}
+                                                    hitSlop={8}
+                                                    onPress={onPickDocumentAndSend}
+                                                    disabled={
+                                                        uploading || sending
+                                                    }
+                                                >
+                                                    <Ionicons
+                                                        name="document-outline"
+                                                        size={24}
+                                                        color={colors.text}
+                                                    />
+                                                </Pressable>
+                                                <Pressable
+                                                    style={styles.composerActionBtn}
+                                                    hitSlop={8}
+                                                    onPress={onToggleEmojiPicker}
+                                                    disabled={
+                                                        uploading || sending
+                                                    }
+                                                >
+                                                    <Ionicons
+                                                        name={
+                                                            emojiPickerOpen
+                                                                ? "happy"
+                                                                : "happy-outline"
+                                                        }
+                                                        size={23}
+                                                        color="#1D4ED8"
+                                                    />
+                                                </Pressable>
+                                            </>
                                         )}
                                     </View>
-                                    <Text style={styles.recordingPillTime}>
-                                        {formatDurationMillis(
-                                            recordingSeconds * 1000,
-                                        )}
-                                    </Text>
-                                </View>
-
-                                <Pressable
-                                    style={styles.recordingSideBtn}
-                                    hitSlop={8}
-                                    onPress={onStopRecordingAndSend}
-                                    disabled={
-                                        uploading || sending || isReadOnly
-                                    }
-                                >
-                                    <Ionicons
-                                        name="send"
-                                        size={24}
-                                        color="#1D4ED8"
-                                    />
-                                </Pressable>
-                            </View>
-                        ) : (
-                            <>
-                                <Pressable
-                                    style={styles.cameraBtn}
-                                    hitSlop={8}
-                                    onPress={handleCapturePhotoPress}
-                                    disabled={uploading || sending}
-                                >
-                                    <Ionicons
-                                        name="camera"
-                                        size={20}
-                                        color={colors.white}
-                                    />
-                                </Pressable>
-
-                                <TextInput
-                                    ref={messageInputRef}
-                                    value={messageText}
-                                    onChangeText={(value) => {
-                                        setMessageText(value);
-                                        sendTypingSignal(Boolean(value.trim()));
-                                    }}
-                                    onBlur={() => sendTypingSignal(false)}
-                                    onSelectionChange={(event) => {
-                                        setInputSelection(
-                                            event.nativeEvent.selection,
-                                        );
-                                    }}
-                                    selection={inputSelection}
-                                    placeholder={
-                                        isReadOnly
-                                            ? "Ban khong the gui tin nhan"
-                                            : uploading
-                                              ? "Dang tai tep..."
-                                              : "Nhan tin..."
-                                    }
-                                    placeholderTextColor={colors.textMuted}
-                                    style={styles.input}
-                                    returnKeyType="send"
-                                    onSubmitEditing={onSend}
-                                    editable={
-                                        !uploading && !sending && !isReadOnly
-                                    }
-                                />
-
-                                <View style={styles.composerActions}>
-                                    {hasTypedText ? (
-                                        <>
-                                            <Pressable
-                                                style={styles.composerActionBtn}
-                                                hitSlop={8}
-                                                onPress={onToggleEmojiPicker}
-                                                disabled={
-                                                    uploading ||
-                                                    sending ||
-                                                    isReadOnly
-                                                }
-                                            >
-                                                <Ionicons
-                                                    name={
-                                                        emojiPickerOpen
-                                                            ? "happy"
-                                                            : "happy-outline"
-                                                    }
-                                                    size={23}
-                                                    color="#1D4ED8"
-                                                />
-                                            </Pressable>
-                                            <Pressable
-                                                style={styles.sendArrowBtn}
-                                                hitSlop={8}
-                                                onPress={onSend}
-                                                disabled={
-                                                    uploading ||
-                                                    sending ||
-                                                    isReadOnly
-                                                }
-                                            >
-                                                <Ionicons
-                                                    name="send"
-                                                    size={24}
-                                                    color="#1D4ED8"
-                                                />
-                                            </Pressable>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Pressable
-                                                style={styles.composerActionBtn}
-                                                hitSlop={8}
-                                                onPress={onStartRecording}
-                                                disabled={
-                                                    uploading ||
-                                                    sending ||
-                                                    isReadOnly
-                                                }
-                                            >
-                                                <Ionicons
-                                                    name="mic-outline"
-                                                    size={24}
-                                                    color={colors.text}
-                                                />
-                                            </Pressable>
-                                            <Pressable
-                                                style={styles.composerActionBtn}
-                                                hitSlop={8}
-                                                onPress={onPickMediaAndSend}
-                                                disabled={
-                                                    uploading ||
-                                                    sending ||
-                                                    isReadOnly
-                                                }
-                                            >
-                                                <Ionicons
-                                                    name="image-outline"
-                                                    size={24}
-                                                    color={colors.text}
-                                                />
-                                            </Pressable>
-                                            <Pressable
-                                                style={styles.composerActionBtn}
-                                                hitSlop={8}
-                                                onPress={onPickDocumentAndSend}
-                                                disabled={
-                                                    uploading ||
-                                                    sending ||
-                                                    isReadOnly
-                                                }
-                                            >
-                                                <Ionicons
-                                                    name="document-outline"
-                                                    size={24}
-                                                    color={colors.text}
-                                                />
-                                            </Pressable>
-                                            <Pressable
-                                                style={styles.composerActionBtn}
-                                                hitSlop={8}
-                                                onPress={onToggleEmojiPicker}
-                                                disabled={
-                                                    uploading ||
-                                                    sending ||
-                                                    isReadOnly
-                                                }
-                                            >
-                                                <Ionicons
-                                                    name={
-                                                        emojiPickerOpen
-                                                            ? "happy"
-                                                            : "happy-outline"
-                                                    }
-                                                    size={23}
-                                                    color="#1D4ED8"
-                                                />
-                                            </Pressable>
-                                        </>
-                                    )}
-                                </View>
-                            </>
-                        )}
-                    </View>
+                                </>
+                            )}
+                        </View>
+                    )}
                     {loading ? (
                         <Text style={styles.statusText}>
                             Dang tai tin nhan...
@@ -394,12 +387,11 @@ export const MessageComposer = React.memo(
                             Tai tep that bai: {uploadFailedFileNames.join(", ")}
                         </Text>
                     ) : null}
-                    {readOnlyNotice ? (
-                        <Text style={styles.errorText}>{readOnlyNotice}</Text>
-                    ) : null}
-                    {error ? (
-                        <Text style={styles.errorText}>{error}</Text>
-                    ) : null}
+                    {readOnlyNotice ? null : (
+                        error ? (
+                            <Text style={styles.errorText}>{error}</Text>
+                        ) : null
+                    )}
                 </View>
 
                 <Modal
@@ -1391,5 +1383,20 @@ const styles = StyleSheet.create({
         marginTop: spacing.xs,
         fontSize: 12,
         color: "#EF4444",
+    },
+    restrictedNoticeBar: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#F3F4F6",
+        borderRadius: 20,
+        paddingVertical: 10,
+        paddingHorizontal: 16,
+        gap: 8,
+    },
+    restrictedNoticeText: {
+        fontSize: 14,
+        color: colors.textMuted,
+        fontWeight: "500",
     },
 });

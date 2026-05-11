@@ -59,10 +59,10 @@ export default function GroupSettingsModal({
 
                 <div className="flex-1 overflow-y-auto">
                     {/* Admin notice */}
-                    <div className="bg-gray-200/60 dark:bg-[#1a1a1a] px-4 py-2.5 flex items-center gap-2">
+                   {!canManageSettings &&  <div className="bg-gray-200/60 dark:bg-[#1a1a1a] px-4 py-2.5 flex items-center gap-2">
                         <Lock size={14} className="text-gray-600 dark:text-gray-400" />
                         <span className="text-sm text-gray-600 dark:text-gray-400 font-medium">Tính năng chỉ dành cho quản trị viên</span>
-                    </div>
+                    </div>}
 
                     <div className="mt-2 bg-white dark:bg-black">
                         <div className="px-4 py-3 border-b border-gray-100 dark:border-[#262626]">

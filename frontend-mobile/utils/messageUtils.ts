@@ -310,8 +310,8 @@ export function parseCallMeta(message: Message): {
     };
 }
 
-export function isPinSystemMessageType(type?: Message["type"]): boolean {
-    return type === "SYSTEM_PIN" || type === "SYSTEM_UPIN";
+export function isSystemMessageType(type?: Message["type"]): boolean {
+    return !!type?.startsWith("SYSTEM_");
 }
 
 export function buildReplyPreview(message: Message): string {

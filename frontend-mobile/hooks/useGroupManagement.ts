@@ -59,6 +59,8 @@ export function useGroupManagement({
     const [isAddingMembers, setIsAddingMembers] = useState(false);
     const [isLeavingGroup, setIsLeavingGroup] = useState(false);
     const [isDisbandingGroup, setIsDisbandingGroup] = useState(false);
+    const [isUpdatingMessageRestriction, setIsUpdatingMessageRestriction] =
+        useState(false);
 
     const [pendingKickUserId, setPendingKickUserId] = useState<number | null>(
         null,
@@ -100,6 +102,8 @@ export function useGroupManagement({
         (member) => Number(member.userId) === Number(currentUserId),
     );
     const canUpdateRole = currentMemberRole === "OWNER";
+    const canManageSettings =
+        currentMemberRole === "OWNER" || currentMemberRole === "DEPUTY";
     const canDisbandGroup = currentMemberRole === "OWNER";
 
     const groupMemberIds = useMemo(
@@ -474,6 +478,33 @@ export function useGroupManagement({
         selectedConversationId,
     ]);
 
+    const updateMessageRestriction = useCallback(
+        async (isRestricted: boolean) => {
+            if (!selectedConversationId || !canManageSettings) {
+                return false;
+            }
+
+            try {
+                setIsUpdatingMessageRestriction(true);
+                setActionError(null);
+                await chatService.updateMessageRestriction(
+                    selectedConversationId,
+                    isRestricted,
+                );
+                await reloadConversations();
+                return true;
+            } catch (error) {
+                setActionError(
+                    normalizeErrorMessage(error, "Khong the cap nhat cai dat."),
+                );
+                return false;
+            } finally {
+                setIsUpdatingMessageRestriction(false);
+            }
+        },
+        [canManageSettings, reloadConversations, selectedConversationId],
+    );
+
     const clearGroupActionError = useCallback(() => {
         setActionError(null);
     }, []);
@@ -485,6 +516,7 @@ export function useGroupManagement({
         canManageMembers,
         canAddMembers,
         canUpdateRole,
+        canManageSettings,
         canDisbandGroup,
         groupMemberIds,
 
@@ -499,6 +531,7 @@ export function useGroupManagement({
         isAddingMembers,
         isLeavingGroup,
         isDisbandingGroup,
+        isUpdatingMessageRestriction,
         pendingKickUserId,
         pendingRoleUserId,
         pendingTransferOwnerUserId,
@@ -520,6 +553,7 @@ export function useGroupManagement({
         leaveGroup,
         transferOwnershipAndLeave,
         disbandGroup,
+        updateMessageRestriction,
         refreshFriends: loadFriends,
     };
 }

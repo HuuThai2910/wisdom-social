@@ -21,7 +21,8 @@ export type MessageType =
     | "SYSTEM_LEAVE_GROUP"
     | "SYSTEM_KICK_MEMBER"
     | "SYSTEM_UPDATE_ROLE"
-    | "SYSTEM_DISBAND_GROUP";
+    | "SYSTEM_DISBAND_GROUP"
+    | "SYSTEM_UPDATE_SETTING";
 
 export type MemberRole = "OWNER" | "DEPUTY" | "MEMBER";
 
@@ -112,6 +113,7 @@ export interface ConversationSidebar {
     updatedAt: string;
     lastMessage?: LastMessage;
     unreadCount?: number;
+    isMessageRestricted?: boolean;
 }
 
 export interface Conversation extends ConversationSidebar {

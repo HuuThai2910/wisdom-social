@@ -646,34 +646,36 @@ export function useChatWindowController(args: {
                     return;
                 }
 
-                const [membersResult, messagesResult] =
-                    await Promise.allSettled([
-                        chatService.getConversationMembers(conversationId),
-                        chatService.getMessages(
-                            conversationId,
-                            userId,
-                            null,
-                            PAGE_SIZE,
-                        ),
-                    ]);
+                let membersResponse = null;
+let messagesResponse = null;
 
-                if (token !== loadTokenRef.current) return;
+try {
+    membersResponse = await chatService.getConversationMembers(conversationId);
+} catch (e) {
+    membersResponse = null;
+}
 
-                const membersResponse =
-                    membersResult.status === "fulfilled"
-                        ? membersResult.value
-                        : null;
-                const messagesResponse =
-                    messagesResult.status === "fulfilled"
-                        ? messagesResult.value
-                        : null;
+try {
+    messagesResponse = await chatService.getMessages(
+        conversationId,
+        userId,
+        null,
+        PAGE_SIZE,
+    );
+} catch (e) {
+    messagesResponse = null;
+}
 
-                const cursorData = messagesResponse?.success
-                    ? messagesResponse.data
-                    : null;
-                const list = Array.isArray(cursorData?.data)
-                    ? normalizeMessagesForUi(cursorData.data)
-                    : [];
+if (token !== loadTokenRef.current) return;
+
+const cursorData = messagesResponse?.success
+    ? messagesResponse.data
+    : null;
+
+const list = Array.isArray(cursorData?.data)
+    ? normalizeMessagesForUi(cursorData.data)
+    : [];
+
 
                 const membersFromApi = toMembersByUserId(membersResponse);
                 const sideLoadedRefs = cursorData?.referenceUsers ?? {};

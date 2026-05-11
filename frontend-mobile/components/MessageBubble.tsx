@@ -16,7 +16,7 @@ import { colors, spacing } from "@/constants";
 import { Message, Conversation } from "@/types/chat";
 import { type MembersByUserId } from "@/stores/chatRuntimeStore";
 import {
-    isPinSystemMessageType,
+    isSystemMessageType,
     formatMessageTime,
     resolveAttachmentUrls,
     parseCallMeta,
@@ -45,6 +45,7 @@ const GROUP_SYSTEM_MESSAGE_TYPES = new Set<Message["type"]>([
     "SYSTEM_KICK_MEMBER",
     "SYSTEM_LEAVE_GROUP",
     "SYSTEM_DISBAND_GROUP",
+    "SYSTEM_UPDATE_SETTING",
 ]);
 
 export type MessageBubbleProps = {
@@ -157,10 +158,14 @@ export const MessageBubble = React.memo(
 
         // ===== grouping logic (common, nhưng dùng previous/next từ feature) =====
         const isFirstInGroup =
-            !previousMessage || previousMessage.senderId !== item.senderId;
+            !previousMessage || 
+            previousMessage.senderId !== item.senderId ||
+            previousMessage.type.startsWith("SYSTEM_");
 
         const isLastInGroup =
-            !nextMessage || nextMessage.senderId !== item.senderId;
+            !nextMessage || 
+            nextMessage.senderId !== item.senderId ||
+            nextMessage.type.startsWith("SYSTEM_");
 
         const isConsecutiveRecalledInGroup =
             !isFirstInGroup &&
@@ -343,11 +348,11 @@ export const MessageBubble = React.memo(
                         : styles.bubbleOtherMiddle
                 : null;
 
-        // ===== system pin (common) =====
-        const isPinSystemMessage = isPinSystemMessageType(item.type);
-        const isGroupSystemMessage = GROUP_SYSTEM_MESSAGE_TYPES.has(item.type);
+        // ===== system message handling (grouping & rendering) =====
+        const isSystemMessage = isSystemMessageType(item.type);
+        const isPinSystemMessage = item.type === "SYSTEM_PIN" || item.type === "SYSTEM_UPIN";
 
-        if (isPinSystemMessage) {
+        if (isSystemMessage) {
             if (pinRunMeta?.shouldHideMessage) {
                 return null;
             }
@@ -362,41 +367,42 @@ export const MessageBubble = React.memo(
                             }
                         >
                             <Ionicons
-                                name="pin-outline"
+                                name="time-outline"
                                 size={13}
                                 color="#57585aff"
                             />
                             <Text style={styles.systemCollapsedBtnText}>
-                                {`Xem cap nhat truoc (${pinRunMeta.runLength})`}
+                                {`Xem cập nhật trước (${pinRunMeta.runLength})`}
                             </Text>
                         </Pressable>
                     </View>
                 );
             }
 
-            const actorLabel = mine ? "Ban" : senderDisplayName;
-            const actionLabel = item.type === "SYSTEM_UPIN" ? "" : "ghim";
+            if (isPinSystemMessage) {
+                const actorLabel = mine ? "Bạn" : senderDisplayName;
+                const actionLabel = item.type === "SYSTEM_UPIN" ? "" : "ghim";
 
-            return (
-                <View style={styles.systemMessageRow}>
-                    <View style={styles.systemMessageBadge}>
-                        <Ionicons
-                            name="pin-outline"
-                            size={12}
-                            color="#4B5563"
-                        />
-                        <Text
-                            numberOfLines={1}
-                            style={styles.systemMessageText}
-                        >
-                            {`${actorLabel} ${actionLabel} ${resolvePinSystemPreview(item)}`}
-                        </Text>
+                return (
+                    <View style={styles.systemMessageRow}>
+                        <View style={styles.systemMessageBadge}>
+                            <Ionicons
+                                name="pin-outline"
+                                size={12}
+                                color="#4B5563"
+                            />
+                            <Text
+                                numberOfLines={1}
+                                style={styles.systemMessageText}
+                            >
+                                {`${actorLabel} ${actionLabel} ${resolvePinSystemPreview(item)}`}
+                            </Text>
+                        </View>
                     </View>
-                </View>
-            );
-        }
+                );
+            }
 
-        if (isGroupSystemMessage) {
+            // Group system message (Create group, Add member, etc.)
             const content = buildSystemGroupMessage({
                 type: item.type as
                     | "SYSTEM_CREATE_GROUP"
@@ -404,7 +410,8 @@ export const MessageBubble = React.memo(
                     | "SYSTEM_UPDATE_ROLE"
                     | "SYSTEM_KICK_MEMBER"
                     | "SYSTEM_LEAVE_GROUP"
-                    | "SYSTEM_DISBAND_GROUP",
+                    | "SYSTEM_DISBAND_GROUP"
+                    | "SYSTEM_UPDATE_SETTING",
                 content: item.content,
                 isOwn: mine,
                 senderName: senderDisplayName,
