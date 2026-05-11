@@ -65,7 +65,7 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
     SET cu.unreadCount = cu.unreadCount + 1
     WHERE cu.conversation.id = :conversationId
       AND cu.user.id != :senderId
-      AND cu.status = iuh.fit.edu.backend.constant.ConversationMemberStatus.ACTIVE
+      AND cu.status = iuh.fit.edu.backend.modules.conversation.constant.ConversationMemberStatus.ACTIVE
 """)
     void incrementUnreadCount(@Param("conversationId") Long conversationId,
                               @Param("senderId") Long senderId);

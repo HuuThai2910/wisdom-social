@@ -1,4 +1,4 @@
-package iuh.fit.edu.backend.modules.feed.service.impl;
+package iuh.fit.edu.backend.modules.post.service.impl;
 
 import iuh.fit.edu.backend.modules.post.entity.Post;
 import jakarta.annotation.PostConstruct;

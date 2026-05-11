@@ -1,9 +1,9 @@
-package iuh.fit.edu.backend.modules.feed.service.impl;
+package iuh.fit.edu.backend.modules.post.service.impl;
 
+import iuh.fit.edu.backend.modules.post.dto.response.FeedSliceResponse;
 import iuh.fit.edu.backend.modules.post.entity.Post;
-import iuh.fit.edu.backend.modules.feed.dto.response.FeedSliceResponse;
 import iuh.fit.edu.backend.modules.post.repository.PostRepository;
-import iuh.fit.edu.backend.modules.feed.service.FeedService;
+import iuh.fit.edu.backend.modules.post.service.FeedService;
 import iuh.fit.edu.backend.modules.user.service.FriendService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;

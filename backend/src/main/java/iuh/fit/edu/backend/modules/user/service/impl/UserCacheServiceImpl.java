@@ -1,14 +1,16 @@
 package iuh.fit.edu.backend.modules.user.service.impl;
 
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+
+import iuh.fit.edu.backend.modules.user.service.UserCacheService;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class UserCacheServiceImpl implements iuh.fit.edu.backend.service.user.UserCacheService {
+public class UserCacheServiceImpl implements UserCacheService {
 
     private final StringRedisTemplate redisTemplate;
     private static final String ONLINE_SESSIONS_KEY = "user:online:sessions:";

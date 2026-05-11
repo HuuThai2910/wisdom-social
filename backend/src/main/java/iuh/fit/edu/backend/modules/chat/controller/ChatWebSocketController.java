@@ -4,16 +4,17 @@
  */
 package iuh.fit.edu.backend.modules.chat.controller;
 
-import iuh.fit.edu.backend.modules.chat.dto.request.TypingRequest;
-import iuh.fit.edu.backend.modules.chat.dto.response.TypingResponse;
-import iuh.fit.edu.backend.modules.chat.event.payload.TypingEvent;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Controller;
+
+import iuh.fit.edu.backend.modules.chat.dto.request.TypingRequest;
+import iuh.fit.edu.backend.modules.chat.dto.response.TypingResponse;
+import iuh.fit.edu.backend.modules.chat.event.payload.TypingEvent;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /*
  * @description

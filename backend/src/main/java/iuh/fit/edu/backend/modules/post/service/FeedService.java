@@ -1,8 +1,8 @@
-package iuh.fit.edu.backend.modules.feed.service;
-
-import iuh.fit.edu.backend.modules.feed.dto.response.FeedSliceResponse;
+package iuh.fit.edu.backend.modules.post.service;
 
 import java.time.Instant;
+
+import iuh.fit.edu.backend.modules.post.dto.response.FeedSliceResponse;
 
 public interface FeedService {
 

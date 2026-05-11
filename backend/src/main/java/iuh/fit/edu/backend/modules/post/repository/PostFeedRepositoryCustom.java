@@ -1,4 +1,4 @@
-package iuh.fit.edu.backend.modules.feed.repository;
+package iuh.fit.edu.backend.modules.post.repository;
 
 import iuh.fit.edu.backend.modules.post.entity.Post;
 

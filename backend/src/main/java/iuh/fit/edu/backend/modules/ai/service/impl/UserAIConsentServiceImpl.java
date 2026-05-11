@@ -1,17 +1,18 @@
 package iuh.fit.edu.backend.modules.ai.service.impl;
 
-import iuh.fit.edu.backend.modules.user.entity.User;
-import iuh.fit.edu.backend.modules.ai.dto.response.ConfirmAIRequest;
-import iuh.fit.edu.backend.dto.user.ConfirmAIResponse;
-import iuh.fit.edu.backend.common.exception.AIConsentRequiredException;
-import iuh.fit.edu.backend.common.exception.ConversationAccessDeniedException;
-import iuh.fit.edu.backend.modules.user.repository.UserRepository;
-import iuh.fit.edu.backend.modules.ai.service.UserAIConsentService;
-import iuh.fit.edu.backend.modules.user.service.UserService;
-import lombok.RequiredArgsConstructor;
+import java.time.OffsetDateTime;
+
 import org.springframework.stereotype.Service;
 
-import java.time.OffsetDateTime;
+import iuh.fit.edu.backend.common.exception.AIConsentRequiredException;
+import iuh.fit.edu.backend.common.exception.ConversationAccessDeniedException;
+import iuh.fit.edu.backend.modules.ai.dto.request.ConfirmAIRequest;
+import iuh.fit.edu.backend.modules.ai.dto.response.ConfirmAIResponse;
+import iuh.fit.edu.backend.modules.ai.service.UserAIConsentService;
+import iuh.fit.edu.backend.modules.user.entity.User;
+import iuh.fit.edu.backend.modules.user.repository.UserRepository;
+import iuh.fit.edu.backend.modules.user.service.UserService;
+import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor

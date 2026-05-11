@@ -4,20 +4,19 @@
  */
 package iuh.fit.edu.backend.modules.chat.service.impl;
 
+import java.time.Instant;
+import java.util.List;
+
+import org.springframework.stereotype.Service;
+
 import iuh.fit.edu.backend.common.dto.response.CursorResponse;
-import iuh.fit.edu.backend.dto.request.SendCallMessageRequest;
+import iuh.fit.edu.backend.modules.chat.dto.request.SendCallMessageRequest;
 import iuh.fit.edu.backend.modules.chat.dto.request.SendMessageRequest;
 import iuh.fit.edu.backend.modules.chat.dto.response.MessageRecalledResponse;
 import iuh.fit.edu.backend.modules.chat.dto.response.MessageResponse;
 import iuh.fit.edu.backend.modules.chat.service.MessageService;
-import iuh.fit.edu.backend.modules.chat.service.impl.MessageCommandService;
-import iuh.fit.edu.backend.modules.chat.service.impl.MessageQueryService;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-
-import java.time.Instant;
-import java.util.List;
 
 /*
  * @description

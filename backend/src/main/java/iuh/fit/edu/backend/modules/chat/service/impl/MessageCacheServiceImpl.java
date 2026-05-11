@@ -4,16 +4,22 @@
  */
 package iuh.fit.edu.backend.modules.chat.service.impl;
 
-import iuh.fit.edu.backend.modules.chat.dto.response.MessageRecalledResponse;
-import iuh.fit.edu.backend.modules.chat.dto.response.MessageResponse;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Optional;
+
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
-import java.time.Duration;
-import java.time.Instant;
-import java.util.*;
+import iuh.fit.edu.backend.modules.chat.dto.response.MessageRecalledResponse;
+import iuh.fit.edu.backend.modules.chat.dto.response.MessageResponse;
+import iuh.fit.edu.backend.modules.chat.service.MessageCacheService;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /*
  * @description
@@ -25,7 +31,7 @@ import java.util.*;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class MessageCacheServiceImpl implements iuh.fit.edu.backend.service.chat.MessageCacheService {
+public class MessageCacheServiceImpl implements MessageCacheService {
     private final RedisTemplate<String, Object> redisTemplate;
 
     // Lưu 60 tin nhắn mới nhất (sẽ scroll được 3 lần)

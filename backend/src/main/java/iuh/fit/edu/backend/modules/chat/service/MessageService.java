@@ -9,15 +9,16 @@ package iuh.fit.edu.backend.modules.chat.service;/*
                                          * @version: 1.0
                                          */
 
+import java.time.Instant;
+import java.util.List;
+
+import org.springframework.transaction.annotation.Transactional;
+
 import iuh.fit.edu.backend.common.dto.response.CursorResponse;
-import iuh.fit.edu.backend.dto.request.SendCallMessageRequest;
+import iuh.fit.edu.backend.modules.chat.dto.request.SendCallMessageRequest;
 import iuh.fit.edu.backend.modules.chat.dto.request.SendMessageRequest;
 import iuh.fit.edu.backend.modules.chat.dto.response.MessageRecalledResponse;
 import iuh.fit.edu.backend.modules.chat.dto.response.MessageResponse;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.time.Instant;
-import java.util.List;
 
 public interface MessageService {
     MessageResponse sendMessage(SendMessageRequest sendMessageRequest, Long userId);

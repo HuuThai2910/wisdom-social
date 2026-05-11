@@ -1,4 +1,4 @@
-package iuh.fit.edu.backend.modules.feed.dto.response;
+package iuh.fit.edu.backend.modules.post.dto.response;
 
 import iuh.fit.edu.backend.modules.post.entity.Post;
 import lombok.Builder;

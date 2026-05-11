@@ -1,20 +1,23 @@
 package iuh.fit.edu.backend.modules.conversation.service.impl;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationMemberResponse;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.stereotype.Service;
-
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.stereotype.Service;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationMemberResponse;
+import iuh.fit.edu.backend.modules.conversation.service.ConversationMemberCacheService;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class ConversationMemberCacheServiceImpl implements iuh.fit.edu.backend.service.chat.ConversationMemberCacheService {
+public class ConversationMemberCacheServiceImpl implements ConversationMemberCacheService {
 
     // RedisTemplate đã cấu hình GenericJackson2JsonRedisSerializer để tự động ép kiểu
     private final RedisTemplate<String, Object> redisTemplate;
