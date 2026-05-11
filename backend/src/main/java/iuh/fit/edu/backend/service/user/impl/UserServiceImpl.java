@@ -64,6 +64,7 @@ public class UserServiceImpl implements UserService {
     ActiveTokenRepository activeTokenRepository;
     RateLimitService rateLimitService;
     AccountLockService accountLockService;
+    FriendRepository friendRepository;
 
 
     public UserServiceImpl(BlackListUserRepository blackListUserRepository,
@@ -73,7 +74,9 @@ public class UserServiceImpl implements UserService {
                            DeviceRepository deviceRepository,
                            ActiveTokenRepository activeTokenRepository,
                            RateLimitService rateLimitService,
-                           AccountLockService accountLockService) {
+                           AccountLockService accountLockService,
+                           FriendRepository friendRepository
+                           ) {
         this.blackListUserRepository = blackListUserRepository;
         this.blockUserService = blockUserService;
         this.cognitoClient = cognitoClient;
@@ -84,6 +87,7 @@ public class UserServiceImpl implements UserService {
         this.activeTokenRepository = activeTokenRepository;
         this.rateLimitService = rateLimitService;
         this.accountLockService = accountLockService;
+        this.friendRepository = friendRepository;
     }
 
     /*Đăng kí tài khoản bằng aws cognito
@@ -643,6 +647,30 @@ public class UserServiceImpl implements UserService {
 
         return now;
     }
+
+    @Override
+    public PaginatedUserResponse searchMentionUsers(long viewerId, String keyword, int page, int size) {
+        List<Long> friendIds = friendRepository.findAcceptedFriendIds(viewerId, FriendStatus.ACCEPTED.ordinal());
+
+        if (friendIds == null || friendIds.isEmpty()) {
+            return PaginatedUserResponse.builder()
+                    .data(Collections.emptyList())
+                    .page(page)
+                    .hasMore(false)
+                    .build();
+        }
+
+        Page<User> userPage = userRepository.findByIdInAndUsernameContainingIgnoreCase(
+                friendIds,
+                keyword,
+                PageRequest.of(page, size)
+        );
+
+        return PaginatedUserResponse.builder()
+                .data(userPage.getContent())
+                .page(page)
+                .hasMore(userPage.hasNext())
+                .build();    }
 
     public boolean checkUserStatus(String phone) {
         try {

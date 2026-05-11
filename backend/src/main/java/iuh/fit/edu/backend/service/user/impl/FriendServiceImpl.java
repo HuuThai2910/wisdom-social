@@ -441,6 +441,14 @@ public class FriendServiceImpl implements FriendService {
         return result;
     }
 
+    @Override
+    public List<Long> getAcceptedFriendIds(long userId) {
+        if (userId <= 0) {
+            return Collections.emptyList();
+        }
+        return friendRepository.findAcceptedFriendIds(userId, FriendStatus.ACCEPTED.ordinal());
+    }
+
     private Set<Long> collectFriendIds(User user) {
         Set<Long> ids = new HashSet<>();
         for (Friend f : friendRepository.findFriendsByUser(user)) {
