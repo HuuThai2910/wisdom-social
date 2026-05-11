@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import * as postApi from "../services/postService";
-import type { UserData } from "../types/postType";
+import type { UserData } from "../types/post";
 
 /**
  * Structured mention data for backend

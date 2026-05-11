@@ -19,6 +19,7 @@ interface FeedPostData {
     stats?: { reactCount: number; commentCount: number; shareCount: number };
     createdAt: string;
     lastActivityAt?: string;
+    rankingTime?: string;
     taggedUserIds?: string[];
 }
 
@@ -88,10 +89,13 @@ export const normalizePost = (post: any, userData: any): Post => {
         media: transformedMedia,
         caption: post.content || post.caption || "",
         privacy: (post.privacy as any) || "PUBLIC",
+        allowComments: post.allowComments !== false,
+        allowShares: post.allowShares !== false,
         likes: post.stats?.reactCount || 0,
         comments: [],
         createdAt: post.createdAt || new Date().toISOString(),
         lastActivityAt: post.lastActivityAt || post.createdAt || new Date().toISOString(),
+        rankingTime: post.rankingTime || post.createdAt || new Date().toISOString(),
         isLiked: false,
         isSaved: false,
         taggedUserIds: post.taggedUserIds || [],

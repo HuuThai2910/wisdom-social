@@ -6,5 +6,5 @@ import java.time.Instant;
 
 public interface FeedService {
 
-    FeedSliceResponse getFeed(Long userId, Instant lastLastActivityAt, String lastPostId, int size, String prioritizePostId);
+    FeedSliceResponse getFeed(Long userId, Instant lastRankingTime, String lastPostId, int size, String prioritizePostId);
 }

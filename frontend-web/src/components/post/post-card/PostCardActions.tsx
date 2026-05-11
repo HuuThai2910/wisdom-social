@@ -13,6 +13,8 @@ interface PostCardActionsProps {
   onReactionMouseEnter: () => void;
   onReactionMouseLeave: () => void;
   onShare?: (e: React.MouseEvent) => void;
+  allowComments?: boolean;
+  allowShares?: boolean;
 }
 
 const REACTIONS = [
@@ -37,6 +39,8 @@ export default function PostCardActions({
   onReactionMouseEnter,
   onReactionMouseLeave,
   onShare,
+  allowComments = true,
+  allowShares = true,
 }: PostCardActionsProps) {
   return (
     <>
@@ -87,28 +91,32 @@ export default function PostCardActions({
               </div>
             )}
           </div>
-          <button
-            onClick={onComment}
-            className="hover:opacity-50 transition-opacity"
-          >
-            <MessageCircle size={27} strokeWidth={1.8} />
-          </button>
-          <button 
-            onClick={onShare}
-            className="hover:opacity-50 transition-opacity"
-          >
-            <svg
-              width="27"
-              height="27"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
+          {allowComments !== false && (
+            <button
+              onClick={onComment}
+              className="hover:opacity-50 transition-opacity"
             >
-              <line x1="22" y1="2" x2="11" y2="13"></line>
-              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-            </svg>
-          </button>
+              <MessageCircle size={27} strokeWidth={1.8} />
+            </button>
+          )}
+          {allowShares !== false && (
+            <button 
+              onClick={onShare}
+              className="hover:opacity-50 transition-opacity"
+            >
+              <svg
+                width="27"
+                height="27"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+              >
+                <line x1="22" y1="2" x2="11" y2="13"></line>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+              </svg>
+            </button>
+          )}
         </div>
         <button
           onClick={onSave}

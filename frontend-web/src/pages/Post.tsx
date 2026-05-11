@@ -13,6 +13,8 @@ interface PostData {
   media?: Array<{ url: string; type: string; order: number }>;
   stats?: { reactCount: number; commentCount: number; shareCount: number };
   createdAt: string;
+  allowComments?: boolean;
+  allowShares?: boolean;
 }
 
 export default function Post() {
@@ -56,6 +58,8 @@ export default function Post() {
           comments: postData.stats?.commentCount || 0,
           shares: postData.stats?.shareCount || 0,
           timestamp: new Date(postData.createdAt).toISOString(),
+          allowComments: postData.allowComments !== false,
+          allowShares: postData.allowShares !== false,
         };
 
         setPost(transformedPost);

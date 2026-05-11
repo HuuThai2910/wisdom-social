@@ -10,7 +10,7 @@ public interface PostFeedRepositoryCustom {
     List<Post> findRecentFriendPosts(
             List<String> friendIds,
             String currentUserId,
-            Instant lastLastActivityAt,
+            Instant lastRankingTime,
             String lastPostId,
         Instant recentThreshold,
         int size
@@ -19,7 +19,7 @@ public interface PostFeedRepositoryCustom {
     List<Post> findRandomFallbackPosts(
         List<String> friendIds,
         String currentUserId,
-        Instant lastLastActivityAt,
+        Instant lastRankingTime,
         String lastPostId,
         Instant olderThan,
         List<String> excludePostIds,

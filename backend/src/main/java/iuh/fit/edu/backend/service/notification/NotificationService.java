@@ -1,7 +1,7 @@
 package iuh.fit.edu.backend.service.notification;
 
 import iuh.fit.edu.backend.domain.entity.nosql.Notification;
-import iuh.fit.edu.backend.event.notification.NotificationEvent;
+import iuh.fit.edu.backend.event.payload.NotificationEvent;
 
 import java.util.List;
 

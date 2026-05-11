@@ -63,7 +63,7 @@ import type {
   PostData,
   UserData,
   PostModalProps,
-} from "../../../types/postType";
+} from "../../../types/post";
 
 export default function PostModal({ postId, onClose }: PostModalProps) {
   const location = useLocation();
@@ -433,7 +433,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
         <X className="w-6 h-6 text-white" />
       </button>
 
-      <div className="relative bg-white dark:bg-gray-900 rounded-lg max-w-6xl w-full max-h-[90vh] flex overflow-hidden shadow-2xl">
+      <div className="relative bg-white dark:bg-gray-900 rounded-lg max-w-6xl w-full max-h-[90vh] flex flex-col md:flex-row overflow-hidden shadow-2xl">
         {/* Left: Media */}
         <PostMediaViewer
           post={post}
@@ -444,7 +444,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
         />
 
         {/* Right: Details */}
-        <div className="w-100 flex flex-col bg-white dark:bg-gray-900">
+        <div className="w-full md:w-[450px] flex flex-col bg-white dark:bg-gray-900 border-l dark:border-[#363636]">
           {/* Header */}
           <PostHeader
             post={post}
@@ -463,7 +463,13 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
           />
 
           {/* Comments */}
-          <PostComments postId={postId} viewerId={viewerId} />
+          <PostComments 
+            postId={postId} 
+            viewerId={viewerId} 
+            allowComments={post.allowComments}
+            post={post}
+            author={author}
+          />
 
           {/* Actions & Reactions */}
           <PostActions
@@ -476,6 +482,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
             onSave={handleSave}
             onShare={handleShare}
             reactionsTimeoutRef={reactionsTimeoutRef}
+            allowShares={post.allowShares}
           />
         </div>
       </div>

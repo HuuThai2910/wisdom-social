@@ -1,24 +1,28 @@
-package iuh.fit.edu.backend.event.notification;
+package iuh.fit.edu.backend.event.publisher;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import iuh.fit.edu.backend.config.RedisPubSubConfig;
 import iuh.fit.edu.backend.domain.entity.nosql.Notification;
 import iuh.fit.edu.backend.repository.nosql.NotificationRepository;
-import iuh.fit.edu.backend.event.notification.NotificationEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.event.EventListener;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.scheduling.annotation.Async;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
+import java.util.Collections;
+
+import iuh.fit.edu.backend.event.payload.NotificationEvent;
+import iuh.fit.edu.backend.event.payload.RedisEnvelope;
+import iuh.fit.edu.backend.event.type.DomainEventType;
 
 import iuh.fit.edu.backend.service.user.UserService;
 import iuh.fit.edu.backend.domain.entity.nosql.NotificationMetadata;
@@ -26,7 +30,7 @@ import iuh.fit.edu.backend.domain.entity.mysql.User;
 
 @Component
 @Slf4j
-public class NotificationEventListener {
+public class NotificationEventPublisher {
 
     private final NotificationRepository notificationRepository;
     private final UserService userService;
@@ -34,7 +38,7 @@ public class NotificationEventListener {
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
 
-    public NotificationEventListener(
+    public NotificationEventPublisher(
             NotificationRepository notificationRepository,
             UserService userService,
             @Qualifier("pubSubRedisTemplate") RedisTemplate<String, Object> pubSubRedisTemplate,
@@ -51,7 +55,7 @@ public class NotificationEventListener {
     private static final String RECENT_NOTIFICATIONS_KEY = "notification:recent:%s";
     private static final int MAX_RECENT_NOTIFICATIONS = 50;
 
-    @EventListener
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     // @Async - Temporarily disabled to debug sync issues
     public void handleNotificationEvent(NotificationEvent event) {
         log.info("🔔 [DEBUG-NOTI] 1. Received Event for recipient: {}, type: {}", event.getRecipientId(), event.getType());
@@ -139,18 +143,20 @@ public class NotificationEventListener {
             log.info("🚀 [REDIS] Cache updated for user: {}", userId);
 
             // 4. Publish to Redis Pub/Sub for Real-time WebSockets
-            Map<String, Object> message = new HashMap<>();
-            message.put("domainEventType", "NOTIFICATION");
-            message.put("payload", notification);
-            
-            // Use a simple List for targetMemberIds to ensure compatibility
+            Set<Long> targetMemberIds = Collections.emptySet();
             try {
-                message.put("targetMemberIds", List.of(Long.valueOf(userId)));
+                targetMemberIds = Set.of(Long.valueOf(userId));
             } catch (Exception e) {
                 log.warn("⚠️ [WEBSOCKET] Recipient ID {} is not numeric, subscriber will fallback to payload.recipientId", userId);
             }
+            
+            RedisEnvelope envelope = new RedisEnvelope(
+                    targetMemberIds,
+                    DomainEventType.NOTIFICATION,
+                    notification
+            );
 
-            pubSubRedisTemplate.convertAndSend(RedisPubSubConfig.CHAT_CHANNEL, message);
+            pubSubRedisTemplate.convertAndSend(RedisPubSubConfig.NOTIFICATION_CHANNEL, envelope);
             log.info("📡 [DEBUG-NOTI] 2. Published to Redis channel for user: {}", userId);
 
         } catch (Exception e) {

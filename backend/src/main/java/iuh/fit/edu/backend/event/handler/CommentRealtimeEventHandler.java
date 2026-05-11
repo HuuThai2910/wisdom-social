@@ -1,10 +1,11 @@
 package iuh.fit.edu.backend.event.handler;
 
-import iuh.fit.edu.backend.event.post.CommentRealtimeEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
+
+import iuh.fit.edu.backend.event.payload.CommentEvent;
 
 import java.util.Set;
 
@@ -17,7 +18,7 @@ public class CommentRealtimeEventHandler implements RedisEventHandler {
 
     @Override
     public Class<?> getSupportedClass() {
-        return CommentRealtimeEvent.class;
+        return CommentEvent.class;
     }
 
     @Override
@@ -27,8 +28,8 @@ public class CommentRealtimeEventHandler implements RedisEventHandler {
 
     @Override
     public void handle(Object eventPayload, Set<Long> targetMemberIds) {
-        if (eventPayload instanceof CommentRealtimeEvent) {
-            CommentRealtimeEvent event = (CommentRealtimeEvent) eventPayload;
+        if (eventPayload instanceof CommentEvent) {
+            CommentEvent event = (CommentEvent) eventPayload;
             String postId = event.getPostId();
             
             String destination = "/topic/post/" + postId + "/comments";

@@ -39,9 +39,12 @@ export interface Post {
     comments: Comment[];
     createdAt: string;
     lastActivityAt?: string;
+    rankingTime?: string;
     isLiked?: boolean;
     isSaved?: boolean;
     privacy?: PrivacyType;
+    allowComments?: boolean;
+    allowShares?: boolean;
 }
 
 export interface Comment {

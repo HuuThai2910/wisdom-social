@@ -10,7 +10,7 @@ import useRealtimeReactions from "../../../hooks/useRealtimeReactions";
 import { commentService } from "../../../services/commentService";
 import toast from "react-hot-toast";
 import EditPostModal from "../EditPostModal";
-import type { PostData } from "../../../types/postType";
+import type { PostData } from "../../../types/post";
 import { getPrivacyDisplay } from "./privacy";
 import type { PostCardProps } from "./types";
 import PostCardHeader from "./PostCardHeader";
@@ -554,6 +554,8 @@ export default function PostCard({ post }: PostCardProps) {
           onReactionMouseEnter={handleMouseEnter}
           onReactionMouseLeave={handleMouseLeave}
           onShare={handleShare}
+          allowComments={post.allowComments}
+          allowShares={post.allowShares}
         />
 
         <PostCardCommentsPreview
@@ -569,16 +571,19 @@ export default function PostCard({ post }: PostCardProps) {
           onNavigateToPost={navigateToPost}
           onNavigateToPostWithExpand={navigateToPostWithExpand}
           onCreateReply={handleCreateReplyPreview}
+          allowComments={post.allowComments}
         />
 
-        <PostCardCommentInput
-          currentUserAvatarUrl={currentUserAvatarUrl}
-          commentInput={commentInput}
-          submittingComment={submittingComment}
-          onChangeCommentInput={setCommentInput}
-          onSubmitComment={handleSubmitComment}
-          currentUserId={currentUser?.id?.toString()}
-        />
+        {post.allowComments !== false && (
+          <PostCardCommentInput
+            currentUserAvatarUrl={currentUserAvatarUrl}
+            commentInput={commentInput}
+            submittingComment={submittingComment}
+            onChangeCommentInput={setCommentInput}
+            onSubmitComment={handleSubmitComment}
+            currentUserId={currentUser?.id?.toString()}
+          />
+        )}
 
         <p className="text-[10px] text-gray-500 uppercase tracking-wide mt-3">
           {post.createdAt && !isNaN(Date.parse(post.createdAt)) 

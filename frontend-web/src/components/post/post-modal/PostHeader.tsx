@@ -37,9 +37,15 @@
 
 import React from "react";
 import { Link } from "react-router-dom";
-import { MapPin, Users, Globe } from "lucide-react";
-import type { PostData, UserData } from "../../../types/postType";
+import { Users, Globe, Lock, Music, Play, Pause } from "lucide-react";
+import type { PostData, UserData } from "../../../types/post";
 import PostHeaderMenu from "../PostHeaderMenu";
+import { 
+  playAudioPreview, 
+  stopAudioPreview, 
+  subscribeToPlayback, 
+  resolveMusicMediaUrl 
+} from "../../../services/musicService";
 
 interface PostHeaderProps {
   post: PostData;
@@ -78,110 +84,40 @@ const PostHeader: React.FC<PostHeaderProps> = ({
   };
 
   return (
-    <div className="p-4 border-b dark:border-gray-800 flex items-center justify-between">
+    <div className="p-3 border-b dark:border-[#363636] flex items-center justify-between shrink-0">
       <div className="flex items-center gap-3">
         <Link to={`/profile/${authorDisplay.username}`}>
           <img
             src={authorDisplay.avatarUrl}
             alt={authorDisplay.username}
-            className="w-10 h-10 rounded-full object-cover"
+            className="w-10 h-10 rounded-full object-cover border border-gray-100 dark:border-gray-800"
           />
         </Link>
-        <div>
-          <div className="flex flex-wrap items-center gap-x-1">
+        <div className="flex flex-col">
+          <div className="flex items-center gap-2">
             <Link
               to={`/profile/${authorDisplay.username}`}
-              className="font-semibold text-sm dark:text-white hover:underline"
+              className="font-bold text-sm dark:text-white hover:opacity-70 transition-opacity"
             >
               {authorDisplay.username}
             </Link>
-
-            {taggedUsers.length > 0 && (
-              <>
-                <span className="text-sm text-gray-500 dark:text-gray-400">
-                  is with
-                </span>
-                <Link
-                  to={`/profile/${taggedUsers[0].username}`}
-                  className="text-sm font-semibold dark:text-white hover:underline"
-                >
-                  {taggedUsers[0].username}
-                </Link>
-                {taggedUsers.length > 1 && (
-                  <span className="text-sm text-gray-500 dark:text-gray-400">
-                    and {taggedUsers.length - 1} others
-                  </span>
-                )}
-              </>
+            {!isOwnPost && (
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400 text-[10px]">•</span>
+                <button className="text-[#3b5998] text-xs font-bold hover:text-[#2d4373] transition-colors bg-blue-50 dark:bg-blue-900/20 px-3 py-1 rounded-full">
+                  Kết bạn
+                </button>
+              </div>
             )}
           </div>
 
-          {/* Privacy Badge */}
-          {post.privacy &&
-            (() => {
-              if (isOwnPost) {
-                // Show full privacy info for owner
-                return (
-                  <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
-                    {post.privacy === "PUBLIC" && (
-                      <>
-                        <Globe className="w-3 h-3 text-blue-500" />
-                        <span className="font-medium">Public</span>
-                      </>
-                    )}
-                    {post.privacy === "FRIENDS" && (
-                      <>
-                        <Users className="w-3 h-3 text-green-500" />
-                        <span className="font-medium">Friends</span>
-                      </>
-                    )}
-                    {post.privacy === "SPECIFIC" && (
-                      <>
-                        <Users className="w-3 h-3 text-purple-500" />
-                        <span className="font-medium">Specific friends</span>
-                      </>
-                    )}
-                    {post.privacy === "EXCEPT" && (
-                      <>
-                        <Users className="w-3 h-3 text-orange-500" />
-                        <span className="font-medium">Friends except</span>
-                      </>
-                    )}
-                    {post.privacy === "ONLY_ME" && (
-                      <>
-                        <Globe className="w-3 h-3 text-gray-500" />
-                        <span className="font-medium">Only me</span>
-                      </>
-                    )}
-                  </p>
-                );
-              }
+          {/* Music Display under username */}
+          {post.music && (
+            <MusicDisplay music={post.music} />
+          )}
 
-              // Show generic privacy for others
-              return (
-                <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
-                  {post.privacy === "PUBLIC" && (
-                    <>
-                      <Globe className="w-3 h-3 text-blue-500" />
-                      <span className="font-medium">Public</span>
-                    </>
-                  )}
-                  {(post.privacy === "FRIENDS" ||
-                    post.privacy === "SPECIFIC" ||
-                    post.privacy === "EXCEPT") && (
-                    <>
-                      <Users className="w-3 h-3 text-green-500" />
-                      <span className="font-medium">Friends</span>
-                    </>
-                  )}
-                </p>
-              );
-            })()}
-
-          {/* Location */}
           {post.location && (
-            <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
-              <MapPin className="w-3 h-3" />
+            <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
               {typeof post.location === "string"
                 ? post.location
                 : post.location.name || post.location.address}
@@ -190,18 +126,92 @@ const PostHeader: React.FC<PostHeaderProps> = ({
         </div>
       </div>
 
-      <PostHeaderMenu
-        isOwnPost={isOwnPost}
-        showMenu={showMenu}
-        setShowMenu={setShowMenu}
-        showPrivacyMenu={showPrivacyMenu}
-        setShowPrivacyMenu={setShowPrivacyMenu}
-        onEdit={onEdit}
-        onChangePrivacy={onChangePrivacy}
-        onDelete={onDelete}
-        onCopyLink={onCopyLink}
-      />
+      <div className="flex items-center gap-2">
+        {/* Privacy Badge (Icon Only) */}
+        {isOwnPost && post.privacy && (
+          <div className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors cursor-pointer" title={post.privacy}>
+            {post.privacy === "PUBLIC" && <Globe className="w-4 h-4 text-gray-400" />}
+            {post.privacy === "FRIENDS" && <Users className="w-4 h-4 text-gray-400" />}
+            {post.privacy === "ONLY_ME" && <Lock className="w-4 h-4 text-gray-400" />}
+            {["SPECIFIC", "EXCEPT"].includes(post.privacy) && <Users className="w-4 h-4 text-gray-400" />}
+          </div>
+        )}
+
+        <PostHeaderMenu
+          isOwnPost={isOwnPost}
+          showMenu={showMenu}
+          setShowMenu={setShowMenu}
+          showPrivacyMenu={showPrivacyMenu}
+          setShowPrivacyMenu={setShowPrivacyMenu}
+          onEdit={onEdit}
+          onChangePrivacy={onChangePrivacy}
+          onDelete={onDelete}
+          onCopyLink={onCopyLink}
+        />
+      </div>
     </div>
+  );
+};
+
+const MusicDisplay: React.FC<{ music: any }> = ({ music }) => {
+  const [playingUrl, setPlayingUrl] = React.useState<string | null>(null);
+  const audioUrl = resolveMusicMediaUrl(music.audioUrl);
+
+  // Auto-play on mount
+  React.useEffect(() => {
+    if (audioUrl) {
+      stopAudioPreview();
+      playAudioPreview(audioUrl, {
+        onEnded: () => setPlayingUrl(null),
+      });
+      setPlayingUrl(audioUrl);
+    }
+    return () => {
+      stopAudioPreview();
+    };
+  }, [audioUrl]);
+
+  React.useEffect(() => {
+    return subscribeToPlayback((url) => {
+      setPlayingUrl(url);
+    });
+  }, []);
+
+  const handleToggle = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!audioUrl) return;
+
+    if (playingUrl === audioUrl) {
+      stopAudioPreview();
+    } else {
+      stopAudioPreview();
+      playAudioPreview(audioUrl, {
+        onEnded: () => setPlayingUrl(null),
+      });
+    }
+  };
+
+  return (
+    <button 
+      onClick={handleToggle}
+      className="flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 transition-colors group mt-0.5"
+    >
+      <div className="relative flex items-center justify-center">
+        <Music size={12} className={`shrink-0 ${playingUrl === audioUrl ? "text-blue-500 animate-pulse" : ""}`} />
+        {playingUrl === audioUrl && (
+          <div className="absolute -inset-1 bg-blue-500/10 rounded-full animate-ping" />
+        )}
+      </div>
+      <span className="truncate max-w-[150px]">
+        {music.title} • {music.artist}
+      </span>
+      {playingUrl === audioUrl ? (
+        <Pause size={10} className="fill-current" />
+      ) : (
+        <Play size={10} className="fill-current opacity-0 group-hover:opacity-100 transition-opacity" />
+      )}
+    </button>
   );
 };
 

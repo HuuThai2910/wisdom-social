@@ -73,7 +73,7 @@ import { useLocation } from "react-router-dom";
 import useCommentsNormalized from "../../../../hooks/useCommentsNormalized";
 import { commentService } from "../../../../services/commentService";
 import type { Comment } from "../../../../services/commentService";
-import type { UserData } from "../../../../types/postType";
+import type { UserData, PostData } from "../../../../types/post";
 import CommentItemNormalized from "../../post-comment/CommentItemNormalized";
 import CommentInput from "./CommentInput";
 import useRealtimeComments from "../../../../hooks/useRealtimeComments";
@@ -83,9 +83,12 @@ import useMentions from "../../../../hooks/useMentions";
 interface PostCommentsProps {
   postId: string;
   viewerId: string;
+  allowComments?: boolean;
+  post: PostData;
+  author: UserData | null;
 }
 
-const PostComments: React.FC<PostCommentsProps> = ({ postId, viewerId }) => {
+const PostComments: React.FC<PostCommentsProps> = ({ postId, viewerId, allowComments, post, author }) => {
   const location = useLocation();
   const commentInputRef = useRef<HTMLInputElement>(null);
 
@@ -156,6 +159,12 @@ const PostComments: React.FC<PostCommentsProps> = ({ postId, viewerId }) => {
   const [commentInput, setCommentInput] = useState("");
   const [submittingComment, setSubmittingComment] = useState(false);
   const [mentionCursorPos, setMentionCursorPos] = useState(0);
+  const commentsByIdRef = useRef(commentsById);
+
+  // Update ref whenever commentsById changes
+  useEffect(() => {
+    commentsByIdRef.current = commentsById;
+  }, [commentsById]);
 
   // ============ EFFECT: Update pending expand ID on navigation ============
   useEffect(() => {
@@ -173,11 +182,11 @@ const PostComments: React.FC<PostCommentsProps> = ({ postId, viewerId }) => {
   // ============ Async Expansion: Build parent chain ============
   const getCommentChainPath = (commentId: string): string[] => {
     const path: string[] = [commentId];
-    let current = commentsById[commentId];
+    let current = commentsByIdRef.current[commentId];
 
-    while (current?.parentId && commentsById[current.parentId]) {
+    while (current?.parentId && commentsByIdRef.current[current.parentId]) {
       path.unshift(current.parentId);
-      current = commentsById[current.parentId];
+      current = commentsByIdRef.current[current.parentId];
     }
 
     return path;
@@ -187,8 +196,8 @@ const PostComments: React.FC<PostCommentsProps> = ({ postId, viewerId }) => {
   const expandCommentChainAsync = useCallback(
     async (targetCommentId: string, signal: AbortSignal) => {
       try {
-        // Check if comment exists
-        if (!commentsById[targetCommentId]) {
+        // Check if comment exists using ref to avoid dependency loop
+        if (!commentsByIdRef.current[targetCommentId]) {
           console.warn(
             `⚠️ Target comment ${targetCommentId} not found in commentsById. ` +
               `Checking for parents with unloaded replies...`
@@ -226,7 +235,6 @@ const PostComments: React.FC<PostCommentsProps> = ({ postId, viewerId }) => {
           }
         }
 
-        // Build chain and expand
         const chain = getCommentChainPath(targetCommentId);
         console.log(
           `🔗 Expanding chain for ${targetCommentId}:`,
@@ -236,7 +244,7 @@ const PostComments: React.FC<PostCommentsProps> = ({ postId, viewerId }) => {
 
         for (const commentId of chain) {
           if (signal.aborted) break;
-          await new Promise((resolve) => setTimeout(resolve, 50));
+          await new Promise((resolve) => setTimeout(resolve, 100));
           toggleExpanded(commentId);
         }
 
@@ -260,12 +268,10 @@ const PostComments: React.FC<PostCommentsProps> = ({ postId, viewerId }) => {
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") {
           console.log(`🛑 Expansion cancelled for ${targetCommentId}`);
-        } else {
-          console.error("❌ Error expanding comment chain:", error);
         }
       }
     },
-    [commentsById, rootIds, hasMoreReplies, loadMoreReplies, toggleExpanded]
+    [rootIds, hasMoreReplies, loadMoreReplies, toggleExpanded]
   );
 
   // ============ EFFECT: Auto-expand when comments load ============
@@ -278,12 +284,12 @@ const PostComments: React.FC<PostCommentsProps> = ({ postId, viewerId }) => {
     if (signal && !signal.aborted) {
       expandCommentChainAsync(pendingExpandId, signal).then(() => {
         // Only clear if comment was found
-        if (commentsById[pendingExpandId]) {
+        if (commentsByIdRef.current[pendingExpandId]) {
           setPendingExpandId(null);
         }
       });
     }
-  }, [pendingExpandId, commentsLoaded, commentsById, expandCommentChainAsync]);
+  }, [pendingExpandId, commentsLoaded]); // Removed commentsById and expandCommentChainAsync
 
   // ============ EFFECT: Load root comments on mount ============
   useEffect(() => {
@@ -421,8 +427,17 @@ const PostComments: React.FC<PostCommentsProps> = ({ postId, viewerId }) => {
   return (
     <>
       {/* Comments List Section */}
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 overflow-y-auto p-4 border-b dark:border-[#363636]">
         <div className="space-y-4">
+          {/* Post Caption as the first "Comment" */}
+          <div className="flex flex-col gap-3 pb-4 border-b border-gray-50 dark:border-[#363636]">
+            <div className="flex-1 space-y-2">
+              <div className="text-sm">
+                <span className="dark:text-gray-200 whitespace-pre-wrap">{post.content}</span>
+              </div>
+            </div>
+          </div>
+
           {rootIds.length === 0 ? (
             <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-8">
               No comments yet
@@ -445,6 +460,7 @@ const PostComments: React.FC<PostCommentsProps> = ({ postId, viewerId }) => {
                   loadingMap={loadingMap}
                   postId={postId}
                   currentUserId={viewerId}
+                  allowComments={allowComments}
                 />
               ))}
 
@@ -465,21 +481,23 @@ const PostComments: React.FC<PostCommentsProps> = ({ postId, viewerId }) => {
       </div>
 
       {/* Comment Input Section */}
-      <CommentInput
-        inputRef={commentInputRef}
-        commentInput={commentInput}
-        submittingComment={submittingComment}
-        showMentionDropdown={showMentionDropdown}
-        mentionUsers={mentionUsers}
-        mentionLoading={mentionLoading}
-        mentionHasMore={mentionHasMore}
-        onLoadMoreMentions={loadMoreMentions}
-        onCommentChange={handleCommentInputChange}
-        onCursorChange={handleCommentCursorChange}
-        onInsertEmoji={handleInsertEmoji}
-        onSelectMention={handleSelectMention}
-        onSubmitComment={handleSubmitComment}
-      />
+      {allowComments !== false && (
+        <CommentInput
+          inputRef={commentInputRef}
+          commentInput={commentInput}
+          submittingComment={submittingComment}
+          showMentionDropdown={showMentionDropdown}
+          mentionUsers={mentionUsers}
+          mentionLoading={mentionLoading}
+          mentionHasMore={mentionHasMore}
+          onLoadMoreMentions={loadMoreMentions}
+          onCommentChange={handleCommentInputChange}
+          onCursorChange={handleCommentCursorChange}
+          onInsertEmoji={handleInsertEmoji}
+          onSelectMention={handleSelectMention}
+          onSubmitComment={handleSubmitComment}
+        />
+      )}
     </>
   );
 };

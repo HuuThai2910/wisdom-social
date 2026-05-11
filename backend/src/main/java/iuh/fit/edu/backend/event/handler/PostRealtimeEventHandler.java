@@ -1,10 +1,11 @@
 package iuh.fit.edu.backend.event.handler;
 
-import iuh.fit.edu.backend.event.post.PostRealtimeEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
+
+import iuh.fit.edu.backend.event.payload.PostEvent;
 
 import java.util.Set;
 
@@ -17,7 +18,7 @@ public class PostRealtimeEventHandler implements RedisEventHandler {
 
     @Override
     public Class<?> getSupportedClass() {
-        return PostRealtimeEvent.class;
+        return PostEvent.class;
     }
 
     @Override
@@ -27,8 +28,8 @@ public class PostRealtimeEventHandler implements RedisEventHandler {
 
     @Override
     public void handle(Object eventPayload, Set<Long> targetMemberIds) {
-        if (eventPayload instanceof PostRealtimeEvent) {
-            PostRealtimeEvent event = (PostRealtimeEvent) eventPayload;
+        if (eventPayload instanceof PostEvent) {
+            PostEvent event = (PostEvent) eventPayload;
             String authorId = event.getAuthorId();
             
             // 1. Broadcast to global posts topic (for Feed)

@@ -26,7 +26,7 @@ public class PostFeedRepositoryCustomImpl implements PostFeedRepositoryCustom {
         public List<Post> findRecentFriendPosts(
             List<String> friendIds,
             String currentUserId,
-            Instant lastLastActivityAt,
+            Instant lastRankingTime,
             String lastPostId,
                         Instant recentThreshold,
             int size
@@ -39,13 +39,13 @@ public class PostFeedRepositoryCustomImpl implements PostFeedRepositoryCustom {
 
                 andCriteria.add(Criteria.where("authorId").in(friendIds));
         andCriteria.add(Criteria.where("status").is(StatusType.ACTIVE));
-        andCriteria.add(Criteria.where("lastActivityAt").gte(recentThreshold));
+        andCriteria.add(Criteria.where("rankingTime").gte(recentThreshold));
 
         andCriteria.add(buildPrivacyCriteria(currentUserId, friendIds));
-        andCriteria.add(buildCursorCriteria(lastLastActivityAt, lastPostId));
+        andCriteria.add(buildCursorCriteria(lastRankingTime, lastPostId));
 
         Query query = new Query(new Criteria().andOperator(andCriteria));
-        query.with(Sort.by(Sort.Order.desc("lastActivityAt"), Sort.Order.desc("_id")));
+        query.with(Sort.by(Sort.Order.desc("rankingTime"), Sort.Order.desc("_id")));
         query.limit(size);
 
         return mongoTemplate.find(query, Post.class);
@@ -60,16 +60,14 @@ public class PostFeedRepositoryCustomImpl implements PostFeedRepositoryCustom {
         List<Criteria> andCriteria = new ArrayList<>();
         andCriteria.add(Criteria.where("authorId").is(userId));
         andCriteria.add(Criteria.where("status").is(StatusType.ACTIVE));
-        
-        // Only include self-posts if they have interactions (lastActivityAt > createdAt)
-        // This makes new posts "disappear" on reload for the author unless there is activity.
-        andCriteria.add(new Criteria().andOperator(
-            new Criteria("$expr").is(new org.bson.Document("$gt", List.of("$lastActivityAt", "$createdAt"))),
-            Criteria.where("lastActivityAt").gte(recentThreshold.minus(22, java.time.temporal.ChronoUnit.HOURS))
-        ));
+        // Only include recently CREATED self-posts.
+        // We do not want other users' interactions to bump self-posts back into the feed forever.
+        // "Nhìn 1 lần thôi chứ" - meaning self posts should naturally fade out based on creation time,
+        // rather than persisting due to lastActivityAt updates.
+        andCriteria.add(Criteria.where("createdAt").gte(recentThreshold));
 
         Query query = new Query(new Criteria().andOperator(andCriteria));
-        query.with(Sort.by(Sort.Order.desc("lastActivityAt")));
+        query.with(Sort.by(Sort.Order.desc("createdAt")));
         query.limit(size);
 
         return mongoTemplate.find(query, Post.class);
@@ -79,7 +77,7 @@ public class PostFeedRepositoryCustomImpl implements PostFeedRepositoryCustom {
     public List<Post> findRandomFallbackPosts(
             List<String> friendIds,
             String currentUserId,
-            Instant lastLastActivityAt,
+            Instant lastRankingTime,
             String lastPostId,
             Instant olderThan,
             List<String> excludePostIds,
@@ -91,10 +89,10 @@ public class PostFeedRepositoryCustomImpl implements PostFeedRepositoryCustom {
 
         List<Criteria> andCriteria = new ArrayList<>();
         andCriteria.add(Criteria.where("status").is(StatusType.ACTIVE));
-        andCriteria.add(Criteria.where("lastActivityAt").lt(olderThan));
+        andCriteria.add(Criteria.where("rankingTime").lt(olderThan));
         andCriteria.add(Criteria.where("authorId").ne(currentUserId));
         andCriteria.add(buildPrivacyCriteria(currentUserId, friendIds));
-        andCriteria.add(buildCursorCriteria(lastLastActivityAt, lastPostId));
+        andCriteria.add(buildCursorCriteria(lastRankingTime, lastPostId));
 
         if (excludePostIds != null && !excludePostIds.isEmpty()) {
             andCriteria.add(Criteria.where("_id").nin(excludePostIds));
@@ -130,7 +128,7 @@ public class PostFeedRepositoryCustomImpl implements PostFeedRepositoryCustom {
         andCriteria.add(buildPrivacyCriteria(currentUserId, friendIds));
 
         Query query = new Query(new Criteria().andOperator(andCriteria));
-        query.with(Sort.by(Sort.Order.desc("lastActivityAt")));
+        query.with(Sort.by(Sort.Order.desc("createdAt")));
         query.skip((long) page * size);
         query.limit(size);
 
@@ -192,19 +190,19 @@ public class PostFeedRepositoryCustomImpl implements PostFeedRepositoryCustom {
         );
     }
 
-    private Criteria buildCursorCriteria(Instant lastLastActivityAt, String lastPostId) {
-        if (lastLastActivityAt == null) {
+    private Criteria buildCursorCriteria(Instant lastRankingTime, String lastPostId) {
+        if (lastRankingTime == null) {
             return new Criteria();
         }
 
         if (lastPostId == null || lastPostId.isBlank()) {
-            return Criteria.where("lastActivityAt").lt(lastLastActivityAt);
+            return Criteria.where("rankingTime").lt(lastRankingTime);
         }
 
         return new Criteria().orOperator(
-                Criteria.where("lastActivityAt").lt(lastLastActivityAt),
+                Criteria.where("rankingTime").lt(lastRankingTime),
                 new Criteria().andOperator(
-                        Criteria.where("lastActivityAt").is(lastLastActivityAt),
+                        Criteria.where("rankingTime").is(lastRankingTime),
                         Criteria.where("_id").lt(lastPostId)
                 )
         );

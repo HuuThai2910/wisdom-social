@@ -4,10 +4,13 @@ import iuh.fit.edu.backend.constant.PrivacyType;
 import iuh.fit.edu.backend.constant.StatusType;
 import iuh.fit.edu.backend.domain.entity.nosql.PostShare;
 import iuh.fit.edu.backend.repository.nosql.PostShareRepository;
+import iuh.fit.edu.backend.repository.nosql.PostRepository;
 import iuh.fit.edu.backend.service.post.PostShareService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
@@ -18,10 +21,22 @@ import java.util.List;
 public class PostShareServiceImpl implements PostShareService {
 
     private final PostShareRepository postShareRepository;
+    private final PostRepository postRepository;
 
     @Override
     public PostShare sharePost(String userId, String postId, String content) {
         log.info("User {} sharing post {}", userId, postId);
+
+        // 🔒 Validate allowShares for the post
+        postRepository.findById(postId).ifPresent(post -> {
+            if (!post.isAllowShares()) {
+                log.warn("Share rejected: Post {} has sharing disabled", postId);
+                throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "Sharing is disabled for this post"
+                );
+            }
+        });
         
         PostShare share = PostShare.builder()
                 .originalPostId(postId)

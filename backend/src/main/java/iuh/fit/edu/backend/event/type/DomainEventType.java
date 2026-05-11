@@ -32,7 +32,12 @@ public enum DomainEventType {
     MEMBER_UPDATED,
     MEMBER_LEFT,
     MEMBER_KICKED,
-    GROUP_DISBANDED
+    GROUP_DISBANDED,
 
+    // Post, Comment, Reaction, Notification
+    POST,
+    COMMENT,
+    REACTION,
+    NOTIFICATION
 }
 

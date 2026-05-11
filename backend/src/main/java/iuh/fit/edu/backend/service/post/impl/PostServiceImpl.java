@@ -14,8 +14,8 @@ import iuh.fit.edu.backend.domain.entity.nosql.Stats;
 import iuh.fit.edu.backend.domain.entity.nosql.embeddable.Location;
 import iuh.fit.edu.backend.dto.request.post.CreatePostRequest;
 import iuh.fit.edu.backend.dto.request.post.MediaUploadMetadataRequest;
-import iuh.fit.edu.backend.event.post.CommentRealtimeEvent;
-import iuh.fit.edu.backend.event.post.PostRealtimeEvent;
+import iuh.fit.edu.backend.event.payload.CommentEvent;
+import iuh.fit.edu.backend.event.payload.PostEvent;
 import iuh.fit.edu.backend.repository.mysql.UserRepository;
 import iuh.fit.edu.backend.repository.nosql.CommentRepository;
 import iuh.fit.edu.backend.repository.nosql.PostRepository;
@@ -113,6 +113,7 @@ public class PostServiceImpl implements PostService {
                 .mentions(mentions)
                 .allowComments(request.getAllowComments() != null ? request.getAllowComments() : true)
                 .allowShares(request.getAllowShares() != null ? request.getAllowShares() : true)
+                .music(request.getMusic())
                 .stats(Stats.builder()
                         .reactCount(0)
                         .commentCount(0)
@@ -191,7 +192,7 @@ public class PostServiceImpl implements PostService {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    eventPublisher.publishEvent(PostRealtimeEvent.builder()
+                    eventPublisher.publishEvent(PostEvent.builder()
                             .action("CREATE")
                             .post(finalPost)
                             .postId(finalPost.getId())
@@ -200,7 +201,7 @@ public class PostServiceImpl implements PostService {
                 }
             });
         } else {
-            eventPublisher.publishEvent(PostRealtimeEvent.builder()
+            eventPublisher.publishEvent(PostEvent.builder()
                     .action("CREATE")
                     .post(finalPost)
                     .postId(finalPost.getId())
@@ -343,7 +344,7 @@ public class PostServiceImpl implements PostService {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    eventPublisher.publishEvent(PostRealtimeEvent.builder()
+                    eventPublisher.publishEvent(PostEvent.builder()
                             .action("DELETE")
                             .postId(postId)
                             .authorId(post.getAuthorId())
@@ -351,7 +352,7 @@ public class PostServiceImpl implements PostService {
                 }
             });
         } else {
-            eventPublisher.publishEvent(PostRealtimeEvent.builder()
+            eventPublisher.publishEvent(PostEvent.builder()
                     .action("DELETE")
                     .postId(postId)
                     .authorId(post.getAuthorId())
@@ -529,6 +530,18 @@ public class PostServiceImpl implements PostService {
         post.setHashtags(extractHashtags(request.getContent()));
         post.setMentions(extractMentions(request.getContent()));
         
+        // Update interaction settings
+        if (request.getAllowComments() != null) {
+            post.setAllowComments(request.getAllowComments());
+        }
+        if (request.getAllowShares() != null) {
+            post.setAllowShares(request.getAllowShares());
+        }
+        
+        if (request.getMusic() != null) {
+            post.setMusic(request.getMusic());
+        }
+        
         post.setUpdatedAt(Instant.now());
         post.setLastActivityAt(Instant.now());
         
@@ -540,7 +553,7 @@ public class PostServiceImpl implements PostService {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    eventPublisher.publishEvent(PostRealtimeEvent.builder()
+                    eventPublisher.publishEvent(PostEvent.builder()
                             .action("UPDATE")
                             .post(updated)
                             .postId(updated.getId())
@@ -550,7 +563,7 @@ public class PostServiceImpl implements PostService {
                 }
             });
         } else {
-            eventPublisher.publishEvent(PostRealtimeEvent.builder()
+            eventPublisher.publishEvent(PostEvent.builder()
                     .action("UPDATE")
                     .post(updated)
                     .postId(updated.getId())

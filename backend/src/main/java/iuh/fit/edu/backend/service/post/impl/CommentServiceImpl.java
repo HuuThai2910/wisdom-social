@@ -8,13 +8,14 @@ import iuh.fit.edu.backend.dto.response.post.CommentResponse;
 import iuh.fit.edu.backend.dto.response.post.PaginatedCommentsResponse;
 import iuh.fit.edu.backend.repository.nosql.CommentRepository;
 import iuh.fit.edu.backend.repository.nosql.PostRepository;
-import iuh.fit.edu.backend.event.post.CommentRealtimeEvent;
-import iuh.fit.edu.backend.event.post.PostRealtimeEvent;
 import iuh.fit.edu.backend.repository.mysql.UserRepository;
 import iuh.fit.edu.backend.service.post.CommentService;
 import iuh.fit.edu.backend.service.notification.NotificationService;
-import iuh.fit.edu.backend.event.notification.NotificationEvent;
+import iuh.fit.edu.backend.event.payload.CommentEvent;
+import iuh.fit.edu.backend.event.payload.NotificationEvent;
+import iuh.fit.edu.backend.event.payload.PostEvent;
 import iuh.fit.edu.backend.constant.NotificationType;
+import iuh.fit.edu.backend.service.user.FriendService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -54,12 +55,26 @@ public class CommentServiceImpl implements CommentService {
     private final UserRepository userRepository;
     private final NotificationService notificationService;
     private final ApplicationEventPublisher eventPublisher;
+    private final FriendService friendService;
     private static final int INITIAL_REPLY_LIMIT = 3;
 
     @Override
     @Transactional
     public Comment createComment(CreateCommentRequest request, Long userId) {
         log.info("Creating comment for user: {} on target: {}", userId, request.getTargetId());
+
+        // 🔒 Validate allowComments for POST comments
+        if (request.getTargetType() == TargetType.POST && request.getParentId() == null) {
+            postRepository.findById(request.getTargetId()).ifPresent(post -> {
+                if (!post.isAllowComments()) {
+                    log.warn("Comment creation rejected: Post {} has comments disabled", request.getTargetId());
+                    throw new ResponseStatusException(
+                        HttpStatus.FORBIDDEN,
+                        "Comments are disabled for this post"
+                    );
+                }
+            });
+        }
 
         // Process structured mentions
         List<Comment.Mention> mentions = processMentions(request);
@@ -91,12 +106,13 @@ public class CommentServiceImpl implements CommentService {
 
             // Replies also contribute to total post comment count.
             if (request.getTargetType() == TargetType.POST) {
-                updatePostCommentCount(request.getTargetId(), 1);
+                boolean isFriend = isUserFriendOfPostAuthor(userId.toString(), request.getTargetId());
+                updatePostCommentCount(request.getTargetId(), 1, true, isFriend);
             }
         } else if (request.getTargetType() == TargetType.POST) {
             // Top-level comment on post
-            updatePostCommentCount(request.getTargetId(), 1);
-            updatePostLastActivityAt(request.getTargetId());
+            boolean isFriend = isUserFriendOfPostAuthor(userId.toString(), request.getTargetId());
+            updatePostCommentCount(request.getTargetId(), 1, false, isFriend);
             publishActivityBump(request.getTargetId(), Instant.now(), userId.toString());
         }
 
@@ -160,7 +176,7 @@ public class CommentServiceImpl implements CommentService {
             String rootPostId = getRootPostId(savedComment);
             
             if (rootPostId != null) {
-                CommentRealtimeEvent event = new CommentRealtimeEvent("CREATE", rootPostId, responsePayload);
+                CommentEvent event = new CommentEvent("CREATE", rootPostId, responsePayload);
                 if (TransactionSynchronizationManager.isActualTransactionActive()) {
                     TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                         @Override
@@ -418,7 +434,11 @@ public class CommentServiceImpl implements CommentService {
 
         // Keep post commentCount synced for all levels (comment + descendants)
         if (comment.getTargetType() == TargetType.POST) {
-            updatePostCommentCount(comment.getTargetId(), -allIdsToDelete.size());
+            // We just decrement the total commentCount for simplicity in deletion,
+            // distinguishing between replies and top-level would require more complex checking
+            boolean isFriend = isUserFriendOfPostAuthor(userId.toString(), comment.getTargetId());
+            boolean isReply = comment.getParentId() != null;
+            updatePostCommentCount(comment.getTargetId(), -allIdsToDelete.size(), isReply, isFriend);
         }
 
         commentRepository.deleteAllById(allIdsToDelete);
@@ -431,7 +451,7 @@ public class CommentServiceImpl implements CommentService {
                         .id(commentId)
                         .parentId(parentId)
                         .build();
-                CommentRealtimeEvent event = new CommentRealtimeEvent("DELETE", rootPostId, deletePayload);
+                CommentEvent event = new CommentEvent("DELETE", rootPostId, deletePayload);
                 
                 if (TransactionSynchronizationManager.isActualTransactionActive()) {
                     TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
@@ -459,7 +479,7 @@ public class CommentServiceImpl implements CommentService {
                     return;
                 }
 
-                PostRealtimeEvent bumpEvent = PostRealtimeEvent.builder()
+                PostEvent bumpEvent = PostEvent.builder()
                         .action("BUMP")
                         .postId(postId)
                         .lastActivityAt(lastActivityAt)
@@ -547,14 +567,39 @@ public class CommentServiceImpl implements CommentService {
         return mentions;
     }
 
-    private void updatePostCommentCount(String postId, int delta) {
+    private boolean isUserFriendOfPostAuthor(String userId, String postId) {
+        return postRepository.findById(postId).map(post -> {
+            if (post.getAuthorId() == null || post.getAuthorId().isBlank()) return false;
+            if (post.getAuthorId().equals(userId)) return false; // Self is not considered 'friend' for boost
+            try {
+                return friendService.getAcceptedFriendIds(Long.parseLong(userId))
+                        .contains(Long.parseLong(post.getAuthorId()));
+            } catch (Exception e) {
+                return false;
+            }
+        }).orElse(false);
+    }
+
+    private void updatePostCommentCount(String postId, int delta, boolean isReply, boolean isFriend) {
         postRepository.findById(postId).ifPresent(post -> {
             if (post.getStats() != null) {
-                long newCount = Math.max(0L, post.getStats().getCommentCount() + delta);
-                post.getStats().setCommentCount(newCount);
-                post.setLastActivityAt(Instant.now());
+                if (isReply) {
+                    long newReplyCount = Math.max(0L, post.getStats().getReplyCount() + delta);
+                    post.getStats().setReplyCount(newReplyCount);
+                } else {
+                    long newCount = Math.max(0L, post.getStats().getCommentCount() + delta);
+                    post.getStats().setCommentCount(newCount);
+                }
+                
+                if (isFriend) {
+                    long newFriendCount = Math.max(0L, post.getStats().getFriendCommentCount() + delta);
+                    post.getStats().setFriendCommentCount(newFriendCount);
+                }
+                
+                post.recalculateRankingTime();
+                post.setLastActivityAt(Instant.now()); // for UI and realtime
                 postRepository.save(post);
-                log.info("Updated post {} commentCount to: {} and bumped lastActivityAt", postId, newCount);
+                log.info("Updated post {} stats and bumped rankingTime to {}", postId, post.getRankingTime());
             }
         });
     }

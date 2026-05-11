@@ -1,10 +1,11 @@
 package iuh.fit.edu.backend.event.handler;
 
-import iuh.fit.edu.backend.event.post.ReactionRealtimeEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
+
+import iuh.fit.edu.backend.event.payload.ReactionEvent;
 
 import java.util.Set;
 
@@ -17,7 +18,7 @@ public class ReactionRealtimeEventHandler implements RedisEventHandler {
 
     @Override
     public Class<?> getSupportedClass() {
-        return ReactionRealtimeEvent.class;
+        return ReactionEvent.class;
     }
 
     @Override
@@ -27,8 +28,8 @@ public class ReactionRealtimeEventHandler implements RedisEventHandler {
 
     @Override
     public void handle(Object eventPayload, Set<Long> targetMemberIds) {
-        if (eventPayload instanceof ReactionRealtimeEvent) {
-            ReactionRealtimeEvent event = (ReactionRealtimeEvent) eventPayload;
+        if (eventPayload instanceof ReactionEvent) {
+            ReactionEvent event = (ReactionEvent) eventPayload;
             String postId = event.getRootPostId();
             
             String destination = "/topic/post/" + postId + "/reactions";

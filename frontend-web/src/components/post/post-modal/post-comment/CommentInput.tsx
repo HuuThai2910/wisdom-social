@@ -39,7 +39,7 @@ import React from "react";
 import { Smile } from "lucide-react";
 import { Theme } from "emoji-picker-react";
 import IconModal from "../../../icon-modal/IconModal";
-import type { UserData } from "../../../../types/postType";
+import type { UserData } from "../../../../types/post";
 import { getAvatarUrl } from "../../../../utils/s3";
 
 interface CommentInputProps {
@@ -81,7 +81,7 @@ const CommentInput: React.FC<CommentInputProps & { inputRef?: React.RefObject<HT
   };
 
   return (
-    <div className="p-4 border-t dark:border-gray-800 relative">
+    <div className="px-4 py-3 border-t dark:border-[#363636] relative bg-white dark:bg-gray-900">
       {/* Mention Dropdown Suggestions */}
       {showMentionDropdown && (
         <div 
@@ -140,13 +140,13 @@ const CommentInput: React.FC<CommentInputProps & { inputRef?: React.RefObject<HT
       )}
 
       {/* Input Container */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 bg-blue-50/50 dark:bg-blue-900/10 p-2 px-3 rounded-xl border border-blue-100/50 dark:border-blue-900/20">
         <div className="relative">
           <button
             ref={emojiButtonRef}
             type="button"
             onClick={() => setShowEmojiPicker((prev) => !prev)}
-            className="p-2 hover:bg-gray-100 dark:hover:bg-[#363636] rounded-full transition-colors"
+            className="p-1 hover:opacity-70 transition-opacity"
             aria-label="Insert emoji"
             title="Insert emoji"
           >
@@ -163,7 +163,7 @@ const CommentInput: React.FC<CommentInputProps & { inputRef?: React.RefObject<HT
                 : Theme.LIGHT
             }
             anchorRef={emojiButtonRef}
-            containerClassName="absolute bottom-full left-0 mb-2 z-50"
+            containerClassName="absolute bottom-full left-0 mb-4 z-50"
             pickerProps={{
               height: 350,
               width: 300,
@@ -171,38 +171,36 @@ const CommentInput: React.FC<CommentInputProps & { inputRef?: React.RefObject<HT
           />
         </div>
 
-        <div className="relative flex-1 bg-gray-50 dark:bg-gray-900/50 rounded-2xl px-4 py-2 border border-transparent focus-within:border-blue-500 transition-all">
-          <input
-            ref={inputRef}
-            type="text"
-            value={commentInput}
-            onChange={onCommentChange}
-            onClick={(e) => onCursorChange(e.currentTarget.selectionStart || 0)}
-            onKeyUp={(e) => onCursorChange(e.currentTarget.selectionStart || 0)}
-            onSelect={(e) =>
-              onCursorChange(
-                e.currentTarget.selectionStart || commentInput.length
-              )
+        <input
+          ref={inputRef}
+          type="text"
+          value={commentInput}
+          onChange={onCommentChange}
+          onClick={(e) => onCursorChange(e.currentTarget.selectionStart || 0)}
+          onKeyUp={(e) => onCursorChange(e.currentTarget.selectionStart || 0)}
+          onSelect={(e) =>
+            onCursorChange(
+              e.currentTarget.selectionStart || commentInput.length
+            )
+          }
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              onSubmitComment();
             }
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                onSubmitComment();
-              }
-            }}
-            placeholder="Write a comment..."
-            className="w-full text-sm outline-none bg-transparent dark:text-white caret-blue-500"
-            disabled={submittingComment}
-          />
-        </div>
+          }}
+          placeholder="Thêm bình luận..."
+          className="flex-1 text-sm outline-none bg-transparent dark:text-white caret-blue-500 placeholder-gray-400"
+          disabled={submittingComment}
+        />
 
         {/* Submit Button */}
         <button
           onClick={onSubmitComment}
           disabled={!commentInput.trim() || submittingComment}
-          className="text-blue-500 font-semibold text-sm hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="text-[#3b5998] font-bold text-sm hover:text-[#2d4373] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
         >
-          {submittingComment ? "Posting..." : "Post"}
+          {submittingComment ? "Đang gửi..." : "Đăng"}
         </button>
       </div>
     </div>

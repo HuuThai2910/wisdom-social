@@ -9,14 +9,14 @@ import iuh.fit.edu.backend.constant.TargetType;
 import iuh.fit.edu.backend.domain.entity.nosql.Reaction;
 import iuh.fit.edu.backend.dto.response.post.ReactionSummaryResponse;
 import iuh.fit.edu.backend.repository.nosql.ReactionRepository;
-import iuh.fit.edu.backend.event.post.PostRealtimeEvent;
 import iuh.fit.edu.backend.service.post.ReactionService;
 import iuh.fit.edu.backend.repository.nosql.PostRepository;
 import iuh.fit.edu.backend.service.notification.NotificationService;
-import iuh.fit.edu.backend.event.notification.NotificationEvent;
+import iuh.fit.edu.backend.event.payload.NotificationEvent;
+import iuh.fit.edu.backend.event.payload.PostEvent;
+import iuh.fit.edu.backend.event.payload.ReactionEvent;
 import iuh.fit.edu.backend.constant.NotificationType;
 import iuh.fit.edu.backend.repository.nosql.CommentRepository;
-import iuh.fit.edu.backend.event.post.ReactionRealtimeEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -171,7 +171,7 @@ public class ReactionServiceImpl implements ReactionService {
         try {
             String rootPostId = getRootPostId(targetType, targetId);
             if (rootPostId != null) {
-                ReactionRealtimeEvent event = ReactionRealtimeEvent.builder()
+                ReactionEvent event = ReactionEvent.builder()
                         .action(action)
                         .rootPostId(rootPostId)
                         .targetType(targetType)
@@ -205,7 +205,7 @@ public class ReactionServiceImpl implements ReactionService {
                     return;
                 }
 
-                PostRealtimeEvent bumpEvent = PostRealtimeEvent.builder()
+                PostEvent bumpEvent = PostEvent.builder()
                         .action("BUMP")
                         .postId(postId)
                         .lastActivityAt(lastActivityAt)
@@ -254,9 +254,10 @@ public class ReactionServiceImpl implements ReactionService {
             if (post.getStats() != null) {
                 long newCount = Math.max(0L, post.getStats().getReactCount() + delta);
                 post.getStats().setReactCount(newCount);
+                post.recalculateRankingTime();
                 post.setLastActivityAt(Instant.now());
                 postRepository.save(post);
-                log.info("Updated post {} reactCount to: {} and bumped lastActivityAt", postId, newCount);
+                log.info("Updated post {} reactCount to: {} and recalculated ranking time", postId, newCount);
             }
         });
     }

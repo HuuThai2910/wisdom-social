@@ -20,8 +20,8 @@ export default function Home() {
 
   // Derived sorted posts for rendering
   const sortedPosts = Array.from(postsMap.values()).sort((a, b) => {
-    const da = new Date(a.lastActivityAt || a.createdAt).getTime();
-    const db = new Date(b.lastActivityAt || b.createdAt).getTime();
+    const da = new Date(a.rankingTime || a.createdAt).getTime();
+    const db = new Date(b.rankingTime || b.createdAt).getTime();
     if (isNaN(da) || isNaN(db)) return 0;
     return db - da;
   });
@@ -78,9 +78,10 @@ export default function Home() {
           return prev;
         }
 
-        // Update only the lastActivityAt to trigger re-sort
+        // Update both lastActivityAt and rankingTime to temporarily bump it for realtime UX
         const next = new Map(prev);
-        next.set(postId, { ...existing, lastActivityAt });
+        const tempRankingTime = new Date().toISOString();
+        next.set(postId, { ...existing, lastActivityAt, rankingTime: tempRankingTime });
         return next;
       });
     },
