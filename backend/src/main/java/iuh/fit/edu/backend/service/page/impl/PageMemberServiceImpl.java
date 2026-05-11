@@ -11,7 +11,7 @@ import iuh.fit.edu.backend.dto.request.page.PageJoinRequest;
 import iuh.fit.edu.backend.dto.request.page.UserRequestMemberPage;
 import iuh.fit.edu.backend.repository.mysql.BlockUserRepository;
 import iuh.fit.edu.backend.repository.mysql.PageMemberRepository;
-import iuh.fit.edu.backend.service.page.PageEventPublisher;
+import iuh.fit.edu.backend.event.publisher.PageEventPublisher;
 import iuh.fit.edu.backend.service.page.PageMemberService;
 import iuh.fit.edu.backend.service.page.PageService;
 import iuh.fit.edu.backend.service.user.BlockUserService;

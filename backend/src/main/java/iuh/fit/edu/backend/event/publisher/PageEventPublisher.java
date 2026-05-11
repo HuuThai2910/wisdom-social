@@ -1,4 +1,4 @@
-package iuh.fit.edu.backend.service.page;
+package iuh.fit.edu.backend.event.publisher;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
