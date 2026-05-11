@@ -22,4 +22,6 @@ public class BlackListUser {
     private String idToken;
     @Column(columnDefinition = "TEXT")
     private String refreshToken;
+
+    private Long userId;
 }

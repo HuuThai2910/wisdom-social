@@ -5,6 +5,8 @@ export type PageStatus = "PUBLIC" | "PRIVATE" | "BANNED";
 
 export type MemberStatus = "PENDING" | "ACTIVE" | "REMOVED" | "REJECTED";
 
+export type PageRole = "ADMIN" | "MODERATOR" | "USER";
+
 export type CreatePageRequest = {
     name: string;
     username?: string;
@@ -17,6 +19,20 @@ export type CreatePageRequest = {
     website?: string;
     address?: string;
     isVerified?: boolean;
+    status?: PageStatus;
+};
+
+export type UpdatePageRequest = {
+    name?: string;
+    username?: string;
+    category?: string;
+    description?: string;
+    avatarUrl?: string;
+    coverUrl?: string;
+    phone?: string;
+    email?: string;
+    website?: string;
+    address?: string;
     status?: PageStatus;
 };
 
@@ -45,18 +61,39 @@ export type PageData = {
     updatedAt?: string;
 };
 
+export type PageMemberData = {
+    id?: number;
+    pageId?: number;
+    user: {
+        id: number;
+        name?: string;
+        username?: string;
+        avatarUrl?: string;
+        phone?: string;
+    };
+    role: PageRole;
+    status: MemberStatus;
+    joinedAt?: string;
+};
+
+export type PageInteractionStatus = {
+    isLiked: boolean;
+    isFollowing: boolean;
+    likeCount: number;
+    followCount: number;
+};
+
 class PageService {
     private localPages: PageData[] = [...mockFeaturePages];
-
     private localInteractions = { ...mockPageInteractions };
+
+    // ── Page CRUD ──────────────────────────────────────────────────────────
 
     async getAllPages(): Promise<PageData[]> {
         try {
             const response = await apiClient.get("/page/all");
             const data = response.data?.data ?? response.data;
-            if (Array.isArray(data) && data.length > 0) {
-                return data;
-            }
+            if (Array.isArray(data) && data.length > 0) return data;
             return this.localPages;
         } catch {
             return this.localPages;
@@ -67,9 +104,7 @@ class PageService {
         try {
             const response = await apiClient.get("/page/my-pages");
             const data = response.data?.data ?? response.data;
-            if (Array.isArray(data) && data.length > 0) {
-                return data;
-            }
+            if (Array.isArray(data) && data.length > 0) return data;
             return this.localPages.slice(0, 2);
         } catch {
             return this.localPages.slice(0, 2);
@@ -102,6 +137,24 @@ class PageService {
         }
     }
 
+    async updatePage(pageId: number, data: UpdatePageRequest): Promise<boolean> {
+        try {
+            const response = await apiClient.post(`/page/update/${pageId}`, data);
+            return response.status === 200;
+        } catch {
+            return false;
+        }
+    }
+
+    async deletePage(pageId: number): Promise<boolean> {
+        try {
+            const response = await apiClient.delete(`/page/delete/${pageId}`);
+            return response.status === 200;
+        } catch {
+            return false;
+        }
+    }
+
     async findPageById(pageId: number): Promise<PageData | null> {
         try {
             const response = await apiClient.get(`/page/${pageId}`);
@@ -111,35 +164,15 @@ class PageService {
         }
     }
 
-    async requestJoinPage(userId: number, pageId: number, message?: string): Promise<string> {
-        try {
-            const response = await apiClient.post("/page-member/request-join", {
-                userId,
-                pageId,
-                message,
-            });
-            return response.data?.data ?? "";
-        } catch {
-            return "local-requested";
-        }
-    }
+    // ── Like / Follow ──────────────────────────────────────────────────────
 
     async likePage(userId: number, pageId: number): Promise<string> {
         try {
             const response = await apiClient.post("/page/like", { userId, pageId });
             return response.data?.data ?? "";
         } catch {
-            const current = this.localInteractions[pageId] ?? {
-                isLiked: false,
-                isFollowing: false,
-                likeCount: 0,
-                followCount: 0,
-            };
-            this.localInteractions[pageId] = {
-                ...current,
-                isLiked: true,
-                likeCount: current.isLiked ? current.likeCount : current.likeCount + 1,
-            };
+            const current = this.localInteractions[pageId] ?? { isLiked: false, isFollowing: false, likeCount: 0, followCount: 0 };
+            this.localInteractions[pageId] = { ...current, isLiked: true, likeCount: current.isLiked ? current.likeCount : current.likeCount + 1 };
             return "local-liked";
         }
     }
@@ -149,17 +182,8 @@ class PageService {
             const response = await apiClient.post("/page/follow", { userId, pageId });
             return response.data?.data ?? "";
         } catch {
-            const current = this.localInteractions[pageId] ?? {
-                isLiked: false,
-                isFollowing: false,
-                likeCount: 0,
-                followCount: 0,
-            };
-            this.localInteractions[pageId] = {
-                ...current,
-                isFollowing: true,
-                followCount: current.isFollowing ? current.followCount : current.followCount + 1,
-            };
+            const current = this.localInteractions[pageId] ?? { isLiked: false, isFollowing: false, likeCount: 0, followCount: 0 };
+            this.localInteractions[pageId] = { ...current, isFollowing: true, followCount: current.isFollowing ? current.followCount : current.followCount + 1 };
             return "local-followed";
         }
     }
@@ -169,17 +193,8 @@ class PageService {
             const response = await apiClient.post("/page/cancel-like", { userId, pageId });
             return response.data?.data ?? "";
         } catch {
-            const current = this.localInteractions[pageId] ?? {
-                isLiked: false,
-                isFollowing: false,
-                likeCount: 0,
-                followCount: 0,
-            };
-            this.localInteractions[pageId] = {
-                ...current,
-                isLiked: false,
-                likeCount: Math.max(0, current.likeCount - 1),
-            };
+            const current = this.localInteractions[pageId] ?? { isLiked: false, isFollowing: false, likeCount: 0, followCount: 0 };
+            this.localInteractions[pageId] = { ...current, isLiked: false, likeCount: Math.max(0, current.likeCount - 1) };
             return "local-unliked";
         }
     }
@@ -189,27 +204,13 @@ class PageService {
             const response = await apiClient.post("/page/cancel-follow", { userId, pageId });
             return response.data?.data ?? "";
         } catch {
-            const current = this.localInteractions[pageId] ?? {
-                isLiked: false,
-                isFollowing: false,
-                likeCount: 0,
-                followCount: 0,
-            };
-            this.localInteractions[pageId] = {
-                ...current,
-                isFollowing: false,
-                followCount: Math.max(0, current.followCount - 1),
-            };
+            const current = this.localInteractions[pageId] ?? { isLiked: false, isFollowing: false, likeCount: 0, followCount: 0 };
+            this.localInteractions[pageId] = { ...current, isFollowing: false, followCount: Math.max(0, current.followCount - 1) };
             return "local-unfollowed";
         }
     }
 
-    async getPageInteractionStatus(pageId: number): Promise<{
-        isLiked: boolean;
-        isFollowing: boolean;
-        likeCount: number;
-        followCount: number;
-    }> {
+    async getPageInteractionStatus(pageId: number): Promise<PageInteractionStatus> {
         try {
             const response = await apiClient.get(`/page/${pageId}/interaction-status`);
             const d = response.data?.data ?? response.data;
@@ -220,16 +221,250 @@ class PageService {
                 followCount: Number(d?.followCount) || 0,
             };
         } catch {
-            return (
-                this.localInteractions[pageId] ?? {
-                    isLiked: false,
-                    isFollowing: false,
-                    likeCount: 0,
-                    followCount: 0,
-                }
-            );
+            return this.localInteractions[pageId] ?? { isLiked: false, isFollowing: false, likeCount: 0, followCount: 0 };
+        }
+    }
+
+    // ── Member management ──────────────────────────────────────────────────
+
+    async getPageMembers(pageId: number): Promise<PageMemberData[]> {
+        try {
+            const response = await apiClient.get(`/page-member/list/${pageId}`);
+            const data = response.data?.data ?? response.data;
+            return Array.isArray(data) ? data : [];
+        } catch {
+            return [];
+        }
+    }
+
+    async getMemberStatus(pageId: number, userId: number): Promise<MemberStatus | null> {
+        try {
+            const response = await apiClient.get(`/page-member/member-status/${pageId}/${userId}`);
+            return response.data?.data ?? response.data ?? null;
+        } catch {
+            return null;
+        }
+    }
+
+    async getMemberCount(pageId: number): Promise<number> {
+        try {
+            const response = await apiClient.get(`/page-member/member-count/${pageId}`);
+            return Number(response.data?.data ?? response.data) || 0;
+        } catch {
+            return 0;
+        }
+    }
+
+    async addMember(userId: number, pageId: number, role: PageRole = "USER"): Promise<boolean> {
+        try {
+            const response = await apiClient.post("/page-member/add", { userId, pageId, pageRole: role });
+            return response.status === 200;
+        } catch {
+            return false;
+        }
+    }
+
+    async removeMember(pageId: number, userId: number): Promise<boolean> {
+        try {
+            const response = await apiClient.post("/page-member/delete", { pageId, userId });
+            return response.status === 200;
+        } catch {
+            return false;
+        }
+    }
+
+    async blockMember(pageId: number, userId: number): Promise<boolean> {
+        try {
+            const response = await apiClient.post("/page-member/block", { pageId, userId });
+            return response.status === 200;
+        } catch {
+            return false;
+        }
+    }
+
+    async unblockMember(pageId: number, userId: number): Promise<boolean> {
+        try {
+            const response = await apiClient.post("/page-member/cancel-block", { pageId, userId });
+            return response.status === 200;
+        } catch {
+            return false;
+        }
+    }
+
+    async authorizeMember(userId: number, pageId: number, role: PageRole): Promise<boolean> {
+        try {
+            const response = await apiClient.post("/page-member/authorize", { userId, pageId, pageRole: role });
+            return response.status === 200;
+        } catch {
+            return false;
+        }
+    }
+
+    // ── Join requests ──────────────────────────────────────────────────────
+
+    async requestJoinPage(userId: number, pageId: number, message?: string): Promise<string> {
+        try {
+            const response = await apiClient.post("/page-member/request-join", { userId, pageId, message });
+            return response.data?.data ?? "";
+        } catch {
+            return "local-requested";
+        }
+    }
+
+    async cancelJoinRequest(pageId: number, userId: number): Promise<boolean> {
+        try {
+            const response = await apiClient.post("/page-member/cancel-join", { pageId, userId });
+            return response.status === 200;
+        } catch {
+            return false;
+        }
+    }
+
+    async getPendingJoinRequests(pageId: number): Promise<PageMemberData[]> {
+        try {
+            const response = await apiClient.get(`/page-member/pending-requests/${pageId}`);
+            const data = response.data?.data ?? response.data;
+            return Array.isArray(data) ? data : [];
+        } catch {
+            return [];
+        }
+    }
+
+    async approveJoinRequest(pageId: number, userId: number): Promise<boolean> {
+        try {
+            const response = await apiClient.post("/page-member/approve-join", { pageId, userId });
+            return response.status === 200;
+        } catch {
+            return false;
+        }
+    }
+
+    async rejectJoinRequest(pageId: number, userId: number): Promise<boolean> {
+        try {
+            const response = await apiClient.post("/page-member/reject-join", { pageId, userId });
+            return response.status === 200;
+        } catch {
+            return false;
+        }
+    }
+
+    // ── Image upload ──────────────────────────────────────────────────────
+
+    async getUploadUrl(type: string, extension: string): Promise<{ uploadUrl: string; uuid: string; extension: string } | null> {
+        try {
+            const response = await apiClient.get("/page/upload-avatar", { params: { type, extension } });
+            const data = response.data?.data ?? response.data;
+            return {
+                uploadUrl: data.uploadUrl ?? "",
+                uuid: data.uuid ?? "",
+                extension: data.extension ?? extension,
+            };
+        } catch {
+            return null;
+        }
+    }
+
+    // ── Post management ────────────────────────────────────────────────────
+
+    async getPostsWaitingForApproval(pageId: number): Promise<PagePostItem[]> {
+        try {
+            const response = await apiClient.get(`/page/post/waiting-approve/${pageId}`);
+            const data = response.data?.data ?? response.data;
+            return Array.isArray(data) ? data : [];
+        } catch {
+            return [];
+        }
+    }
+
+    async approvePost(userId: number, pageId: number, postId: string): Promise<boolean> {
+        try {
+            const response = await apiClient.post("/page/post/approve", { userId, pageId, postId });
+            return response.status === 200;
+        } catch {
+            return false;
+        }
+    }
+
+    async cancelApprovePost(userId: number, pageId: number, postId: string): Promise<boolean> {
+        try {
+            const response = await apiClient.post("/page/post/cancel-approve", { userId, pageId, postId });
+            return response.status === 200;
+        } catch {
+            return false;
+        }
+    }
+
+    async removePostFromPage(userId: number, pageId: number, postId: string): Promise<boolean> {
+        try {
+            const response = await apiClient.post("/page/post/remove", { userId, pageId, postId });
+            return response.status === 200;
+        } catch {
+            return false;
+        }
+    }
+
+    async getAllPostsOfPage(pageId: number): Promise<any[]> {
+        try {
+            const response = await apiClient.get(`/page/post/all/${pageId}`);
+            const data = response.data?.data ?? response.data;
+            return Array.isArray(data) ? data : [];
+        } catch {
+            return [];
+        }
+    }
+
+    async addPostToPage(
+        pageId: number,
+        postData: { content: string; privacy?: string; allowComments?: boolean; allowShares?: boolean },
+        images?: { uri: string; name: string; type: string }[],
+    ): Promise<boolean> {
+        try {
+            const formData = new FormData();
+            formData.append("postData", JSON.stringify({ privacy: "PUBLIC", allowComments: true, allowShares: true, ...postData }));
+            if (images?.length) {
+                images.forEach(img => formData.append("images", img as any));
+            }
+            const response = await apiClient.post("/page/post/add", formData, {
+                params: { pageId },
+                headers: { "Content-Type": "multipart/form-data" },
+            });
+            return response.status === 200;
+        } catch {
+            return false;
+        }
+    }
+
+    async approveAllPosts(userId: number, pageId: number): Promise<boolean> {
+        try {
+            const response = await apiClient.post("/page/post/approve-all", { userId, pageId });
+            return response.status === 200;
+        } catch {
+            return false;
+        }
+    }
+
+    async cancelAllPosts(userId: number, pageId: number): Promise<boolean> {
+        try {
+            const response = await apiClient.post("/page/post/cancel-all", { userId, pageId });
+            return response.status === 200;
+        } catch {
+            return false;
         }
     }
 }
+
+export type PagePostItem = {
+    id: string;
+    content?: string;
+    caption?: string;
+    images?: string[];
+    createdAt?: string;
+    user?: {
+        id?: number;
+        name?: string;
+        username?: string;
+        avatarUrl?: string;
+    };
+};
 
 export default new PageService();

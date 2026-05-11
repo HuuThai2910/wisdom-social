@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import {
     ArrowLeft, Heart, UserPlus, Settings, Users, Loader2,
@@ -12,6 +12,7 @@ import pageService, { type Page, type PageMember } from "../services/pageService
 import userService from "../services/userService";
 import { useCurrentUser } from "../hooks/useCurrentUser";
 import { buildS3Url } from "../utils/s3";
+import websocketService from "../services/websocket";
 import type { User } from "../types";
 
 type MemberStatus = "loading" | "none" | "pending" | "member" | "admin" | "owner" | "blocked";
@@ -35,9 +36,7 @@ interface Post {
     commentsCount?: number;
 }
 
-interface PendingMember extends PageMember {
-    user?: User;
-}
+type PendingMember = PageMember;
 
 function timeAgo(dateStr?: string) {
     if (!dateStr) return "";
@@ -55,6 +54,13 @@ export default function PageDetail() {
     const { pageId } = useParams();
     const navigate = useNavigate();
     const currentUser = useCurrentUser();
+
+    // Validate pageId — guard against "undefined", "NaN", or missing route param
+    const numericPageId = useMemo(() => {
+        if (!pageId || pageId === "undefined") return null;
+        const n = Number(pageId);
+        return Number.isFinite(n) && n > 0 ? n : null;
+    }, [pageId]);
 
     const [page, setPage] = useState<Page | null>(null);
     const [loading, setLoading] = useState(true);
@@ -86,12 +92,12 @@ export default function PageDetail() {
     const [showMoreMenu, setShowMoreMenu] = useState(false);
 
     const loadPageData = useCallback(async () => {
-        if (!pageId) return;
+        if (!numericPageId) return;
         setLoading(true);
         try {
             const [pageData, count] = await Promise.all([
-                pageService.getPageById(Number(pageId)),
-                pageService.getMemberCount(Number(pageId)),
+                pageService.getPageById(numericPageId),
+                pageService.getMemberCount(numericPageId),
             ]);
             setPage(pageData);
             setMemberCount(count);
@@ -105,23 +111,23 @@ export default function PageDetail() {
                 setMemberStatus("owner");
             } else if (currentUserId) {
                 try {
-                    const membersList = await pageService.getPageMembers(Number(pageId));
-                    const currentMember = membersList?.find(m => Number(m.userId) === currentUserId);
+                    const membersList = await pageService.getPageMembers(numericPageId);
+                    const currentMember = membersList?.find(m => Number(m.user?.id) === currentUserId);
                     if (currentMember) {
-                        if (currentMember.memberStatus === "BLOCKED" || currentMember.memberStatus === "REMOVED") {
+                        if (currentMember.status === "BLOCKED" || currentMember.status === "REMOVED") {
                             setMemberStatus("blocked");
-                        } else if (currentMember.memberStatus === "PENDING") {
+                        } else if (currentMember.status === "PENDING") {
                             setMemberStatus("pending");
-                        } else if (currentMember.pageRole === "ADMIN" || currentMember.pageRole === "MODERATOR") {
+                        } else if (currentMember.role === "ADMIN" || currentMember.role === "MODERATOR") {
                             setMemberStatus("admin");
-                        } else if (currentMember.memberStatus === "ACTIVE") {
+                        } else if (currentMember.status === "ACTIVE") {
                             setMemberStatus("member");
                         } else {
                             setMemberStatus("none");
                         }
                     } else {
                         try {
-                            const status = await pageService.getMemberStatus(Number(pageId), currentUserId);
+                            const status = await pageService.getMemberStatus(numericPageId, currentUserId);
                             setMemberStatus(status === "PENDING" ? "pending" : "none");
                         } catch {
                             setMemberStatus("none");
@@ -131,7 +137,7 @@ export default function PageDetail() {
                     setMemberStatus("none");
                 }
                 try {
-                    const interactionStatus = await pageService.getPageInteractionStatus(Number(pageId));
+                    const interactionStatus = await pageService.getPageInteractionStatus(numericPageId);
                     setIsLiked(interactionStatus.isLiked || false);
                     setIsFollowing(interactionStatus.isFollowing || false);
                 } catch { }
@@ -143,19 +149,19 @@ export default function PageDetail() {
         } finally {
             setLoading(false);
         }
-    }, [pageId, currentUser?.id]);
+    }, [numericPageId, currentUser?.id]);
 
     useEffect(() => { loadPageData(); }, [loadPageData]);
 
     const handleLike = async () => {
-        if (!currentUser?.id || !pageId) return;
+        if (!currentUser?.id || !numericPageId) return;
         setActionLoading(true);
         try {
             if (isLiked) {
-                await pageService.cancelLikePage(currentUser.id, Number(pageId));
+                await pageService.cancelLikePage(currentUser.id, numericPageId);
                 setIsLiked(false);
             } else {
-                await pageService.likePage(currentUser.id, Number(pageId));
+                await pageService.likePage(currentUser.id, numericPageId);
                 setIsLiked(true);
             }
         } catch (error) {
@@ -166,14 +172,14 @@ export default function PageDetail() {
     };
 
     const handleFollow = async () => {
-        if (!currentUser?.id || !pageId) return;
+        if (!currentUser?.id || !numericPageId) return;
         setActionLoading(true);
         try {
             if (isFollowing) {
-                await pageService.cancelFollowPage(currentUser.id, Number(pageId));
+                await pageService.cancelFollowPage(currentUser.id, numericPageId);
                 setIsFollowing(false);
             } else {
-                await pageService.followPage(currentUser.id, Number(pageId));
+                await pageService.followPage(currentUser.id, numericPageId);
                 setIsFollowing(true);
             }
         } catch (error) {
@@ -184,15 +190,18 @@ export default function PageDetail() {
     };
 
     const handleJoinRequest = async () => {
-        if (!currentUser?.id || !pageId) return;
+        if (!currentUser?.id || !numericPageId) return;
         setActionLoading(true);
         try {
             if (memberStatus === "pending") {
-                await pageService.cancelJoinRequest(Number(pageId), currentUser.id);
+                await pageService.cancelJoinRequest(numericPageId, currentUser.id);
                 setMemberStatus("none");
             } else {
-                await pageService.requestJoinPage(currentUser.id, Number(pageId));
-                setMemberStatus("pending");
+                await pageService.requestJoinPage(currentUser.id, numericPageId);
+                // PUBLIC page → instantly a member; PRIVATE → pending
+                const newStatus = page?.status === "PRIVATE" ? "pending" : "member";
+                setMemberStatus(newStatus);
+                if (newStatus === "member") setMemberCount(c => c + 1);
             }
         } catch (error) {
             console.error("Error handling join request:", error);
@@ -202,60 +211,50 @@ export default function PageDetail() {
     };
 
     const loadPosts = useCallback(async () => {
-        if (!pageId) return;
+        if (!numericPageId) return;
         setLoadingPosts(true);
         try {
-            const approvedPosts = await pageService.getAllPostsOfPage(Number(pageId));
+            const approvedPosts = await pageService.getAllPostsOfPage(numericPageId);
             setPosts(approvedPosts || []);
         } catch (error) {
             console.error("Error loading posts:", error);
         } finally {
             setLoadingPosts(false);
         }
-    }, [pageId]);
+    }, [numericPageId]);
 
     const loadPendingPosts = useCallback(async () => {
-        if (!pageId || !currentUser?.id) return;
+        if (!numericPageId || !currentUser?.id) return;
         try {
-            const pending = await pageService.getPostsWaitingForApproval(Number(pageId));
+            const pending = await pageService.getPostsWaitingForApproval(numericPageId);
             setPendingPosts(pending || []);
         } catch (error) {
             console.error("Error loading pending posts:", error);
         }
-    }, [pageId, currentUser?.id]);
+    }, [numericPageId, currentUser?.id]);
 
     const loadPendingRequests = useCallback(async () => {
-        if (!pageId) return;
+        if (!numericPageId) return;
         setLoadingPendingRequests(true);
         try {
-            const requests = await pageService.getPendingJoinRequests(Number(pageId));
-            const requestsWithUsers = await Promise.all(
-                (requests || []).map(async (req) => {
-                    try {
-                        const user = await userService.getUserProfile(req.userId);
-                        return { ...req, user: user as any };
-                    } catch {
-                        return req;
-                    }
-                })
-            );
-            setPendingRequests(requestsWithUsers);
+            const requests = await pageService.getPendingJoinRequests(numericPageId);
+            setPendingRequests(requests || []);
         } catch (error) {
             console.error("Error loading pending requests:", error);
         } finally {
             setLoadingPendingRequests(false);
         }
-    }, [pageId]);
+    }, [numericPageId]);
 
     const loadMembers = useCallback(async () => {
-        if (!pageId) return;
+        if (!numericPageId) return;
         try {
-            const membersList = await pageService.getPageMembers(Number(pageId));
+            const membersList = await pageService.getPageMembers(numericPageId);
             setMembers(membersList || []);
         } catch (error) {
             console.error("Error loading members:", error);
         }
-    }, [pageId]);
+    }, [numericPageId]);
 
     useEffect(() => { loadPosts(); }, [loadPosts]);
     useEffect(() => {
@@ -265,6 +264,59 @@ export default function PageDetail() {
             loadMembers();
         }
     }, [memberStatus, loadPendingPosts, loadPendingRequests, loadMembers]);
+
+    // Real-time page events via WebSocket
+    const currentUserId = currentUser?.id ? Number(currentUser.id) : null;
+    useEffect(() => {
+        if (!numericPageId) return;
+
+        const handlePageEvent = (event: Record<string, unknown>) => {
+            const type = event.eventType as string | undefined;
+            if (!type) return;
+
+            if (type === "PAGE_MEMBER_JOINED" || type === "PAGE_MEMBER_LEFT") {
+                setMemberCount(c => type === "PAGE_MEMBER_JOINED" ? c + 1 : Math.max(0, c - 1));
+            }
+            if (type === "PAGE_JOIN_REQUESTED" || type === "PAGE_JOIN_APPROVED" || type === "PAGE_JOIN_REJECTED" || type === "PAGE_JOIN_CANCELLED") {
+                void loadPendingRequests();
+            }
+            if (type === "PAGE_MEMBER_ROLE_CHANGED" || type === "PAGE_MEMBER_BLOCKED" || type === "PAGE_MEMBER_UNBLOCKED") {
+                void loadMembers();
+                // If the current user was affected, reload their own status
+                if (event.userId && Number(event.userId) === currentUserId) {
+                    void loadPageData();
+                }
+            }
+            // If current user's request was approved/rejected, reload full data
+            if (type === "PAGE_JOIN_APPROVED" || type === "PAGE_JOIN_REJECTED") {
+                if (event.userId && Number(event.userId) === currentUserId) {
+                    void loadPageData();
+                }
+            }
+        };
+
+        const setup = async () => {
+            try {
+                await websocketService.connect();
+                websocketService.subscribeToPageMembers(numericPageId, handlePageEvent);
+                if (currentUserId) {
+                    websocketService.subscribeToUserPageEvents(currentUserId, handlePageEvent);
+                }
+            } catch {
+                // Connection failed — polling already works as fallback
+            }
+        };
+
+        void setup();
+
+        return () => {
+            websocketService.unsubscribeFromPageMembers(numericPageId);
+            if (currentUserId) {
+                websocketService.unsubscribeFromUserPageEvents(currentUserId);
+            }
+        };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [numericPageId, currentUserId]);
 
     useEffect(() => {
         if (!memberSearchQuery || memberSearchQuery.length < 2) {
@@ -276,7 +328,7 @@ export default function PageDetail() {
             try {
                 const results = await userService.searchUserByUsername(memberSearchQuery);
                 if (results && Array.isArray(results)) {
-                    const memberIds = members.map(m => m.userId);
+                    const memberIds = members.map(m => m.user?.id);
                     setSearchResults(results.filter(u => !memberIds.includes(Number(u.id))));
                 } else {
                     setSearchResults([]);
@@ -291,10 +343,10 @@ export default function PageDetail() {
     }, [memberSearchQuery, members]);
 
     const handleApprovePost = async (postId: string) => {
-        if (!currentUser?.id || !pageId) return;
+        if (!currentUser?.id || !numericPageId) return;
         setPostActionLoading(postId);
         try {
-            await pageService.approvePost(currentUser.id, Number(pageId), postId);
+            await pageService.approvePost(currentUser.id, numericPageId, postId);
             const post = pendingPosts.find(p => p._id === postId);
             if (post) {
                 setPendingPosts(prev => prev.filter(p => p._id !== postId));
@@ -305,65 +357,65 @@ export default function PageDetail() {
     };
 
     const handleRejectPost = async (postId: string) => {
-        if (!currentUser?.id || !pageId) return;
+        if (!currentUser?.id || !numericPageId) return;
         if (!confirm("Bạn có chắc muốn từ chối bài viết này?")) return;
         setPostActionLoading(postId);
         try {
-            await pageService.cancelApprovePost(currentUser.id, Number(pageId), postId);
+            await pageService.cancelApprovePost(currentUser.id, numericPageId, postId);
             setPendingPosts(prev => prev.filter(p => p._id !== postId));
         } catch { alert("Không thể từ chối bài viết"); }
         finally { setPostActionLoading(null); }
     };
 
     const handleRemovePost = async (postId: string) => {
-        if (!currentUser?.id || !pageId) return;
+        if (!currentUser?.id || !numericPageId) return;
         if (!confirm("Bạn có chắc muốn xóa bài viết này?")) return;
         setPostActionLoading(postId);
         try {
-            await pageService.removePostFromPage(currentUser.id, Number(pageId), postId);
+            await pageService.removePostFromPage(currentUser.id, numericPageId, postId);
             setPosts(prev => prev.filter(p => p._id !== postId));
         } catch { alert("Không thể xóa bài viết"); }
         finally { setPostActionLoading(null); }
     };
 
     const handleApproveRequest = async (userId: number) => {
-        if (!pageId) return;
+        if (!numericPageId) return;
         setRequestActionLoading(userId);
         try {
-            await pageService.approveJoinRequest(Number(pageId), userId);
-            setPendingRequests(prev => prev.filter(r => r.userId !== userId));
+            await pageService.approveJoinRequest(numericPageId, userId);
+            setPendingRequests(prev => prev.filter(r => Number(r.user?.id) !== userId));
             setMemberCount(prev => prev + 1);
         } catch { alert("Không thể duyệt yêu cầu"); }
         finally { setRequestActionLoading(null); }
     };
 
     const handleRejectRequest = async (userId: number) => {
-        if (!pageId) return;
+        if (!numericPageId) return;
         setRequestActionLoading(userId);
         try {
-            await pageService.rejectJoinRequest(Number(pageId), userId);
-            setPendingRequests(prev => prev.filter(r => r.userId !== userId));
+            await pageService.rejectJoinRequest(numericPageId, userId);
+            setPendingRequests(prev => prev.filter(r => Number(r.user?.id) !== userId));
         } catch { alert("Không thể từ chối yêu cầu"); }
         finally { setRequestActionLoading(null); }
     };
 
     const handleDeletePage = async () => {
-        if (!pageId || memberStatus !== "owner") return;
+        if (!numericPageId || memberStatus !== "owner") return;
         if (!confirm("Bạn có chắc muốn XÓA page này? Hành động này không thể hoàn tác!")) return;
         if (!confirm("Xác nhận lần cuối: XÓA VĨNH VIỄN page này?")) return;
         try {
-            await pageService.deletePage(Number(pageId));
+            await pageService.deletePage(numericPageId);
             alert("Đã xóa page thành công");
             navigate("/pages");
         } catch { alert("Không thể xóa page"); }
     };
 
     const handleAddMembers = async () => {
-        if (!pageId || selectedUsers.length === 0) return;
+        if (!numericPageId || selectedUsers.length === 0) return;
         setIsAddingMembers(true);
         try {
             await Promise.all(
-                selectedUsers.map(user => pageService.addMember(Number(user.id), Number(pageId), selectedRole))
+                selectedUsers.map(user => pageService.addMember(Number(user.id), numericPageId, selectedRole))
             );
             alert(`Đã thêm ${selectedUsers.length} thành viên!`);
             setShowAddMemberModal(false);
@@ -897,21 +949,21 @@ export default function PageDetail() {
                                     <p className="text-gray-500 dark:text-gray-400 text-center py-8">Chưa có thành viên</p>
                                 ) : (
                                     members.map((member) => (
-                                        <div key={member.userId} className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 dark:hover:bg-[#3a3b3c] transition-colors">
+                                        <div key={member.user?.id} className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 dark:hover:bg-[#3a3b3c] transition-colors">
                                             <img
-                                                src={"https://via.placeholder.com/40"}
-                                                alt={`User ${member.userId}`}
+                                                src={buildS3Url(member.user?.avatarUrl) || "https://via.placeholder.com/40"}
+                                                alt={member.user?.username}
                                                 className="w-12 h-12 rounded-full object-cover"
                                             />
                                             <div className="flex-1 min-w-0">
-                                                <p className="font-semibold dark:text-white text-[15px]">User #{member.userId}</p>
-                                                <p className="text-gray-500 text-sm">{member.pageRole}</p>
+                                                <p className="font-semibold dark:text-white text-[15px]">{member.user?.name || member.user?.username || `User #${member.user?.id}`}</p>
+                                                <p className="text-gray-500 text-sm">{member.role}</p>
                                             </div>
                                             <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                                                member.pageRole === "ADMIN" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" :
+                                                member.role === "ADMIN" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" :
                                                 "bg-gray-100 text-gray-600 dark:bg-[#3a3b3c] dark:text-gray-400"
                                             }`}>
-                                                {member.pageRole}
+                                                {member.role}
                                             </span>
                                         </div>
                                     ))
@@ -944,7 +996,7 @@ export default function PageDetail() {
                             ) : (
                                 <div className="space-y-3">
                                     {pendingRequests.map((request) => (
-                                        <div key={request.userId}
+                                        <div key={request.user?.id}
                                             className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 dark:hover:bg-[#3a3b3c]">
                                             <img
                                                 src={buildS3Url(request.user?.avatarUrl) || "https://via.placeholder.com/48"}
@@ -953,25 +1005,25 @@ export default function PageDetail() {
                                             />
                                             <div className="flex-1 min-w-0">
                                                 <p className="font-semibold dark:text-white text-[15px]">
-                                                    {request.user?.name || request.user?.username || `User #${request.userId}`}
+                                                    {request.user?.name || request.user?.username || `User #${request.user?.id}`}
                                                 </p>
                                                 <p className="text-gray-500 dark:text-gray-400 text-sm">
                                                     @{request.user?.username}
                                                 </p>
                                             </div>
                                             <div className="flex flex-col gap-1.5 flex-shrink-0">
-                                                {requestActionLoading === request.userId ? (
+                                                {requestActionLoading === Number(request.user?.id) ? (
                                                     <Loader2 className="animate-spin text-gray-400" size={20} />
                                                 ) : (
                                                     <>
                                                         <button
-                                                            onClick={() => handleApproveRequest(request.userId)}
+                                                            onClick={() => handleApproveRequest(Number(request.user?.id))}
                                                             className="px-4 py-1.5 bg-blue-500 text-white rounded-lg text-sm font-semibold hover:bg-blue-600 transition-colors"
                                                         >
                                                             Chấp nhận
                                                         </button>
                                                         <button
-                                                            onClick={() => handleRejectRequest(request.userId)}
+                                                            onClick={() => handleRejectRequest(Number(request.user?.id))}
                                                             className="px-4 py-1.5 bg-gray-200 dark:bg-[#3a3b3c] text-gray-700 dark:text-gray-200 rounded-lg text-sm font-semibold hover:bg-gray-300 transition-colors"
                                                         >
                                                             Từ chối

@@ -153,14 +153,15 @@ export default function EditPage() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        if (!validate() || !pageId) return;
+        const numericPageId = pageId ? Number(pageId) : null;
+        if (!validate() || !numericPageId || !Number.isFinite(numericPageId) || numericPageId <= 0) return;
 
         setSaving(true);
         try {
             // Upload new avatar if selected
             if (avatarFile) {
                 const extension = avatarFile.name.split('.').pop() || 'jpg';
-                const uploadUrl = await pageService.getUploadAvatarUrl('pages', Number(pageId), extension);
+                const uploadUrl = await pageService.getUploadAvatarUrl('pages', numericPageId, extension);
 
                 await fetch(uploadUrl, {
                     method: 'PUT',
@@ -174,7 +175,7 @@ export default function EditPage() {
             // Upload new cover if selected
             if (coverFile) {
                 const extension = coverFile.name.split('.').pop() || 'jpg';
-                const uploadUrl = await pageService.getUploadCoverUrl('pages', Number(pageId), extension);
+                const uploadUrl = await pageService.getUploadCoverUrl('pages', numericPageId, extension);
 
                 await fetch(uploadUrl, {
                     method: 'PUT',
@@ -186,7 +187,7 @@ export default function EditPage() {
             }
 
             // Update page info (images already updated by backend when we called getUploadAvatarUrl/getUploadCoverUrl)
-            await pageService.updatePage(Number(pageId), {
+            await pageService.updatePage(numericPageId, {
                 name: formData.name,
                 username: formData.username,
                 category: formData.category,

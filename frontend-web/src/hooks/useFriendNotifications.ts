@@ -9,11 +9,28 @@ export type FriendEventType =
   | "friend-reject"
   | "friend-cancel";
 
+// Matches backend FriendEventPayload DTO
+interface BackendFriendPayload {
+  eventType: string;
+  senderId: number;
+  receiverId: number;
+  timestamp: string;
+}
+
 export interface FriendNotificationPayload {
   event: FriendEventType;
   message: string;
   timestamp: string;
+  senderId?: number;
+  receiverId?: number;
 }
+
+const FRIEND_EVENT_MESSAGES: Record<FriendEventType, string> = {
+  "friend-request": "Bạn có lời mời kết bạn mới",
+  "friend-accept": "Lời mời kết bạn của bạn đã được chấp nhận",
+  "friend-reject": "Lời mời kết bạn của bạn đã bị từ chối",
+  "friend-cancel": "Một người dùng đã hủy kết bạn với bạn",
+};
 
 interface UseFriendNotificationsOptions {
   onFriendRequest?: (payload: FriendNotificationPayload) => void;
@@ -63,14 +80,19 @@ export function useFriendNotifications(options: UseFriendNotificationsOptions = 
   const callbacksRef = useRef({ onFriendRequest, onFriendAccept, onFriendReject, onFriendCancel });
   callbacksRef.current = { onFriendRequest, onFriendAccept, onFriendReject, onFriendCancel };
 
-  const handleFriendEvent = useCallback((eventType: FriendEventType, message: string) => {
+  const handleFriendEvent = useCallback((eventType: FriendEventType, raw: BackendFriendPayload | string) => {
+    const backend = typeof raw === 'object' && raw !== null ? raw as BackendFriendPayload : null;
+    const message = FRIEND_EVENT_MESSAGES[eventType];
+
     const payload: FriendNotificationPayload = {
       event: eventType,
-      message: message,
-      timestamp: new Date().toISOString(),
+      message,
+      timestamp: backend?.timestamp ?? new Date().toISOString(),
+      senderId: backend?.senderId,
+      receiverId: backend?.receiverId,
     };
 
-    console.log(`🔔 Friend event received: ${eventType}`, message);
+    console.log(`🔔 Friend event received: ${eventType}`, raw);
 
     // Show toast notification with the message from backend
     if (showToasts && message) {
@@ -151,11 +173,10 @@ export function useFriendNotifications(options: UseFriendNotificationsOptions = 
 
         websocketService.subscribeToTopic(
           destination,
-          (message: any) => {
-            console.log(`📨 Received ${eventType}:`, message);
-            // Backend sends plain text string, not JSON
-            const messageText = typeof message === 'string' ? message : String(message);
-            handleFriendEvent(eventType, messageText);
+          (raw: any) => {
+            console.log(`📨 Received ${eventType}:`, raw);
+            // Backend sends FriendEventPayload: { eventType, senderId, receiverId, timestamp }
+            handleFriendEvent(eventType, raw);
           }
         );
       });
@@ -167,22 +188,16 @@ export function useFriendNotifications(options: UseFriendNotificationsOptions = 
     // Connect and subscribe
     const setupConnection = async () => {
       try {
-        // Try to connect if not already connected
-        if (!websocketService.isConnected()) {
-          console.log("🔄 Connecting to WebSocket...");
-          await websocketService.connect(
-            () => {
-              console.log("✅ WebSocket connected callback fired");
-              subscribeToFriendEvents();
-            },
-            (error) => {
-              console.error("❌ WebSocket connection error:", error);
-            }
-          );
-        } else {
-          // Already connected, just subscribe
-          subscribeToFriendEvents();
-        }
+        // Ensure WebSocket is connected (safe to call even if already connecting/connected)
+        await websocketService.connect(
+          undefined,
+          (error) => {
+            console.error("❌ WebSocket connection error:", error);
+          }
+        );
+        // Subscribe after connection is guaranteed — avoids race condition where
+        // another component's connect() call swallows our onConnect callback.
+        subscribeToFriendEvents();
       } catch (error) {
         console.error("❌ Error setting up friend notifications:", error);
       }

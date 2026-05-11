@@ -116,6 +116,13 @@ public class UserController {
         return ResponseEntity.ok(ApiResponse.success(200, "Get current user successfully", currentUser));
     }
 
+    @PostMapping("/resend-otp")
+    @ApiMessage("OTP resent successfully")
+    public ResponseEntity<Void> resendOtp(@RequestBody UserRequestForgotPassword request) {
+        userService.resendConfirmationOtp(request.getPhone());
+        return ResponseEntity.ok().build();
+    }
+
     @PostMapping("/forgot-password")
     @ApiMessage("OTP sent successfully")
     public ResponseEntity<UserResponseOTPPassword> forgotPassword(@RequestBody UserRequestForgotPassword requestForgotPassword) {
@@ -131,6 +138,101 @@ public class UserController {
             return ResponseEntity.ok("Password has been reset successfully");
         }
         return ResponseEntity.badRequest().body("Failed to reset password");
+    }
+
+    @PostMapping("/logout-all")
+    @ApiMessage("All sessions terminated")
+    public ResponseEntity<String> logoutAllDevices() {
+        User user = userService.getCurrentUser();
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Unauthorized");
+        }
+        userService.logoutAllDevices(user);
+        return ResponseEntity.ok("All devices logged out");
+    }
+
+    @PostMapping("/setup-pin")
+    @ApiMessage("Setup PIN successfully")
+    public ResponseEntity<ApiResponse<String>> setupPin(@RequestBody UserRequestSetupPin request) {
+        User user = userService.getCurrentUser();
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "Unauthorized", null));
+        }
+        if (request.getPinCode() == null || request.getPinCode().length() != 6) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error(400, "Mã PIN phải có đúng 6 chữ số", null));
+        }
+        userService.setupPinCode(user, request.getPinCode());
+        return ResponseEntity.ok(ApiResponse.success(200, "Cài đặt mã PIN thành công", null));
+    }
+
+    @PostMapping("/remove-pin")
+    @ApiMessage("Remove PIN successfully")
+    public ResponseEntity<ApiResponse<String>> removePin(@RequestBody UserRequestRemovePin request) {
+        User user = userService.getCurrentUser();
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "Unauthorized", null));
+        }
+        
+        if (!userService.verifyPinCode(user, request.getPinCode())) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error(400, "Mã PIN hiện tại không chính xác", null));
+        }
+        
+        userService.removePinCode(user);
+        return ResponseEntity.ok(ApiResponse.success(200, "Xóa mã PIN thành công", null));
+    }
+
+    @PostMapping("/request-deletion")
+    @ApiMessage("Account deletion requested")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> requestDeletion(@RequestBody(required = false) UserRequestDeletion request) {
+        User user = userService.getCurrentUser();
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "Unauthorized", null));
+        }
+
+        if (user.hasPinCode()) {
+            if (request == null || request.getPinCode() == null || request.getPinCode().isEmpty()) {
+                return ResponseEntity.badRequest()
+                        .body(ApiResponse.error(400, "Yêu cầu nhập mã PIN để xác nhận", null));
+            }
+            if (!userService.verifyPinCode(user, request.getPinCode())) {
+                return ResponseEntity.badRequest()
+                        .body(ApiResponse.error(400, "Mã PIN không chính xác", null));
+            }
+        }
+
+        userService.requestAccountDeletion(user);
+        return ResponseEntity.ok(ApiResponse.success(200, "Yêu cầu xóa tài khoản thành công",
+                Map.of("scheduledFor", user.getDeletionScheduledFor().toString(),
+                        "remainingDays", 30)));
+    }
+
+    @PostMapping("/cancel-deletion")
+    @ApiMessage("Account deletion cancelled")
+    public ResponseEntity<ApiResponse<String>> cancelDeletion(@RequestBody(required = false) UserRequestDeletion request) {
+        User user = userService.getCurrentUser();
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "Unauthorized", null));
+        }
+
+        if (user.hasPinCode()) {
+            if (request == null || request.getPinCode() == null || request.getPinCode().isEmpty()) {
+                return ResponseEntity.badRequest()
+                        .body(ApiResponse.error(400, "Yêu cầu nhập mã PIN để xác nhận", null));
+            }
+            if (!userService.verifyPinCode(user, request.getPinCode())) {
+                return ResponseEntity.badRequest()
+                        .body(ApiResponse.error(400, "Mã PIN không chính xác", null));
+            }
+        }
+
+        userService.cancelAccountDeletion(user);
+        return ResponseEntity.ok(ApiResponse.success(200, "Đã hủy yêu cầu xóa tài khoản", null));
     }
 
     @GetMapping("/users")

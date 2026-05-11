@@ -5,6 +5,7 @@ export { default as CustomInput } from "./CustomInput";
 export { default as EmptyState } from "./EmptyState";
 export { default as GroupConversationPanel } from "./GroupConversationPanel";
 export { default as LoadingView } from "./LoadingView";
+export { default as Logo } from "./Logo";
 export { default as MessageItem } from "./MessageItem";
 export { default as NotificationItem } from "./NotificationItem";
 export { default as PostCard } from "./PostCard";

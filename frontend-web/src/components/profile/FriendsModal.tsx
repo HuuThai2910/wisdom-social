@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { X, Loader2, AlertCircle } from "lucide-react";
 import friendService from "../../services/friendService";
+import blockService from "../../services/blockService";
 import BlockUnblockButton from "../friend/BlockUnblockButton";
 import { buildS3Url } from "../../utils/s3";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
@@ -28,7 +29,7 @@ export default function FriendsModal({ userId, onClose }: FriendsModalProps) {
             // Load friends list and blocked users in parallel
             const [friendsList, blockedUsers] = await Promise.all([
                 friendService.getFriends(userId),
-                friendService.getBlockedUsers(currentUser.id),
+                blockService.getBlockedUsers(currentUser.id),
             ]);
             setFriends(friendsList);
             setBlockedUserIds(new Set(blockedUsers.map(u => u.id)));

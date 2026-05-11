@@ -13,11 +13,14 @@ import {
     ApiAuthUser,
     confirmRegisterOtp,
     forgotPassword,
+    getCurrentUser,
     loginWithPhone,
     logoutApi,
     registerWithPhone,
+    resendRegisterOtp,
     resetPassword,
 } from "@/services/authService";
+import chatWebsocketService from "@/services/chatWebsocketService";
 import deviceSettingService from "@/services/deviceSettingService";
 import { fakeSendMessage } from "@/services/messageService";
 import { fakeCreatePost } from "@/services/postService";
@@ -32,10 +35,11 @@ import {
     User,
 } from "@/types";
 import { getDeviceInfo } from "@/utils/deviceInfo";
-import { getSettings, saveSettings } from "@/utils/storage";
+import { getSettings, getUser, saveSettings, saveUser } from "@/utils/storage";
 import {
     createContext,
     PropsWithChildren,
+    useCallback,
     useContext,
     useEffect,
     useMemo,
@@ -88,6 +92,7 @@ type AppContextValue = {
     currentUser: User | null;
     loggedIn: boolean;
     loadingAuth: boolean;
+    bootstrapLoading: boolean;
     posts: Post[];
     stories: Story[];
     savedPostIds: string[];
@@ -98,10 +103,16 @@ type AppContextValue = {
     igtvVideos: IgtvVideo[];
     themeMode: ThemeMode;
     notificationSettings: NotificationSettings;
+    /** true khi user đang trong trạng thái chờ xóa tài khoản */
+    deletionPending: boolean;
+    deletionRemainingDays: number | undefined;
+    /** Gọi để reset trạng thái deletionPending (sau khi user hủy xóa) */
+    clearDeletionPending: () => void;
     login: (phone: string, password: string) => Promise<AuthResult>;
     signup: (payload: SignupPayload) => Promise<AuthResult>;
     signupWithPhone: (payload: PhoneSignupPayload) => Promise<AuthResult>;
     verifySignupOtp: (phone: string, otp: string) => Promise<AuthResult>;
+    resendSignupOtp: (phone: string) => Promise<AuthResult>;
     requestPasswordReset: (phone: string) => Promise<AuthResult>;
     resetPasswordByOtp: (payload: ResetPasswordPayload) => Promise<AuthResult>;
     logout: () => void;
@@ -116,6 +127,7 @@ type AppContextValue = {
     addComment: (postId: string, content: string) => void;
     addPost: (caption: string, imageUrl: string) => Promise<AuthResult>;
     updateProfile: (payload: UpdateProfilePayload) => void;
+    refreshCurrentUser: () => Promise<void>;
     sendMessage: (
         conversationId: string,
         content: string,
@@ -149,20 +161,45 @@ const toPublicImageUrl = (url?: string | null): string | undefined => {
     return `https://cnmt-hk1-amz.s3.ap-southeast-1.amazonaws.com/${url}`;
 };
 
+const normalizeGender = (
+    gender?: string | null,
+): User["gender"] | undefined => {
+    if (!gender) return undefined;
+    if (gender === "MALE" || gender === "FEMALE" || gender === "HIDDEN") {
+        return gender;
+    }
+    return undefined;
+};
+
+const toInternationalPhone = (phone?: string | null): string => {
+    if (!phone) return "";
+    if (phone.startsWith("+84")) return phone;
+    if (phone.startsWith("0")) return `+84${phone.substring(1)}`;
+    if (/^\d{9,10}$/.test(phone)) return `+84${phone}`;
+    return phone;
+};
+
 const mapApiUserToAppUser = (apiUser: ApiAuthUser): User => {
     const normalizedUsername =
         apiUser.username?.trim().toLowerCase() || `user${apiUser.id}`;
+    const avatarUrl =
+        toPublicImageUrl(apiUser.avatarUrl) ||
+        "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=300&q=80";
 
     return {
         id: String(apiUser.id),
         username: normalizedUsername,
         fullName: apiUser.name?.trim() || normalizedUsername,
+        name: apiUser.name?.trim() || normalizedUsername,
         bio: apiUser.bio?.trim() || "Welcome to Wisdom Social",
-        avatar:
-            toPublicImageUrl(apiUser.avatarUrl) ||
-            "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=300&q=80",
+        avatar: avatarUrl,
+        avatarUrl,
+        birthday: apiUser.birthday ?? undefined,
+        gender: normalizeGender(apiUser.gender),
+        phone: apiUser.phone,
         followers: 0,
         following: 0,
+        hasPinCode: apiUser.hasPinCode,
     };
 };
 
@@ -170,6 +207,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     const [users, setUsers] = useState<User[]>(mockUsers);
     const [currentUserId, setCurrentUserId] = useState<string | null>(null);
     const [loadingAuth, setLoadingAuth] = useState(false);
+    const [bootstrapLoading, setBootstrapLoading] = useState(true);
     const [posts, setPosts] = useState<Post[]>(mockPosts);
     const [stories] = useState<Story[]>(mockStories);
     const [savedPostIds, setSavedPostIds] =
@@ -185,6 +223,8 @@ export function AppProvider({ children }: PropsWithChildren) {
     const [themeMode, setThemeModeState] = useState<ThemeMode>("light");
     const [notificationSettings, setNotificationSettings] =
         useState<NotificationSettings>(defaultNotificationSettings);
+    const [deletionPending, setDeletionPending] = useState(false);
+    const [deletionRemainingDays, setDeletionRemainingDays] = useState<number | undefined>(undefined);
 
     const currentUser = useMemo(
         () => users.find((user) => user.id === currentUserId) ?? null,
@@ -192,6 +232,36 @@ export function AppProvider({ children }: PropsWithChildren) {
     );
 
     const loggedIn = !!currentUser;
+
+    const upsertMappedUser = useCallback((mappedUser: User) => {
+        setUsers((prev) => {
+            const exists = prev.some((u) => u.id === mappedUser.id);
+            if (exists) {
+                return prev.map((u) =>
+                    u.id === mappedUser.id ? { ...u, ...mappedUser } : u,
+                );
+            }
+            return [mappedUser, ...prev];
+        });
+        setCurrentUserId(mappedUser.id);
+    }, []);
+
+    const syncCurrentUserFromServer = useCallback(async () => {
+        const latestUser = await getCurrentUser();
+        if (!latestUser) return;
+
+        await saveUser(latestUser);
+        upsertMappedUser(mapApiUserToAppUser(latestUser));
+
+        // Surface deletion status if still pending
+        if (latestUser.deletionPending) {
+            setDeletionPending(true);
+            setDeletionRemainingDays(latestUser.deletionRemainingDays);
+        } else {
+            setDeletionPending(false);
+            setDeletionRemainingDays(undefined);
+        }
+    }, [upsertMappedUser]);
 
     useEffect(() => {
         const bootstrapSettings = async () => {
@@ -209,6 +279,59 @@ export function AppProvider({ children }: PropsWithChildren) {
 
         void bootstrapSettings();
     }, []);
+
+    // Restore session from storage on app startup
+    useEffect(() => {
+        const bootstrapAuth = async () => {
+            try {
+                const storedUser = await getUser<ApiAuthUser>();
+                if (storedUser) {
+                    upsertMappedUser(mapApiUserToAppUser(storedUser));
+                    // Silently sync latest user data from server in background
+                    void syncCurrentUserFromServer();
+                }
+            } catch {
+                // Ignore bootstrap errors
+            } finally {
+                setBootstrapLoading(false);
+            }
+        };
+
+        void bootstrapAuth();
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    useEffect(() => {
+        if (!loggedIn || !currentUser?.phone) return;
+
+        const internationalPhone = toInternationalPhone(currentUser.phone);
+        if (!internationalPhone) return;
+
+        let cancelled = false;
+
+        const setupRealtimeProfileSync = async () => {
+            try {
+                await chatWebsocketService.connect();
+            } catch {
+                // ignore connection bootstrap errors; subscriptions will be synced on reconnect
+            }
+
+            if (cancelled) return;
+
+            chatWebsocketService.subscribeToProfileUpdates(
+                internationalPhone,
+                () => {
+                    void syncCurrentUserFromServer();
+                },
+            );
+        };
+
+        void setupRealtimeProfileSync();
+
+        return () => {
+            cancelled = true;
+            chatWebsocketService.unsubscribeFromProfileUpdates(internationalPhone);
+        };
+    }, [loggedIn, currentUser?.phone, syncCurrentUserFromServer]);
 
     useEffect(() => {
         const loadRemoteDeviceSettings = async () => {
@@ -278,25 +401,29 @@ export function AppProvider({ children }: PropsWithChildren) {
         });
 
         if (apiResult.success && apiResult.user) {
-            const mappedUser = mapApiUserToAppUser(apiResult.user);
-            setUsers((prev) => {
-                const exists = prev.some((u) => u.id === mappedUser.id);
-                if (exists) {
-                    return prev.map((u) =>
-                        u.id === mappedUser.id ? { ...u, ...mappedUser } : u,
-                    );
-                }
-                return [mappedUser, ...prev];
-            });
-            setCurrentUserId(mappedUser.id);
+            upsertMappedUser(mapApiUserToAppUser(apiResult.user));
+            // Surface deletion status
+            if (apiResult.deletionPending) {
+                setDeletionPending(true);
+                setDeletionRemainingDays(apiResult.deletionRemainingDays);
+            } else {
+                setDeletionPending(false);
+                setDeletionRemainingDays(undefined);
+            }
             setLoadingAuth(false);
-            return { success: true };
+            return {
+                success: true,
+                deletionPending: apiResult.deletionPending,
+                deletionRemainingDays: apiResult.deletionRemainingDays,
+            };
         }
 
         setLoadingAuth(false);
         return {
             success: false,
             message: apiResult.message ?? "Đăng nhập thất bại.",
+            remainingSeconds: apiResult.remainingSeconds,
+            lockReason: apiResult.lockReason,
         };
     };
 
@@ -324,6 +451,10 @@ export function AppProvider({ children }: PropsWithChildren) {
         return confirmRegisterOtp(phone, otp);
     };
 
+    const resendSignupOtp = async (phone: string): Promise<AuthResult> => {
+        return resendRegisterOtp(phone);
+    };
+
     const requestPasswordReset = async (phone: string): Promise<AuthResult> => {
         return forgotPassword(phone);
     };
@@ -334,8 +465,15 @@ export function AppProvider({ children }: PropsWithChildren) {
         return resetPassword(payload);
     };
 
+    const clearDeletionPending = useCallback(() => {
+        setDeletionPending(false);
+        setDeletionRemainingDays(undefined);
+    }, []);
+
     const logout = () => {
         setCurrentUserId(null);
+        setDeletionPending(false);
+        setDeletionRemainingDays(undefined);
         void logoutApi();
     };
 
@@ -481,6 +619,10 @@ export function AppProvider({ children }: PropsWithChildren) {
         );
     };
 
+    const refreshCurrentUser = async () => {
+        await syncCurrentUserFromServer();
+    };
+
     const sendMessage = async (
         conversationId: string,
         content: string,
@@ -561,6 +703,7 @@ export function AppProvider({ children }: PropsWithChildren) {
             currentUser,
             loggedIn,
             loadingAuth,
+            bootstrapLoading,
             posts,
             stories,
             savedPostIds,
@@ -571,13 +714,18 @@ export function AppProvider({ children }: PropsWithChildren) {
             igtvVideos,
             themeMode,
             notificationSettings,
+            deletionPending,
+            deletionRemainingDays,
+            clearDeletionPending,
             login,
             signup,
             signupWithPhone,
             verifySignupOtp,
+            resendSignupOtp,
             requestPasswordReset,
             resetPasswordByOtp,
             logout,
+            refreshCurrentUser: syncCurrentUserFromServer,
             setThemeMode,
             updateNotificationSetting,
             toggleAllNotifications,
@@ -586,6 +734,7 @@ export function AppProvider({ children }: PropsWithChildren) {
             addComment,
             addPost,
             updateProfile,
+            refreshCurrentUser,
             sendMessage,
             markNotificationsRead,
             getUserById,
@@ -597,6 +746,7 @@ export function AppProvider({ children }: PropsWithChildren) {
             currentUser,
             loggedIn,
             loadingAuth,
+            bootstrapLoading,
             posts,
             stories,
             savedPostIds,
@@ -607,6 +757,10 @@ export function AppProvider({ children }: PropsWithChildren) {
             igtvVideos,
             themeMode,
             notificationSettings,
+            deletionPending,
+            deletionRemainingDays,
+            clearDeletionPending,
+            refreshCurrentUser,
         ],
     );
 

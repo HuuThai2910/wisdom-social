@@ -10,6 +10,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -28,5 +29,6 @@ public interface UserRepository extends JpaRepository<User,Long> {
 
     List<User> findUsersByUsernameContaining(String username);
 
+    List<User> findByDeletionScheduledForBefore(OffsetDateTime dateTime);
     Page<User> findByIdInAndUsernameContainingIgnoreCase(List<Long> ids, String username, Pageable pageable);
 }

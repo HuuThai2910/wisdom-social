@@ -8,13 +8,19 @@ import iuh.fit.edu.backend.constant.FriendStatus;
 import iuh.fit.edu.backend.domain.entity.mysql.*;
 import iuh.fit.edu.backend.dto.request.friend.FriendRequest;
 import iuh.fit.edu.backend.dto.request.user.*;
+import iuh.fit.edu.backend.dto.response.friend.BlockEventPayload;
 import iuh.fit.edu.backend.dto.response.user.*;
 import iuh.fit.edu.backend.config.filter.JwtAuthFilter;
 import iuh.fit.edu.backend.mapper.UserMapper;
+import iuh.fit.edu.backend.repository.mysql.ActiveTokenRepository;
 import iuh.fit.edu.backend.repository.mysql.BlackListUserRepository;
 import iuh.fit.edu.backend.repository.mysql.DeviceRepository;
 import iuh.fit.edu.backend.repository.mysql.FriendRepository;
 import iuh.fit.edu.backend.repository.mysql.UserRepository;
+import iuh.fit.edu.backend.exception.AccountLockedException;
+import iuh.fit.edu.backend.exception.RateLimitExceededException;
+import iuh.fit.edu.backend.service.security.AccountLockService;
+import iuh.fit.edu.backend.service.security.RateLimitService;
 import iuh.fit.edu.backend.service.user.BlockUserService;
 import iuh.fit.edu.backend.service.user.UserService;
 import jakarta.transaction.Transactional;
@@ -55,6 +61,9 @@ public class UserServiceImpl implements UserService {
     CognitoIdentityProviderClient cognitoClient;
     SimpMessagingTemplate simpMessagingTemplate;
     DeviceRepository deviceRepository;
+    ActiveTokenRepository activeTokenRepository;
+    RateLimitService rateLimitService;
+    AccountLockService accountLockService;
     FriendRepository friendRepository;
 
 
@@ -63,7 +72,11 @@ public class UserServiceImpl implements UserService {
                            UserMapper userMapper, UserRepository userRepository,
                            SimpMessagingTemplate simpMessagingTemplate,
                            DeviceRepository deviceRepository,
-                           FriendRepository friendRepository) {
+                           ActiveTokenRepository activeTokenRepository,
+                           RateLimitService rateLimitService,
+                           AccountLockService accountLockService,
+                           FriendRepository friendRepository
+                           ) {
         this.blackListUserRepository = blackListUserRepository;
         this.blockUserService = blockUserService;
         this.cognitoClient = cognitoClient;
@@ -71,6 +84,9 @@ public class UserServiceImpl implements UserService {
         this.userRepository = userRepository;
         this.simpMessagingTemplate = simpMessagingTemplate;
         this.deviceRepository = deviceRepository;
+        this.activeTokenRepository = activeTokenRepository;
+        this.rateLimitService = rateLimitService;
+        this.accountLockService = accountLockService;
         this.friendRepository = friendRepository;
     }
 
@@ -130,63 +146,127 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public UserResponseConfirmRegister confirmRegisterUser(UserRequestConfirmRegister confirm) {
-        String phone="+84"+confirm.getPhone().substring(1,10);
+        long otpLock = rateLimitService.checkOtpLock(confirm.getPhone());
+        if (otpLock > 0) {
+            throw new RateLimitExceededException(otpLock);
+        }
+
+        String phone = "+84" + confirm.getPhone().substring(1, 10);
 
         System.out.println("Confirming registration for phone: " + phone + " with OTP: " + confirm.getOtp());
-        ConfirmSignUpRequest request= ConfirmSignUpRequest.builder()
+        ConfirmSignUpRequest request = ConfirmSignUpRequest.builder()
                 .clientId(userClientId)
                 .username(phone)
                 .confirmationCode(confirm.getOtp())
                 .build();
 
-        ConfirmSignUpResponse response= cognitoClient.confirmSignUp(request);
-        if(response!=null){
-
-            return UserResponseConfirmRegister.builder()
-                    .status(true)
-                    .build();
+        try {
+            ConfirmSignUpResponse response = cognitoClient.confirmSignUp(request);
+            if (response != null) {
+                rateLimitService.clearOtpAttempts(confirm.getPhone());
+                return UserResponseConfirmRegister.builder()
+                        .status(true)
+                        .build();
+            }
+            return null;
+        } catch (CodeMismatchException e) {
+            long lockSec = rateLimitService.recordFailedOtp(confirm.getPhone());
+            if (lockSec > 0) {
+                throw new RateLimitExceededException(lockSec);
+            }
+            throw new RuntimeException("Invalid confirmation code: " + e.getMessage());
+        } catch (ExpiredCodeException e) {
+            throw new RuntimeException("Confirmation code expired: " + e.getMessage());
         }
-        return null;
     }
 
     @Override
     public UserResponseLogin loginUser(UserRequestLogin login) {
-        String phone="+84"+login.getPhone().substring(1,10);
-        Map<String,String> authParams=new HashMap<>();
-        authParams.put("USERNAME",phone);
-        authParams.put("PASSWORD",login.getPassword());
+        String ip = login.getIpAddress() != null ? login.getIpAddress() : "unknown";
 
-        InitiateAuthRequest request=InitiateAuthRequest.builder()
+        // Check rate limit lock
+        long lockRemaining = rateLimitService.checkLoginLock(login.getPhone(), ip);
+        if (lockRemaining > 0) {
+            throw new RateLimitExceededException(lockRemaining);
+        }
+
+        // Check account lock
+        User user = userRepository.findByPhone(login.getPhone());
+        if (user != null && accountLockService.isLocked(user)) {
+            long remainSec = accountLockService.getRemainingLockSeconds(user);
+            throw new AccountLockedException(remainSec, user.getLockReason());
+        }
+
+        String phone = "+84" + login.getPhone().substring(1, 10);
+        Map<String, String> authParams = new HashMap<>();
+        authParams.put("USERNAME", phone);
+        authParams.put("PASSWORD", login.getPassword());
+
+        InitiateAuthRequest request = InitiateAuthRequest.builder()
                 .clientId(userClientId)
                 .authFlow(AuthFlowType.USER_PASSWORD_AUTH)
                 .authParameters(authParams)
                 .build();
 
-        InitiateAuthResponse response= cognitoClient.initiateAuth(request);
-        AuthenticationResultType resultType=response.authenticationResult();
+        try {
+            InitiateAuthResponse response = cognitoClient.initiateAuth(request);
+            AuthenticationResultType resultType = response.authenticationResult();
 
-        if(resultType!=null){
-            String accessToken  = resultType.accessToken();
-            String refreshToken = resultType.refreshToken();
-            String idToken=resultType.idToken();
-            User user= userRepository.findByPhone(login.getPhone());
-            saveDevice(user, login.getDeviceType(), login.getDeviceName(), login.getIpAddress());
-            return UserResponseLogin.builder()
-                    .id(user.getId())
-                    .phone(user.getPhone())
-                    .username(user.getUsername())
-                    .name(user.getName())
-                    .avatarUrl(user.getAvatarUrl())
-                    .bio(user.getBio())
-                    .gender(user.getGender())
-                    .birthday(user.getBirthday())
-                    .createdAt(user.getCreatedAt() != null ? user.getCreatedAt().toInstant() : null)
-                    .token(accessToken)
-                    .refreskToken(refreshToken)
-                    .idToken(idToken)
-                    .build();
+            if (resultType != null) {
+                rateLimitService.clearLoginAttempts(login.getPhone(), ip);
+
+                String accessToken = resultType.accessToken();
+                String refreshToken = resultType.refreshToken();
+                String idToken = resultType.idToken();
+                if (user == null) {
+                    user = userRepository.findByPhone(login.getPhone());
+                }
+                saveDevice(user, login.getDeviceType(), login.getDeviceName(), login.getIpAddress());
+
+                activeTokenRepository.save(ActiveToken.builder()
+                        .userId(user.getId())
+                        .accessToken(accessToken)
+                        .refreshToken(refreshToken)
+                        .idToken(idToken)
+                        .createdAt(OffsetDateTime.now())
+                        .expiresAt(OffsetDateTime.now().plusHours(1))
+                        .build());
+
+                UserResponseLogin.UserResponseLoginBuilder builder = UserResponseLogin.builder()
+                        .id(user.getId())
+                        .phone(user.getPhone())
+                        .username(user.getUsername())
+                        .name(user.getName())
+                        .avatarUrl(user.getAvatarUrl())
+                        .bio(user.getBio())
+                        .gender(user.getGender())
+                        .birthday(user.getBirthday())
+                        .createdAt(user.getCreatedAt() != null ? user.getCreatedAt().toInstant() : null)
+                        .token(accessToken)
+                        .refreskToken(refreshToken)
+                        .idToken(idToken)
+                        .hasPinCode(user.hasPinCode());
+
+                if (user.getDeletionRequestedAt() != null) {
+                    long remainingDays = ChronoUnit.DAYS.between(OffsetDateTime.now(), user.getDeletionScheduledFor());
+                    builder.deletionPending(true)
+                            .deletionRemainingDays(Math.max(remainingDays, 0))
+                            .deletionScheduledFor(user.getDeletionScheduledFor() != null ? user.getDeletionScheduledFor().toInstant() : null);
+                }
+
+                return builder.build();
+            }
+            return null;
+        } catch (NotAuthorizedException e) {
+            long lockSec = rateLimitService.recordFailedLogin(login.getPhone(), ip);
+            if (lockSec > 0 && user != null) {
+                accountLockService.systemLock(user, "Nhập sai mật khẩu quá nhiều lần", 15);
+            }
+            if (lockSec > 0) {
+                throw new RateLimitExceededException(lockSec);
+            }
+            throw new RuntimeException("Incorrect username or password");
         }
-        return null;
     }
 
     @Override
@@ -279,6 +359,21 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    public void resendConfirmationOtp(String phone) {
+        String formattedPhone = "+84" + phone.substring(1, 10);
+        System.out.println("Test resend OTP:"+phone);
+        try {
+            ResendConfirmationCodeRequest request = ResendConfirmationCodeRequest.builder()
+                    .clientId(userClientId)
+                    .username(formattedPhone)
+                    .build();
+            cognitoClient.resendConfirmationCode(request);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to resend OTP: " + e.getMessage());
+        }
+    }
+
+    @Override
     public UserResponseOTPPassword forgotPasswordUser(UserRequestForgotPassword requestForgotPassword) {
         String phone = "+84" + requestForgotPassword.getPhone().substring(1, 10);
         
@@ -304,12 +399,17 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public boolean resetPassword(UserRequestResetPassword requestResetPassword) {
+        long otpLock = rateLimitService.checkOtpLock(requestResetPassword.getPhone());
+        if (otpLock > 0) {
+            throw new RateLimitExceededException(otpLock);
+        }
+
         if (!requestResetPassword.getPassword().equals(requestResetPassword.getConfirmPassword())) {
             throw new RuntimeException("Password and confirm password do not match");
         }
-        
+
         String phone = "+84" + requestResetPassword.getPhone().substring(1, 10);
-        
+
         try {
             ConfirmForgotPasswordRequest request = ConfirmForgotPasswordRequest.builder()
                     .clientId(userClientId)
@@ -317,10 +417,22 @@ public class UserServiceImpl implements UserService {
                     .confirmationCode(requestResetPassword.getConfirmationCode())
                     .password(requestResetPassword.getPassword())
                     .build();
-            
+
             ConfirmForgotPasswordResponse response = cognitoClient.confirmForgotPassword(request);
-            
-            return response != null;
+
+            if (response != null) {
+                rateLimitService.clearOtpAttempts(requestResetPassword.getPhone());
+                return true;
+            }
+            return false;
+        } catch (CodeMismatchException e) {
+            long lockSec = rateLimitService.recordFailedOtp(requestResetPassword.getPhone());
+            if (lockSec > 0) {
+                throw new RateLimitExceededException(lockSec);
+            }
+            throw new RuntimeException("Failed to reset password: Invalid code provided");
+        } catch (ExpiredCodeException e) {
+            throw new RuntimeException("Failed to reset password: Code expired");
         } catch (Exception e) {
             throw new RuntimeException("Failed to reset password: " + e.getMessage());
         }
@@ -449,14 +561,14 @@ public class UserServiceImpl implements UserService {
             blockUserService.blockUser(blockedUser);
             String blockerPhone = convertToInternationalFormat(blocker.getPhone());
             String blockedPhone = convertToInternationalFormat(blocked.getPhone());
-            simpMessagingTemplate.convertAndSend(
-                    "/topic/user/" + blockerPhone + "/save-block",
-                    "Người dùng này đã bị chặn"
-            );
-            simpMessagingTemplate.convertAndSend(
-                    "/topic/user/" + blockedPhone + "/save-block",
-                    "Bạn đã bị chặn"
-            );
+            BlockEventPayload blockPayload = BlockEventPayload.builder()
+                    .eventType("save-block")
+                    .blockerId(friendRequest.getSenderId())
+                    .blockedId(friendRequest.getReceivedId())
+                    .timestamp(OffsetDateTime.now().toString())
+                    .build();
+            simpMessagingTemplate.convertAndSend("/topic/user/" + blockerPhone + "/save-block", blockPayload);
+            simpMessagingTemplate.convertAndSend("/topic/user/" + blockedPhone + "/save-block", blockPayload);
             return true;
         }
         return false;
@@ -471,14 +583,14 @@ public class UserServiceImpl implements UserService {
             blockUserService.cancelBlockUser(blockedUser);
             String blockerPhone = convertToInternationalFormat(blocker.getPhone());
             String blockedPhone = convertToInternationalFormat(blocked.getPhone());
-            simpMessagingTemplate.convertAndSend(
-                    "/topic/user/" + blockerPhone + "/cancel-block",
-                    "Người dùng này đã được gỡ chặn"
-            );
-            simpMessagingTemplate.convertAndSend(
-                    "/topic/user/" + blockedPhone + "/cancel-block",
-                    "Bạn đã được gỡ chặn"
-            );
+            BlockEventPayload cancelPayload = BlockEventPayload.builder()
+                    .eventType("cancel-block")
+                    .blockerId(friendRequest.getSenderId())
+                    .blockedId(friendRequest.getReceivedId())
+                    .timestamp(OffsetDateTime.now().toString())
+                    .build();
+            simpMessagingTemplate.convertAndSend("/topic/user/" + blockerPhone + "/cancel-block", cancelPayload);
+            simpMessagingTemplate.convertAndSend("/topic/user/" + blockedPhone + "/cancel-block", cancelPayload);
             return true;
         }
         return false;
@@ -536,6 +648,30 @@ public class UserServiceImpl implements UserService {
         return now;
     }
 
+    @Override
+    public PaginatedUserResponse searchMentionUsers(long viewerId, String keyword, int page, int size) {
+        List<Long> friendIds = friendRepository.findAcceptedFriendIds(viewerId, FriendStatus.ACCEPTED.ordinal());
+
+        if (friendIds == null || friendIds.isEmpty()) {
+            return PaginatedUserResponse.builder()
+                    .data(Collections.emptyList())
+                    .page(page)
+                    .hasMore(false)
+                    .build();
+        }
+
+        Page<User> userPage = userRepository.findByIdInAndUsernameContainingIgnoreCase(
+                friendIds,
+                keyword,
+                PageRequest.of(page, size)
+        );
+
+        return PaginatedUserResponse.builder()
+                .data(userPage.getContent())
+                .page(page)
+                .hasMore(userPage.hasNext())
+                .build();    }
+
     public boolean checkUserStatus(String phone) {
         try {
             AdminGetUserRequest request = AdminGetUserRequest.builder()
@@ -551,28 +687,73 @@ public class UserServiceImpl implements UserService {
             return false;
         }
     }
+
     @Override
-    public PaginatedUserResponse searchMentionUsers(long viewerId, String keyword, int page, int size) {
-        List<Long> friendIds = friendRepository.findAcceptedFriendIds(viewerId, FriendStatus.ACCEPTED.ordinal());
-        
-        if (friendIds == null || friendIds.isEmpty()) {
-            return PaginatedUserResponse.builder()
-                    .data(Collections.emptyList())
-                    .page(page)
-                    .hasMore(false)
-                    .build();
+    @Transactional
+    public void logoutAllDevices(User user) {
+        // Push WebSocket force-logout event BEFORE invalidating tokens
+        // so connected web clients can gracefully logout in real-time
+        if (user.getPhone() != null) {
+            String userPhone = convertToInternationalFormat(user.getPhone());
+            Map<String, Object> forceLogoutPayload = new HashMap<>();
+            forceLogoutPayload.put("event", "FORCE_LOGOUT");
+            forceLogoutPayload.put("userId", user.getId());
+            forceLogoutPayload.put("timestamp", java.time.OffsetDateTime.now().toString());
+            simpMessagingTemplate.convertAndSend(
+                    "/topic/user/" + userPhone + "/force-logout",
+                    forceLogoutPayload
+            );
+            System.out.println("🔴 Force logout WebSocket event sent to /topic/user/" + userPhone + "/force-logout");
         }
 
-        Page<User> userPage = userRepository.findByIdInAndUsernameContainingIgnoreCase(
-                friendIds, 
-                keyword, 
-                PageRequest.of(page, size)
-        );
+        List<ActiveToken> tokens = activeTokenRepository.findByUserId(user.getId());
+        for (ActiveToken token : tokens) {
+            BlackListUser bl = BlackListUser.builder()
+                    .idToken(token.getIdToken())
+                    .refreshToken(token.getRefreshToken())
+                    .userId(user.getId())
+                    .build();
+            blackListUserRepository.save(bl);
+        }
+        activeTokenRepository.deleteByUserId(user.getId());
+        deviceRepository.deleteDeviceByUser_Id(user.getId());
+    }
 
-        return PaginatedUserResponse.builder()
-                .data(userPage.getContent())
-                .page(page)
-                .hasMore(userPage.hasNext())
-                .build();
+    @Override
+    @Transactional
+    public void requestAccountDeletion(User user) {
+        user.setDeletionRequestedAt(OffsetDateTime.now());
+        user.setDeletionScheduledFor(OffsetDateTime.now().plusDays(30));
+        userRepository.save(user);
+    }
+
+    @Override
+    @Transactional
+    public void cancelAccountDeletion(User user) {
+        user.setDeletionRequestedAt(null);
+        user.setDeletionScheduledFor(null);
+        userRepository.save(user);
+    }
+
+    @Override
+    @Transactional
+    public void setupPinCode(User user, String pinCode) {
+        user.setPinCode(pinCode);
+        userRepository.save(user);
+    }
+
+    @Override
+    public boolean verifyPinCode(User user, String pinCode) {
+        if (user.getPinCode() == null) {
+            return false; // Chưa cài đặt mã PIN
+        }
+        return user.getPinCode().equals(pinCode);
+    }
+
+    @Override
+    @Transactional
+    public void removePinCode(User user) {
+        user.setPinCode(null);
+        userRepository.save(user);
     }
 }

@@ -1,16 +1,16 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
-import { Search as SearchIcon, X, Loader2 } from "lucide-react";
+import { Search as SearchIcon, X, Loader2, User, Flag, Users } from "lucide-react";
 import userService from "../services/userService";
 import pageService from "../services/pageService";
-import friendService from "../services/friendService";
 import { useCurrentUser } from "../hooks/useCurrentUser";
+import { useBlockNotifications } from "../hooks/useBlockNotifications";
 import { buildS3Url } from "../utils/s3";
-import type { User } from "../types";
+import type { User as UserType } from "../types";
 import type { Page } from "../services/pageService";
 
 type SearchItem =
-    | { kind: "user"; data: User }
+    | { kind: "user"; data: UserType }
     | { kind: "page"; data: Page };
 
 export default function Search() {
@@ -20,15 +20,13 @@ export default function Search() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
 
-    const [allUsers, setAllUsers] = useState<User[]>([]);
+    const [allUsers, setAllUsers] = useState<UserType[]>([]);
     const [allPages, setAllPages] = useState<Page[]>([]);
-    const [blockedUserIds, setBlockedUserIds] = useState<Set<number>>(new Set());
 
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [recentSearches, setRecentSearches] = useState<string[]>([]);
 
-    // Build mixed list (alternate between users and pages)
-    const buildMixedList = useCallback((users: User[], pages: Page[]): SearchItem[] => {
+    const buildMixedList = useCallback((users: UserType[], pages: Page[]): SearchItem[] => {
         const items: SearchItem[] = [];
         const maxLen = Math.max(users.length, pages.length);
         for (let i = 0; i < maxLen; i++) {
@@ -38,28 +36,19 @@ export default function Search() {
         return items;
     }, []);
 
-    // Load all users and pages on mount
     const loadData = useCallback(async () => {
         const userId = currentUser?.id;
         if (!userId) return;
 
         setLoading(true);
         try {
-            const [users, pages, blockedUsers] = await Promise.all([
-                userService.getAllUsersSearch(currentUser?.id),
+            const [users, pages] = await Promise.all([
+                userService.getAllUsersSearch(userId),
                 pageService.getAllPages(),
-                friendService.getBlockedUsers(userId),
             ]);
 
-            // Create set of blocked user IDs for quick lookup
-            const blockedIds = new Set(blockedUsers.map((u: User) => u.id));
-            setBlockedUserIds(blockedIds);
-
-            // Filter out current user and blocked users
-            const filteredUsers = users.filter(
-                (u: User) => u.id !== userId && !blockedIds.has(u.id)
-            );
-
+            // Backend already filters blocked users — just exclude current user
+            const filteredUsers = users.filter((u: UserType) => u.id !== userId);
             setAllUsers(filteredUsers);
             setAllPages(pages);
             setResults(buildMixedList(filteredUsers, pages));
@@ -75,7 +64,12 @@ export default function Search() {
         loadData();
     }, [currentUser?.id]);
 
-    // Handle search with debounce
+    // Reload when block/unblock events arrive (mirrors mobile's useBlockNotifications pattern)
+    const blockTrigger = useBlockNotifications();
+    useEffect(() => {
+        if (blockTrigger > 0) void loadData();
+    }, [blockTrigger]);
+
     const handleSearch = (text: string) => {
         setQuery(text);
 
@@ -90,15 +84,14 @@ export default function Search() {
                 return;
             }
 
-            // Filter users by name, username, or phone
             const matchedUsers = allUsers.filter(
                 (u) =>
                     (u.name && u.name.toLowerCase().includes(q)) ||
+                    (u.fullName && u.fullName.toLowerCase().includes(q)) ||
                     (u.username && u.username.toLowerCase().includes(q)) ||
                     (u.phone && u.phone.includes(q))
             );
 
-            // Filter pages by name, username, or category
             const matchedPages = allPages.filter(
                 (p) =>
                     (p.name && p.name.toLowerCase().includes(q)) ||
@@ -117,8 +110,8 @@ export default function Search() {
         setError("");
     };
 
-    const addRecentSearch = (searchTerm: string) => {
-        const updated = [searchTerm, ...recentSearches.filter((s) => s !== searchTerm)].slice(0, 5);
+    const addRecentSearch = (term: string) => {
+        const updated = [term, ...recentSearches.filter((s) => s !== term)].slice(0, 5);
         setRecentSearches(updated);
         localStorage.setItem("recentSearches", JSON.stringify(updated));
     };
@@ -134,18 +127,15 @@ export default function Search() {
         localStorage.setItem("recentSearches", JSON.stringify(updated));
     };
 
-    // Load recent searches from localStorage
     useEffect(() => {
         const saved = localStorage.getItem("recentSearches");
         if (saved) {
-            try {
-                setRecentSearches(JSON.parse(saved));
-            } catch {}
+            try { setRecentSearches(JSON.parse(saved)); } catch {}
         }
     }, []);
 
     const handleSelectRecent = (term: string) => {
-        setQuery(term);
+        handleSearch(term);
         addRecentSearch(term);
     };
 
@@ -162,11 +152,11 @@ export default function Search() {
                     <img
                         src={buildS3Url(u.avatarUrl) || "https://i.pravatar.cc/150"}
                         alt={u.username}
-                        className="w-12 h-12 rounded-full object-cover"
+                        className="w-12 h-12 rounded-full object-cover border border-gray-200 dark:border-[#363636]"
                     />
                     <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold truncate dark:text-white">
-                            {u.name || u.username}
+                            {u.fullName || u.name || u.username || u.phone}
                         </p>
                         <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
                             @{u.username}
@@ -177,8 +167,8 @@ export default function Search() {
                             </p>
                         )}
                     </div>
-                    <div className="flex-shrink-0 w-8 h-8 bg-gray-100 dark:bg-[#262626] rounded-full flex items-center justify-center">
-                        <SearchIcon size={14} className="text-gray-400" />
+                    <div className="shrink-0 w-7 h-7 bg-gray-100 dark:bg-[#262626] rounded-full flex items-center justify-center">
+                        <User size={13} className="text-gray-400" />
                     </div>
                 </Link>
             );
@@ -195,7 +185,7 @@ export default function Search() {
                 <img
                     src={buildS3Url(p.avatarUrl) || "https://i.pravatar.cc/150"}
                     alt={p.name}
-                    className="w-12 h-12 rounded-full object-cover"
+                    className="w-12 h-12 rounded-full object-cover border border-gray-200 dark:border-[#363636]"
                 />
                 <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold truncate dark:text-white">
@@ -212,22 +202,21 @@ export default function Search() {
                         </div>
                     )}
                 </div>
-                <div className="flex-shrink-0 w-8 h-8 bg-gray-100 dark:bg-[#262626] rounded-full flex items-center justify-center">
-                    <SearchIcon size={14} className="text-gray-400" />
+                <div className="shrink-0 w-7 h-7 bg-gray-100 dark:bg-[#262626] rounded-full flex items-center justify-center">
+                    <Flag size={13} className="text-gray-400" />
                 </div>
             </Link>
         );
     };
 
     return (
-        <div className="max-w-[600px] mx-auto bg-white dark:bg-[#000] border-r border-gray-200 dark:border-[#262626] min-h-screen">
+        <div className="max-w-150 mx-auto bg-white dark:bg-black border-r border-gray-200 dark:border-[#262626] min-h-screen">
             {/* Search Header */}
-            <div className="sticky top-0 bg-white dark:bg-[#000] border-b border-gray-200 dark:border-[#262626] p-4 z-10">
+            <div className="sticky top-0 bg-white dark:bg-black border-b border-gray-200 dark:border-[#262626] p-4 z-10">
                 <h1 className="text-2xl font-semibold mb-6 dark:text-white">
                     Tìm kiếm
                 </h1>
 
-                {/* Search Input */}
                 <div className="relative">
                     <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
                         <SearchIcon size={16} />
@@ -252,103 +241,97 @@ export default function Search() {
 
             {/* Content */}
             <div className="p-4">
-                {!query ? (
-                    <>
-                        {/* Recent Searches */}
-                        {recentSearches.length > 0 && (
-                            <div className="mb-6">
-                                <div className="flex items-center justify-between mb-4 px-2">
-                                    <h2 className="text-base font-semibold dark:text-white">
-                                        Tìm kiếm gần đây
-                                    </h2>
+                {/* Recent Searches — only shown when no active query */}
+                {!query && recentSearches.length > 0 && (
+                    <div className="mb-6">
+                        <div className="flex items-center justify-between mb-4 px-2">
+                            <h2 className="text-base font-semibold dark:text-white">
+                                Tìm kiếm gần đây
+                            </h2>
+                            <button
+                                onClick={clearAllRecent}
+                                className="text-sm text-[#0095f6] hover:text-[#00376b] dark:text-[#3b82f6] dark:hover:text-[#60a5fa] font-semibold"
+                            >
+                                Xóa tất cả
+                            </button>
+                        </div>
+
+                        <div className="space-y-1">
+                            {recentSearches.map((search, index) => (
+                                <div
+                                    key={index}
+                                    className="flex items-center justify-between py-2 px-3 hover:bg-gray-50 dark:hover:bg-[#1a1a1a] rounded"
+                                >
                                     <button
-                                        onClick={clearAllRecent}
-                                        className="text-sm text-[#0095f6] hover:text-[#00376b] dark:text-[#3b82f6] dark:hover:text-[#60a5fa] font-semibold"
+                                        onClick={() => handleSelectRecent(search)}
+                                        className="flex items-center gap-3 flex-1 text-left"
                                     >
-                                        Xóa tất cả
+                                        <div className="w-9 h-9 bg-gray-100 dark:bg-[#262626] rounded-full flex items-center justify-center shrink-0">
+                                            <SearchIcon size={16} className="text-gray-500 dark:text-gray-400" />
+                                        </div>
+                                        <span className="text-sm dark:text-white truncate">
+                                            {search}
+                                        </span>
+                                    </button>
+                                    <button
+                                        onClick={() => removeRecentSearch(search)}
+                                        className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 shrink-0"
+                                    >
+                                        <X size={16} />
                                     </button>
                                 </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
 
-                                <div className="space-y-1">
-                                    {recentSearches.map((search, index) => (
-                                        <div
-                                            key={index}
-                                            className="flex items-center justify-between py-2 px-3 hover:bg-gray-50 dark:hover:bg-[#1a1a1a] rounded"
-                                        >
-                                            <button
-                                                onClick={() => handleSelectRecent(search)}
-                                                className="flex items-center gap-3 flex-1 text-left"
-                                            >
-                                                <div className="w-9 h-9 bg-gray-100 dark:bg-[#262626] rounded-full flex items-center justify-center flex-shrink-0">
-                                                    <SearchIcon
-                                                        size={16}
-                                                        className="text-gray-500 dark:text-gray-400"
-                                                    />
-                                                </div>
-                                                <span className="text-sm dark:text-white truncate">
-                                                    {search}
-                                                </span>
-                                            </button>
-                                            <button
-                                                onClick={() => removeRecentSearch(search)}
-                                                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex-shrink-0"
-                                            >
-                                                <X size={16} />
-                                            </button>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                    </>
-                ) : (
-                    <>
-                        {/* Result Count */}
-                        {!loading && results.length > 0 && (
-                            <p className="text-xs text-gray-500 dark:text-gray-400 px-2 mb-4">
-                                {results.length} kết quả cho "{query}"
+                {/* Result count */}
+                {!loading && results.length > 0 && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 px-2 mb-4">
+                        {results.length} kết quả{query ? ` cho "${query}"` : ""}
+                    </p>
+                )}
+
+                {/* Loading State */}
+                {loading && (
+                    <div className="flex flex-col items-center justify-center py-12">
+                        <Loader2 className="animate-spin text-gray-400 mb-2" size={32} />
+                        <p className="text-sm text-gray-500 dark:text-gray-400">Đang tải...</p>
+                    </div>
+                )}
+
+                {/* Error State */}
+                {error && !loading && (
+                    <div className="text-center py-8">
+                        <p className="text-sm text-red-500">{error}</p>
+                    </div>
+                )}
+
+                {/* Results */}
+                {!loading && !error && results.length > 0 && (
+                    <div className="space-y-1">
+                        {results.map((item) => renderItem(item))}
+                    </div>
+                )}
+
+                {/* Empty state */}
+                {!loading && !error && results.length === 0 && (
+                    <div className="text-center py-12">
+                        <div className="w-16 h-16 bg-gray-100 dark:bg-[#262626] rounded-full flex items-center justify-center mx-auto mb-4">
+                            {query
+                                ? <SearchIcon size={32} className="text-gray-400" />
+                                : <Users size={32} className="text-gray-400" />
+                            }
+                        </div>
+                        <p className="text-sm font-semibold dark:text-white mb-1">
+                            {query ? "Không tìm thấy kết quả" : "Chưa có dữ liệu"}
+                        </p>
+                        {query && (
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                                Thử từ khóa khác
                             </p>
                         )}
-
-                        {/* Loading State */}
-                        {loading && (
-                            <div className="flex flex-col items-center justify-center py-12">
-                                <Loader2 className="animate-spin text-gray-400 mb-2" size={32} />
-                                <p className="text-sm text-gray-500 dark:text-gray-400">
-                                    Đang tải...
-                                </p>
-                            </div>
-                        )}
-
-                        {/* Error State */}
-                        {error && !loading && (
-                            <div className="text-center py-8">
-                                <p className="text-sm text-red-500">{error}</p>
-                            </div>
-                        )}
-
-                        {/* Search Results */}
-                        {!loading && !error && results.length > 0 && (
-                            <div className="space-y-1">
-                                {results.map((item) => renderItem(item))}
-                            </div>
-                        )}
-
-                        {/* Empty State */}
-                        {!loading && !error && query && results.length === 0 && (
-                            <div className="text-center py-12">
-                                <div className="w-16 h-16 bg-gray-100 dark:bg-[#262626] rounded-full flex items-center justify-center mx-auto mb-4">
-                                    <SearchIcon size={32} className="text-gray-400" />
-                                </div>
-                                <p className="text-sm font-semibold dark:text-white mb-1">
-                                    Không tìm thấy kết quả
-                                </p>
-                                <p className="text-xs text-gray-500 dark:text-gray-400">
-                                    Thử từ khóa khác
-                                </p>
-                            </div>
-                        )}
-                    </>
+                    </div>
                 )}
             </div>
         </div>

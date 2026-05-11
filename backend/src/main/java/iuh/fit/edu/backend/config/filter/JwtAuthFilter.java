@@ -36,8 +36,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     private static final String ISSUER =
             "https://cognito-idp.ap-southeast-1.amazonaws.com/ap-southeast-1_r9OwliPee";
 
-    @Value("$JWT}")
-    private static String LOCAL_SECRET;
+    private static String LOCAL_SECRET ;
     @Override
     protected void doFilterInternal(
             HttpServletRequest request,
@@ -91,9 +90,18 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
+    public static String getLocalSecret() {
+        return LOCAL_SECRET;
+    }
+
+    @Value("${jwt.secret-key}")
+    public void setLocalSecret(String localSecret) {
+        LOCAL_SECRET = localSecret;
+    }
+
     public static DecodedJWT verifyLocalToken(String token) {
         JWTVerifier verifier = JWT
-                .require(Algorithm.HMAC256(LOCAL_SECRET))
+                .require(Algorithm.HMAC256(getLocalSecret()))
                 .withIssuer("wis-chat")
                 .build();
 
@@ -107,7 +115,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 .withIssuer("wis-chat")
                 .withIssuedAt(new Date())
                 .withExpiresAt(new Date(System.currentTimeMillis() + 3600000)) // 1 hour
-                .sign(Algorithm.HMAC256(LOCAL_SECRET));
+                .sign(Algorithm.HMAC256(getLocalSecret()));
     }
 
     public static String generateRefreshToken(String phone) {
@@ -118,7 +126,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 .withIssuer("wis-chat")
                 .withIssuedAt(new Date())
                 .withExpiresAt(new Date(System.currentTimeMillis() + 604800000)) // 7 days
-                .sign(Algorithm.HMAC256(LOCAL_SECRET));
+                .sign(Algorithm.HMAC256(getLocalSecret()));
     }
 
     private DecodedJWT verifyCognitoToken(String token) throws JwkException {
