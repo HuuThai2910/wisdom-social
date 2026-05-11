@@ -51,7 +51,7 @@ export default function LoginScreen() {
                 { text: "Tiếp tục", style: "cancel", onPress: () => router.replace("/(tabs)") },
                 {
                     text: "Hủy xóa tài khoản",
-                    style: "destructive",
+                    style: "destructive1",
                     onPress: async () => {
                         await cancelAccountDeletion();
                         router.replace("/(tabs)");
