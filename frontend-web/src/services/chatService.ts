@@ -15,7 +15,8 @@ export type MessageType =
     | "SYSTEM_LEAVE_GROUP"
     | "SYSTEM_KICK_MEMBER"
     | "SYSTEM_UPDATE_ROLE"
-    | "SYSTEM_DISBAND_GROUP";
+    | "SYSTEM_DISBAND_GROUP"
+    | "SYSTEM_UPDATE_SETTING";
 
 export type MemberRole = "OWNER" | "DEPUTY" | "MEMBER";
 
@@ -96,6 +97,7 @@ export interface ConversationSidebar {
 export interface Conversation extends ConversationSidebar {
     members?: ConversationMember[];
     pinnedMessages?: PinnedMessageDetail[];
+    isMessageRestricted?: boolean;
 }
 
 export interface ConversationMember {
@@ -376,6 +378,24 @@ const chatService = {
 
     async disbandGroup(conversationId: number): Promise<void> {
         await axiosClient.delete(`/conversations/${conversationId}/disband`);
+    },
+
+    async updateMessageRestriction(
+        conversationId: number,
+        isRestricted: boolean,
+    ): Promise<Conversation> {
+        const response = await axiosClient.patch(
+            `/conversations/${conversationId}/settings/message-restriction`,
+            null,
+            {
+                params: {
+                    isRestricted,
+                },
+            },
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
     },
 
     async updateConversationMemberNickname(

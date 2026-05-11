@@ -276,6 +276,21 @@ const chatService = {
         await apiClient.delete(`/conversations/${conversationId}/disband`);
     },
 
+    async updateMessageRestriction(
+        conversationId: number,
+        isRestricted: boolean,
+    ): Promise<void> {
+        await apiClient.patch(
+            `/conversations/${conversationId}/settings/message-restriction`,
+            null,
+            {
+                params: {
+                    isRestricted,
+                },
+            },
+        );
+    },
+
     async updateConversationMemberNickname(
         request: UpdateNicknameRequest,
     ): Promise<void> {

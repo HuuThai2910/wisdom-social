@@ -8,7 +8,6 @@ import { useMessageComposerMediaActions } from "@/hooks/useMessageComposerMediaA
 import { MediaViewerModal } from "@/components/MediaViewerModal";
 import { MessageContextMenu } from "@/components/MessageContextMenu";
 import { UserAvatar } from "@/components";
-import GroupConversationPanel from "@/components/GroupConversationPanel";
 import SelectGroupMembersModal from "@/components/SelectGroupMembersModal";
 import { colors, spacing } from "@/constants";
 import { useChatWindowController } from "@/hooks/useChatWindowController";
@@ -79,7 +78,7 @@ import {
     getFileBadgeLabel,
     resolvePinSystemPreview,
     parseCallMeta,
-    isPinSystemMessageType,
+    isSystemMessageType,
     buildReplyPreview,
     normalizeSearchText,
     inferReplyPreviewType,
@@ -157,7 +156,6 @@ export default function MessagesConversationScreen() {
     const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
     const [showRightScrollCue, setShowRightScrollCue] = useState(false);
     const [rightScrollCueBaseTop, setRightScrollCueBaseTop] = useState(0);
-    const [showGroupInfoModal, setShowGroupInfoModal] = useState(false);
     const [inputSelection, setInputSelection] = useState({
         start: 0,
         end: 0,
@@ -343,11 +341,6 @@ export default function MessagesConversationScreen() {
         [isCallSupported, startCall],
     );
 
-    useEffect(() => {
-        if (conversation?.type !== "GROUP") {
-            setShowGroupInfoModal(false);
-        }
-    }, [conversation?.type]);
 
     const activityText = useMemo(() => {
         if (!conversation?.updatedAt) return "Dang hoat dong";
@@ -535,12 +528,12 @@ export default function MessagesConversationScreen() {
     const primaryPinnedItem = pinnedBannerItems[0];
     const canExpandPinnedList = pinnedBannerItems.length > 1;
 
-    const pinSystemRunMetaByIndex = useMemo(() => {
+    const systemRunMetaByIndex = useMemo(() => {
         const meta = new Map<number, PinSystemRunRenderMeta>();
 
         for (let cursor = 0; cursor < messages.length; ) {
             const current = messages[cursor];
-            if (!isPinSystemMessageType(current.type)) {
+            if (!isSystemMessageType(current.type)) {
                 cursor += 1;
                 continue;
             }
@@ -548,14 +541,14 @@ export default function MessagesConversationScreen() {
             const runStart = cursor;
             while (
                 cursor < messages.length &&
-                isPinSystemMessageType(messages[cursor].type)
+                isSystemMessageType(messages[cursor].type)
             ) {
                 cursor += 1;
             }
 
             const runEnd = cursor - 1;
             const runLength = runEnd - runStart + 1;
-            const runKey = messages[runStart]?.id || `pin-run-${runStart}`;
+            const runKey = messages[runStart]?.id || `sys-run-${runStart}`;
 
             if (runLength < 3) {
                 for (let index = runStart; index <= runEnd; index += 1) {
@@ -1345,9 +1338,15 @@ export default function MessagesConversationScreen() {
         );
     }
 
-    // Giống web: hiện màn hình báo lỗi khi readOnlyNotice được set
-    // (bị đuổi, rời nhóm, nhóm bị giải tán) hoặc khi không tải được conversation.
-    const isErrorState = Boolean(readOnlyNotice) || (!loading && !conversation);
+    // Chỉ hiện màn hình lỗi (error view) khi bị mất quyền truy cập hoàn toàn.
+    // Nếu chỉ bị chặn gửi tin nhắn (readOnlyNotice chứa "Chỉ trưởng/phó nhóm") thì vẫn cho xem hội thoại.
+    const isAccessBlocked = readOnlyNotice && (
+        readOnlyNotice.includes("xóa") || 
+        readOnlyNotice.includes("rời") || 
+        readOnlyNotice.includes("giải tán") ||
+        readOnlyNotice.includes("Không thể truy cập")
+    );
+    const isErrorState = Boolean(isAccessBlocked) || (!loading && !conversation);
 
     if (isErrorState) {
         const displayName =
@@ -1489,19 +1488,17 @@ export default function MessagesConversationScreen() {
                                 color={colors.text}
                             />
                         </Pressable>
-                        {conversation?.type === "GROUP" ? (
-                            <Pressable
-                                style={styles.headerActionBtn}
-                                hitSlop={8}
-                                onPress={() => setShowGroupInfoModal(true)}
-                            >
-                                <Ionicons
-                                    name="information-circle-outline"
-                                    size={22}
-                                    color={colors.text}
-                                />
-                            </Pressable>
-                        ) : null}
+                        <Pressable
+                            style={styles.headerActionBtn}
+                            hitSlop={8}
+                            onPress={() => router.push(`/messages/details/${conversationId}`)}
+                        >
+                            <Ionicons
+                                name="information-circle-outline"
+                                size={22}
+                                color={colors.text}
+                            />
+                        </Pressable>
                     </View>
                 </View>
 
@@ -1542,7 +1539,7 @@ export default function MessagesConversationScreen() {
                             membersById={membersById}
                             conversation={conversation}
                             readReceipts={readReceipts}
-                            pinRunMeta={pinSystemRunMetaByIndex.get(index)}
+                            pinRunMeta={systemRunMetaByIndex.get(index)}
                             highlightedMessageId={highlightedMessageId}
                             setMediaViewer={setMediaViewer}
                             handleMessageLongPress={handleMessageLongPress}
@@ -1827,83 +1824,6 @@ export default function MessagesConversationScreen() {
                 closeMediaViewer={closeMediaViewer}
             />
 
-            <Modal
-                visible={
-                    showGroupInfoModal && Boolean(selectedGroupConversation)
-                }
-                transparent
-                animationType="fade"
-                onRequestClose={() => setShowGroupInfoModal(false)}
-            >
-                <View style={groupModalStyles.overlay}>
-                    <Pressable
-                        style={groupModalStyles.backdrop}
-                        onPress={() => setShowGroupInfoModal(false)}
-                    />
-
-                    <View style={groupModalStyles.card}>
-                        <View style={groupModalStyles.header}>
-                            <Text style={groupModalStyles.title}>
-                                Chi tiet nhom
-                            </Text>
-                            <Pressable
-                                onPress={() => setShowGroupInfoModal(false)}
-                                style={groupModalStyles.closeBtn}
-                            >
-                                <Ionicons
-                                    name="close"
-                                    size={20}
-                                    color={colors.textMuted}
-                                />
-                            </Pressable>
-                        </View>
-
-                        {selectedGroupConversation ? (
-                            <GroupConversationPanel
-                                conversation={selectedGroupConversation}
-                                currentUserId={currentUserId}
-                                canManageMembers={canManageMembers}
-                                canAddMembers={canAddMembers}
-                                canUpdateRole={canUpdateRole}
-                                canDisbandGroup={canDisbandGroup}
-                                isLeavingGroup={isLeavingGroup}
-                                isDisbandingGroup={isDisbandingGroup}
-                                isTransferOwnerModalOpen={
-                                    isTransferOwnerModalOpen
-                                }
-                                pendingKickUserId={pendingKickUserId}
-                                pendingRoleUserId={pendingRoleUserId}
-                                pendingTransferOwnerUserId={
-                                    pendingTransferOwnerUserId
-                                }
-                                ownerTransferCandidates={
-                                    ownerTransferCandidates
-                                }
-                                actionError={actionError}
-                                onOpenAddMembersModal={() => {
-                                    // Đóng GroupInfoModal trước để tránh block touch event
-                                    // lên SelectGroupMembersModal (render ngoài Modal stack)
-                                    setShowGroupInfoModal(false);
-                                    setTimeout(() => {
-                                        openAddMembersModal();
-                                    }, 250);
-                                }}
-                                onLeaveGroup={leaveGroup}
-                                onCloseTransferOwnerModal={
-                                    closeTransferOwnerModal
-                                }
-                                onTransferOwnershipAndLeave={
-                                    transferOwnershipAndLeave
-                                }
-                                onDisbandGroup={disbandGroup}
-                                onKickMember={kickMember}
-                                onUpdateMemberRole={updateMemberRole}
-                            />
-                        ) : null}
-                    </View>
-                </View>
-            </Modal>
-
             <SelectGroupMembersModal
                 open={isAddMembersModalOpen}
                 friends={availableFriends}
@@ -1944,41 +1864,6 @@ export default function MessagesConversationScreen() {
     );
 }
 
-const groupModalStyles = StyleSheet.create({
-    overlay: {
-        flex: 1,
-        justifyContent: "center",
-        paddingHorizontal: spacing.lg,
-    },
-    backdrop: {
-        ...StyleSheet.absoluteFillObject,
-        backgroundColor: "rgba(0,0,0,0.35)",
-    },
-    card: {
-        maxHeight: "88%",
-        borderRadius: 16,
-        backgroundColor: colors.white,
-        padding: spacing.md,
-    },
-    header: {
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "space-between",
-        marginBottom: spacing.sm,
-    },
-    title: {
-        fontSize: 18,
-        fontWeight: "700",
-        color: colors.text,
-    },
-    closeBtn: {
-        width: 30,
-        height: 30,
-        borderRadius: 15,
-        alignItems: "center",
-        justifyContent: "center",
-    },
-});
 
 const disbandedStyles = StyleSheet.create({
     body: {

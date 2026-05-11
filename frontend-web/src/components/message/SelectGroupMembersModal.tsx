@@ -41,7 +41,7 @@ export default function SelectGroupMembersModal({
     }, [open]);
 
     const addableFriends = useMemo(
-        () => friends.filter((friend) => !existingMemberIds.has(friend.id)),
+        () => friends.filter((friend) => !existingMemberIds.has(Number(friend.id))),
         [existingMemberIds, friends],
     );
 

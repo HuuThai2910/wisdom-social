@@ -37,6 +37,7 @@ export const GROUP_SYSTEM_SYNC_TYPES = new Set<MessageType>([
     "SYSTEM_KICK_MEMBER",
     "SYSTEM_LEAVE_GROUP",
     "SYSTEM_DISBAND_GROUP",
+    "SYSTEM_UPDATE_SETTING",
 ]);
 
 export function safeParseMemberIds(content: string): number[] {
@@ -77,6 +78,10 @@ export function resolveReadOnlyNoticeFromConversation(
     }
     if (currentMember.status === "GROUP_DISBANDED") {
         return "Nhóm đã bị giải tán.";
+    }
+
+    if (conversation.isMessageRestricted && currentMember.role === "MEMBER") {
+        return "";
     }
 
     return null;

@@ -42,6 +42,7 @@ const GROUP_SYSTEM_MEMBER_SYNC_TYPES = new Set<Message["type"]>([
     "SYSTEM_KICK_MEMBER",
     "SYSTEM_LEAVE_GROUP",
     "SYSTEM_DISBAND_GROUP",
+    "SYSTEM_UPDATE_SETTING",
 ]);
 
 export interface ReadReceipt {
@@ -274,6 +275,12 @@ function resolveReadOnlyReasonFromConversation(
         return "Nhóm đã bị giải tán.";
     }
 
+    if (conversation.isMessageRestricted) {
+        if (currentMember.role === "MEMBER") {
+            return "Chỉ trưởng/phó nhóm mới có thể gửi tin nhắn";
+        }
+    }
+
     return null;
 }
 
@@ -296,6 +303,15 @@ function resolveReadOnlyReasonFromSystemMessage(
         const targetIds = safeParseMemberIds(message.content);
         if (targetIds.some((id) => Number(id) === Number(currentUserId))) {
             return "Ban da bi xoa khoi nhom.";
+        }
+    }
+
+    if (message.type === "SYSTEM_UPDATE_SETTING") {
+        if (message.content.includes("isMessageRestricted:true")) {
+            // Check current role. Since we don't have full conversation here easily, 
+            // the main useEffect will handle syncing the full conversation state.
+            // But we return a generic string here if we want immediate notice.
+            return "Cai dat nhom da thay doi.";
         }
     }
 
@@ -557,28 +573,27 @@ export function useChatWindowController(args: {
                     return;
                 }
 
-                const [membersResult, messagesResult] =
-                    await Promise.allSettled([
-                        chatService.getConversationMembers(conversationId),
-                        chatService.getMessages(
-                            conversationId,
-                            currentUserId,
-                            null,
-                            CHAT_PAGE_SIZE,
-                        ),
-                    ]);
+               let membersResponse = null;
+let messagesResponse = null;
 
-                // Nếu người dùng đã chuyển sang conversation khác thì bỏ qua kết quả này.
-                if (token !== loadTokenRef.current) return;
+try {
+    membersResponse = await chatService.getConversationMembers(conversationId);
+} catch (e) {
+    membersResponse = null;
+}
 
-                const membersResponse =
-                    membersResult.status === "fulfilled"
-                        ? membersResult.value
-                        : null;
-                const messagesResponse =
-                    messagesResult.status === "fulfilled"
-                        ? messagesResult.value
-                        : null;
+try {
+    messagesResponse = await chatService.getMessages(
+        conversationId,
+        currentUserId,
+        null,
+        CHAT_PAGE_SIZE,
+    );
+} catch (e) {
+    messagesResponse = null;
+}
+
+if (token !== loadTokenRef.current) return;
 
                 const cursorData = messagesResponse?.success
                     ? messagesResponse.data
@@ -861,16 +876,22 @@ export function useChatWindowController(args: {
             if (readOnlyReason) {
                 setReadOnlyNotice(readOnlyReason);
                 
-                // Khi bị cấm quyền truy cập (giải tán/đuổi/rời), dọn dẹp state
-                // để UI chuyển sang 'Error View' ngay lập tức (giống web)
-                setMessages([]);
-                setConversation(null);
-                setMembersById({});
+                // Chỉ dọn dẹp state nếu là các lỗi nghiêm trọng (bị đuổi, rời nhóm, giải tán)
+                // để UI chuyển sang 'Error View'. Nếu chỉ là chặn tin nhắn thì vẫn để user xem được chat.
+                const isAccessBlocked = 
+                    normalizedIncoming.type === "SYSTEM_DISBAND_GROUP" ||
+                    normalizedIncoming.type === "SYSTEM_KICK_MEMBER" ||
+                    normalizedIncoming.type === "SYSTEM_LEAVE_GROUP";
 
-                // Giải đăng ký socket của hội thoại cũ
-                chatWebsocketService.unsubscribeFromConversation(conversationId);
-                chatWebsocketService.unsubscribeFromConversationMembers(conversationId);
-                chatWebsocketService.unsubscribeFromConversationPins(conversationId);
+                if (isAccessBlocked) {
+                    setMessages([]);
+                    setConversation(null);
+                    setMembersById({});
+
+                    chatWebsocketService.unsubscribeFromConversation(conversationId);
+                    chatWebsocketService.unsubscribeFromConversationMembers(conversationId);
+                    chatWebsocketService.unsubscribeFromConversationPins(conversationId);
+                }
                 return;
             }
 

@@ -104,6 +104,13 @@ export function useChatWindowController(args: {
         null,
     );
     const readOnlyNotice = useMemo(() => {
+        const currentUserMember = membersById[userId];
+        const isRestrictedForMe = conversation?.isMessageRestricted && currentUserMember?.role === "MEMBER";
+
+        if (isRestrictedForMe) {
+            return "Chỉ Trưởng/Phó nhóm mới được gửi tin nhắn";
+        }
+
         const notice = forcedReadOnlyNotice || localReadOnlyNotice;
         console.log("[DEBUG_READD] readOnlyNotice evaluated:", {
             forcedReadOnlyNotice,
@@ -111,7 +118,7 @@ export function useChatWindowController(args: {
             result: notice,
         });
         return notice;
-    }, [forcedReadOnlyNotice, localReadOnlyNotice]);
+    }, [forcedReadOnlyNotice, localReadOnlyNotice, conversation?.isMessageRestricted, membersById, userId]);
 
     const prevForcedNoticeRef = useRef<string | null | undefined>(
         forcedReadOnlyNotice,
@@ -529,40 +536,38 @@ export function useChatWindowController(args: {
         [],
     );
 
-    const syncConversationMembers = useCallback(async () => {
+    const syncConversationData = useCallback(async () => {
         if (membersSyncInFlightRef.current) return;
         membersSyncInFlightRef.current = true;
 
         try {
-            const membersResponse =
-                await chatService.getConversationMembers(conversationId);
+            const [membersResponse, convResponse] = await Promise.all([
+                chatService.getConversationMembers(conversationId),
+                chatService.getConversation(conversationId, userIdRef.current),
+            ]);
+
             const normalizedMembers = toMembersByUserId(membersResponse);
+
+            if (convResponse.success && convResponse.data) {
+                const nextConversation = {
+                    ...convResponse.data,
+                    members: Object.values(normalizedMembers),
+                };
+
+                setConversation(nextConversation);
+                chatRuntimeStore.setConversation(conversationId, nextConversation);
+            }
 
             setMembersById((prev) => {
                 const merged = {
                     ...prev,
                     ...normalizedMembers,
                 };
-
                 chatRuntimeStore.setMembers(conversationId, merged);
-                setConversation((previousConversation) => {
-                    if (!previousConversation) return previousConversation;
-
-                    const nextConversation = {
-                        ...previousConversation,
-                        members: Object.values(merged),
-                    };
-                    chatRuntimeStore.setConversation(
-                        conversationId,
-                        nextConversation,
-                    );
-                    return nextConversation;
-                });
-
                 return merged;
             });
-        } catch {
-            // no-op
+        } catch (err) {
+            console.error("Failed to sync conversation data:", err);
         } finally {
             membersSyncInFlightRef.current = false;
         }
@@ -641,34 +646,36 @@ export function useChatWindowController(args: {
                     return;
                 }
 
-                const [membersResult, messagesResult] =
-                    await Promise.allSettled([
-                        chatService.getConversationMembers(conversationId),
-                        chatService.getMessages(
-                            conversationId,
-                            userId,
-                            null,
-                            PAGE_SIZE,
-                        ),
-                    ]);
+                let membersResponse = null;
+let messagesResponse = null;
 
-                if (token !== loadTokenRef.current) return;
+try {
+    membersResponse = await chatService.getConversationMembers(conversationId);
+} catch (e) {
+    membersResponse = null;
+}
 
-                const membersResponse =
-                    membersResult.status === "fulfilled"
-                        ? membersResult.value
-                        : null;
-                const messagesResponse =
-                    messagesResult.status === "fulfilled"
-                        ? messagesResult.value
-                        : null;
+try {
+    messagesResponse = await chatService.getMessages(
+        conversationId,
+        userId,
+        null,
+        PAGE_SIZE,
+    );
+} catch (e) {
+    messagesResponse = null;
+}
 
-                const cursorData = messagesResponse?.success
-                    ? messagesResponse.data
-                    : null;
-                const list = Array.isArray(cursorData?.data)
-                    ? normalizeMessagesForUi(cursorData.data)
-                    : [];
+if (token !== loadTokenRef.current) return;
+
+const cursorData = messagesResponse?.success
+    ? messagesResponse.data
+    : null;
+
+const list = Array.isArray(cursorData?.data)
+    ? normalizeMessagesForUi(cursorData.data)
+    : [];
+
 
                 const membersFromApi = toMembersByUserId(membersResponse);
                 const sideLoadedRefs = cursorData?.referenceUsers ?? {};
@@ -1238,7 +1245,7 @@ export function useChatWindowController(args: {
             }
 
             if (GROUP_SYSTEM_MEMBER_SYNC_TYPES.has(normalizedIncoming.type)) {
-                void syncConversationMembers();
+                void syncConversationData();
             }
 
             const isMyMessage =
@@ -1305,7 +1312,7 @@ export function useChatWindowController(args: {
             applyWindowForNewer,
             conversationId,
             isNearBottom,
-            syncConversationMembers,
+            syncConversationData,
         ],
     );
     // Nhận socket MESSAGE_RECALLED: set isRecalled=true cho tin nhắn đó

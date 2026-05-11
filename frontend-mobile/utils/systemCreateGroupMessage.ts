@@ -9,7 +9,8 @@ export type GroupSystemMessageType =
     | "SYSTEM_UPDATE_ROLE"
     | "SYSTEM_KICK_MEMBER"
     | "SYSTEM_LEAVE_GROUP"
-    | "SYSTEM_DISBAND_GROUP";
+    | "SYSTEM_DISBAND_GROUP"
+    | "SYSTEM_UPDATE_SETTING";
 
 function formatCommaNameList(names: string[]): string {
     return names.join(", ");
@@ -307,6 +308,25 @@ function buildSystemDisbandGroupMessage(params: {
     return `${actorLabel} da giai tan nhom`;
 }
 
+function buildSystemUpdateSettingMessage(params: {
+    content: string;
+    isOwn: boolean;
+    actorLabel: string;
+}): string {
+    const { content, isOwn, actorLabel } = params;
+    const isRestricted = content.includes("isMessageRestricted:true");
+
+    if (isRestricted) {
+        return isOwn
+            ? "Bạn đã bật chế độ chỉ Trưởng/Phó nhóm được gửi tin nhắn"
+            : `${actorLabel} đã bật chế độ chỉ Trưởng/Phó nhóm được gửi tin nhắn`;
+    } else {
+        return isOwn
+            ? "Bạn đã tắt chế độ chỉ Trưởng/Phó nhóm được gửi tin nhắn"
+            : `${actorLabel} đã tắt chế độ chỉ Trưởng/Phó nhóm được gửi tin nhắn`;
+    }
+}
+
 export function buildSystemGroupMessage(params: {
     type: GroupSystemMessageType;
     content: string;
@@ -371,7 +391,15 @@ export function buildSystemGroupMessage(params: {
         });
     }
 
-    return buildSystemDisbandGroupMessage({
+    if (type === "SYSTEM_DISBAND_GROUP") {
+        return buildSystemDisbandGroupMessage({
+            isOwn,
+            actorLabel,
+        });
+    }
+
+    return buildSystemUpdateSettingMessage({
+        content,
         isOwn,
         actorLabel,
     });

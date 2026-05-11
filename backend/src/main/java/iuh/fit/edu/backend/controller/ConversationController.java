@@ -167,6 +167,14 @@ public class ConversationController {
         return ResponseEntity.noContent().build();
     }
 
+    @PatchMapping("{conversationId}/settings/message-restriction")
+    public ResponseEntity<ConversationResponse> updateMessageRestriction(@PathVariable Long conversationId, @RequestParam boolean isRestricted){
+        Long userId = this.userService.getCurrentUser().getId();
+        ConversationResponse response = this.conversationService.updateMessageRestriction(conversationId, userId, isRestricted);
+        return ResponseEntity.ok(response);
+    }
+
+
     @PatchMapping("/{conversationId}/members/{targetUserId}/nickname")
     public ResponseEntity<String> updateNickname(
             @PathVariable Long conversationId,

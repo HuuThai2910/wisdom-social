@@ -9,7 +9,8 @@ type GroupSystemMessageType =
     | "SYSTEM_UPDATE_ROLE"
     | "SYSTEM_KICK_MEMBER"
     | "SYSTEM_LEAVE_GROUP"
-    | "SYSTEM_DISBAND_GROUP";
+    | "SYSTEM_DISBAND_GROUP"
+    | "SYSTEM_UPDATE_SETTING";
 
 function formatCommaNameList(names: string[]): string {
     return names.join(", ");
@@ -369,6 +370,10 @@ export function buildSystemGroupMessage(params: {
             senderId,
             membersById,
         });
+    }
+
+    if (type === "SYSTEM_UPDATE_SETTING") {
+        return isOwn ? `Bạn ${content}` : `${actorLabel} ${content}`;
     }
 
     return buildSystemDisbandGroupMessage({

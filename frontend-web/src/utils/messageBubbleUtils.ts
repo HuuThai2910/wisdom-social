@@ -75,6 +75,7 @@ const GROUP_SYSTEM_MESSAGE_TYPES = new Set<MessageType>([
     "SYSTEM_KICK_MEMBER",
     "SYSTEM_LEAVE_GROUP",
     "SYSTEM_DISBAND_GROUP",
+    "SYSTEM_UPDATE_SETTING",
 ]);
 
 export function isGroupSystemType(
@@ -85,7 +86,8 @@ export function isGroupSystemType(
     | "SYSTEM_UPDATE_ROLE"
     | "SYSTEM_KICK_MEMBER"
     | "SYSTEM_LEAVE_GROUP"
-    | "SYSTEM_DISBAND_GROUP" {
+    | "SYSTEM_DISBAND_GROUP"
+    | "SYSTEM_UPDATE_SETTING" {
     return GROUP_SYSTEM_MESSAGE_TYPES.has(type);
 }
 

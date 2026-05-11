@@ -33,5 +33,6 @@ public interface ConversationService {
     @Transactional
     void markAsRead(Long conversationId, Long userId, String lastMessageId);
 
-
+    ConversationResponse updateMessageRestriction(Long conversationId, Long requesterId, boolean isRestricted);
 }
+

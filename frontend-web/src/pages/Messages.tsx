@@ -25,10 +25,16 @@ import {
     TimerReset,
     EyeOff,
     X,
+    Settings,
+    LogOut,
+    Link2,
+   
 } from "lucide-react";
 import ChatWindow from "../components/message/ChatWindow";
 import CreateGroupModal from "../components/message/CreateGroupModal";
 import GroupConversationPanel from "../components/message/GroupConversationPanel";
+import IncomingCallModal from "../components/message/IncomingCallModal";
+import GroupSettingsModal from "../components/message/GroupSettingsModal";
 import ConfirmModal from "../components/message/ConfirmModal";
 import SelectGroupMembersModal from "../components/message/SelectGroupMembersModal";
 import ConversationAvatar from "../components/message/ConversationAvatar";
@@ -37,6 +43,7 @@ import { useGroupManagement } from "../hooks/useGroupManagement";
 import chatService from "../services/chatService";
 import { useSidebarLayout } from "../hooks/useSidebarLayout";
 import { buildConversationLastMessagePreview } from "../utils/conversationLastMessagePreview";
+import { Link } from "react-router-dom";
 
 type DetailSectionKey = "chatInfo" | "customize" | "media" | "privacy";
 
@@ -62,10 +69,10 @@ export default function Messages() {
         reload,
     } = useMessagesController();
 
-    // State để track conversation nào đang mở menu
     const [openMenuConvId, setOpenMenuConvId] = useState<number | null>(null);
     const [showInfoPanel, setShowInfoPanel] = useState(false);
     const [isInfoPanelRendered, setIsInfoPanelRendered] = useState(false);
+    const [isGroupSettingsModalOpen, setIsGroupSettingsModalOpen] = useState(false);
     const [expandedSections, setExpandedSections] = useState<
         Record<DetailSectionKey, boolean>
     >({
@@ -86,9 +93,11 @@ export default function Messages() {
         canManageMembers,
         canKickMembers,
         canUpdateRole,
+        canManageSettings,
         canDisbandGroup,
         groupMemberIds,
-        availableFriends,
+        friendsForCreateGroup,
+        friendsForAddMembers,
         friendsLoading,
         friendsError,
         isCreateGroupModalOpen,
@@ -97,6 +106,7 @@ export default function Messages() {
         isAddingMembers,
         isLeavingGroup,
         isDisbandingGroup,
+        isUpdatingMessageRestriction,
         isTransferOwnerModalOpen,
         pendingKickUserId,
         pendingRoleUserId,
@@ -114,7 +124,9 @@ export default function Messages() {
         kickMember,
         leaveGroup,
         transferOwnershipAndLeave,
+        executeLeaveGroup,
         disbandGroup,
+        updateMessageRestriction,
         isConfirmLeaveModalOpen,
         setIsConfirmLeaveModalOpen,
         isConfirmDisbandModalOpen,
@@ -236,7 +248,7 @@ export default function Messages() {
         "flex w-full items-center justify-between rounded-md px-1.5 py-2 text-left transition-colors hover:bg-gray-100 dark:hover:bg-gray-800";
 
     const detailActionButtonClass =
-        "flex w-full items-center gap-3 rounded-md px-1.5 py-2 text-left text-gray-800 transition-colors hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-gray-800";
+        "flex w-full items-center gap-3 rounded-md px-1.5 py-3 text-left text-gray-800 transition-colors hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-gray-800";
 
     const infoPanelContent = (
         <>
@@ -284,12 +296,14 @@ export default function Messages() {
                     </span>
 
                     <div className="mt-5 grid w-full grid-cols-3 gap-2">
-                        <button className="flex flex-col items-center gap-1.5 rounded-md px-2 py-2 text-xs text-gray-700 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-gray-800 dark:hover:text-white">
-                            <span className="flex h-8 w-8 items-center justify-center rounded-md bg-gray-100 dark:bg-gray-900">
-                                <CircleUserRound size={16} />
-                            </span>
-                            Trang cá nhân
-                        </button>
+                        {!isGroupConversation && (
+                            <button className="flex flex-col items-center gap-1.5 rounded-md px-2 py-2 text-xs text-gray-700 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-gray-800 dark:hover:text-white">
+                                <span className="flex h-8 w-8 items-center justify-center rounded-md bg-gray-100 dark:bg-gray-900">
+                                    <CircleUserRound size={16} />
+                                </span>
+                                Trang cá nhân
+                            </button>
+                        )}
                         <button className="flex flex-col items-center gap-1.5 rounded-md px-2 py-2 text-xs text-gray-700 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-gray-800 dark:hover:text-white">
                             <span className="flex h-8 w-8 items-center justify-center rounded-md bg-gray-100 dark:bg-gray-900">
                                 <Bell size={16} />
@@ -302,10 +316,22 @@ export default function Messages() {
                             </span>
                             Tìm kiếm
                         </button>
+                        {isGroupConversation && (
+                            <button 
+                                type="button"
+                                onClick={() => setIsGroupSettingsModalOpen(true)}
+                                className="flex flex-col items-center gap-1.5 rounded-md px-2 py-2 text-xs text-gray-700 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-gray-800 dark:hover:text-white"
+                            >
+                                <span className="flex h-8 w-8 items-center justify-center rounded-md bg-gray-100 dark:bg-gray-900">
+                                    <Settings size={16} />
+                                </span>
+                                Quản lý nhóm
+                            </button>
+                        )}
                     </div>
                 </div>
 
-                <div className="h-px bg-gray-200 dark:bg-[#262626]" />
+                <div className="h-px bg-gray-300 dark:bg-[#262626]" />
 
                 {selectedGroupConversation && (
                     <>
@@ -350,92 +376,15 @@ export default function Messages() {
                             onOpenConfirmKick={openConfirmKick}
                             onCloseConfirmKick={closeConfirmKick}
                         />
-                        <div className="h-px bg-gray-200 dark:bg-[#262626]" />
+                        <div className="h-px bg-gray-300 dark:bg-[#262626]" />
                     </>
                 )}
 
                 <div className="space-y-0">
-                    <section className="py-2">
-                        <button
-                            type="button"
-                            onClick={() => toggleDetailSection("chatInfo")}
-                            className={detailSectionButtonClass}
-                        >
-                            <span className="text-sm font-semibold text-gray-900 dark:text-white">
-                                Thông tin về đoạn chat
-                            </span>
-                            {expandedSections.chatInfo ? (
-                                <ChevronUp
-                                    size={18}
-                                    className="text-gray-600 dark:text-gray-300"
-                                />
-                            ) : (
-                                <ChevronDown
-                                    size={18}
-                                    className="text-gray-600 dark:text-gray-300"
-                                />
-                            )}
-                        </button>
-                        {expandedSections.chatInfo && (
-                            <div className="pb-1">
-                                <button className={detailActionButtonClass}>
-                                    <Pin size={18} />
-                                    <span>Xem tin nhắn đã ghim</span>
-                                </button>
-                            </div>
-                        )}
-                    </section>
+                    
 
-                    <div className="h-px bg-gray-200 dark:bg-[#262626]" />
-
-                    <section className="py-2">
-                        <button
-                            type="button"
-                            onClick={() => toggleDetailSection("customize")}
-                            className={detailSectionButtonClass}
-                        >
-                            <span className="text-sm font-semibold text-gray-900 dark:text-white">
-                                Tùy chỉnh đoạn chat
-                            </span>
-                            {expandedSections.customize ? (
-                                <ChevronUp
-                                    size={18}
-                                    className="text-gray-600 dark:text-gray-300"
-                                />
-                            ) : (
-                                <ChevronDown
-                                    size={18}
-                                    className="text-gray-600 dark:text-gray-300"
-                                />
-                            )}
-                        </button>
-                        {expandedSections.customize && (
-                            <div className="pb-1">
-                                <button className={detailActionButtonClass}>
-                                    <Palette size={18} />
-                                    <span>Đổi chủ đề</span>
-                                </button>
-                                <button className={detailActionButtonClass}>
-                                    <ThumbsUp size={18} />
-                                    <span>Thay đổi biểu tượng cảm xúc</span>
-                                </button>
-                                {!isGroupConversation && (
-                                    <button
-                                        type="button"
-                                        onClick={() =>
-                                            void handleChangeNickname()
-                                        }
-                                        className={detailActionButtonClass}
-                                    >
-                                        <Type size={18} />
-                                        <span>Chỉnh sửa biệt danh</span>
-                                    </button>
-                                )}
-                            </div>
-                        )}
-                    </section>
-
-                    <div className="h-px bg-gray-200 dark:bg-[#262626]" />
+                    <div className="h-px bg-gray-300 dark:bg-[#262626]" />
+                    
 
                     <section className="py-2">
                         <button
@@ -444,7 +393,7 @@ export default function Messages() {
                             className={detailSectionButtonClass}
                         >
                             <span className="text-sm font-semibold text-gray-900 dark:text-white">
-                                File phương tiện & file
+                                File phương tiện, File & Link
                             </span>
                             {expandedSections.media ? (
                                 <ChevronUp
@@ -468,11 +417,17 @@ export default function Messages() {
                                     <FileText size={18} />
                                     <span>File</span>
                                 </button>
+                                 <button className={detailActionButtonClass}>
+                                    <Link2 size={18} />
+                                    <span>Link</span>
+                                </button>
                             </div>
                         )}
                     </section>
 
-                    <div className="h-px bg-gray-200 dark:bg-[#262626]" />
+                    <div className="h-px bg-gray-400 dark:bg-[#262626]" />
+                
+
 
                     <section className="py-2">
                         <button
@@ -501,29 +456,7 @@ export default function Messages() {
                                     <BellOff size={18} />
                                     <span>Tắt thông báo</span>
                                 </button>
-                                <button className={detailActionButtonClass}>
-                                    <Eye size={18} />
-                                    <span>Quyền nhắn tin</span>
-                                </button>
-                                <button className={detailActionButtonClass}>
-                                    <TimerReset size={18} />
-                                    <span>Tin nhắn tự hủy</span>
-                                </button>
-                                <button className="flex w-full items-start justify-between gap-3 rounded-md px-1.5 py-2 text-left text-gray-800 transition-colors hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-gray-800">
-                                    <div className="flex items-center gap-3">
-                                        <Eye size={18} />
-                                        <div>
-                                            <p>Thông báo đã đọc</p>
-                                            <p className="text-xs text-gray-500 dark:text-gray-400">
-                                                Bật
-                                            </p>
-                                        </div>
-                                    </div>
-                                </button>
-                                <button className={detailActionButtonClass}>
-                                    <Lock size={18} />
-                                    <span>Xác minh mã hóa đầu cuối</span>
-                                </button>
+                              
                                 <button className={detailActionButtonClass}>
                                     <EyeOff size={18} />
                                     <span>Hạn chế</span>
@@ -549,6 +482,23 @@ export default function Messages() {
                                         </div>
                                     </div>
                                 </button>
+                                {isGroupConversation && (
+                                    <button
+                                        type="button"
+                                        onClick={() => void leaveGroup()}
+                                        className="flex w-full items-start gap-3 rounded-md px-1.5 py-2 text-left transition-colors hover:bg-red-50 dark:hover:bg-red-900/10 group"
+                                    >
+                                        <LogOut
+                                            size={18}
+                                            className="mt-0.5 text-red-600 dark:text-red-400 group-hover:scale-110 transition-transform"
+                                        />
+                                        <div>
+                                            <p className="text-red-600 dark:text-red-400 font-medium">
+                                                Rời khỏi nhóm
+                                            </p>
+                                        </div>
+                                    </button>
+                                )}
                             </div>
                         )}
                     </section>
@@ -785,22 +735,24 @@ export default function Messages() {
                                                             Tắt thông báo
                                                         </span>
                                                     </button>
-                                                    <button
-                                                        onClick={() =>
-                                                            setOpenMenuConvId(
-                                                                null,
-                                                            )
-                                                        }
-                                                        className={menuItemBase}
-                                                    >
-                                                        <User
-                                                            size={20}
-                                                            className="text-gray-700 dark:text-gray-300"
-                                                        />
-                                                        <span className="dark:text-white">
-                                                            Xem trang cá nhân
-                                                        </span>
-                                                    </button>
+                                                    {conv.type === "DIRECT" && (
+                                                        <button
+                                                            onClick={() =>
+                                                                setOpenMenuConvId(
+                                                                    null,
+                                                                )
+                                                            }
+                                                            className={menuItemBase}
+                                                        >
+                                                            <User
+                                                                size={20}
+                                                                className="text-gray-700 dark:text-gray-300"
+                                                            />
+                                                            <span className="dark:text-white">
+                                                                Xem trang cá nhân
+                                                            </span>
+                                                        </button>
+                                                    )}
 
                                                     {/* Separator */}
                                                     <div className="my-1 border-t border-gray-200 dark:border-[#363636]" />
@@ -976,7 +928,7 @@ export default function Messages() {
 
             <CreateGroupModal
                 open={isCreateGroupModalOpen}
-                friends={availableFriends}
+                friends={friendsForCreateGroup}
                 loadingFriends={friendsLoading}
                 friendsError={friendsError}
                 submitting={isCreatingGroup}
@@ -987,7 +939,7 @@ export default function Messages() {
 
             <SelectGroupMembersModal
                 open={isAddMembersModalOpen}
-                friends={availableFriends}
+                friends={friendsForAddMembers}
                 existingMemberIds={groupMemberIds}
                 loadingFriends={friendsLoading}
                 friendsError={friendsError}
@@ -1005,7 +957,7 @@ export default function Messages() {
                 isDanger={true}
                 onClose={() => setIsConfirmLeaveModalOpen(false)}
                 onConfirm={() => {
-                    void leaveGroup().then((success) => {
+                    void executeLeaveGroup().then((success) => {
                         if (success) setIsConfirmLeaveModalOpen(false);
                     });
                 }}
@@ -1047,6 +999,17 @@ export default function Messages() {
                     }
                 }}
             />
+
+            {selectedGroupConversation && (
+                <GroupSettingsModal
+                    isOpen={isGroupSettingsModalOpen}
+                    onClose={() => setIsGroupSettingsModalOpen(false)}
+                    conversation={selectedGroupConversation}
+                    canManageSettings={canManageSettings}
+                    isUpdatingMessageRestriction={isUpdatingMessageRestriction}
+                    onUpdateMessageRestriction={updateMessageRestriction}
+                />
+            )}
         </>
     );
 }
