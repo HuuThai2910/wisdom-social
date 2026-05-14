@@ -460,6 +460,8 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
             onDelete={handleDelete}
             onCopyLink={handleCopyLink}
             taggedUsers={taggedUsers}
+            musicScopeId={`post-modal-music-${post.id}`}
+            musicAutoPlayEnabled={true}
           />
 
           {/* Comments */}

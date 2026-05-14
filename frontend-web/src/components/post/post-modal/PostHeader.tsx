@@ -40,12 +40,7 @@ import { Link } from "react-router-dom";
 import { Users, Globe, Lock, Music, Play, Pause } from "lucide-react";
 import type { PostData, UserData } from "../../../types/post";
 import PostHeaderMenu from "../PostHeaderMenu";
-import { 
-  playAudioPreview, 
-  stopAudioPreview, 
-  subscribeToPlayback, 
-  resolveMusicMediaUrl 
-} from "../../../services/musicService";
+import useMusicAutoplay from "../../../hooks/useMusicAutoplay";
 
 interface PostHeaderProps {
   post: PostData;
@@ -61,6 +56,8 @@ interface PostHeaderProps {
   onDelete: () => void;
   onCopyLink: () => void;
   taggedUsers?: UserData[];
+  musicScopeId?: string;
+  musicAutoPlayEnabled?: boolean;
 }
 
 const PostHeader: React.FC<PostHeaderProps> = ({
@@ -76,6 +73,8 @@ const PostHeader: React.FC<PostHeaderProps> = ({
   onDelete,
   onCopyLink,
   taggedUsers = [],
+  musicScopeId,
+  musicAutoPlayEnabled = true,
 }) => {
   const authorDisplay = {
     id: author?.id ?? Number(post.authorId || 0),
@@ -113,7 +112,11 @@ const PostHeader: React.FC<PostHeaderProps> = ({
 
           {/* Music Display under username */}
           {post.music && (
-            <MusicDisplay music={post.music} />
+            <MusicDisplay
+              music={post.music}
+              scopeId={musicScopeId || `post-modal-music-${post.id}`}
+              autoPlayEnabled={musicAutoPlayEnabled}
+            />
           )}
 
           {post.location && (
@@ -153,65 +156,53 @@ const PostHeader: React.FC<PostHeaderProps> = ({
   );
 };
 
-const MusicDisplay: React.FC<{ music: any }> = ({ music }) => {
-  const [playingUrl, setPlayingUrl] = React.useState<string | null>(null);
-  const audioUrl = resolveMusicMediaUrl(music.audioUrl);
-
-  // Auto-play on mount
-  React.useEffect(() => {
-    if (audioUrl) {
-      stopAudioPreview();
-      playAudioPreview(audioUrl, {
-        onEnded: () => setPlayingUrl(null),
-      });
-      setPlayingUrl(audioUrl);
-    }
-    return () => {
-      stopAudioPreview();
-    };
-  }, [audioUrl]);
-
-  React.useEffect(() => {
-    return subscribeToPlayback((url) => {
-      setPlayingUrl(url);
-    });
-  }, []);
-
-  const handleToggle = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!audioUrl) return;
-
-    if (playingUrl === audioUrl) {
-      stopAudioPreview();
-    } else {
-      stopAudioPreview();
-      playAudioPreview(audioUrl, {
-        onEnded: () => setPlayingUrl(null),
-      });
-    }
-  };
+const MusicDisplay: React.FC<{
+  music: any;
+  scopeId: string;
+  autoPlayEnabled: boolean;
+}> = ({ music, scopeId, autoPlayEnabled }) => {
+  const {
+    containerRef,
+    playingUrl,
+    audioUrl,
+    togglePlay: handleToggle,
+  } = useMusicAutoplay({
+    musicId: scopeId,
+    audioPath: music?.audioUrl,
+    enabled: Boolean(autoPlayEnabled && music?.audioUrl),
+    focusRatio: 0.65,
+  });
 
   return (
-    <button 
-      onClick={handleToggle}
-      className="flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 transition-colors group mt-0.5"
-    >
-      <div className="relative flex items-center justify-center">
-        <Music size={12} className={`shrink-0 ${playingUrl === audioUrl ? "text-blue-500 animate-pulse" : ""}`} />
-        {playingUrl === audioUrl && (
-          <div className="absolute -inset-1 bg-blue-500/10 rounded-full animate-ping" />
+    <div ref={containerRef} className="mt-0.5">
+      <button
+        onClick={handleToggle}
+        className="flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 transition-colors group"
+      >
+        <div className="relative flex items-center justify-center">
+          <Music
+            size={12}
+            className={`shrink-0 ${
+              playingUrl === audioUrl ? "text-blue-500 animate-pulse" : ""
+            }`}
+          />
+          {playingUrl === audioUrl && (
+            <div className="absolute -inset-1 bg-blue-500/10 rounded-full animate-ping" />
+          )}
+        </div>
+        <span className="truncate max-w-[150px]">
+          {music.title} • {music.artist}
+        </span>
+        {playingUrl === audioUrl ? (
+          <Pause size={10} className="fill-current" />
+        ) : (
+          <Play
+            size={10}
+            className="fill-current opacity-0 group-hover:opacity-100 transition-opacity"
+          />
         )}
-      </div>
-      <span className="truncate max-w-[150px]">
-        {music.title} • {music.artist}
-      </span>
-      {playingUrl === audioUrl ? (
-        <Pause size={10} className="fill-current" />
-      ) : (
-        <Play size={10} className="fill-current opacity-0 group-hover:opacity-100 transition-opacity" />
-      )}
-    </button>
+      </button>
+    </div>
   );
 };
 

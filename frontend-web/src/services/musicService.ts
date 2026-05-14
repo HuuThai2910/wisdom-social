@@ -6,8 +6,8 @@ export interface MusicMetadata {
     title: string;
     artist: string;
     duration: number; // seconds
-    imageUrl: string; // S3/Cloudflare R2 URL
-    audioUrl: string; // S3/Cloudflare R2 URL
+    imageUrl: string; 
+    audioUrl: string;
     createdAt: string;
 }
 

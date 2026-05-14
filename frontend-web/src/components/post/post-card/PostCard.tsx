@@ -4,6 +4,7 @@ import * as postApi from "../../../services/postService";
 import { buildS3Url } from "../../../utils/s3";
 import { useCurrentUser } from "../../../hooks/useCurrentUser";
 import useVideoAutoplay from "../../../hooks/useVideoAutoplay";
+import useMusicAutoplay from "../../../hooks/useMusicAutoplay";
 import useCommentsNormalized from "../../../hooks/useCommentsNormalized";
 import useRealtimeComments from "../../../hooks/useRealtimeComments";
 import useRealtimeReactions from "../../../hooks/useRealtimeReactions";
@@ -165,6 +166,15 @@ export default function PostCard({ post }: PostCardProps) {
     focusRatio: 0.7,
     maxPlaySeconds: 15,
   });
+
+  const musicUniqueId = `post-card-music-${displayPost.id}`;
+  const { containerRef: musicContainerRef, playingUrl: musicPlayingUrl, audioUrl: musicAudioUrl, togglePlay: handleToggleMusic } =
+    useMusicAutoplay({
+      musicId: musicUniqueId,
+      audioPath: displayPost.music?.audioUrl,
+      enabled: Boolean(displayPost.music?.audioUrl),
+      focusRatio: 0.65,
+    });
 
   useEffect(() => {
     const fetchReactionData = async () => {
@@ -504,6 +514,10 @@ export default function PostCard({ post }: PostCardProps) {
         onCopyLink={handleCopyLink}
         onChangePrivacy={handleChangePrivacy}
         taggedUsers={taggedUsers}
+        musicContainerRef={musicContainerRef}
+        musicPlayingUrl={musicPlayingUrl}
+        musicAudioUrl={musicAudioUrl}
+        onToggleMusic={handleToggleMusic}
       />
 
       {displayPost.caption || (displayPost as any).content ? (
