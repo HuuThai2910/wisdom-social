@@ -10,6 +10,7 @@ package iuh.fit.edu.backend.modules.conversation.service;/*
  */
 
 import iuh.fit.edu.backend.modules.conversation.dto.request.CreateGroupRequest;
+import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationPreviewResponse;
 import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationResponse;
 import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationSidebarResponse;
 import jakarta.transaction.Transactional;
@@ -33,7 +34,21 @@ public interface ConversationService {
 
     ConversationResponse updateMessageRestriction(Long conversationId, Long requesterId, boolean isRestricted);
 
-    @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
+
     ConversationResponse updateJoinApprovalRequired(Long conversationId, Long requesterId, boolean isRequired);
+
+
+    String getOrGenerateInviteLink(Long conversationId, Long requesterId);
+
+
+    String resetInviteLink(Long conversationId, Long requesterId);
+
+
+    void disableInviteLink(Long conversationId, Long requesterId);
+
+    ConversationPreviewResponse previewGroupFromToken(String token, Long userId);
+
+
+    Object joinGroupFromToken(String token, Long userId, String message);
 }
 

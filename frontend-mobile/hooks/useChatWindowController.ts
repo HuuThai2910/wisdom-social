@@ -933,22 +933,31 @@ if (token !== loadTokenRef.current) return;
                     senderMember?.nickname?.trim() ||
                     senderMember?.username?.trim() ||
                     "";
+                const nextLastMessage = {
+                    lastMessageContent:
+                        buildLastMessagePreview(normalizedIncoming),
+                    lastMessageType: normalizedIncoming.type,
+                    lastSenderId: normalizedIncoming.senderId,
+                    lastSenderName: resolvedSenderName,
+                    lastMessageAt: normalizedIncoming.createdAt,
+                    read: normalizedIncoming.senderId === currentUserId,
+                };
                 const next: Conversation = {
                     ...prev,
                     updatedAt: normalizedIncoming.createdAt,
                     unreadCount: 0,
-                    lastMessage: {
-                        lastMessageContent:
-                            buildLastMessagePreview(normalizedIncoming),
-                        lastMessageType: normalizedIncoming.type,
-                        lastSenderId: normalizedIncoming.senderId,
-                        lastSenderName: resolvedSenderName,
-                        lastMessageAt: normalizedIncoming.createdAt,
-                        read: normalizedIncoming.senderId === currentUserId,
-                    },
+                    lastMessage: nextLastMessage,
                 };
 
-                chatRuntimeStore.setConversation(conversationId, next);
+                chatRuntimeStore.patchConversation(conversationId, {
+                    updatedAt: normalizedIncoming.createdAt,
+                    unreadCount: 0,
+                    lastMessage: nextLastMessage,
+                }) ??
+                    chatRuntimeStore.setConversation(conversationId, {
+                        ...next,
+                        members: undefined,
+                    });
                 return next;
             });
 
@@ -1869,22 +1878,31 @@ if (token !== loadTokenRef.current) return;
                         senderMember?.nickname?.trim() ||
                         senderMember?.username?.trim() ||
                         "";
+                    const nextLastMessage = {
+                        lastMessageContent:
+                            buildLastMessagePreview(newestMessage),
+                        lastMessageType: newestMessage.type,
+                        lastSenderId: newestMessage.senderId,
+                        lastSenderName: resolvedSenderName,
+                        lastMessageAt: newestMessage.createdAt,
+                        read: newestMessage.senderId === currentUserId,
+                    };
                     const next: Conversation = {
                         ...prev,
                         updatedAt: newestMessage.createdAt,
                         unreadCount: 0,
-                        lastMessage: {
-                            lastMessageContent:
-                                buildLastMessagePreview(newestMessage),
-                            lastMessageType: newestMessage.type,
-                            lastSenderId: newestMessage.senderId,
-                            lastSenderName: resolvedSenderName,
-                            lastMessageAt: newestMessage.createdAt,
-                            read: newestMessage.senderId === currentUserId,
-                        },
+                        lastMessage: nextLastMessage,
                     };
 
-                    chatRuntimeStore.setConversation(conversationId, next);
+                    chatRuntimeStore.patchConversation(conversationId, {
+                        updatedAt: newestMessage.createdAt,
+                        unreadCount: 0,
+                        lastMessage: nextLastMessage,
+                    }) ??
+                        chatRuntimeStore.setConversation(conversationId, {
+                            ...next,
+                            members: undefined,
+                        });
                     return next;
                 });
 

@@ -267,9 +267,6 @@ class ChatRuntimeStore {
         conversationId: number,
         options: RemovePendingRequestsOptions,
     ): Conversation | null {
-        const previous = this.getConversation(conversationId);
-        if (!previous) return null;
-
         const requestIds = new Set(
             (options.requestIds ?? [])
                 .map((requestId) => Number(requestId))
@@ -280,6 +277,14 @@ class ChatRuntimeStore {
                 .map((userId) => Number(userId))
                 .filter((userId) => Number.isFinite(userId)),
         );
+        this.rememberDismissedPendingRequestIds(
+            conversationId,
+            Array.from(requestIds),
+        );
+
+        const previous = this.getConversation(conversationId);
+        if (!previous) return null;
+
         const matchedRequestIds =
             previous.pendingRequests
                 ?.filter(
@@ -289,10 +294,10 @@ class ChatRuntimeStore {
                 )
                 .map((request) => Number(request.id)) ?? [];
 
-        this.rememberDismissedPendingRequestIds(conversationId, [
-            ...requestIds,
-            ...matchedRequestIds,
-        ]);
+        this.rememberDismissedPendingRequestIds(
+            conversationId,
+            matchedRequestIds,
+        );
 
         const nextPendingRequests =
             previous.pendingRequests?.filter(

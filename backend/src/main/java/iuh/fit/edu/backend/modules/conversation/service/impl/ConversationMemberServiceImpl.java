@@ -145,11 +145,15 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
             }
         });
 
+        // Nếu danh sách add chỉ có 1 người, và người đó chính là người mời -> Là luồng bấm Link!
+        boolean isJoinViaLink = actuallyAddedIds.size() == 1 && actuallyAddedIds.contains(inviterId);
+        MessageType msgType = isJoinViaLink ? MessageType.SYSTEM_JOIN_VIA_LINK : MessageType.SYSTEM_ADD_MEMBER;
+
         // Ghi Log vào MongoDB qua MessageFacade
         String targetIdsJson = chatSnapshotHelper.buildMemberSnapshotContent(actuallyAddedIds);
 
         ConversationResponse response = executeSystemActionAndBuildResponse(
-                conv, inviterId, MessageType.SYSTEM_ADD_MEMBER, targetIdsJson, now);
+                conv, inviterId, msgType, targetIdsJson, now);
 
         Set<Long> allActiveMemberIds = conversationMemberRepository
                 .findUserIdsByConversationIdAndStatus(conversationId, ConversationMemberStatus.ACTIVE);
@@ -302,6 +306,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
         for (ConversationMember member : activeMembers) {
             member.setStatus(ConversationMemberStatus.GROUP_DISBANDED);
             member.setLeftAt(now);
+            member.setUnreadCount(0);
         }
         conversationMemberRepository.saveAll(activeMembers);
 

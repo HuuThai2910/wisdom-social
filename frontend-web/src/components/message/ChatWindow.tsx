@@ -61,6 +61,32 @@ function createClientFileId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function isAccessBlockedNotice(value?: string | null): boolean {
+  if (!value) return false;
+  const normalized = value.toLowerCase();
+  return (
+    normalized.includes("bị xóa khỏi nhóm") ||
+    normalized.includes("đã rời khỏi nhóm") ||
+    normalized.includes("nhóm đã bị giải tán") ||
+    normalized.includes("không có quyền truy cập")
+  );
+}
+
+function AccessBlockedState({ message }: { message: string }) {
+  return (
+    <div className="flex h-full w-full flex-1 items-center justify-center bg-white px-6 text-center dark:bg-black">
+      <div className="max-w-sm">
+        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-red-50 text-red-500 dark:bg-red-950/30 dark:text-red-300">
+          <X size={28} />
+        </div>
+        <p className="text-base font-semibold text-gray-900 dark:text-white">
+          {message}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function ChatWindow({
   conversationId,
   onMarkAsRead,
@@ -138,6 +164,8 @@ export default function ChatWindow({
   } = useChatWindowController({ conversationId, onMarkAsRead, forcedReadOnlyNotice, onForbidden });
 
   const isConversationReadOnly = Boolean(readOnlyNotice);
+  const isAccessBlocked =
+    isAccessBlockedNotice(error) || isAccessBlockedNotice(readOnlyNotice);
 
 
   const otherMember = useMemo(
@@ -889,11 +917,40 @@ export default function ChatWindow({
   }
 
   if (!conversation) {
+    if (isAccessBlocked) {
+      return (
+        <AccessBlockedState
+          message={
+            error ||
+            readOnlyNotice ||
+            "Khong the truy cap cuoc tro chuyen nay."
+          }
+        />
+      );
+    }
+
     return (
       <div className="flex items-center justify-center h-full">
         <p className="text-gray-500">
           {error || "Không tìm thấy cuộc trò chuyện"}
         </p>
+      </div>
+    );
+  }
+
+  if (isAccessBlocked) {
+    return (
+      <div className="flex h-full w-full flex-1 items-center justify-center bg-white px-6 text-center dark:bg-black">
+        <div className="max-w-sm">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-red-50 text-red-500 dark:bg-red-950/30 dark:text-red-300">
+            <X size={28} />
+          </div>
+          <p className="text-base font-semibold text-gray-900 dark:text-white">
+            {error ||
+              readOnlyNotice ||
+              "Khong the truy cap cuoc tro chuyen nay."}
+          </p>
+        </div>
       </div>
     );
   }

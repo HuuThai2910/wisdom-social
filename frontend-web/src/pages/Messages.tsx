@@ -234,6 +234,31 @@ export default function Messages() {
         }
     }, [selectedConversationId]);
 
+    const closeGroupDetailSurfaces = useCallback(() => {
+        setShowInfoPanel(false);
+        setIsGroupSettingsModalOpen(false);
+        closeAddMembersModal();
+        closeTransferOwnerModal();
+        setIsConfirmLeaveModalOpen(false);
+        setIsConfirmDisbandModalOpen(false);
+        closeConfirmKick();
+    }, [
+        closeAddMembersModal,
+        closeConfirmKick,
+        closeTransferOwnerModal,
+        setIsConfirmDisbandModalOpen,
+        setIsConfirmLeaveModalOpen,
+    ]);
+
+    const handleConversationForbidden = useCallback(() => {
+        closeGroupDetailSurfaces();
+    }, [closeGroupDetailSurfaces]);
+
+    useEffect(() => {
+        if (!selectedConversationReadOnlyNotice) return;
+        closeGroupDetailSurfaces();
+    }, [closeGroupDetailSurfaces, selectedConversationReadOnlyNotice]);
+
     const handleDeleteConversation = useCallback(
         (convId: number) => {
             setOpenMenuConvId(null);
@@ -865,7 +890,7 @@ export default function Messages() {
                                     forcedReadOnlyNotice={
                                         selectedConversationReadOnlyNotice
                                     }
-                                    onForbidden={clearSelectedConversation}
+                                    onForbidden={handleConversationForbidden}
                                     name={selectedDisplayInfo?.name}
                                     avatarUrl={
                                         selectedDisplayInfo?.avatar ?? undefined

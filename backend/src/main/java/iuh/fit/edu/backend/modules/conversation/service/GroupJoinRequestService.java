@@ -25,4 +25,6 @@ public interface GroupJoinRequestService {
     List<JoinRequestResponse> getPendingRequests(Long conversationId, Long adminId);
 
     GroupJoinRequest getRequestById(Long requestId);
+
+    boolean hasPendingRequest(Long id, Long userId);
 }

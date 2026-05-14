@@ -9,6 +9,7 @@ import type {
     CreateGroupRequest,
     CursorResponse,
     LocalUploadFile,
+    JoinRequest,
     MemberRole,
     Message,
     PinnedMessageDetail,
@@ -325,6 +326,15 @@ const chatService = {
                     isApproved,
                 },
             },
+        );
+    },
+
+    async getPendingJoinRequests(conversationId: number): Promise<JoinRequest[]> {
+        const response = await apiClient.get(
+            `/conversations/${conversationId}/join-requests`,
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<JoinRequest[]> | JoinRequest[],
         );
     },
 

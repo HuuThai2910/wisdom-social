@@ -63,7 +63,8 @@ export type DomainEventType =
     | "PIN_MESSAGE"
     | "UPIN_MESSAGE"
     | "MEMBER_UPDATED"
-    | "NEW_JOIN_REQUEST";
+    | "NEW_JOIN_REQUEST"
+    | "JOIN_REQUEST_PROCESSED";
 
 export interface PinUpdatedEvent {
     domainEventType: "PIN_MESSAGE" | "UPIN_MESSAGE";
@@ -244,13 +245,26 @@ export interface NewJoinRequestEvent {
     requestData: JoinRequest;
 }
 
+export interface JoinRequestProcessedEvent {
+    domainEventType: "JOIN_REQUEST_PROCESSED";
+    conversationId: number;
+    requestId: number;
+}
+
 /**
  * Type alias cho dữ liệu cập nhật conversation
  * Để backward compatible với code hiện tại
  */
 export type LastMessageUpdate = ConversationUpdatedEvent["lastMessage"];
 
-export type ConversationSnapshot = Conversation;
+export type ConversationSnapshot = Conversation & {
+    processedJoinRequestId?: number;
+};
+
+function toFiniteNumber(value: unknown): number | null {
+    const numberValue = Number(value);
+    return Number.isFinite(numberValue) ? numberValue : null;
+}
 
 function toLastMessageUpdate(
     conversation: Conversation,
@@ -813,7 +827,8 @@ class WebSocketService {
                         | ConversationCreatedEvent
                         | ConversationMembershipEvent
                         | GroupDisbandedEvent
-                        | NewJoinRequestEvent;
+                        | NewJoinRequestEvent
+                        | JoinRequestProcessedEvent;
 
                     const createdConversation = (
                         payload as {
@@ -882,6 +897,42 @@ class WebSocketService {
                                     request.createdAt ||
                                     new Date().toISOString(),
                                 pendingRequests: [request],
+                            } as ConversationSnapshot,
+                        );
+                        return;
+                    }
+
+                    const processedJoinRequestPayload =
+                        payload as JoinRequestProcessedEvent;
+                    const processedJoinConversationId = toFiniteNumber(
+                        processedJoinRequestPayload.conversationId,
+                    );
+                    const processedJoinRequestId = toFiniteNumber(
+                        processedJoinRequestPayload.requestId,
+                    );
+                    if (
+                        processedJoinRequestPayload.domainEventType ===
+                            "JOIN_REQUEST_PROCESSED" &&
+                        processedJoinConversationId !== null &&
+                        processedJoinRequestId !== null
+                    ) {
+                        const now = new Date().toISOString();
+                        callback(
+                            processedJoinConversationId,
+                            {
+                                lastMessageContent: "",
+                                lastMessageType: "SYSTEM_REQUIRE_APPROVAL",
+                                lastSenderId: 0,
+                                lastSenderName: "",
+                                lastMessageAt: now,
+                                read: true,
+                            },
+                            {
+                                id: processedJoinConversationId,
+                                type: "GROUP",
+                                updatedAt: now,
+                                processedJoinRequestId:
+                                    processedJoinRequestId,
                             } as ConversationSnapshot,
                         );
                         return;

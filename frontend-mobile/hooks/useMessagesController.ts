@@ -30,6 +30,7 @@ const PRESERVE_EMPTY_PENDING_REQUEST_TYPES = new Set<Message["type"]>([
     "SYSTEM_KICK_MEMBER",
     "SYSTEM_UPDATE_ROLE",
     "SYSTEM_UPDATE_SETTING",
+    "SYSTEM_REQUIRE_APPROVAL",
 ]);
 
 function safeParseMemberIds(content: string): number[] {
@@ -189,6 +190,16 @@ function toConversationFromSidebar(
     } = conversation as Conversation;
 
     return { ...sidebarConversation };
+}
+
+function getProcessedJoinRequestId(
+    conversation?: Conversation,
+): number | null {
+    const value = (
+        conversation as (Conversation & { processedJoinRequestId?: unknown }) | undefined
+    )?.processedJoinRequestId;
+    const requestId = Number(value);
+    return Number.isFinite(requestId) ? requestId : null;
 }
 
 export function useMessagesController() {
@@ -373,6 +384,32 @@ export function useMessagesController() {
             if (!lastMessage) return;
 
             const latestUserId = currentUserIdRef.current;
+            const processedJoinRequestId =
+                getProcessedJoinRequestId(conversationSnapshot);
+            if (processedJoinRequestId !== null) {
+                chatRuntimeStore.removePendingRequests(conversationId, {
+                    requestIds: [processedJoinRequestId],
+                });
+                setConversations((prev) =>
+                    sortConversationsByLatest(
+                        prev.map((conversation) =>
+                            conversation.id === conversationId
+                                ? {
+                                      ...conversation,
+                                      pendingRequests:
+                                          conversation.pendingRequests?.filter(
+                                              (request) =>
+                                                  Number(request.id) !==
+                                                  processedJoinRequestId,
+                                          ) ?? conversation.pendingRequests,
+                                  }
+                                : conversation,
+                        ),
+                    ),
+                );
+                return;
+            }
+
             const normalizedSenderId = Number(lastMessage.lastSenderId);
             const isMyMessage = Number.isFinite(normalizedSenderId)
                 ? normalizedSenderId === latestUserId

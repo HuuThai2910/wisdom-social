@@ -4,15 +4,13 @@
  */
 package iuh.fit.edu.backend.modules.conversation.service.impl;
 
-import iuh.fit.edu.backend.modules.conversation.dto.response.JoinRequestResponse;
+import iuh.fit.edu.backend.common.util.MediaUrlBuilder;
+import iuh.fit.edu.backend.modules.conversation.dto.request.AddMemberRequest;
+import iuh.fit.edu.backend.modules.conversation.dto.response.*;
 import iuh.fit.edu.backend.modules.conversation.entity.Conversation;
 import iuh.fit.edu.backend.modules.conversation.entity.ConversationMember;
 import iuh.fit.edu.backend.modules.conversation.dto.request.CreateGroupRequest;
-import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationMemberResponse;
-import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationResponse;
-import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationSidebarResponse;
 import iuh.fit.edu.backend.modules.chat.dto.response.MessageSeenResponse;
-import iuh.fit.edu.backend.modules.conversation.entity.GroupJoinRequest;
 import iuh.fit.edu.backend.modules.conversation.event.payload.ConversationCreatedEvent;
 import iuh.fit.edu.backend.modules.conversation.event.payload.ConversationUpdatedEvent;
 import iuh.fit.edu.backend.modules.chat.event.payload.MessageSeenEvent;
@@ -67,7 +65,47 @@ public class ConversationServiceImpl implements ConversationService {
     private final ConversationMemberMapper conversationMemberMapper;
     private final ChatSnapshotHelper chatSnapshotHelper;
     private final GroupJoinRequestService groupJoinRequestService;
+    private final MediaUrlBuilder mediaUrlBuilder;
 
+
+    @Override
+    public List<ConversationSidebarResponse> getConversationsByUser(Long userId){
+        List<ConversationMember> members = conversationMemberRepository.findActiveSidebarByUserId(userId);
+        if(members.isEmpty()) return Collections.emptyList();
+        List<ConversationSidebarResponse> conversationResponses = this.conversationMapper.toListSidebarFromMembers(members);
+        log.info("List conversation by user {}:  {} ", userId, conversationResponses);
+        return conversationResponses;
+    }
+
+    @Override
+    public ConversationResponse getConversationById(Long conversationId, Long userId) {
+        log.info("Get conversation {} for user {}", conversationId, userId);
+
+        ConversationMember conversationMember = conversationMemberRepository
+                .findByConversation_IdAndUser_Id(conversationId, userId)
+                .orElseThrow(() -> new ConversationAccessDeniedException("Bạn không phải thành viên của cuộc trò chuyện này"));
+
+        if (conversationMember.getStatus() == ConversationMemberStatus.KICKED) {
+            throw new ConversationMemberKickedException("Bạn đã bị xóa khỏi nhóm");
+        }
+
+        if (conversationMember.getStatus() == ConversationMemberStatus.LEFT) {
+            throw new ConversationMemberLeftException("Bạn đã rời khỏi nhóm");
+        }
+
+        if (conversationMember.getStatus() == ConversationMemberStatus.GROUP_DISBANDED) {
+            throw new ConversationAccessDeniedException("Nhóm đã bị giải tán");
+        }
+
+        Conversation conversation = conversationMember.getConversation();
+        ConversationResponse response = conversationMapper.toConversationResponse(conversation, userId);
+        if (conversationMember.getRole() == MemberRole.OWNER || conversationMember.getRole() == MemberRole.DEPUTY) {
+            List<JoinRequestResponse> pending = groupJoinRequestService.getPendingRequests(conversationId, userId);
+            response.setPendingRequests(pending);
+        }
+        log.info("Conversation: {}", response);
+        return response;
+    }
 
     @Transactional(rollbackFor = Exception.class)
     @Override
@@ -125,45 +163,6 @@ public class ConversationServiceImpl implements ConversationService {
         return response;
     }
 
-    @Override
-    public List<ConversationSidebarResponse> getConversationsByUser(Long userId){
-        List<ConversationMember> members = conversationMemberRepository.findActiveSidebarByUserId(userId);
-        if(members.isEmpty()) return Collections.emptyList();
-        List<ConversationSidebarResponse> conversationResponses = this.conversationMapper.toListSidebarFromMembers(members);
-        log.info("List conversation by user {}:  {} ", userId, conversationResponses);
-        return conversationResponses;
-    }
-
-    @Override
-    public ConversationResponse getConversationById(Long conversationId, Long userId) {
-        log.info("Get conversation {} for user {}", conversationId, userId);
-
-        ConversationMember conversationMember = conversationMemberRepository
-                .findByConversation_IdAndUser_Id(conversationId, userId)
-                .orElseThrow(() -> new ConversationAccessDeniedException("Bạn không phải thành viên của cuộc trò chuyện này"));
-
-        if (conversationMember.getStatus() == ConversationMemberStatus.KICKED) {
-            throw new ConversationMemberKickedException("Bạn đã bị xóa khỏi nhóm");
-        }
-
-        if (conversationMember.getStatus() == ConversationMemberStatus.LEFT) {
-            throw new ConversationMemberLeftException("Bạn đã rời khỏi nhóm");
-        }
-
-        if (conversationMember.getStatus() == ConversationMemberStatus.GROUP_DISBANDED) {
-            throw new ConversationAccessDeniedException("Nhóm đã bị giải tán");
-        }
-
-        Conversation conversation = conversationMember.getConversation();
-        ConversationResponse response = conversationMapper.toConversationResponse(conversation, userId);
-        if (conversationMember.getRole() == MemberRole.OWNER || conversationMember.getRole() == MemberRole.DEPUTY) {
-            List<JoinRequestResponse> pending = groupJoinRequestService.getPendingRequests(conversationId, userId);
-            response.setPendingRequests(pending);
-        }
-        log.info("Conversation: {}", response);
-        return response;
-    }
-
     @Transactional
     @Override
     public void deleteConversationForMe(Long conversationId, Long userId) {
@@ -217,6 +216,10 @@ public class ConversationServiceImpl implements ConversationService {
 
     }
 
+    // =======================================================
+    // QUẢN LÝ CẤU HÌNH NHÓM (CHO PHÉP NHẮN TIN / DUYỆT THÀNH VIÊN)
+    // =======================================================
+
     @Transactional(rollbackFor = Exception.class)
     @Override
     public ConversationResponse updateMessageRestriction(Long conversationId, Long requesterId, boolean isRestricted) {
@@ -229,6 +232,102 @@ public class ConversationServiceImpl implements ConversationService {
         return updateGroupSetting(conversationId, requesterId, isRequired, false);
     }
 
+    // =======================================================
+    // QUẢN LÝ LINK MỜI VÀ THAM GIA QUA LINK
+    // =======================================================
+
+    @Transactional
+    @Override
+    public String getOrGenerateInviteLink(Long conversationId, Long requesterId) {
+        Conversation conv = validateGroupAndAdmin(conversationId, requesterId);
+        if (conv.getInviteToken() == null || conv.getInviteToken().isEmpty()) {
+            conv.setInviteToken(generateUniqueToken());
+            conversationRepository.save(conv);
+            String content = "đã tạo link tham gia nhóm";
+            updateConversationAndNotify(conv, requesterId, content);
+        }
+        return conv.getInviteToken();
+    }
+
+    @Transactional
+    @Override
+    public String resetInviteLink(Long conversationId, Long requesterId) {
+        Conversation conv = validateGroupAndAdmin(conversationId, requesterId);
+
+        String newToken = generateUniqueToken();
+        conv.setInviteToken(newToken);
+        conversationRepository.save(conv);
+
+        String content = "đã làm mới link tham gia nhóm";
+        updateConversationAndNotify(conv, requesterId, content);
+
+        return newToken;
+    }
+
+    @Transactional
+    @Override
+    public void disableInviteLink(Long conversationId, Long requesterId) {
+        Conversation conv = validateGroupAndAdmin(conversationId, requesterId);
+
+        conv.setInviteToken(null);
+        conversationRepository.save(conv);
+
+        String content = "đã vô hiệu hóa link tham gia nhóm";
+        updateConversationAndNotify(conv, requesterId, content);
+    }
+
+    @Override
+    public ConversationPreviewResponse previewGroupFromToken(String token, Long userId) {
+        Conversation conv = conversationRepository.findByInviteToken(token)
+                .orElseThrow(() -> new RuntimeException("Link tham gia không hợp lệ hoặc đã bị vô hiệu hóa"));
+
+        String status = "NOT_MEMBER";
+
+        // Kiểm tra xem đã là thành viên ACTIVE chưa
+        boolean isActive = conversationMemberRepository
+                .findByConversation_IdAndUser_IdAndStatus(conv.getId(), userId, ConversationMemberStatus.ACTIVE)
+                .isPresent();
+
+        if (isActive) {
+            status = "ACTIVE";
+        } else if (groupJoinRequestService.hasPendingRequest(conv.getId(), userId)) {
+            status = "PENDING";
+        }
+
+        int count = conversationMemberRepository.countByConversation_IdAndStatus(conv.getId(), ConversationMemberStatus.ACTIVE);
+
+        return ConversationPreviewResponse.builder()
+                .conversationId(conv.getId())
+                .name(conv.getName())
+                .imageUrl(mediaUrlBuilder.build(conv.getImageUrl(), MessageType.IMAGE))
+                .memberCount(count)
+                .isJoinApprovalRequired(conv.isJoinApprovalRequired())
+                .userStatus(status)
+                .build();
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    @Override
+    public Object joinGroupFromToken(String token, Long userId, String message) {
+        Conversation conv = conversationRepository.findByInviteToken(token)
+                .orElseThrow(() -> new RuntimeException("Link tham gia không hợp lệ hoặc đã bị vô hiệu hóa"));
+
+        // Chặn nếu đang là thành viên ACTIVE
+        if (conversationMemberRepository.findByConversation_IdAndUser_IdAndStatus(conv.getId(), userId, ConversationMemberStatus.ACTIVE).isPresent()) {
+            throw new RuntimeException("Bạn đã là thành viên của nhóm này");
+        }
+
+        if (conv.isJoinApprovalRequired()) {
+            // Trường hợp nhóm bật duyệt -> Đẩy vào phòng chờ
+            groupJoinRequestService.createRequest(conv.getId(), userId, null);
+            return java.util.Collections.singletonMap("message", "Đã gửi yêu cầu tham gia đến Quản trị viên");
+        } else {
+            // Trường hợp nhóm tự do -> Add thẳng (Tái sử dụng service member)
+            AddMemberRequest addReq = new AddMemberRequest();
+            addReq.setNewMemberIds(java.util.Collections.singleton(userId));
+            return conversationMemberService.addMembers(conv.getId(), addReq, userId);
+        }
+    }
 
     // =======================================================
     // PRIVATE HELPERS CHO HÀM TẠO NHÓM
@@ -324,5 +423,56 @@ public class ConversationServiceImpl implements ConversationService {
         eventPublisher.publishEvent(new ConversationUpdatedEvent(conversationId, response.getLastMessage(), memberIds));
 
         return response;
+    }
+
+    private Conversation validateGroupAndAdmin(Long conversationId, Long requesterId) {
+        Conversation conv = conversationRepository.findById(conversationId)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy cuộc trò chuyện"));
+
+        if (conv.getType() != ConversationType.GROUP) {
+            throw new IllegalArgumentException("Chỉ nhóm chat mới có tính năng này");
+        }
+
+        ConversationMember requester = conversationMemberRepository
+                .findByConversation_IdAndUser_IdAndStatus(conversationId, requesterId, ConversationMemberStatus.ACTIVE)
+                .orElseThrow(() -> new ConversationAccessDeniedException("Bạn không ở trong nhóm này"));
+
+        if (requester.getRole() != MemberRole.OWNER && requester.getRole() != MemberRole.DEPUTY) {
+            throw new ConversationAccessDeniedException("Chỉ Trưởng/Phó nhóm mới được quản lý link");
+        }
+        return conv;
+    }
+
+    private String generateUniqueToken() {
+        return java.util.UUID.randomUUID().toString().replace("-", "");
+    }
+
+    private void updateConversationAndNotify(Conversation conv, Long requesterId, String content) {
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        String requesterName = chatSnapshotHelper.resolveActorDisplayName(conv, requesterId);
+
+        // Tạo tin nhắn hệ thống (Lưu MongoDB)
+        internalMessageService.createSystemMessage(conv.getId(), requesterId,
+                MessageType.SYSTEM_UPDATE_SETTING, content);
+
+        // 2. Cập nhật Metadata cho Conversation (MySQL) để đồng bộ Sidebar
+        conv.setLastMessageContent(content);
+        conv.setLastMessageType(MessageType.SYSTEM_UPDATE_SETTING);
+        conv.setLastMessageAt(now);
+        conv.setLastSenderId(requesterId);
+        conv.setLastSenderName(requesterName);
+        conversationRepository.save(conv);
+
+        // Bắn Event cập nhật Sidebar (Thông qua Redis Pub/Sub -> Socket)
+        ConversationResponse response = conversationMapper.toConversationResponse(conv, requesterId);
+        if (response.getLastMessage() != null) {
+            response.getLastMessage().setLastSenderName(requesterName);
+            response.getLastMessage().setRead(true);
+        }
+
+        Set<Long> memberIds = conversationMemberRepository.findUserIdsByConversationIdAndStatus(
+                conv.getId(), ConversationMemberStatus.ACTIVE);
+
+        eventPublisher.publishEvent(new ConversationUpdatedEvent(conv.getId(), response.getLastMessage(), memberIds));
     }
 }

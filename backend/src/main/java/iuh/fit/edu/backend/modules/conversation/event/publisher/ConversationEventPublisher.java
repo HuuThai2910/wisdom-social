@@ -68,6 +68,18 @@ public class ConversationEventPublisher {
         redisTemplate.convertAndSend(RedisPubSubConfig.CHAT_CHANNEL, envelope);
     }
 
+    @Async
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void handleJoinRequestProcessed(JoinRequestProcessedEvent event){
+        log.info("Publishing join request response to redis pub/sub for {} member", event.getNotifyAdminIds());
+        RedisEnvelope envelope = new RedisEnvelope(
+                event.getNotifyAdminIds(),
+                event.getDomainEventType(),
+                event
+        );
+        redisTemplate.convertAndSend(RedisPubSubConfig.CHAT_CHANNEL, envelope);
+    }
+
     // Hàm xử lý gửi sự kiện thêm thành viên cho redis pub/sub
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void handleMemberAdded(MemberAddedEvent event){

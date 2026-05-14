@@ -3,7 +3,12 @@ import { useRouter } from "expo-router";
 import chatService from "@/services/chatService";
 import chatWebsocketService from "@/services/chatWebsocketService";
 import chatRuntimeStore, { type MembersByUserId } from "@/stores/chatRuntimeStore";
-import type { Conversation, ConversationMember, Message } from "@/types/chat";
+import type {
+    Conversation,
+    ConversationMember,
+    LastMessage,
+    Message,
+} from "@/types/chat";
 
 const GROUP_SYSTEM_SYNC_TYPES = new Set<Message["type"]>([
     "SYSTEM_CREATE_GROUP",
@@ -21,6 +26,7 @@ const PRESERVE_EMPTY_PENDING_REQUEST_TYPES = new Set<Message["type"]>([
     "SYSTEM_KICK_MEMBER",
     "SYSTEM_UPDATE_ROLE",
     "SYSTEM_UPDATE_SETTING",
+    "SYSTEM_REQUIRE_APPROVAL",
 ]);
 
 function toMembersByUserId(
@@ -84,6 +90,13 @@ function isActiveMember(member?: ConversationMember): boolean {
     return Boolean(member && (!member.status || member.status === "ACTIVE"));
 }
 
+function canReviewJoinRequests(member?: ConversationMember): boolean {
+    return (
+        isActiveMember(member) &&
+        (member?.role === "OWNER" || member?.role === "DEPUTY")
+    );
+}
+
 interface UseGroupConversationRealtimeParams {
     conversationId: number;
     currentUserId: number;
@@ -103,6 +116,52 @@ export function useGroupConversationRealtime({
 
         let disposed = false;
         let unsubscribe: (() => void) | undefined;
+        const syncPendingRequests = async (
+            membersById?: MembersByUserId,
+        ): Promise<void> => {
+            const currentMember =
+                membersById?.[currentUserId] ??
+                chatRuntimeStore.getMembers(conversationId)[currentUserId];
+
+            if (!canReviewJoinRequests(currentMember)) return;
+
+            const pendingRequests =
+                await chatService.getPendingJoinRequests(conversationId);
+            if (disposed) return;
+
+            const previousConversation =
+                chatRuntimeStore.getConversation(conversationId);
+            if (!previousConversation) return;
+
+            chatRuntimeStore.setConversation(conversationId, {
+                ...previousConversation,
+                pendingRequests,
+            });
+        };
+
+        const handleUserConversationUpdate = (
+            updatedConversationId: number,
+            _lastMessage: LastMessage,
+            conversationSnapshot?: Conversation & {
+                processedJoinRequestId?: unknown;
+            },
+        ) => {
+            if (updatedConversationId !== conversationId) return;
+
+            const processedJoinRequestId = Number(
+                conversationSnapshot?.processedJoinRequestId,
+            );
+            if (!Number.isFinite(processedJoinRequestId)) return;
+
+            chatRuntimeStore.removePendingRequests(conversationId, {
+                requestIds: [processedJoinRequestId],
+            });
+            void syncPendingRequests()
+                .catch(() => undefined)
+                .finally(() => {
+                    void reloadConversations?.();
+                });
+        };
 
         const navigateAway = () => {
             if (hasNavigatedAwayRef.current) return;
@@ -129,19 +188,38 @@ export function useGroupConversationRealtime({
                     { memberSnapshotVersion },
                 );
 
+                let pendingRequests =
+                    conversationResponse.success && conversationResponse.data
+                        ? conversationResponse.data.pendingRequests
+                        : undefined;
+                let loadedPendingRequestsFromEndpoint = false;
+
+                if (canReviewJoinRequests(acceptedMembers[currentUserId])) {
+                    try {
+                        pendingRequests =
+                            await chatService.getPendingJoinRequests(
+                                conversationId,
+                            );
+                        loadedPendingRequestsFromEndpoint = true;
+                    } catch {
+                        // Fall back to conversation detail when the dedicated endpoint is unavailable.
+                    }
+                }
+
                 if (conversationResponse.success && conversationResponse.data) {
                     const previousConversation =
                         chatRuntimeStore.getConversation(conversationId);
                     const shouldPreservePendingRequests =
+                        !loadedPendingRequestsFromEndpoint &&
                         PRESERVE_EMPTY_PENDING_REQUEST_TYPES.has(message.type) &&
-                        Array.isArray(conversationResponse.data.pendingRequests) &&
-                        conversationResponse.data.pendingRequests.length === 0;
+                        Array.isArray(pendingRequests) &&
+                        pendingRequests.length === 0;
                     const nextConversation: Conversation = {
                         ...conversationResponse.data,
                         pendingRequests: shouldPreservePendingRequests
                             ? previousConversation?.pendingRequests ??
-                              conversationResponse.data.pendingRequests
-                            : conversationResponse.data.pendingRequests,
+                              pendingRequests
+                            : pendingRequests,
                         members: Object.values(acceptedMembers),
                     };
 
@@ -186,6 +264,10 @@ export function useGroupConversationRealtime({
                         void refreshSnapshot(message);
                     },
                 );
+                chatWebsocketService.subscribeToUserConversations(
+                    currentUserId,
+                    handleUserConversationUpdate,
+                );
             } catch {
                 // The screen still has the normal conversation-list subscription as fallback.
             }
@@ -196,6 +278,10 @@ export function useGroupConversationRealtime({
         return () => {
             disposed = true;
             unsubscribe?.();
+            chatWebsocketService.unsubscribeFromUserConversations(
+                currentUserId,
+                handleUserConversationUpdate,
+            );
         };
     }, [conversationId, currentUserId, reloadConversations, router]);
 }

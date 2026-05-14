@@ -96,6 +96,12 @@ public class GroupJoinRequestServiceImpl implements GroupJoinRequestService {
         return requestRepository.findById(requestId).orElseThrow(() -> new RuntimeException("Yêu cầu không tồn tại"));
     }
 
+    @Override
+    public boolean hasPendingRequest(Long conversationId, Long userId) {
+        return requestRepository.existsByConversationIdAndUserIdAndStatus(
+                conversationId, userId, JoinRequestStatus.PENDING);
+    }
+
     private JoinRequestResponse mapJoinRequestResponse(GroupJoinRequest req){
         return JoinRequestResponse.builder()
                 .id(req.getId())

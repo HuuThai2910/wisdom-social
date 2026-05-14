@@ -9,13 +9,21 @@ import {
     SafeAreaView,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { colors } from "@/constants";
 import { UserAvatar, TransferOwnershipModal } from "@/components";
-import { useMessagesController } from "@/hooks/useMessagesController";
+import {
+    setActiveConversationId,
+    useMessagesController,
+} from "@/hooks/useMessagesController";
 import { useGroupManagement } from "@/hooks/useGroupManagement";
 import { formatRelativeTime } from "@/utils/format";
 import { useGroupConversationRealtime } from "@/hooks/useGroupConversationRealtime";
+import chatRuntimeStore from "@/stores/chatRuntimeStore";
+import chatService from "@/services/chatService";
+import chatWebsocketService from "@/services/chatWebsocketService";
+import { buildConversationDisplayInfo } from "@/utils/conversationDisplayInfo";
 
 export function ConversationDetailsScreen() {
     const { conversationId } = useLocalSearchParams<{ conversationId: string }>();
@@ -25,6 +33,7 @@ export function ConversationDetailsScreen() {
     const {
         conversations,
         currentUserId,
+        clearUnreadCount,
         reload,
     } = useMessagesController();
 
@@ -45,6 +54,72 @@ export function ConversationDetailsScreen() {
         currentUserId,
         reloadConversations: reload,
     });
+
+    useFocusEffect(
+        React.useCallback(() => {
+            if (!Number.isFinite(id) || !currentUserId) return undefined;
+
+            let unsubscribeMessages: (() => void) | undefined;
+            let disposed = false;
+
+            setActiveConversationId(id);
+            clearUnreadCount(id);
+
+            const cachedMessages = chatRuntimeStore.getMessages(id);
+            const lastMessageId = cachedMessages.at(-1)?.id;
+            void chatService
+                .markAsRead(id, currentUserId, lastMessageId)
+                .catch(() => undefined);
+            void chatService
+                .getConversation(id, currentUserId)
+                .then((response) => {
+                    if (response.success && response.data) {
+                        chatRuntimeStore.setConversation(id, response.data);
+                    }
+                })
+                .catch(() => undefined);
+            const setupMessageReadSync = async () => {
+                try {
+                    if (!chatWebsocketService.isConnected()) {
+                        await chatWebsocketService.connect();
+                    }
+                    if (disposed) return;
+
+                    unsubscribeMessages =
+                        chatWebsocketService.subscribeToConversationMessages(
+                            id,
+                            (message) => {
+                                if (
+                                    Number(message.senderId) ===
+                                    Number(currentUserId)
+                                ) {
+                                    return;
+                                }
+
+                                clearUnreadCount(id);
+                                void chatService
+                                    .markAsRead(
+                                        id,
+                                        currentUserId,
+                                        message.id,
+                                    )
+                                    .catch(() => undefined);
+                            },
+                        );
+                } catch {
+                    // The user-conversation subscription still keeps the unread badge local state in sync.
+                }
+            };
+
+            void setupMessageReadSync();
+
+            return () => {
+                disposed = true;
+                unsubscribeMessages?.();
+                setActiveConversationId(null);
+            };
+        }, [clearUnreadCount, currentUserId, id]),
+    );
 
     const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
         media: true,
@@ -72,6 +147,12 @@ export function ConversationDetailsScreen() {
     }
 
     const isGroup = selectedConversation.type === "GROUP";
+    const cachedMembers = Object.values(chatRuntimeStore.getMembers(id));
+    const conversationDisplayInfo = buildConversationDisplayInfo({
+        conversation: selectedConversation,
+        currentUserId,
+        members: cachedMembers.length > 0 ? cachedMembers : undefined,
+    });
     const memberCount = groupManagement.groupMembers.length;
     const canReviewJoinRequests =
         groupManagement.currentMemberRole === "OWNER" ||
@@ -125,12 +206,12 @@ export function ConversationDetailsScreen() {
                 {/* Profile Section */}
                 <View style={styles.profileSection}>
                     <UserAvatar
-                        uri={selectedConversation.imageUrl}
-                        name={selectedConversation.name || "?"}
+                        uri={conversationDisplayInfo.avatarUrl || undefined}
+                        name={conversationDisplayInfo.name || "?"}
                         size={80}
                     />
                     <Text style={styles.conversationName}>
-                        {selectedConversation.name || "Người dùng"}
+                        {conversationDisplayInfo.name}
                     </Text>
                     <Text style={styles.activityStatus}>{activityStatus}</Text>
                     

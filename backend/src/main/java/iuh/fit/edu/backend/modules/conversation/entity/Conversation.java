@@ -55,6 +55,9 @@ public class Conversation {
     @Column(name = "is_join_approval_required", columnDefinition = "boolean default false")
     private boolean isJoinApprovalRequired = false;
 
+    @Column(name = "invite_token", unique = true)
+    private String inviteToken;
+
     @OneToMany(mappedBy = "conversation")
     private List<ConversationMember> members;
 

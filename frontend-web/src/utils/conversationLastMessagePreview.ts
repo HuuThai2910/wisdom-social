@@ -69,6 +69,22 @@ export function buildConversationLastMessagePreview({
             lastMessage.lastSenderId <= 0;
 
         if (isFallbackMessage) {
+            if (lastMessage.lastMessageType === "SYSTEM_DISBAND_GROUP") {
+                return {
+                    text: buildSystemGroupMessage({
+                        type: lastMessage.lastMessageType,
+                        content: lastMessage.lastMessageContent,
+                        isOwn: false,
+                        senderName: lastMessage.lastSenderName,
+                        senderId: lastMessage.lastSenderId,
+                        currentUserId,
+                        membersById: {},
+                    }),
+                    showSenderPrefix: false,
+                    senderLabel: "",
+                };
+            }
+
             return {
                 text: DEFAULT_PREVIEW_TEXT,
                 showSenderPrefix: false,

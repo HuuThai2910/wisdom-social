@@ -282,3 +282,9 @@ export interface NewJoinRequestEvent {
     conversationId: number;
     requestData: JoinRequest;
 }
+
+export interface JoinRequestProcessedEvent {
+    domainEventType: "JOIN_REQUEST_PROCESSED";
+    conversationId: number;
+    requestId: number;
+}

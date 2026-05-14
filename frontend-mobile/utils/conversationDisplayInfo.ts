@@ -121,16 +121,11 @@ export function buildConversationDisplayInfo({
         (member) => member.userId !== currentUserId,
     );
 
-    const explicitDirectName = conversation.name?.trim();
-    const explicitDirectAvatar = conversation.imageUrl?.trim() || null;
-
     return {
-        name:
-            explicitDirectName ||
-            (otherMember
-                ? resolveMemberDisplayName(otherMember)
-                : DIRECT_NAME_FALLBACK),
-        avatarUrl: explicitDirectAvatar || otherMember?.avatar?.trim() || null,
+        name: otherMember
+            ? resolveMemberDisplayName(otherMember)
+            : DIRECT_NAME_FALLBACK,
+        avatarUrl: otherMember?.avatar?.trim() || null,
         compositeAvatarUrls: [],
     };
 }

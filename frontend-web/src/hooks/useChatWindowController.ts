@@ -73,7 +73,6 @@ export function useChatWindowController(args: {
 }) {
     const { conversationId, onMarkAsRead, forcedReadOnlyNotice, onForbidden } =
         args;
-    void onForbidden;
 
     // userId: lấy từ AuthContext (security integration - không nhận qua prop nữa)
     const { currentUser } = useAuth();
@@ -123,6 +122,11 @@ export function useChatWindowController(args: {
     const prevForcedNoticeRef = useRef<string | null | undefined>(
         forcedReadOnlyNotice,
     );
+    const onForbiddenRef = useRef(onForbidden);
+
+    useEffect(() => {
+        onForbiddenRef.current = onForbidden;
+    }, [onForbidden]);
 
     // ====== Ghi âm tin nhắn thoại (Voice recording) ======
     // isRecording: true nếu đang ghi âm, dùng để hiện overlay ghi âm trong UI
@@ -638,6 +642,7 @@ export function useChatWindowController(args: {
                         websocketService.unsubscribeFromConversationPins(
                             conversationId,
                         );
+                        onForbiddenRef.current?.();
                         return;
                     }
 
@@ -776,6 +781,7 @@ const list = Array.isArray(cursorData?.data)
                     websocketService.unsubscribeFromConversationPins(
                         conversationId,
                     );
+                    onForbiddenRef.current?.();
                 } else {
                     setError(apiMessage);
                 }
@@ -799,6 +805,7 @@ const list = Array.isArray(cursorData?.data)
         websocketService.unsubscribeFromConversation(conversationId);
         websocketService.unsubscribeFromConversationMembers(conversationId);
         websocketService.unsubscribeFromConversationPins(conversationId);
+        onForbiddenRef.current?.();
     }, [conversationId, forcedReadOnlyNotice]);
 
     const loadOlderMessages = useCallback(
@@ -1242,6 +1249,7 @@ const list = Array.isArray(cursorData?.data)
                 websocketService.unsubscribeFromConversationPins(
                     conversationId,
                 );
+                onForbiddenRef.current?.();
             }
 
             if (GROUP_SYSTEM_MEMBER_SYNC_TYPES.has(normalizedIncoming.type)) {

@@ -33,6 +33,7 @@ public class ConversationResponse {
     private boolean isMessageRestricted;
     @JsonProperty("isJoinApprovalRequired")
     private boolean isJoinApprovalRequired;
+    // private String inviteToken;
     private List<ConversationMemberResponse> members;
     private List<PinnedMessageDetail> pinnedMessages;
     private List<JoinRequestResponse> pendingRequests;

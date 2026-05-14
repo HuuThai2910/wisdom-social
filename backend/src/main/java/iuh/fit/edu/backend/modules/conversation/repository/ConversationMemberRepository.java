@@ -103,4 +103,6 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
 
     @Query("SELECT cm.user.id FROM ConversationMember cm WHERE cm.conversation.id = :conversationId AND cm.status = 'ACTIVE' AND cm.role IN ('OWNER', 'DEPUTY')")
     Set<Long> findAdminIdsByConversationId(@Param("conversationId") Long conversationId);
+
+    int countByConversation_IdAndStatus(Long id, ConversationMemberStatus conversationMemberStatus);
 }

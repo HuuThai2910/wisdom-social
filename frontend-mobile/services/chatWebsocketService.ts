@@ -6,6 +6,7 @@ import type {
     ConversationMembershipEvent,
     ConversationUpdatedEvent,
     GroupDisbandedEvent,
+    JoinRequestProcessedEvent,
     LastMessage,
     MemberUpdatedEvent,
     Message,
@@ -24,13 +25,16 @@ type ConversationEvent =
     | MessageSeenEvent
     | TypingEvent;
 
-type ConversationSnapshot = Conversation;
+type ConversationSnapshot = Conversation & {
+    processedJoinRequestId?: number;
+};
 
 type UserConversationEvent =
     | ConversationUpdatedEvent
     | ConversationCreatedEvent
     | ConversationMembershipEvent
     | GroupDisbandedEvent
+    | JoinRequestProcessedEvent
     | NewJoinRequestEvent;
 
 type UserConversationUpdateHandler = (
@@ -116,6 +120,11 @@ function buildSystemFallbackByDomainEvent(
         lastMessageAt: now,
         read: false,
     };
+}
+
+function toFiniteNumber(value: unknown): number | null {
+    const numberValue = Number(value);
+    return Number.isFinite(numberValue) ? numberValue : null;
 }
 export type CallStatus =
     | "calling"
@@ -906,6 +915,44 @@ class ChatWebsocketService {
                                         request.createdAt ||
                                         new Date().toISOString(),
                                     pendingRequests: [request],
+                                } as ConversationSnapshot,
+                            ),
+                        );
+                        return;
+                    }
+
+                    const processedJoinRequestPayload =
+                        payload as JoinRequestProcessedEvent;
+                    const processedJoinConversationId = toFiniteNumber(
+                        processedJoinRequestPayload.conversationId,
+                    );
+                    const processedJoinRequestId = toFiniteNumber(
+                        processedJoinRequestPayload.requestId,
+                    );
+                    if (
+                        processedJoinRequestPayload.domainEventType ===
+                            "JOIN_REQUEST_PROCESSED" &&
+                        processedJoinConversationId !== null &&
+                        processedJoinRequestId !== null
+                    ) {
+                        const now = new Date().toISOString();
+                        listeners.forEach((listener) =>
+                            listener.onConversationUpdated(
+                                processedJoinConversationId,
+                                {
+                                    lastMessageContent: "",
+                                    lastMessageType: "SYSTEM_REQUIRE_APPROVAL",
+                                    lastSenderId: 0,
+                                    lastSenderName: "",
+                                    lastMessageAt: now,
+                                    read: true,
+                                },
+                                {
+                                    id: processedJoinConversationId,
+                                    type: "GROUP",
+                                    updatedAt: now,
+                                    processedJoinRequestId:
+                                        processedJoinRequestId,
                                 } as ConversationSnapshot,
                             ),
                         );
