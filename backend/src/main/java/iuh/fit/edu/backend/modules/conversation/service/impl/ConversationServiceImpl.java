@@ -4,6 +4,7 @@
  */
 package iuh.fit.edu.backend.modules.conversation.service.impl;
 
+import iuh.fit.edu.backend.modules.conversation.dto.response.JoinRequestResponse;
 import iuh.fit.edu.backend.modules.conversation.entity.Conversation;
 import iuh.fit.edu.backend.modules.conversation.entity.ConversationMember;
 import iuh.fit.edu.backend.modules.conversation.dto.request.CreateGroupRequest;
@@ -11,6 +12,7 @@ import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationMemberR
 import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationResponse;
 import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationSidebarResponse;
 import iuh.fit.edu.backend.modules.chat.dto.response.MessageSeenResponse;
+import iuh.fit.edu.backend.modules.conversation.entity.GroupJoinRequest;
 import iuh.fit.edu.backend.modules.conversation.event.payload.ConversationCreatedEvent;
 import iuh.fit.edu.backend.modules.conversation.event.payload.ConversationUpdatedEvent;
 import iuh.fit.edu.backend.modules.chat.event.payload.MessageSeenEvent;
@@ -25,6 +27,7 @@ import iuh.fit.edu.backend.modules.conversation.constant.ConversationType;
 import iuh.fit.edu.backend.modules.conversation.constant.MemberRole;
 import iuh.fit.edu.backend.modules.conversation.repository.ConversationMemberRepository;
 import iuh.fit.edu.backend.modules.conversation.repository.ConversationRepository;
+import iuh.fit.edu.backend.modules.conversation.service.GroupJoinRequestService;
 import iuh.fit.edu.backend.modules.user.repository.UserRepository;
 import iuh.fit.edu.backend.modules.conversation.service.ConversationMemberCacheService;
 import iuh.fit.edu.backend.modules.conversation.service.ConversationMemberService;
@@ -63,6 +66,7 @@ public class ConversationServiceImpl implements ConversationService {
     private final ConversationMemberCacheService memberCacheService;
     private final ConversationMemberMapper conversationMemberMapper;
     private final ChatSnapshotHelper chatSnapshotHelper;
+    private final GroupJoinRequestService groupJoinRequestService;
 
 
     @Transactional(rollbackFor = Exception.class)
@@ -152,7 +156,10 @@ public class ConversationServiceImpl implements ConversationService {
 
         Conversation conversation = conversationMember.getConversation();
         ConversationResponse response = conversationMapper.toConversationResponse(conversation, userId);
-
+        if (conversationMember.getRole() == MemberRole.OWNER || conversationMember.getRole() == MemberRole.DEPUTY) {
+            List<JoinRequestResponse> pending = groupJoinRequestService.getPendingRequests(conversationId, userId);
+            response.setPendingRequests(pending);
+        }
         log.info("Conversation: {}", response);
         return response;
     }
@@ -209,63 +216,17 @@ public class ConversationServiceImpl implements ConversationService {
         this.eventPublisher.publishEvent(new MessageSeenEvent(response, memberIds));
 
     }
+
     @Transactional(rollbackFor = Exception.class)
     @Override
     public ConversationResponse updateMessageRestriction(Long conversationId, Long requesterId, boolean isRestricted) {
-        Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        return updateGroupSetting(conversationId, requesterId, isRestricted, true);
+    }
 
-        // 1. Lấy thông tin nhóm
-        Conversation conv = conversationRepository.findById(conversationId)
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy cuộc trò chuyện"));
-
-        if (conv.getType() != ConversationType.GROUP) {
-            throw new IllegalArgumentException("Cài đặt này chỉ áp dụng cho nhóm chat");
-        }
-
-        // 2. Lấy thông tin người yêu cầu và check quyền
-        ConversationMember requester = conversationMemberRepository
-                .findByConversation_IdAndUser_IdAndStatus(conversationId, requesterId, ConversationMemberStatus.ACTIVE)
-                .orElseThrow(() -> new RuntimeException("Bạn không nằm trong nhóm này"));
-
-        if (requester.getRole() != MemberRole.OWNER && requester.getRole() != MemberRole.DEPUTY) {
-            throw new ConversationAccessDeniedException("Chỉ Trưởng nhóm hoặc Phó nhóm mới có quyền thay đổi cài đặt này");
-        }
-
-        // Nếu trạng thái không thay đổi thì return luôn cho nhẹ DB
-        if (conv.isMessageRestricted() == isRestricted) {
-            return conversationMapper.toConversationResponse(conv, requesterId);
-        }
-
-        // Cập nhật trạng thái
-        conv.setMessageRestricted(isRestricted);
-
-        // 4. Bắn tin nhắn hệ thống
-        String content = isRestricted ? "đã bật chế độ chỉ Trưởng/Phó nhóm được gửi tin nhắn" : "đã tắt chế độ chỉ Trưởng/Phó nhóm được gửi tin nhắn";
-        String requesterName = chatSnapshotHelper.resolveActorDisplayName(conv, requesterId);
-
-        // Hàm này tự động lưu Cache an toàn nhờ TransactionUtil (đã fix ở bước trước)
-        internalMessageService.createSystemMessage(conversationId, requesterId, MessageType.SYSTEM_UPDATE_SETTING, content);
-
-        // Cập nhật Snapshot (MySQL)
-        conv.setLastMessageContent(content);
-        conv.setLastMessageType(MessageType.SYSTEM_UPDATE_SETTING);
-        conv.setLastMessageAt(now);
-        conv.setLastSenderId(requesterId);
-        conv.setLastSenderName(requesterName);
-        conversationRepository.save(conv);
-
-        // Map dữ liệu trả về
-        ConversationResponse response = conversationMapper.toConversationResponse(conv, requesterId);
-        if (response.getLastMessage() != null) {
-            response.getLastMessage().setLastSenderName(requesterName);
-            response.getLastMessage().setRead(true);
-        }
-
-        // Bắn Socket để UI của tất cả mọi người tự động render lại (ẩn/hiện ô nhập tin nhắn)
-        Set<Long> memberIds = conversationMemberRepository.findUserIdsByConversationIdAndStatus(conversationId, ConversationMemberStatus.ACTIVE);
-        eventPublisher.publishEvent(new ConversationUpdatedEvent(conversationId, response.getLastMessage(), memberIds));
-
-        return response;
+    @Transactional(rollbackFor = Exception.class)
+    @Override
+    public ConversationResponse updateJoinApprovalRequired(Long conversationId, Long requesterId, boolean isRequired) {
+        return updateGroupSetting(conversationId, requesterId, isRequired, false);
     }
 
 
@@ -303,5 +264,65 @@ public class ConversationServiceImpl implements ConversationService {
         conv.setLastMessageType(type);
         conv.setLastSenderName(creatorName);
         conversationRepository.save(conv);
+    }
+
+    private ConversationResponse updateGroupSetting(Long conversationId, Long requesterId, boolean flagValue, boolean isMessageSetting) {
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+
+        // 1. Lấy thông tin nhóm
+        Conversation conv = conversationRepository.findById(conversationId)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy cuộc trò chuyện"));
+
+        if (conv.getType() != ConversationType.GROUP) {
+            throw new IllegalArgumentException("Cài đặt này chỉ áp dụng cho nhóm chat");
+        }
+
+        // 2. Lấy thông tin người yêu cầu và check quyền
+        ConversationMember requester = conversationMemberRepository
+                .findByConversation_IdAndUser_IdAndStatus(conversationId, requesterId, ConversationMemberStatus.ACTIVE)
+                .orElseThrow(() -> new RuntimeException("Bạn không nằm trong nhóm này"));
+
+        if (requester.getRole() != MemberRole.OWNER && requester.getRole() != MemberRole.DEPUTY) {
+            throw new ConversationAccessDeniedException("Chỉ Trưởng nhóm hoặc Phó nhóm mới có quyền thay đổi cài đặt này");
+        }
+
+        // Nếu trạng thái không thay đổi thì return luôn cho nhẹ DB
+        if (isMessageSetting && conv.isMessageRestricted() == flagValue) return conversationMapper.toConversationResponse(conv, requesterId);
+        if (!isMessageSetting && conv.isJoinApprovalRequired() == flagValue) return conversationMapper.toConversationResponse(conv, requesterId);
+
+        // Cập nhật trạng thái va  Bắn tin nhắn hệ thống
+        String content;
+        if (isMessageSetting) {
+            conv.setMessageRestricted(flagValue);
+            content = flagValue ? "đã bật chế độ chỉ Trưởng/Phó nhóm được gửi tin nhắn" : "đã tắt chế độ chỉ Trưởng/Phó nhóm được gửi tin nhắn";
+        } else {
+            conv.setJoinApprovalRequired(flagValue);
+            content = flagValue ? "đã bật chế độ phê duyệt thành viên" : "đã tắt chế độ phê duyệt thành viên";
+        }
+        String requesterName = chatSnapshotHelper.resolveActorDisplayName(conv, requesterId);
+
+        // Hàm này tự động lưu Cache an toàn nhờ TransactionUtil (đã fix ở bước trước)
+        internalMessageService.createSystemMessage(conversationId, requesterId, MessageType.SYSTEM_UPDATE_SETTING, content);
+
+        // Cập nhật Snapshot (MySQL)
+        conv.setLastMessageContent(content);
+        conv.setLastMessageType(MessageType.SYSTEM_UPDATE_SETTING);
+        conv.setLastMessageAt(now);
+        conv.setLastSenderId(requesterId);
+        conv.setLastSenderName(requesterName);
+        conversationRepository.save(conv);
+
+        // Map dữ liệu trả về
+        ConversationResponse response = conversationMapper.toConversationResponse(conv, requesterId);
+        if (response.getLastMessage() != null) {
+            response.getLastMessage().setLastSenderName(requesterName);
+            response.getLastMessage().setRead(true);
+        }
+
+        // Bắn Socket để UI của tất cả mọi người tự động render lại (ẩn/hiện ô nhập tin nhắn)
+        Set<Long> memberIds = conversationMemberRepository.findUserIdsByConversationIdAndStatus(conversationId, ConversationMemberStatus.ACTIVE);
+        eventPublisher.publishEvent(new ConversationUpdatedEvent(conversationId, response.getLastMessage(), memberIds));
+
+        return response;
     }
 }

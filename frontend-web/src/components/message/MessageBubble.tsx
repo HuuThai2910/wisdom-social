@@ -81,6 +81,7 @@ export interface MessageBubbleProps {
     onRecall: (messageId: string) => void;
     onRecallCall?: (callType: "audio" | "video") => void;
     onDeleteForMe: (messageId: string) => void;
+    onOpenRequireApprovalDetails?: () => void;
     onMediaLoad?: () => void;
     isFirstInGroup?: boolean;
     isLastInGroup?: boolean;
@@ -105,6 +106,7 @@ export function MessageBubble({
     onRecall,
     onRecallCall,
     onDeleteForMe,
+    onOpenRequireApprovalDetails,
     onMediaLoad,
     isFirstInGroup = true,
     isLastInGroup = true,
@@ -561,7 +563,8 @@ export function MessageBubble({
                 | "SYSTEM_KICK_MEMBER"
                 | "SYSTEM_LEAVE_GROUP"
                 | "SYSTEM_DISBAND_GROUP"
-                | "SYSTEM_UPDATE_SETTING",
+                | "SYSTEM_UPDATE_SETTING"
+                | "SYSTEM_REQUIRE_APPROVAL",
             content: message.content,
             isOwn,
             senderName,
@@ -569,12 +572,26 @@ export function MessageBubble({
             currentUserId,
             membersById,
         });
+        const currentMemberRole = membersById[currentUserId]?.role;
+        const canOpenRequireApprovalDetails =
+            message.type === "SYSTEM_REQUIRE_APPROVAL" &&
+            (currentMemberRole === "OWNER" || currentMemberRole === "DEPUTY") &&
+            Boolean(onOpenRequireApprovalDetails);
 
         return (
             <div className="w-full flex justify-center">
                 <div className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-gray-100 dark:bg-gray-800 px-3 py-1.5 text-xs text-gray-700 dark:text-gray-200">
                     <Users size={12} className="shrink-0" />
                     <span className="truncate">{content}</span>
+                    {canOpenRequireApprovalDetails && (
+                        <button
+                            type="button"
+                            onClick={onOpenRequireApprovalDetails}
+                            className="shrink-0 font-semibold text-blue-600 hover:underline dark:text-blue-400"
+                        >
+                            Chi tiết
+                        </button>
+                    )}
                 </div>
             </div>
         );

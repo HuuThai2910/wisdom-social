@@ -10,6 +10,7 @@ import iuh.fit.edu.backend.modules.conversation.event.payload.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
@@ -41,12 +42,26 @@ public class ConversationEventPublisher {
         );
         redisTemplate.convertAndSend(RedisPubSubConfig.CHAT_CHANNEL, envelope);
     }
+
     // Hàm xử lý gửi cập nhật side bar cho redis pub/sub
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void handleConversationUpdated(ConversationUpdatedEvent event){
         log.info("Publishing update conversation to redis pub/sub for {} members",  event.getMemberIds());
         RedisEnvelope envelope = new RedisEnvelope(
                 event.getMemberIds(),
+                event.getDomainEventType(),
+                event
+        );
+        redisTemplate.convertAndSend(RedisPubSubConfig.CHAT_CHANNEL, envelope);
+    }
+
+    // Hàm xử lý gửi sự kiện tạo yêu cầu tham gia cho redis pub/sub
+    @Async
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void handleNewJoinRequest(NewJoinRequestEvent event){
+        log.info("Publishing new join request to redis pub/sub for {} member", event.getNotifyAdminIds());
+        RedisEnvelope envelope = new RedisEnvelope(
+                event.getNotifyAdminIds(),
                 event.getDomainEventType(),
                 event
         );

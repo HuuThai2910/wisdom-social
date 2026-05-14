@@ -13,6 +13,7 @@ import type {
     Conversation,
     ConversationMember,
     LocalUploadFile,
+    MemberStatus,
     Message,
     MessageSeenEvent,
     PinnedMessageDetail,
@@ -43,6 +44,7 @@ const GROUP_SYSTEM_MEMBER_SYNC_TYPES = new Set<Message["type"]>([
     "SYSTEM_LEAVE_GROUP",
     "SYSTEM_DISBAND_GROUP",
     "SYSTEM_UPDATE_SETTING",
+    "SYSTEM_REQUIRE_APPROVAL",
 ]);
 
 export interface ReadReceipt {
@@ -318,11 +320,60 @@ function resolveReadOnlyReasonFromSystemMessage(
     return null;
 }
 
+function resolveReadOnlyReasonFromCachedConversation(
+    conversation: Conversation | null,
+    currentUserId: number,
+): string | null {
+    if (!conversation || conversation.type !== "GROUP") return null;
+
+    const conversationReason = resolveReadOnlyReasonFromConversation(
+        conversation,
+        currentUserId,
+    );
+    if (conversationReason) return conversationReason;
+
+    const members = conversation.members;
+    if (members && members.length > 0) {
+        const currentMember = members.find(
+            (member) => Number(member.userId) === Number(currentUserId),
+        );
+        if (!currentMember) {
+            return "Ban da bi xoa khoi nhom.";
+        }
+    }
+
+    const lastMessage = conversation.lastMessage;
+    if (!lastMessage) return null;
+
+    if (lastMessage.lastMessageType === "SYSTEM_DISBAND_GROUP") {
+        return "Nhom da bi giai tan.";
+    }
+
+    if (
+        lastMessage.lastMessageType === "SYSTEM_LEAVE_GROUP" &&
+        Number(lastMessage.lastSenderId) === Number(currentUserId)
+    ) {
+        return "Ban da roi khoi nhom.";
+    }
+
+    if (lastMessage.lastMessageType === "SYSTEM_KICK_MEMBER") {
+        const targetIds = safeParseMemberIds(
+            lastMessage.lastMessageContent ?? "",
+        );
+        if (targetIds.some((id) => Number(id) === Number(currentUserId))) {
+            return "Ban da bi xoa khoi nhom.";
+        }
+    }
+
+    return null;
+}
+
 export function useChatWindowController(args: {
     conversationId: number;
     onMarkAsRead?: (conversationId: number) => void;
+    onAccessBlocked?: () => void;
 }) {
-    const { conversationId, onMarkAsRead } = args;
+    const { conversationId, onMarkAsRead, onAccessBlocked } = args;
 
     const { currentUser } = useAppContext();
     const currentUserId = Number(currentUser?.id ?? 0);
@@ -368,6 +419,7 @@ export function useChatWindowController(args: {
     const [readOnlyNotice, setReadOnlyNotice] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [jumpToast, setJumpToast] = useState<string | null>(null);
+    const onAccessBlockedRef = useRef(onAccessBlocked);
     const [olderCursor, setOlderCursor] = useState<string | null>(null);
     const [hasMoreOlder, setHasMoreOlder] = useState(false);
     const [hasMoreNewer, setHasMoreNewer] = useState(false);
@@ -403,6 +455,10 @@ export function useChatWindowController(args: {
         },
         [],
     );
+
+    useEffect(() => {
+        onAccessBlockedRef.current = onAccessBlocked;
+    }, [onAccessBlocked]);
 
     const clearUnreadLocally = useCallback(() => {
         setConversation((prev) =>
@@ -543,10 +599,28 @@ export function useChatWindowController(args: {
                 const cachedPins = chatRuntimeStore.getPins(conversationId);
 
                 if (cachedConversation) {
-                    setConversation(cachedConversation);
+                    const cachedConversationWithMembers: Conversation = {
+                        ...cachedConversation,
+                        members:
+                            cachedConversation.members ??
+                            Object.values(cachedMembers),
+                    };
+                    const cachedReadOnlyReason =
+                        resolveReadOnlyReasonFromCachedConversation(
+                            cachedConversationWithMembers,
+                            currentUserId,
+                        );
+
+                    setConversation(cachedConversationWithMembers);
                     setMembersById(cachedMembers);
-                    setMessages(cachedMessages);
-                    setPinnedMessages(cachedPins);
+                    if (cachedReadOnlyReason) {
+                        setReadOnlyNotice(cachedReadOnlyReason);
+                        setMessages([]);
+                        setPinnedMessages([]);
+                    } else {
+                        setMessages(cachedMessages);
+                        setPinnedMessages(cachedPins);
+                    }
                 } else {
                     setConversation(null);
                     setMembersById({});
@@ -563,7 +637,6 @@ export function useChatWindowController(args: {
                 if (token !== loadTokenRef.current) return;
 
                 if (!convResponse.success || !convResponse.data) {
-                    setConversation(null);
                     const apiMessage =
                         convResponse.message || "Khong the tai cuoc tro chuyen";
                     setReadOnlyNotice(
@@ -622,11 +695,14 @@ if (token !== loadTokenRef.current) return;
 
                 const initialPins = normalizedConversation.pinnedMessages ?? [];
 
-                chatRuntimeStore.setConversation(
+                const runtimeConversation = chatRuntimeStore.setConversation(
                     conversationId,
                     normalizedConversation,
                 );
-                chatRuntimeStore.setMembers(conversationId, mergedMembers);
+                const runtimeMembers = chatRuntimeStore.setMembers(
+                    conversationId,
+                    mergedMembers,
+                );
                 chatRuntimeStore.setMessages(
                     conversationId,
                     normalizedMessages,
@@ -639,12 +715,24 @@ if (token !== loadTokenRef.current) return;
                     olderCursor: cursorData?.nextCursor ?? null,
                 });
 
-                setConversation(normalizedConversation);
-                setMembersById(mergedMembers);
+                const visibleMembers =
+                    Object.keys(runtimeMembers).length > 0
+                        ? runtimeMembers
+                        : toMembersByUserId(runtimeConversation.members);
+                const visibleConversation: Conversation = {
+                    ...runtimeConversation,
+                    members:
+                        Object.keys(visibleMembers).length > 0
+                            ? Object.values(visibleMembers)
+                            : runtimeConversation.members,
+                };
+
+                setConversation(visibleConversation);
+                setMembersById(visibleMembers);
                 setMessages(normalizedMessages);
                 setPinnedMessages(initialPins);
                 setReadReceipts(
-                    Object.values(mergedMembers)
+                    Object.values(visibleMembers)
                         .filter(
                             (member) =>
                                 member.userId !== currentUserId &&
@@ -835,6 +923,16 @@ if (token !== loadTokenRef.current) return;
             setConversation((prev) => {
                 if (!prev) return prev;
 
+                const senderMember = (prev.members ?? []).find(
+                    (member) =>
+                        Number(member.userId) ===
+                        Number(normalizedIncoming.senderId),
+                );
+                const resolvedSenderName =
+                    normalizedIncoming.senderName?.trim() ||
+                    senderMember?.nickname?.trim() ||
+                    senderMember?.username?.trim() ||
+                    "";
                 const next: Conversation = {
                     ...prev,
                     updatedAt: normalizedIncoming.createdAt,
@@ -844,8 +942,7 @@ if (token !== loadTokenRef.current) return;
                             buildLastMessagePreview(normalizedIncoming),
                         lastMessageType: normalizedIncoming.type,
                         lastSenderId: normalizedIncoming.senderId,
-                        lastSenderName:
-                            normalizedIncoming.senderName || "Unknown",
+                        lastSenderName: resolvedSenderName,
                         lastMessageAt: normalizedIncoming.createdAt,
                         read: normalizedIncoming.senderId === currentUserId,
                     },
@@ -866,6 +963,11 @@ if (token !== loadTokenRef.current) return;
                     )
                 ) {
                     setReadOnlyNotice(null);
+                    setError(null);
+
+                    const token = Date.now();
+                    loadTokenRef.current = token;
+                    void loadInitialDataRef.current(token);
                 }
             }
 
@@ -884,18 +986,42 @@ if (token !== loadTokenRef.current) return;
                     normalizedIncoming.type === "SYSTEM_LEAVE_GROUP";
 
                 if (isAccessBlocked) {
-                    setMessages([]);
-                    setConversation(null);
-                    setMembersById({});
+                    setConversation((prev) => {
+                        if (!prev) return prev;
 
-                    chatWebsocketService.unsubscribeFromConversation(conversationId);
-                    chatWebsocketService.unsubscribeFromConversationMembers(conversationId);
-                    chatWebsocketService.unsubscribeFromConversationPins(conversationId);
+                        const blockedStatus: MemberStatus =
+                            normalizedIncoming.type === "SYSTEM_LEAVE_GROUP"
+                                ? "LEFT"
+                                : normalizedIncoming.type ===
+                                    "SYSTEM_DISBAND_GROUP"
+                                  ? "GROUP_DISBANDED"
+                                  : "KICKED";
+                        const nextMembers = (prev.members ?? []).map(
+                            (member) =>
+                                Number(member.userId) === Number(currentUserId)
+                                    ? {
+                                          ...member,
+                                          status: blockedStatus,
+                                      }
+                                    : member,
+                        );
+
+                        const next = {
+                            ...prev,
+                            members: nextMembers,
+                        };
+
+                        chatRuntimeStore.setConversation(conversationId, next);
+                        return next;
+                    });
+                    onAccessBlockedRef.current?.();
                 }
                 return;
             }
 
             if (GROUP_SYSTEM_MEMBER_SYNC_TYPES.has(normalizedIncoming.type)) {
+                const memberSnapshotVersion =
+                    chatRuntimeStore.markMembersChanging(conversationId);
                 void Promise.all([
                     chatService.getConversation(conversationId, currentUserId),
                     chatService.getConversationMembers(conversationId),
@@ -907,22 +1033,35 @@ if (token !== loadTokenRef.current) return;
 
                         const normalizedMembers =
                             toMembersByUserId(membersResponse);
-                        const nextConversation: Conversation = {
+                        const fetchedConversation: Conversation = {
                             ...convResponse.data,
                             members: Object.values(normalizedMembers),
                         };
-
-                        setMembersById(normalizedMembers);
-                        chatRuntimeStore.setMembers(
+                        const runtimeMembers = chatRuntimeStore.setMembers(
                             conversationId,
                             normalizedMembers,
+                            { memberSnapshotVersion },
                         );
+                        const runtimeConversation =
+                            chatRuntimeStore.setConversation(
+                                conversationId,
+                                fetchedConversation,
+                                { memberSnapshotVersion },
+                            );
+                        const visibleMembers =
+                            Object.keys(runtimeMembers).length > 0
+                                ? runtimeMembers
+                                : toMembersByUserId(runtimeConversation.members);
+                        const nextConversation: Conversation = {
+                            ...runtimeConversation,
+                            members:
+                                Object.keys(visibleMembers).length > 0
+                                    ? Object.values(visibleMembers)
+                                    : runtimeConversation.members,
+                        };
 
                         setConversation(nextConversation);
-                        chatRuntimeStore.setConversation(
-                            conversationId,
-                            nextConversation,
-                        );
+                        setMembersById(visibleMembers);
 
                         setReadOnlyNotice(
                             resolveReadOnlyReasonFromConversation(
@@ -1720,6 +1859,16 @@ if (token !== loadTokenRef.current) return;
                 setConversation((prev) => {
                     if (!prev) return prev;
 
+                    const senderMember = (prev.members ?? []).find(
+                        (member) =>
+                            Number(member.userId) ===
+                            Number(newestMessage.senderId),
+                    );
+                    const resolvedSenderName =
+                        newestMessage.senderName?.trim() ||
+                        senderMember?.nickname?.trim() ||
+                        senderMember?.username?.trim() ||
+                        "";
                     const next: Conversation = {
                         ...prev,
                         updatedAt: newestMessage.createdAt,
@@ -1729,8 +1878,7 @@ if (token !== loadTokenRef.current) return;
                                 buildLastMessagePreview(newestMessage),
                             lastMessageType: newestMessage.type,
                             lastSenderId: newestMessage.senderId,
-                            lastSenderName:
-                                newestMessage.senderName || "Unknown",
+                            lastSenderName: resolvedSenderName,
                             lastMessageAt: newestMessage.createdAt,
                             read: newestMessage.senderId === currentUserId,
                         },

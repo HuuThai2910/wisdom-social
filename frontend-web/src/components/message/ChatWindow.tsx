@@ -784,6 +784,7 @@ export default function ChatWindow({
             onRecall={handleRecall}
             onRecallCall={(callType) => void startCall(callType)}
             onDeleteForMe={handleDeleteMessageForMe}
+            onOpenRequireApprovalDetails={onToggleInfoPanel}
             onMediaLoad={() => {
               stabilizeMediaLayoutOnMediaLoad();
               // Chỉ cuộn xuống cuối khi:

@@ -12,6 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.event.EventListener;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
@@ -35,6 +36,7 @@ public class ChatEventPublisher {
 
 
     // Hàm xử lý gửi sự kiện gửi tin nhắn cho redis pub/sub
+    @Async
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void handleMessageCreated(MessageCreatedEvent event){
         log.info("Publishing new message to redis pub/sub for conversation: {}", event.getMessageResponse().getConversationId());

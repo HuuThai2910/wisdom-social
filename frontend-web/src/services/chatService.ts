@@ -16,7 +16,8 @@ export type MessageType =
     | "SYSTEM_KICK_MEMBER"
     | "SYSTEM_UPDATE_ROLE"
     | "SYSTEM_DISBAND_GROUP"
-    | "SYSTEM_UPDATE_SETTING";
+    | "SYSTEM_UPDATE_SETTING"
+    | "SYSTEM_REQUIRE_APPROVAL";
 
 export type MemberRole = "OWNER" | "DEPUTY" | "MEMBER";
 
@@ -98,7 +99,26 @@ export interface Conversation extends ConversationSidebar {
     members?: ConversationMember[];
     pinnedMessages?: PinnedMessageDetail[];
     isMessageRestricted?: boolean;
+    isJoinApprovalRequired?: boolean;
+    pendingRequests?: JoinRequest[] | null;
 }
+
+export type JoinRequestStatus = "PENDING" | "APPROVED" | "REJECTED";
+
+export interface JoinRequest {
+    id: number;
+    conversationId: number;
+    userId: number;
+    userName: string;
+    userAvatar?: string;
+    inviterId?: number | null;
+    inviterName?: string | null;
+    status: JoinRequestStatus;
+    content?: string | null;
+    createdAt: string;
+}
+
+export type GroupJoinRequest = JoinRequest;
 
 export interface ConversationMember {
     id?: number;
@@ -395,6 +415,40 @@ const chatService = {
         );
         return unwrapApiData(
             response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async updateJoinApprovalRequired(
+        conversationId: number,
+        isRequired: boolean,
+    ): Promise<Conversation> {
+        const response = await axiosClient.patch(
+            `/conversations/${conversationId}/settings/join-approval`,
+            null,
+            {
+                params: {
+                    isRequired,
+                },
+            },
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async processJoinRequest(
+        conversationId: number,
+        requestId: number,
+        isApproved: boolean,
+    ): Promise<void> {
+        await axiosClient.patch(
+            `/conversations/${conversationId}/join-requests/${requestId}`,
+            null,
+            {
+                params: {
+                    isApproved,
+                },
+            },
         );
     },
 

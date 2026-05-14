@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { ArrowLeft, Lock } from "lucide-react";
 import type { Conversation } from "../../services/chatService";
 
@@ -8,7 +8,9 @@ interface GroupSettingsModalProps {
     conversation: Conversation;
     canManageSettings: boolean;
     isUpdatingMessageRestriction: boolean;
+    isUpdatingJoinApproval: boolean;
     onUpdateMessageRestriction: (isRestricted: boolean) => Promise<boolean>;
+    onUpdateJoinApproval: (isRequired: boolean) => Promise<boolean>;
 }
 
 export default function GroupSettingsModal({
@@ -17,13 +19,22 @@ export default function GroupSettingsModal({
     conversation,
     canManageSettings,
     isUpdatingMessageRestriction,
+    isUpdatingJoinApproval,
     onUpdateMessageRestriction,
+    onUpdateJoinApproval,
 }: GroupSettingsModalProps) {
     const [localCanSendMessage, setLocalCanSendMessage] = useState(!conversation.isMessageRestricted);
+    const [localJoinApprovalRequired, setLocalJoinApprovalRequired] = useState(
+        Boolean(conversation.isJoinApprovalRequired),
+    );
 
     useEffect(() => {
         setLocalCanSendMessage(!conversation.isMessageRestricted);
     }, [conversation.isMessageRestricted]);
+
+    useEffect(() => {
+        setLocalJoinApprovalRequired(Boolean(conversation.isJoinApprovalRequired));
+    }, [conversation.isJoinApprovalRequired]);
 
     if (!isOpen) return null;
 
@@ -37,6 +48,18 @@ export default function GroupSettingsModal({
         const success = await onUpdateMessageRestriction(nextIsRestricted);
         if (!success) {
             setLocalCanSendMessage(currentCanSend);
+        }
+    };
+
+    const handleToggleJoinApproval = async () => {
+        if (!canManageSettings || isUpdatingJoinApproval) return;
+        const currentRequired = localJoinApprovalRequired;
+        const nextRequired = !currentRequired;
+
+        setLocalJoinApprovalRequired(nextRequired);
+        const success = await onUpdateJoinApproval(nextRequired);
+        if (!success) {
+            setLocalJoinApprovalRequired(currentRequired);
         }
     };
 
@@ -89,7 +112,13 @@ export default function GroupSettingsModal({
 
                     <div className="mt-2 bg-white dark:bg-black">
                         <div className="flex flex-col">
-                            <ToggleRow label="Chế độ phê duyệt thành viên mới" disabled checked={false} isStaff={canManageSettings} />
+                            <ToggleRow
+                                label="Chế độ phê duyệt thành viên mới"
+                                checked={localJoinApprovalRequired}
+                                onChange={handleToggleJoinApproval}
+                                disabled={!canManageSettings || isUpdatingJoinApproval}
+                                isStaff={canManageSettings}
+                            />
                             <ToggleRow label="Đánh dấu tin nhắn từ trưởng/phó nhóm" disabled checked={false} isStaff={canManageSettings} />
                             <ToggleRow label="Cho phép thành viên mới đọc tin nhắn gần nhất" disabled checked={false} isStaff={canManageSettings} />
                         </div>

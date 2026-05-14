@@ -107,12 +107,16 @@ export default function Messages() {
         isLeavingGroup,
         isDisbandingGroup,
         isUpdatingMessageRestriction,
+        isUpdatingJoinApproval,
         isTransferOwnerModalOpen,
         pendingKickUserId,
         pendingRoleUserId,
+        pendingJoinRequestId,
         pendingTransferOwnerUserId,
         ownerTransferCandidates,
         actionError,
+        joinApprovalToast,
+        clearJoinApprovalToast,
         openCreateGroupModal,
         closeCreateGroupModal,
         openAddMembersModal,
@@ -127,6 +131,8 @@ export default function Messages() {
         executeLeaveGroup,
         disbandGroup,
         updateMessageRestriction,
+        updateJoinApproval,
+        processJoinRequest,
         isConfirmLeaveModalOpen,
         setIsConfirmLeaveModalOpen,
         isConfirmDisbandModalOpen,
@@ -143,6 +149,12 @@ export default function Messages() {
         onSelectConversation: handleSelectConversation,
         onClearSelection: clearSelectedConversation,
     });
+
+    useEffect(() => {
+        if (!joinApprovalToast) return;
+        const timer = window.setTimeout(clearJoinApprovalToast, 2600);
+        return () => window.clearTimeout(timer);
+    }, [clearJoinApprovalToast, joinApprovalToast]);
 
     const selectedDisplayInfo = selectedConversation
         ? getDisplayInfo(selectedConversation)
@@ -342,6 +354,7 @@ export default function Messages() {
                             canKickMembers={canKickMembers}
                             canUpdateRole={canUpdateRole}
                             canDisbandGroup={canDisbandGroup}
+                            pendingJoinRequestId={pendingJoinRequestId}
                             isLeavingGroup={isLeavingGroup}
                             isDisbandingGroup={isDisbandingGroup}
                             isTransferOwnerModalOpen={isTransferOwnerModalOpen}
@@ -361,6 +374,7 @@ export default function Messages() {
                             onDisbandGroup={disbandGroup}
                             onKickMember={kickMember}
                             onUpdateMemberRole={updateMemberRole}
+                            onProcessJoinRequest={processJoinRequest}
                             isConfirmLeaveModalOpen={isConfirmLeaveModalOpen}
                             onSetConfirmLeaveModalOpen={
                                 setIsConfirmLeaveModalOpen
@@ -937,6 +951,12 @@ export default function Messages() {
                 onSubmit={createGroup}
             />
 
+            {joinApprovalToast && (
+                <div className="fixed bottom-6 left-1/2 z-[80] -translate-x-1/2 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white shadow-lg dark:bg-gray-700">
+                    {joinApprovalToast}
+                </div>
+            )}
+
             <SelectGroupMembersModal
                 open={isAddMembersModalOpen}
                 friends={friendsForAddMembers}
@@ -1007,7 +1027,9 @@ export default function Messages() {
                     conversation={selectedGroupConversation}
                     canManageSettings={canManageSettings}
                     isUpdatingMessageRestriction={isUpdatingMessageRestriction}
+                    isUpdatingJoinApproval={isUpdatingJoinApproval}
                     onUpdateMessageRestriction={updateMessageRestriction}
+                    onUpdateJoinApproval={updateJoinApproval}
                 />
             )}
         </>

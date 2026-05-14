@@ -1,22 +1,23 @@
 import { useMemo, useState, useEffect, useRef } from "react";
 import {
     Crown,
-    ShieldCheck,
     UserMinus,
     UserPlus,
     Users,
-    UserRoundX,
     ChevronDown,
     ArrowLeft,
     MoreHorizontal,
     X,
+    Clock,
 } from "lucide-react";
 import type {
     Conversation,
     ConversationMember,
+    JoinRequest,
     MemberRole,
 } from "../../services/chatService";
 import { DEFAULT_AVATAR_URL } from "../../constants/ui";
+import { buildS3Url } from "../../utils/s3";
 import TransferOwnershipModal from "./TransferOwnershipModal";
 
 interface GroupConversationPanelProps {
@@ -31,6 +32,7 @@ interface GroupConversationPanelProps {
     isTransferOwnerModalOpen: boolean;
     pendingKickUserId: number | null;
     pendingRoleUserId: number | null;
+    pendingJoinRequestId: number | null;
     pendingTransferOwnerUserId: number | null;
     ownerTransferCandidates: ConversationMember[];
     actionError: string | null;
@@ -52,6 +54,10 @@ interface GroupConversationPanelProps {
         targetUserId: number,
         nextRole: MemberRole,
     ) => Promise<boolean>;
+    onProcessJoinRequest: (
+        requestId: number,
+        isApproved: boolean,
+    ) => Promise<boolean>;
 }
 
 function roleLabel(role?: MemberRole): string {
@@ -69,6 +75,9 @@ function roleBadgeClass(role?: MemberRole): string {
     }
     return "bg-gray-100 text-gray-700 dark:bg-[#1f1f1f] dark:text-gray-300";
 }
+
+void roleLabel;
+void roleBadgeClass;
 
 function sortMembers(members: ConversationMember[]): ConversationMember[] {
     const roleOrder: Record<MemberRole, number> = {
@@ -89,36 +98,41 @@ function sortMembers(members: ConversationMember[]): ConversationMember[] {
     });
 }
 
+function formatRelativeTime(value?: string): string {
+    if (!value) return "";
+    const time = new Date(value).getTime();
+    if (!Number.isFinite(time)) return "";
+
+    const diffSeconds = Math.max(0, Math.floor((Date.now() - time) / 1000));
+    if (diffSeconds < 60) return "Vừa xong";
+    const diffMinutes = Math.floor(diffSeconds / 60);
+    if (diffMinutes < 60) return `${diffMinutes} phút trước`;
+    const diffHours = Math.floor(diffMinutes / 60);
+    if (diffHours < 24) return `${diffHours} giờ trước`;
+    const diffDays = Math.floor(diffHours / 24);
+    return `${diffDays} ngày trước`;
+}
+
 export default function GroupConversationPanel({
     conversation,
     currentUserId,
     canManageMembers,
-    canKickMembers,
-    canUpdateRole,
     canDisbandGroup,
     isLeavingGroup,
     isDisbandingGroup,
     isTransferOwnerModalOpen,
-    pendingKickUserId,
-    pendingRoleUserId,
+    pendingJoinRequestId,
     pendingTransferOwnerUserId,
     ownerTransferCandidates,
     actionError,
-    isConfirmLeaveModalOpen,
-    onSetConfirmLeaveModalOpen,
-    isConfirmDisbandModalOpen,
     onSetConfirmDisbandModalOpen,
-    isConfirmKickModalOpen,
-    kickTargetUserId,
-    onOpenConfirmKick,
-    onCloseConfirmKick,
     onOpenAddMembersModal,
     onLeaveGroup,
     onCloseTransferOwnerModal,
     onTransferOwnershipAndLeave,
-    onDisbandGroup,
     onKickMember,
     onUpdateMemberRole,
+    onProcessJoinRequest,
 }: GroupConversationPanelProps) {
     const members = useMemo(
         () =>
@@ -131,6 +145,7 @@ export default function GroupConversationPanel({
     );
 
     const [isMemberListOpen, setIsMemberListOpen] = useState(false);
+    const [isJoinRequestModalOpen, setIsJoinRequestModalOpen] = useState(false);
     const [hoveredMemberId, setHoveredMemberId] = useState<number | null>(null);
     const [activeMenuMemberId, setActiveMenuMemberId] = useState<number | null>(null);
     const menuRef = useRef<HTMLDivElement>(null);
@@ -148,6 +163,71 @@ export default function GroupConversationPanel({
     const memberCount = members.length;
     const currentUserMember = members.find(m => m.userId === currentUserId);
     const isOwner = currentUserMember?.role === "OWNER";
+    const canReviewJoinRequests =
+        currentUserMember?.role === "OWNER" || currentUserMember?.role === "DEPUTY";
+    const pendingRequests = useMemo(
+        () =>
+            canReviewJoinRequests
+                ? (conversation.pendingRequests ?? []).filter(
+                      (request) => request.status === "PENDING",
+                  )
+                : [],
+        [canReviewJoinRequests, conversation.pendingRequests],
+    );
+    const pendingRequestCount = pendingRequests.length;
+
+    const renderJoinRequestItem = (request: JoinRequest) => {
+        const isProcessing = pendingJoinRequestId === request.id;
+        const requestAvatarUrl =
+            buildS3Url(request.userAvatar) ||
+            request.userAvatar ||
+            DEFAULT_AVATAR_URL;
+
+        return (
+            <div key={request.id} className="flex gap-3 py-3">
+                <img
+                    src={requestAvatarUrl}
+                    alt={request.userName || "Thành viên"}
+                    onError={(event) => {
+                        event.currentTarget.src = DEFAULT_AVATAR_URL;
+                    }}
+                    className="h-11 w-11 rounded-full object-cover"
+                />
+                <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">
+                        {request.userName || "Thành viên"}
+                    </p>
+                    <p className="truncate text-xs text-gray-500 dark:text-gray-400">
+                        Được mời bởi: {request.inviterName || "Không rõ"}
+                    </p>
+                    {formatRelativeTime(request.createdAt) && (
+                        <p className="mt-0.5 flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500">
+                            <Clock size={12} />
+                            {formatRelativeTime(request.createdAt)}
+                        </p>
+                    )}
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                        <button
+                            type="button"
+                            disabled={isProcessing}
+                            onClick={() => void onProcessJoinRequest(request.id, false)}
+                            className="rounded-md bg-gray-200 px-3 py-2 text-sm font-semibold text-gray-900 transition-colors hover:bg-gray-300 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-[#262626] dark:text-gray-100 dark:hover:bg-[#333333]"
+                        >
+                            Từ chối
+                        </button>
+                        <button
+                            type="button"
+                            disabled={isProcessing}
+                            onClick={() => void onProcessJoinRequest(request.id, true)}
+                            className="rounded-md bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-blue-900/25 dark:text-blue-300 dark:hover:bg-blue-900/35"
+                        >
+                            Đồng ý
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    };
 
     return (
         <section className="py-3">
@@ -172,7 +252,44 @@ export default function GroupConversationPanel({
                         {memberCount} thành viên
                     </span>
                 </button>
+                {canReviewJoinRequests && pendingRequestCount > 0 && (
+                    <button
+                        type="button"
+                        onClick={() => setIsJoinRequestModalOpen(true)}
+                        className="ml-[3.25rem] mt-1 block text-left text-sm font-medium text-blue-600  dark:text-blue-400"
+                    >
+                        • Có {pendingRequestCount} yêu cầu tham gia nhóm
+                    </button>
+                )}
             </div>
+
+            {isJoinRequestModalOpen && (
+                <div className="fixed inset-0 z-[70] flex items-start justify-center bg-black/55 px-4 pt-16 transition-opacity">
+                    <div className="flex h-[430px] w-full max-w-md flex-col rounded-md bg-white shadow-2xl dark:bg-[#111111]">
+                        <div className="flex h-12 items-center justify-between border-b border-gray-200 px-4 dark:border-[#262626]">
+                            <h2 className="text-sm font-bold text-gray-900 dark:text-white">
+                                Các yêu cầu cần được phê duyệt
+                            </h2>
+                            <button
+                                type="button"
+                                onClick={() => setIsJoinRequestModalOpen(false)}
+                                className="rounded-full p-1.5 text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-[#262626]"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto px-4 py-3">
+                            {pendingRequestCount > 0 ? (
+                                pendingRequests.map(renderJoinRequestItem)
+                            ) : (
+                                <p className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                                    Không có yêu cầu đang chờ.
+                                </p>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Member List Modal (Side Overlay style) */}
             {isMemberListOpen && (
@@ -218,6 +335,17 @@ export default function GroupConversationPanel({
                                     </button>
                                 )}
                             </div>
+
+                            {canReviewJoinRequests && pendingRequestCount > 0 && (
+                                <div className="mt-5 border-b border-gray-200 pb-4 dark:border-[#262626]">
+                                    <h3 className="mb-3 text-sm font-bold text-gray-900 dark:text-white">
+                                        Yêu cầu tham gia nhóm ({pendingRequestCount})
+                                    </h3>
+                                    <div className="space-y-1">
+                                        {pendingRequests.map(renderJoinRequestItem)}
+                                    </div>
+                                </div>
+                            )}
 
                             {/* Members List */}
                             <div className="mt-6">

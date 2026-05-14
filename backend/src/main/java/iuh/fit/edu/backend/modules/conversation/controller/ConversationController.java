@@ -172,6 +172,13 @@ public class ConversationController {
         ConversationResponse response = this.conversationService.updateMessageRestriction(conversationId, userId, isRestricted);
         return ResponseEntity.ok(response);
     }
+    @PatchMapping("/{conversationId}/settings/join-approval")
+    public ResponseEntity<ConversationResponse> updateJoinApprovalSetting(
+            @PathVariable Long conversationId,
+            @RequestParam boolean isRequired) {
+        Long userId = this.userService.getCurrentUser().getId();
+        return ResponseEntity.ok(conversationService.updateJoinApprovalRequired(conversationId, userId, isRequired));
+    }
 
 
     @PatchMapping("/{conversationId}/members/{targetUserId}/nickname")

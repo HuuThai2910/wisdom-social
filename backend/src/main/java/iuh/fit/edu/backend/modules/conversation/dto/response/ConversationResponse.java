@@ -31,7 +31,10 @@ public class ConversationResponse {
     private LastMessageResponse lastMessage;
     @JsonProperty("isMessageRestricted")
     private boolean isMessageRestricted;
+    @JsonProperty("isJoinApprovalRequired")
+    private boolean isJoinApprovalRequired;
     private List<ConversationMemberResponse> members;
     private List<PinnedMessageDetail> pinnedMessages;
+    private List<JoinRequestResponse> pendingRequests;
 }
 

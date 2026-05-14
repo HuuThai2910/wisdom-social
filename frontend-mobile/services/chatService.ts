@@ -279,13 +279,50 @@ const chatService = {
     async updateMessageRestriction(
         conversationId: number,
         isRestricted: boolean,
-    ): Promise<void> {
-        await apiClient.patch(
+    ): Promise<Conversation> {
+        const response = await apiClient.patch(
             `/conversations/${conversationId}/settings/message-restriction`,
             null,
             {
                 params: {
                     isRestricted,
+                },
+            },
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async updateJoinApprovalRequired(
+        conversationId: number,
+        isRequired: boolean,
+    ): Promise<Conversation> {
+        const response = await apiClient.patch(
+            `/conversations/${conversationId}/settings/join-approval`,
+            null,
+            {
+                params: {
+                    isRequired,
+                },
+            },
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async processJoinRequest(
+        conversationId: number,
+        requestId: number,
+        isApproved: boolean,
+    ): Promise<void> {
+        await apiClient.patch(
+            `/conversations/${conversationId}/join-requests/${requestId}`,
+            null,
+            {
+                params: {
+                    isApproved,
                 },
             },
         );

@@ -4,6 +4,7 @@
  */
 package iuh.fit.edu.backend.modules.conversation.service.impl;
 
+import iuh.fit.edu.backend.modules.conversation.dto.response.JoinRequestResponse;
 import iuh.fit.edu.backend.modules.conversation.entity.Conversation;
 import iuh.fit.edu.backend.modules.conversation.entity.ConversationMember;
 import iuh.fit.edu.backend.modules.conversation.entity.FrozenLastMessage;
@@ -20,6 +21,7 @@ import iuh.fit.edu.backend.modules.conversation.constant.ConversationType;
 import iuh.fit.edu.backend.modules.conversation.constant.MemberRole;
 import iuh.fit.edu.backend.modules.conversation.repository.ConversationMemberRepository;
 import iuh.fit.edu.backend.modules.conversation.repository.ConversationRepository;
+import iuh.fit.edu.backend.modules.conversation.service.GroupJoinRequestService;
 import iuh.fit.edu.backend.modules.user.repository.UserRepository;
 import iuh.fit.edu.backend.modules.conversation.service.ConversationMemberCacheService;
 import iuh.fit.edu.backend.modules.conversation.service.ConversationMemberService;
@@ -56,6 +58,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
     private final InternalMessageService internalMessageService;
     private final ConversationMemberCacheService conversationMemberCacheService;
     private final ChatSnapshotHelper chatSnapshotHelper;
+    private final GroupJoinRequestService joinRequestService;
 
     /**
      * Lấy danh sách toàn bộ thành viên. Ưu tiên lấy từ Cache, nếu rỗng thì gọi DB.
@@ -104,6 +107,26 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
 
         // Kiểm tra phòng chat
         Conversation conv = validateGroupAndInviter(conversationId, inviterId);
+        ConversationMember inviter = getActiveMember(conversationId, inviterId);
+
+        // LUỒNG DUYỆT THÀNH VIÊN
+        if (conv.isJoinApprovalRequired() && inviter.getRole() == MemberRole.MEMBER) {
+            for (Long targetUserId : request.getNewMemberIds()) {
+                joinRequestService.createRequest(conversationId, targetUserId, inviterId);
+            }
+
+            String targetIdsJson = chatSnapshotHelper.buildMemberSnapshotContent(request.getNewMemberIds());
+
+            ConversationResponse response = executeSystemActionAndBuildResponse(
+                    conv, inviterId, MessageType.SYSTEM_REQUIRE_APPROVAL, targetIdsJson, now);
+
+            Set<Long> allActiveMemberIds = conversationMemberRepository
+                    .findUserIdsByConversationIdAndStatus(conversationId, ConversationMemberStatus.ACTIVE);
+
+            // Cập nhật Sidebar cho tất cả mọi người
+            eventPublisher.publishEvent(new ConversationUpdatedEvent(conversationId, response.getLastMessage(), allActiveMemberIds));
+            return response;
+        }
 
         Set<Long> actuallyAddedIds = new HashSet<>();
         List<ConversationMember> membersToSave = prepareMembersForAddition(
@@ -364,10 +387,10 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
     private ConversationResponse executeSystemActionAndBuildResponse(
             Conversation conv, Long actorId, MessageType type, String content, Instant now) {
 
-        // 1. Lưu MongoDB
+        // Lưu MongoDB
         internalMessageService.createSystemMessage(conv.getId(), actorId, type, content);
 
-        // 2. Cập nhật Snapshot (MySQL)
+        // Cập nhật Snapshot (MySQL)
         String actorName = chatSnapshotHelper.resolveActorDisplayName(conv, actorId);
         conv.setLastMessageContent(content);
         conv.setLastSenderId(actorId);
@@ -376,7 +399,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
         conv.setLastSenderName(actorName);
         conversationRepository.save(conv);
 
-        // 3. Map DTO và xử lý cờ Read
+        // Map DTO và xử lý cờ Read
         ConversationResponse response = conversationMapper.toConversationResponse(conv, actorId);
         if (response.getLastMessage() != null) {
             response.getLastMessage().setLastSenderName(actorName);

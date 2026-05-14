@@ -12,6 +12,7 @@ import {
     View,
 } from "react-native";
 import UserAvatar from "@/components/UserAvatar";
+import { buildS3Url } from "@/utils/s3";
 
 interface SelectGroupMembersModalProps {
     open: boolean;
@@ -161,7 +162,7 @@ export default function SelectGroupMembersModal({
                                             ) : null}
                                         </View>
                                         <UserAvatar
-                                            uri={friend.avatarUrl}
+                                            uri={buildS3Url(friend.avatarUrl)}
                                             name={getDisplayName(friend)}
                                             size={38}
                                         />

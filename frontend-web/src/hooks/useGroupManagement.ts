@@ -61,6 +61,9 @@ export function useGroupManagement({
     const [isLeavingGroup, setIsLeavingGroup] = useState(false);
     const [isDisbandingGroup, setIsDisbandingGroup] = useState(false);
     const [isUpdatingMessageRestriction, setIsUpdatingMessageRestriction] = useState(false);
+    const [isUpdatingJoinApproval, setIsUpdatingJoinApproval] = useState(false);
+    const [pendingJoinRequestId, setPendingJoinRequestId] = useState<number | null>(null);
+    const [joinApprovalToast, setJoinApprovalToast] = useState<string | null>(null);
 
     const [pendingKickUserId, setPendingKickUserId] = useState<number | null>(
         null,
@@ -271,6 +274,14 @@ export function useGroupManagement({
                 });
                 await reloadConversations();
                 setIsAddMembersModalOpen(false);
+                if (
+                    selectedGroupConversation.isJoinApprovalRequired &&
+                    currentMemberRole === "MEMBER"
+                ) {
+                    setJoinApprovalToast(
+                        "Đã gửi yêu cầu tham gia đến Quản trị viên để chờ phê duyệt.",
+                    );
+                }
                 return true;
             } catch (error) {
                 setActionError(
@@ -283,6 +294,7 @@ export function useGroupManagement({
         },
         [
             currentUserId,
+            currentMemberRole,
             groupMemberIds,
             reloadConversations,
             selectedConversationId,
@@ -504,6 +516,68 @@ export function useGroupManagement({
         [canManageSettings, reloadConversations, selectedConversationId],
     );
 
+    const updateJoinApproval = useCallback(
+        async (isRequired: boolean) => {
+            if (!selectedConversationId || !canManageSettings) {
+                return false;
+            }
+
+            try {
+                setIsUpdatingJoinApproval(true);
+                setActionError(null);
+                await chatService.updateJoinApprovalRequired(
+                    selectedConversationId,
+                    isRequired,
+                );
+                await reloadConversations();
+                return true;
+            } catch (error) {
+                setActionError(
+                    normalizeErrorMessage(error, "Không thể cập nhật cài đặt."),
+                );
+                return false;
+            } finally {
+                setIsUpdatingJoinApproval(false);
+            }
+        },
+        [canManageSettings, reloadConversations, selectedConversationId],
+    );
+
+    const processJoinRequest = useCallback(
+        async (requestId: number, isApproved: boolean) => {
+            if (!selectedConversationId || !canManageSettings) {
+                return false;
+            }
+
+            try {
+                setPendingJoinRequestId(requestId);
+                setActionError(null);
+                await chatService.processJoinRequest(
+                    selectedConversationId,
+                    requestId,
+                    isApproved,
+                );
+                await reloadConversations();
+                return true;
+            } catch (error) {
+                setActionError(
+                    normalizeErrorMessage(
+                        error,
+                        "Không thể xử lý yêu cầu tham gia.",
+                    ),
+                );
+                return false;
+            } finally {
+                setPendingJoinRequestId(null);
+            }
+        },
+        [canManageSettings, reloadConversations, selectedConversationId],
+    );
+
+    const clearJoinApprovalToast = useCallback(() => {
+        setJoinApprovalToast(null);
+    }, []);
+
     const clearGroupActionError = useCallback(() => {
         setActionError(null);
     }, []);
@@ -542,13 +616,17 @@ export function useGroupManagement({
         isLeavingGroup,
         isDisbandingGroup,
         isUpdatingMessageRestriction,
+        isUpdatingJoinApproval,
         pendingKickUserId,
         pendingRoleUserId,
+        pendingJoinRequestId,
         pendingTransferOwnerUserId,
         ownerTransferCandidates,
 
         actionError,
+        joinApprovalToast,
         clearGroupActionError,
+        clearJoinApprovalToast,
 
         openCreateGroupModal,
         closeCreateGroupModal,
@@ -565,6 +643,8 @@ export function useGroupManagement({
         executeLeaveGroup,
         disbandGroup,
         updateMessageRestriction,
+        updateJoinApproval,
+        processJoinRequest,
         refreshFriends: loadFriends,
 
         isConfirmLeaveModalOpen,

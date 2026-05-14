@@ -33,6 +33,7 @@ public enum DomainEventType {
     MEMBER_LEFT,
     MEMBER_KICKED,
     GROUP_DISBANDED,
+    NEW_JOIN_REQUEST,
 
     // Page membership
     PAGE_MEMBER_JOINED,

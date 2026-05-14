@@ -46,6 +46,7 @@ const GROUP_SYSTEM_MESSAGE_TYPES = new Set<Message["type"]>([
     "SYSTEM_LEAVE_GROUP",
     "SYSTEM_DISBAND_GROUP",
     "SYSTEM_UPDATE_SETTING",
+    "SYSTEM_REQUIRE_APPROVAL",
 ]);
 
 export type MessageBubbleProps = {
@@ -411,7 +412,8 @@ export const MessageBubble = React.memo(
                     | "SYSTEM_KICK_MEMBER"
                     | "SYSTEM_LEAVE_GROUP"
                     | "SYSTEM_DISBAND_GROUP"
-                    | "SYSTEM_UPDATE_SETTING",
+                    | "SYSTEM_UPDATE_SETTING"
+                    | "SYSTEM_REQUIRE_APPROVAL",
                 content: item.content,
                 isOwn: mine,
                 senderName: senderDisplayName,

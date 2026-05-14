@@ -300,6 +300,11 @@ export function useMessagesController() {
                     const responseData = response.data;
                     if (!response.success || !responseData) return;
 
+                    chatRuntimeStore.setConversation(
+                        conversationId,
+                        responseData,
+                    );
+
                     setConversations((prev) => {
                         const existed = prev.some(
                             (conv) => conv.id === conversationId,
@@ -362,6 +367,8 @@ export function useMessagesController() {
             const shouldRefreshSnapshot = GROUP_SYSTEM_SYNC_TYPES.has(
                 lastMessage.lastMessageType,
             );
+            const shouldForceDetailRefresh =
+                lastMessage.lastMessageType === "SYSTEM_UPDATE_ROLE";
             const snapshotReadOnlyNotice =
                 resolveReadOnlyNoticeFromConversation(
                     conversationSnapshot,
@@ -510,6 +517,20 @@ export function useMessagesController() {
                         conversationSnapshot.id === conversationId
                             ? { ...conv, ...conversationSnapshot }
                             : conv;
+                    const pendingRequests =
+                        conversationSnapshot?.pendingRequests &&
+                        conversationSnapshot.pendingRequests.length > 0
+                            ? [
+                                  ...(conv.pendingRequests ?? []).filter(
+                                      (request) =>
+                                          !conversationSnapshot.pendingRequests?.some(
+                                              (nextRequest) =>
+                                                  nextRequest.id === request.id,
+                                          ),
+                                  ),
+                                  ...conversationSnapshot.pendingRequests,
+                              ]
+                            : baseConversation.pendingRequests;
 
                     let lastName = "";
                     if (baseConversation.type === "GROUP") {
@@ -535,6 +556,7 @@ export function useMessagesController() {
 
                     return {
                         ...baseConversation,
+                        pendingRequests,
                         lastMessage: {
                             lastMessageContent: lastMessage.lastMessageContent,
                             lastMessageType: lastMessage.lastMessageType,
@@ -553,7 +575,10 @@ export function useMessagesController() {
                 return sortConversationsByLastMessageAt(updatedConversations);
             });
 
-            if (shouldRefreshSnapshot && !conversationSnapshot) {
+            if (
+                shouldRefreshSnapshot &&
+                (shouldForceDetailRefresh || !conversationSnapshot)
+            ) {
                 refreshConversationById(conversationId, latestUserId);
             }
         },

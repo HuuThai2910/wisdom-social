@@ -94,6 +94,9 @@ export default function MessagesConversationScreen() {
     const conversationId = Number(conversationIdParam ?? 0);
     const router = useRouter();
     const insets = useSafeAreaInsets();
+    const handleAccessBlocked = useCallback(() => {
+        router.replace("/(tabs)/activity");
+    }, [router]);
 
     const {
         currentUserId,
@@ -132,6 +135,7 @@ export default function MessagesConversationScreen() {
         resetToPresent,
     } = useChatWindowController({
         conversationId: Number.isFinite(conversationId) ? conversationId : 0,
+        onAccessBlocked: handleAccessBlocked,
     });
 
     const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(
@@ -1346,7 +1350,16 @@ export default function MessagesConversationScreen() {
         readOnlyNotice.includes("giải tán") ||
         readOnlyNotice.includes("Không thể truy cập")
     );
-    const isErrorState = Boolean(isAccessBlocked) || (!loading && !conversation);
+    const normalizedReadOnlyNotice = readOnlyNotice?.toLowerCase() ?? "";
+    const isPlainTextAccessBlocked =
+        normalizedReadOnlyNotice.includes("xoa") ||
+        normalizedReadOnlyNotice.includes("roi") ||
+        normalizedReadOnlyNotice.includes("giai tan") ||
+        normalizedReadOnlyNotice.includes("khong the truy cap");
+    const isErrorState =
+        Boolean(isAccessBlocked) ||
+        isPlainTextAccessBlocked ||
+        (!loading && !conversation);
 
     if (isErrorState) {
         const displayName =

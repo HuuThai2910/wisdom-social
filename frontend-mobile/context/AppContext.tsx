@@ -734,7 +734,6 @@ export function AppProvider({ children }: PropsWithChildren) {
             addComment,
             addPost,
             updateProfile,
-            refreshCurrentUser,
             sendMessage,
             markNotificationsRead,
             getUserById,

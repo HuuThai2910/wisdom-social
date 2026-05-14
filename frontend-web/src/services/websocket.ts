@@ -6,7 +6,7 @@
  */
 import { Client, type IMessage } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
-import type { Conversation, Message, MessageType } from "./chatService";
+import type { Conversation, JoinRequest, Message, MessageType } from "./chatService";
 
 const resolveSockJsUrl = (): string => {
     const envUrl = import.meta.env.VITE_WS_URL;
@@ -62,7 +62,8 @@ export type DomainEventType =
     | "GROUP_DISBANDED"
     | "PIN_MESSAGE"
     | "UPIN_MESSAGE"
-    | "MEMBER_UPDATED";
+    | "MEMBER_UPDATED"
+    | "NEW_JOIN_REQUEST";
 
 export interface PinUpdatedEvent {
     domainEventType: "PIN_MESSAGE" | "UPIN_MESSAGE";
@@ -235,6 +236,12 @@ export interface ConversationMembershipEvent {
 export interface GroupDisbandedEvent {
     domainEventType?: "GROUP_DISBANDED";
     conversationId?: number;
+}
+
+export interface NewJoinRequestEvent {
+    domainEventType: "NEW_JOIN_REQUEST";
+    conversationId: number;
+    requestData: JoinRequest;
 }
 
 /**
@@ -805,7 +812,8 @@ class WebSocketService {
                         | ConversationUpdatedEvent
                         | ConversationCreatedEvent
                         | ConversationMembershipEvent
-                        | GroupDisbandedEvent;
+                        | GroupDisbandedEvent
+                        | NewJoinRequestEvent;
 
                     const createdConversation = (
                         payload as {
@@ -843,6 +851,38 @@ class WebSocketService {
                             buildSystemFallbackByDomainEvent(
                                 disbandPayload.domainEventType,
                             ),
+                        );
+                        return;
+                    }
+
+                    const joinRequestPayload = payload as NewJoinRequestEvent;
+                    if (
+                        joinRequestPayload.domainEventType === "NEW_JOIN_REQUEST" &&
+                        typeof joinRequestPayload.conversationId === "number" &&
+                        joinRequestPayload.requestData
+                    ) {
+                        const request = joinRequestPayload.requestData;
+                        callback(
+                            joinRequestPayload.conversationId,
+                            {
+                                lastMessageContent:
+                                    request.content || "",
+                                lastMessageType: "SYSTEM_REQUIRE_APPROVAL",
+                                lastSenderId: request.inviterId ?? 0,
+                                lastSenderName: request.inviterName ?? "",
+                                lastMessageAt:
+                                    request.createdAt ||
+                                    new Date().toISOString(),
+                                read: false,
+                            },
+                            {
+                                id: joinRequestPayload.conversationId,
+                                type: "GROUP",
+                                updatedAt:
+                                    request.createdAt ||
+                                    new Date().toISOString(),
+                                pendingRequests: [request],
+                            } as ConversationSnapshot,
                         );
                         return;
                     }

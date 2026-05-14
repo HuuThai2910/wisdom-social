@@ -14,6 +14,11 @@ export interface ConversationPagingState {
 
 export type MembersByUserId = Record<number, ConversationMember>;
 type ConversationListener = (conversation: Conversation) => void;
+interface SetConversationOptions {
+    memberSnapshotVersion?: number;
+}
+
+const MEMBER_SNAPSHOT_GUARD_MS = 5000;
 
 class ChatRuntimeStore {
     private readonly conversations = new Map<number, Conversation>();
@@ -28,6 +33,10 @@ class ChatRuntimeStore {
         ConversationPagingState
     >();
     private readonly conversationListeners = new Set<ConversationListener>();
+    private readonly memberSnapshotVersions = new Map<number, number>();
+    private readonly requiredMemberSnapshotVersions = new Map<number, number>();
+    private readonly memberSnapshotGuardUntil = new Map<number, number>();
+    private readonly acceptedMemberSnapshotVersions = new Map<number, number>();
 
     private createDefaultPagingState(): ConversationPagingState {
         return {
@@ -36,6 +45,17 @@ class ChatRuntimeStore {
             isHistoricalMode: false,
             olderCursor: null,
         };
+    }
+
+    private toMembersByUserId(
+        members?: ConversationMember[],
+    ): MembersByUserId | null {
+        if (!members) return null;
+
+        return members.reduce<MembersByUserId>((next, member) => {
+            next[member.userId] = member;
+            return next;
+        }, {});
     }
 
     getConversation(conversationId: number): Conversation | null {
@@ -64,9 +84,106 @@ class ChatRuntimeStore {
         };
     }
 
-    setConversation(conversationId: number, conversation: Conversation): void {
-        this.conversations.set(conversationId, conversation);
-        this.emitConversationChanged(conversation);
+    markMembersChanging(conversationId: number): number {
+        const existingRequiredVersion =
+            this.requiredMemberSnapshotVersions.get(conversationId);
+        const existingGuardUntil =
+            this.memberSnapshotGuardUntil.get(conversationId) ?? 0;
+
+        if (
+            existingRequiredVersion !== undefined &&
+            Date.now() <= existingGuardUntil &&
+            this.acceptedMemberSnapshotVersions.get(conversationId) !==
+                existingRequiredVersion
+        ) {
+            return existingRequiredVersion;
+        }
+
+        const nextVersion =
+            (this.memberSnapshotVersions.get(conversationId) ?? 0) + 1;
+        this.memberSnapshotVersions.set(conversationId, nextVersion);
+        this.requiredMemberSnapshotVersions.set(conversationId, nextVersion);
+        this.acceptedMemberSnapshotVersions.delete(conversationId);
+        this.memberSnapshotGuardUntil.set(
+            conversationId,
+            Date.now() + MEMBER_SNAPSHOT_GUARD_MS,
+        );
+        return nextVersion;
+    }
+
+    private canAcceptMemberSnapshot(
+        conversationId: number,
+        version?: number,
+        consumeVersion = false,
+    ): boolean {
+        const requiredVersion =
+            this.requiredMemberSnapshotVersions.get(conversationId);
+        if (requiredVersion === undefined) return true;
+        const guardUntil = this.memberSnapshotGuardUntil.get(conversationId) ?? 0;
+
+        if (Date.now() > guardUntil) {
+            this.requiredMemberSnapshotVersions.delete(conversationId);
+            this.memberSnapshotGuardUntil.delete(conversationId);
+            return true;
+        }
+
+        if (version === undefined || version < requiredVersion) return false;
+        if (
+            this.acceptedMemberSnapshotVersions.get(conversationId) ===
+            requiredVersion
+        ) {
+            return false;
+        }
+
+        if (consumeVersion) {
+            this.acceptedMemberSnapshotVersions.set(
+                conversationId,
+                requiredVersion,
+            );
+        }
+
+        return true;
+    }
+
+    setConversation(
+        conversationId: number,
+        conversation: Conversation,
+        options?: SetConversationOptions,
+    ): Conversation {
+        const previous = this.conversations.get(conversationId);
+        const acceptMembers =
+            conversation.members === undefined ||
+            this.canAcceptMemberSnapshot(
+                conversationId,
+                options?.memberSnapshotVersion,
+                true,
+            );
+        const next = previous
+            ? {
+                  ...previous,
+                  ...conversation,
+                  members: acceptMembers
+                      ? conversation.members ?? previous.members
+                      : previous.members,
+                  pinnedMessages:
+                      conversation.pinnedMessages ?? previous.pinnedMessages,
+                  pendingRequests:
+                      conversation.pendingRequests ?? previous.pendingRequests,
+                  lastMessage: conversation.lastMessage ?? previous.lastMessage,
+              }
+            : acceptMembers
+              ? conversation
+              : { ...conversation, members: undefined };
+
+        this.conversations.set(conversationId, next);
+        if (acceptMembers && conversation.members !== undefined) {
+            const membersById = this.toMembersByUserId(conversation.members);
+            if (membersById) {
+                this.membersByConversation.set(conversationId, membersById);
+            }
+        }
+        this.emitConversationChanged(next);
+        return next;
     }
 
     patchConversation(
@@ -90,8 +207,22 @@ class ChatRuntimeStore {
         return this.membersByConversation.get(conversationId) ?? {};
     }
 
-    setMembers(conversationId: number, members: MembersByUserId): void {
+    setMembers(
+        conversationId: number,
+        members: MembersByUserId,
+        options?: SetConversationOptions,
+    ): MembersByUserId {
+        if (
+            !this.canAcceptMemberSnapshot(
+                conversationId,
+                options?.memberSnapshotVersion,
+            )
+        ) {
+            return this.getMembers(conversationId);
+        }
+
         this.membersByConversation.set(conversationId, members);
+        return members;
     }
 
     patchMember(

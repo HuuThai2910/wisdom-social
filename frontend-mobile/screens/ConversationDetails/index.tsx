@@ -1,4 +1,4 @@
-import React, { useMemo, useState, ComponentProps } from "react";
+﻿import React, { useMemo, useState, ComponentProps } from "react";
 import {
     View,
     Text,
@@ -7,15 +7,15 @@ import {
     Pressable,
     Alert,
     SafeAreaView,
-    Animated,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { colors, spacing } from "@/constants";
+import { colors } from "@/constants";
 import { UserAvatar, TransferOwnershipModal } from "@/components";
 import { useMessagesController } from "@/hooks/useMessagesController";
 import { useGroupManagement } from "@/hooks/useGroupManagement";
 import { formatRelativeTime } from "@/utils/format";
+import { useGroupConversationRealtime } from "@/hooks/useGroupConversationRealtime";
 
 export function ConversationDetailsScreen() {
     const { conversationId } = useLocalSearchParams<{ conversationId: string }>();
@@ -40,10 +40,21 @@ export function ConversationDetailsScreen() {
         reloadConversations: reload,
     });
 
+    useGroupConversationRealtime({
+        conversationId: id,
+        currentUserId,
+        reloadConversations: reload,
+    });
+
     const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
         media: true,
         privacy: true,
     });
+
+    const activityStatus = useMemo(() => {
+        if (!selectedConversation?.updatedAt) return "Đang hoạt động gần đây";
+        return `Hoạt động ${formatRelativeTime(selectedConversation.updatedAt)} trước`;
+    }, [selectedConversation?.updatedAt]);
 
     if (!selectedConversation) {
         return (
@@ -54,19 +65,22 @@ export function ConversationDetailsScreen() {
                     </Pressable>
                 </View>
                 <View style={styles.centered}>
-                    <Text style={styles.errorText}>Khong tim thay hoi thoai</Text>
+                    <Text style={styles.errorText}>Không tìm thấy hội thoại</Text>
                 </View>
             </SafeAreaView>
         );
     }
 
     const isGroup = selectedConversation.type === "GROUP";
-    const memberCount = selectedConversation.members?.length || 0;
-
-    const activityStatus = useMemo(() => {
-        if (!selectedConversation.updatedAt) return "Đang hoạt động gần đây";
-        return `Hoạt động ${formatRelativeTime(selectedConversation.updatedAt)} trước`;
-    }, [selectedConversation.updatedAt]);
+    const memberCount = groupManagement.groupMembers.length;
+    const canReviewJoinRequests =
+        groupManagement.currentMemberRole === "OWNER" ||
+        groupManagement.currentMemberRole === "DEPUTY";
+    const pendingRequestCount = canReviewJoinRequests
+        ? (selectedConversation.pendingRequests ?? []).filter(
+              (request) => request.status === "PENDING",
+          ).length
+        : 0;
 
     const toggleSection = (key: string) => {
         setExpandedSections(prev => ({ ...prev, [key]: !prev[key] }));
@@ -80,12 +94,12 @@ export function ConversationDetailsScreen() {
         }
 
         Alert.alert(
-            "Roi khoi nhom?",
-            `Ban co chac muon roi khoi nhom "${selectedConversation.name || "nay"}"?`,
+            "Rời khỏi nhóm?",
+            `Bạn có chắc muốn rời khỏi nhóm "${selectedConversation.name || "này"}"?`,
             [
-                { text: "Huy", style: "cancel" },
+                { text: "Hủy", style: "cancel" },
                 {
-                    text: "Roi nhom",
+                    text: "Rời nhóm",
                     style: "destructive",
                     onPress: async () => {
                         const success = await groupManagement.leaveGroup();
@@ -116,7 +130,7 @@ export function ConversationDetailsScreen() {
                         size={80}
                     />
                     <Text style={styles.conversationName}>
-                        {selectedConversation.name || "Nguoi dung"}
+                        {selectedConversation.name || "Người dùng"}
                     </Text>
                     <Text style={styles.activityStatus}>{activityStatus}</Text>
                     
@@ -172,7 +186,14 @@ export function ConversationDetailsScreen() {
                             <View style={styles.memberIconWrap}>
                                 <Ionicons name="people" size={20} color={colors.textMuted} />
                             </View>
-                            <Text style={styles.memberCountText}>{memberCount} thành viên</Text>
+                            <View style={styles.memberSummaryText}>
+                                <Text style={styles.memberCountText}>{memberCount} thành viên</Text>
+                                {pendingRequestCount > 0 && (
+                                    <Text style={styles.pendingRequestText}>
+                                        Có {pendingRequestCount} yêu cầu tham gia nhóm
+                                    </Text>
+                                )}
+                            </View>
                             <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
                         </Pressable>
                     </CollapsibleSection>
@@ -447,10 +468,18 @@ const styles = StyleSheet.create({
         justifyContent: "center",
     },
     memberCountText: {
-        flex: 1,
         fontSize: 14,
         fontWeight: "600",
         color: colors.text,
+    },
+    memberSummaryText: {
+        flex: 1,
+    },
+    pendingRequestText: {
+        fontSize: 13,
+        fontWeight: "600",
+        color: colors.primary,
+        marginTop: 3,
     },
     detailItem: {
         flexDirection: "row",

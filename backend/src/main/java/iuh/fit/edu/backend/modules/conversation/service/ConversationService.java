@@ -32,5 +32,8 @@ public interface ConversationService {
     void markAsRead(Long conversationId, Long userId, String lastMessageId);
 
     ConversationResponse updateMessageRestriction(Long conversationId, Long requesterId, boolean isRestricted);
+
+    @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
+    ConversationResponse updateJoinApprovalRequired(Long conversationId, Long requesterId, boolean isRequired);
 }
 

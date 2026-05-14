@@ -1,6 +1,8 @@
 import { useCallback, useMemo, useRef, useState } from "react";
+import { Alert } from "react-native";
 import chatService from "@/services/chatService";
 import friendService, { type FriendUser } from "@/services/friendService";
+import chatRuntimeStore from "@/stores/chatRuntimeStore";
 import type { Conversation, MemberRole } from "@/types/chat";
 
 interface CreateGroupPayload {
@@ -61,6 +63,11 @@ export function useGroupManagement({
     const [isDisbandingGroup, setIsDisbandingGroup] = useState(false);
     const [isUpdatingMessageRestriction, setIsUpdatingMessageRestriction] =
         useState(false);
+    const [isUpdatingJoinApproval, setIsUpdatingJoinApproval] =
+        useState(false);
+    const [pendingJoinRequestId, setPendingJoinRequestId] = useState<
+        number | null
+    >(null);
 
     const [pendingKickUserId, setPendingKickUserId] = useState<number | null>(
         null,
@@ -156,7 +163,7 @@ export function useGroupManagement({
                 setFriendsError(
                     normalizeErrorMessage(
                         error,
-                        "Khong the tai danh sach ban be.",
+                        "Không thể tải danh sách bạn bè.",
                     ),
                 );
             } finally {
@@ -194,12 +201,36 @@ export function useGroupManagement({
         setIsTransferOwnerModalOpen(false);
     }, [isLeavingGroup]);
 
+    const reloadSelectedGroupConversation = useCallback(async (
+        memberSnapshotVersion?: number,
+    ) => {
+        if (!selectedConversationId || !currentUserId) {
+            await reloadConversations();
+            return;
+        }
+
+        const response = await chatService.getConversation(
+            selectedConversationId,
+            currentUserId,
+        );
+
+        if (response.success && response.data) {
+            chatRuntimeStore.setConversation(
+                selectedConversationId,
+                response.data,
+                { memberSnapshotVersion },
+            );
+        }
+
+        await reloadConversations();
+    }, [currentUserId, reloadConversations, selectedConversationId]);
+
     const createGroup = useCallback(
         async (payload: CreateGroupPayload) => {
             const memberIds = Array.from(new Set(payload.memberIds));
             if (memberIds.length < 2) {
                 setActionError(
-                    "Vui long chon it nhat 2 thanh vien de tao nhom.",
+                    "Vui lòng chọn ít nhất 2 thành viên để tạo nhóm.",
                 );
                 return false;
             }
@@ -215,13 +246,17 @@ export function useGroupManagement({
                         memberIds,
                     });
 
+                chatRuntimeStore.setConversation(
+                    createdConversation.id,
+                    createdConversation,
+                );
                 await reloadConversations();
                 onSelectConversation?.(createdConversation.id);
                 setIsCreateGroupModalOpen(false);
                 return true;
             } catch (error) {
                 setActionError(
-                    normalizeErrorMessage(error, "Khong the tao nhom."),
+                    normalizeErrorMessage(error, "Không thể tạo nhóm."),
                 );
                 return false;
             } finally {
@@ -234,7 +269,7 @@ export function useGroupManagement({
     const addMembersToGroup = useCallback(
         async (memberIds: number[]) => {
             if (!selectedConversationId || !selectedGroupConversation) {
-                setActionError("Khong tim thay cuoc tro chuyen nhom.");
+                setActionError("Không tìm thấy cuộc trò chuyện nhóm.");
                 return false;
             }
 
@@ -249,23 +284,36 @@ export function useGroupManagement({
             );
 
             if (validIds.length === 0) {
-                setActionError("Vui long chon it nhat 1 thanh vien moi.");
+                setActionError("Vui lòng chọn ít nhất 1 thành viên mới.");
                 return false;
             }
 
             try {
                 setIsAddingMembers(true);
                 setActionError(null);
+                const memberSnapshotVersion =
+                    chatRuntimeStore.markMembersChanging(
+                        selectedConversationId,
+                    );
 
                 await chatService.addMembersToGroup(selectedConversationId, {
                     newMemberIds: validIds,
                 });
-                await reloadConversations();
+                await reloadSelectedGroupConversation(memberSnapshotVersion);
                 setIsAddMembersModalOpen(false);
+                if (
+                    selectedGroupConversation.isJoinApprovalRequired &&
+                    currentMemberRole === "MEMBER"
+                ) {
+                    Alert.alert(
+                        "Đã gửi yêu cầu",
+                        "Đã gửi yêu cầu tham gia đến Quản trị viên để chờ phê duyệt.",
+                    );
+                }
                 return true;
             } catch (error) {
                 setActionError(
-                    normalizeErrorMessage(error, "Khong the them thanh vien."),
+                    normalizeErrorMessage(error, "Không thể thêm thành viên."),
                 );
                 return false;
             } finally {
@@ -274,8 +322,9 @@ export function useGroupManagement({
         },
         [
             currentUserId,
+            currentMemberRole,
             groupMemberIds,
-            reloadConversations,
+            reloadSelectedGroupConversation,
             selectedConversationId,
             selectedGroupConversation,
         ],
@@ -290,19 +339,23 @@ export function useGroupManagement({
             try {
                 setPendingRoleUserId(targetUserId);
                 setActionError(null);
+                const memberSnapshotVersion =
+                    chatRuntimeStore.markMembersChanging(
+                        selectedConversationId,
+                    );
 
                 await chatService.updateGroupMemberRole(
                     selectedConversationId,
                     targetUserId,
                     nextRole,
                 );
-                await reloadConversations();
+                await reloadSelectedGroupConversation(memberSnapshotVersion);
                 return true;
             } catch (error) {
                 setActionError(
                     normalizeErrorMessage(
                         error,
-                        "Khong the cap nhat quyen thanh vien.",
+                        "Không thể cập nhật quyền thành viên.",
                     ),
                 );
                 return false;
@@ -310,7 +363,7 @@ export function useGroupManagement({
                 setPendingRoleUserId(null);
             }
         },
-        [canUpdateRole, reloadConversations, selectedConversationId],
+        [canUpdateRole, reloadSelectedGroupConversation, selectedConversationId],
     );
 
     const kickMember = useCallback(
@@ -322,23 +375,27 @@ export function useGroupManagement({
             try {
                 setPendingKickUserId(targetUserId);
                 setActionError(null);
+                const memberSnapshotVersion =
+                    chatRuntimeStore.markMembersChanging(
+                        selectedConversationId,
+                    );
 
                 await chatService.kickGroupMember(
                     selectedConversationId,
                     targetUserId,
                 );
-                await reloadConversations();
+                await reloadSelectedGroupConversation(memberSnapshotVersion);
                 return true;
             } catch (error) {
                 setActionError(
-                    normalizeErrorMessage(error, "Khong the duoi thanh vien."),
+                    normalizeErrorMessage(error, "Không thể đuổi thành viên."),
                 );
                 return false;
             } finally {
                 setPendingKickUserId(null);
             }
         },
-        [canManageMembers, reloadConversations, selectedConversationId],
+        [canManageMembers, reloadSelectedGroupConversation, selectedConversationId],
     );
 
     const leaveGroupDirectly = useCallback(async () => {
@@ -355,7 +412,7 @@ export function useGroupManagement({
             onClearSelection?.();
             return true;
         } catch (error) {
-            setActionError(normalizeErrorMessage(error, "Khong the roi nhom."));
+            setActionError(normalizeErrorMessage(error, "Không thể rời nhóm."));
             return false;
         } finally {
             setIsLeavingGroup(false);
@@ -406,7 +463,7 @@ export function useGroupManagement({
                         Number(candidate.userId) === Number(newOwnerUserId),
                 )
             ) {
-                setActionError("Vui long chon truong nhom moi hop le.");
+                setActionError("Vui lòng chọn trưởng nhóm mới hợp lệ.");
                 return false;
             }
 
@@ -430,7 +487,7 @@ export function useGroupManagement({
                 setActionError(
                     normalizeErrorMessage(
                         error,
-                        "Khong the chuyen truong nhom va roi nhom.",
+                        "Không thể chuyển trưởng nhóm và rời nhóm.",
                     ),
                 );
                 return false;
@@ -465,7 +522,7 @@ export function useGroupManagement({
             return true;
         } catch (error) {
             setActionError(
-                normalizeErrorMessage(error, "Khong the giai tan nhom."),
+                normalizeErrorMessage(error, "Không thể giải tán nhóm."),
             );
             return false;
         } finally {
@@ -491,18 +548,80 @@ export function useGroupManagement({
                     selectedConversationId,
                     isRestricted,
                 );
-                await reloadConversations();
+                await reloadSelectedGroupConversation();
                 return true;
             } catch (error) {
                 setActionError(
-                    normalizeErrorMessage(error, "Khong the cap nhat cai dat."),
+                    normalizeErrorMessage(error, "Không thể cập nhật cài đặt."),
                 );
                 return false;
             } finally {
                 setIsUpdatingMessageRestriction(false);
             }
         },
-        [canManageSettings, reloadConversations, selectedConversationId],
+        [canManageSettings, reloadSelectedGroupConversation, selectedConversationId],
+    );
+
+    const updateJoinApproval = useCallback(
+        async (isRequired: boolean) => {
+            if (!selectedConversationId || !canManageSettings) {
+                return false;
+            }
+
+            try {
+                setIsUpdatingJoinApproval(true);
+                setActionError(null);
+                await chatService.updateJoinApprovalRequired(
+                    selectedConversationId,
+                    isRequired,
+                );
+                await reloadSelectedGroupConversation();
+                return true;
+            } catch (error) {
+                setActionError(
+                    normalizeErrorMessage(error, "Không thể cập nhật cài đặt."),
+                );
+                return false;
+            } finally {
+                setIsUpdatingJoinApproval(false);
+            }
+        },
+        [canManageSettings, reloadSelectedGroupConversation, selectedConversationId],
+    );
+
+    const processJoinRequest = useCallback(
+        async (requestId: number, isApproved: boolean) => {
+            if (!selectedConversationId || !canManageSettings) {
+                return false;
+            }
+
+            try {
+                setPendingJoinRequestId(requestId);
+                setActionError(null);
+                const memberSnapshotVersion =
+                    chatRuntimeStore.markMembersChanging(
+                        selectedConversationId,
+                    );
+                await chatService.processJoinRequest(
+                    selectedConversationId,
+                    requestId,
+                    isApproved,
+                );
+                await reloadSelectedGroupConversation(memberSnapshotVersion);
+                return true;
+            } catch (error) {
+                setActionError(
+                    normalizeErrorMessage(
+                        error,
+                        "Không thể xử lý yêu cầu tham gia.",
+                    ),
+                );
+                return false;
+            } finally {
+                setPendingJoinRequestId(null);
+            }
+        },
+        [canManageSettings, reloadSelectedGroupConversation, selectedConversationId],
     );
 
     const clearGroupActionError = useCallback(() => {
@@ -532,8 +651,10 @@ export function useGroupManagement({
         isLeavingGroup,
         isDisbandingGroup,
         isUpdatingMessageRestriction,
+        isUpdatingJoinApproval,
         pendingKickUserId,
         pendingRoleUserId,
+        pendingJoinRequestId,
         pendingTransferOwnerUserId,
         ownerTransferCandidates,
 
@@ -554,6 +675,8 @@ export function useGroupManagement({
         transferOwnershipAndLeave,
         disbandGroup,
         updateMessageRestriction,
+        updateJoinApproval,
+        processJoinRequest,
         refreshFriends: loadFriends,
     };
 }

@@ -10,7 +10,8 @@ type GroupSystemMessageType =
     | "SYSTEM_KICK_MEMBER"
     | "SYSTEM_LEAVE_GROUP"
     | "SYSTEM_DISBAND_GROUP"
-    | "SYSTEM_UPDATE_SETTING";
+    | "SYSTEM_UPDATE_SETTING"
+    | "SYSTEM_REQUIRE_APPROVAL";
 
 function formatCommaNameList(names: string[]): string {
     return names.join(", ");
@@ -374,6 +375,16 @@ export function buildSystemGroupMessage(params: {
 
     if (type === "SYSTEM_UPDATE_SETTING") {
         return isOwn ? `Bạn ${content}` : `${actorLabel} ${content}`;
+    }
+
+    if (type === "SYSTEM_REQUIRE_APPROVAL") {
+        const memberNames = safeParseMemberEntries(content)
+            .map((entry) => resolveMemberLabelFromSnapshot(entry, membersById))
+            .filter((name): name is string => Boolean(name));
+        const joinedNames =
+            formatCommaNameList(memberNames) || "Thành viên mới";
+        const inviterLabel = isOwn ? "bạn" : actorLabel;
+        return `${joinedNames} được ${inviterLabel} mời tham gia nhóm và cần trưởng/phó nhóm phê duyệt.`;
     }
 
     return buildSystemDisbandGroupMessage({

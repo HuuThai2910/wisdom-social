@@ -17,7 +17,7 @@ export interface ConversationLastMessagePreview {
     senderLabel: string;
 }
 
-const DEFAULT_PREVIEW_TEXT = "Bat dau tro chuyen";
+const DEFAULT_PREVIEW_TEXT = "Bắt đầu trò chuyện";
 
 const GROUP_SYSTEM_PREVIEW_TYPES = new Set([
     "SYSTEM_CREATE_GROUP",
@@ -26,7 +26,13 @@ const GROUP_SYSTEM_PREVIEW_TYPES = new Set([
     "SYSTEM_KICK_MEMBER",
     "SYSTEM_LEAVE_GROUP",
     "SYSTEM_DISBAND_GROUP",
+    "SYSTEM_UPDATE_SETTING",
+    "SYSTEM_REQUIRE_APPROVAL",
 ]);
+
+function isSystemMessageType(type: unknown): type is string {
+    return typeof type === "string" && type.startsWith("SYSTEM_");
+}
 
 function buildConversationMembersLookup(
     conversation: Conversation,
@@ -54,7 +60,7 @@ export function buildConversationLastMessagePreview({
         };
     }
 
-    if (GROUP_SYSTEM_PREVIEW_TYPES.has(lastMessage.lastMessageType)) {
+    if (isSystemMessageType(lastMessage.lastMessageType)) {
         const isFallbackMessage =
             !lastMessage.lastMessageContent?.trim() &&
             !lastMessage.lastSenderName?.trim() &&
@@ -63,6 +69,14 @@ export function buildConversationLastMessagePreview({
         if (isFallbackMessage) {
             return {
                 text: DEFAULT_PREVIEW_TEXT,
+                showSenderPrefix: false,
+                senderLabel: "",
+            };
+        }
+
+        if (!GROUP_SYSTEM_PREVIEW_TYPES.has(lastMessage.lastMessageType)) {
+            return {
+                text: lastMessage.lastMessageContent?.trim() || DEFAULT_PREVIEW_TEXT,
                 showSenderPrefix: false,
                 senderLabel: "",
             };
@@ -97,8 +111,8 @@ export function buildConversationLastMessagePreview({
         lastMessage.lastSenderId === currentUserId;
     const senderLabel =
         lastMessage.lastSenderId === currentUserId
-            ? "Ban"
-            : lastMessage.lastSenderName?.trim() || "Nguoi dung";
+            ? "Bạn"
+            : lastMessage.lastSenderName?.trim() || "Người dùng";
 
     return {
         text: normalizedContent,

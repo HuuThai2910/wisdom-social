@@ -22,7 +22,8 @@ export type MessageType =
     | "SYSTEM_KICK_MEMBER"
     | "SYSTEM_UPDATE_ROLE"
     | "SYSTEM_DISBAND_GROUP"
-    | "SYSTEM_UPDATE_SETTING";
+    | "SYSTEM_UPDATE_SETTING"
+    | "SYSTEM_REQUIRE_APPROVAL";
 
 export type MemberRole = "OWNER" | "DEPUTY" | "MEMBER";
 
@@ -114,12 +115,35 @@ export interface ConversationSidebar {
     lastMessage?: LastMessage;
     unreadCount?: number;
     isMessageRestricted?: boolean;
+    isJoinApprovalRequired?: boolean;
+    pendingRequests?: JoinRequest[] | null;
 }
 
 export interface Conversation extends ConversationSidebar {
     members?: ConversationMember[];
     pinnedMessages?: PinnedMessageDetail[];
 }
+
+export type JoinRequestStatus = "PENDING" | "APPROVED" | "REJECTED";
+
+export interface JoinRequest {
+    id: number;
+    conversationId: number;
+    userId: number;
+    userName: string;
+    userAvatar?: string | null;
+    username?: string | null;
+    nickname?: string | null;
+    avatar?: string | null;
+    avatarUrl?: string | null;
+    inviterId?: number | null;
+    inviterName?: string | null;
+    status: JoinRequestStatus;
+    content?: string | null;
+    createdAt: string;
+}
+
+export type GroupJoinRequest = JoinRequest;
 
 export interface SendMessageRequest {
     content: string;
@@ -251,4 +275,10 @@ export interface ConversationMembershipEvent {
 export interface GroupDisbandedEvent {
     domainEventType?: "GROUP_DISBANDED";
     conversationId?: number;
+}
+
+export interface NewJoinRequestEvent {
+    domainEventType: "NEW_JOIN_REQUEST";
+    conversationId: number;
+    requestData: JoinRequest;
 }
