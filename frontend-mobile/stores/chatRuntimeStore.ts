@@ -17,6 +17,10 @@ type ConversationListener = (conversation: Conversation) => void;
 interface SetConversationOptions {
     memberSnapshotVersion?: number;
 }
+interface RemovePendingRequestsOptions {
+    requestIds?: number[];
+    userIds?: number[];
+}
 
 const MEMBER_SNAPSHOT_GUARD_MS = 5000;
 
@@ -37,6 +41,7 @@ class ChatRuntimeStore {
     private readonly requiredMemberSnapshotVersions = new Map<number, number>();
     private readonly memberSnapshotGuardUntil = new Map<number, number>();
     private readonly acceptedMemberSnapshotVersions = new Map<number, number>();
+    private readonly dismissedPendingRequestIds = new Map<number, Set<number>>();
 
     private createDefaultPagingState(): ConversationPagingState {
         return {
@@ -56,6 +61,68 @@ class ChatRuntimeStore {
             next[member.userId] = member;
             return next;
         }, {});
+    }
+
+    private rememberDismissedPendingRequestIds(
+        conversationId: number,
+        requestIds: number[],
+    ): void {
+        const normalizedIds = requestIds
+            .map((requestId) => Number(requestId))
+            .filter((requestId) => Number.isFinite(requestId));
+
+        if (normalizedIds.length === 0) return;
+
+        const dismissedIds =
+            this.dismissedPendingRequestIds.get(conversationId) ?? new Set<number>();
+
+        normalizedIds.forEach((requestId) => dismissedIds.add(requestId));
+        this.dismissedPendingRequestIds.set(conversationId, dismissedIds);
+    }
+
+    private removeDismissedPendingRequests(
+        conversationId: number,
+        requests: Conversation["pendingRequests"],
+    ): Conversation["pendingRequests"] {
+        if (!requests?.length) return requests;
+
+        const dismissedIds = this.dismissedPendingRequestIds.get(conversationId);
+        if (!dismissedIds?.size) return requests;
+
+        return requests.filter((request) => !dismissedIds.has(Number(request.id)));
+    }
+
+    private removeHandledMemberRequests(
+        requests: Conversation["pendingRequests"],
+        members?: ConversationMember[],
+    ): Conversation["pendingRequests"] {
+        if (!requests || !members?.length) return requests;
+
+        const membersByUserId = new Map(
+            members.map((member) => [Number(member.userId), member]),
+        );
+
+        if (membersByUserId.size === 0) return requests;
+
+        return requests.filter((request) => {
+            const member = membersByUserId.get(Number(request.userId));
+            if (!member) return true;
+
+            if (!member.status || member.status === "ACTIVE") return false;
+
+            const requestTime = request.createdAt
+                ? new Date(request.createdAt).getTime()
+                : 0;
+            const joinedTime = member.joinedAt
+                ? new Date(member.joinedAt).getTime()
+                : 0;
+            const leftTime = member.leftAt
+                ? new Date(member.leftAt).getTime()
+                : 0;
+            const handledTime = Math.max(joinedTime, leftTime);
+
+            return !requestTime || !handledTime || requestTime > handledTime;
+        });
     }
 
     getConversation(conversationId: number): Conversation | null {
@@ -158,7 +225,7 @@ class ChatRuntimeStore {
                 options?.memberSnapshotVersion,
                 true,
             );
-        const next = previous
+        const mergedConversation = previous
             ? {
                   ...previous,
                   ...conversation,
@@ -174,6 +241,16 @@ class ChatRuntimeStore {
             : acceptMembers
               ? conversation
               : { ...conversation, members: undefined };
+        const next = {
+            ...mergedConversation,
+            pendingRequests: this.removeHandledMemberRequests(
+                this.removeDismissedPendingRequests(
+                    conversationId,
+                    mergedConversation.pendingRequests,
+                ),
+                mergedConversation.members,
+            ),
+        };
 
         this.conversations.set(conversationId, next);
         if (acceptMembers && conversation.members !== undefined) {
@@ -182,6 +259,54 @@ class ChatRuntimeStore {
                 this.membersByConversation.set(conversationId, membersById);
             }
         }
+        this.emitConversationChanged(next);
+        return next;
+    }
+
+    removePendingRequests(
+        conversationId: number,
+        options: RemovePendingRequestsOptions,
+    ): Conversation | null {
+        const previous = this.getConversation(conversationId);
+        if (!previous) return null;
+
+        const requestIds = new Set(
+            (options.requestIds ?? [])
+                .map((requestId) => Number(requestId))
+                .filter((requestId) => Number.isFinite(requestId)),
+        );
+        const userIds = new Set(
+            (options.userIds ?? [])
+                .map((userId) => Number(userId))
+                .filter((userId) => Number.isFinite(userId)),
+        );
+        const matchedRequestIds =
+            previous.pendingRequests
+                ?.filter(
+                    (request) =>
+                        requestIds.has(Number(request.id)) ||
+                        userIds.has(Number(request.userId)),
+                )
+                .map((request) => Number(request.id)) ?? [];
+
+        this.rememberDismissedPendingRequestIds(conversationId, [
+            ...requestIds,
+            ...matchedRequestIds,
+        ]);
+
+        const nextPendingRequests =
+            previous.pendingRequests?.filter(
+                (request) =>
+                    !requestIds.has(Number(request.id)) &&
+                    !userIds.has(Number(request.userId)),
+            ) ?? previous.pendingRequests;
+
+        const next = {
+            ...previous,
+            pendingRequests: nextPendingRequests,
+        };
+
+        this.conversations.set(conversationId, next);
         this.emitConversationChanged(next);
         return next;
     }
