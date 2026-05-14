@@ -108,6 +108,9 @@ export const normalizePost = (post: any, userData: any): Post => {
                 thumbnail: post.music.thumbnail,
                 audioUrl: post.music.audioUrl || "",
                 duration: post.music.duration,
+                muteOriginal: post.music.muteOriginal,
+                originalVolume: post.music.originalVolume,
+                musicVolume: post.music.musicVolume,
             }
             : undefined,
         location: post.location,

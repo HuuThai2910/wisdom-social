@@ -19,6 +19,10 @@ import * as postApi from "../../services/postService";
 import { useAuth } from "../../contexts/AuthContext";
 import { buildS3Url } from "../../utils/s3";
 import type { NoteMusic } from "../../types/note";
+import {
+  enforceVideoAudioState,
+  getVideoAudioState,
+} from "../../utils/postVideoAudio";
 import FriendSelectorModal from "./FriendSelectorModal";
 import IconModal from "../icon-modal/IconModal";
 import { Theme } from "emoji-picker-react";
@@ -428,7 +432,26 @@ export default function EditPostModal({
                     <video
                       src={allImages[safeViewIdx].url}
                       className="w-full h-full object-contain"
-                      controls
+                      muted={getVideoAudioState(selectedMusic || post.music).shouldMuteOriginal}
+                      controls={!getVideoAudioState(selectedMusic || post.music).locked}
+                      onLoadedMetadata={(e) => {
+                        enforceVideoAudioState(
+                          e.currentTarget,
+                          getVideoAudioState(selectedMusic || post.music)
+                        );
+                      }}
+                      onVolumeChange={(e) => {
+                        enforceVideoAudioState(
+                          e.currentTarget,
+                          getVideoAudioState(selectedMusic || post.music)
+                        );
+                      }}
+                      onPlay={(e) => {
+                        enforceVideoAudioState(
+                          e.currentTarget,
+                          getVideoAudioState(selectedMusic || post.music)
+                        );
+                      }}
                     />
                   ) : (
                     <img

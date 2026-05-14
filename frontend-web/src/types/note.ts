@@ -6,6 +6,9 @@ export interface NoteMusic {
     thumbnail?: string;
     audioUrl: string;
     duration?: number;
+    muteOriginal?: boolean;
+    originalVolume?: number;
+    musicVolume?: number;
 }
 
 export interface Note {

@@ -11,14 +11,12 @@ import {
   Settings2,
   ArrowLeft,
   Music,
-  PlusCircle,
-  BarChart2,
-  Disc,
-  Play,
   Settings,
   VolumeX,
   Volume2,
-  Maximize2
+  Maximize2,
+  Play,
+  Pause,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Theme } from "emoji-picker-react";
@@ -27,12 +25,12 @@ import { createPost } from "../services/postService";
 import FriendSelectorModal from "../components/post/FriendSelectorModal";
 import IconModal from "../components/icon-modal/IconModal";
 import NoteMusicPicker from "../components/profile/note-modal/NoteMusicPicker";
-import { 
-  playAudioPreview, 
-  stopAudioPreview, 
-  subscribeToPlayback, 
+import {
+  playAudioPreview,
+  stopAudioPreview,
+  subscribeToPlayback,
   resolveMusicMediaUrl,
-  type MusicMetadata 
+  type MusicMetadata,
 } from "../services/musicService";
 
 type PrivacyType =
@@ -69,20 +67,42 @@ export default function CreatePost() {
   // Video/Audio settings state
   const [muteOriginal, setMuteOriginal] = useState(false);
   const [musicVolume, setMusicVolume] = useState(75);
-  const [selectedMusic, setSelectedMusic] = useState<MusicMetadata | null>(null);
+  const [selectedMusic, setSelectedMusic] = useState<MusicMetadata | null>(
+    null
+  );
   const [playingUrl, setPlayingUrl] = useState<string | null>(null);
+  const [isVideo2Playing, setIsVideo2Playing] = useState(false);
+  const [isVideo3Playing, setIsVideo3Playing] = useState(false);
 
   const videoRef2 = useRef<HTMLVideoElement>(null);
   const videoRef3 = useRef<HTMLVideoElement>(null);
 
-  useEffect(() => {
-    if (step === 2 && videoRef2.current) {
-      videoRef2.current.muted = muteOriginal;
+  const enforceLockedMute = (video: HTMLVideoElement | null) => {
+    if (!video || !muteOriginal) return;
+    video.muted = true;
+    video.volume = 0;
+  };
+
+  const handleToggleMuteOriginal = () => {
+    setMuteOriginal((prev) => !prev);
+  };
+
+  const handleVideoAudioGuard = (e: React.SyntheticEvent<HTMLVideoElement>) => {
+    enforceLockedMute(e.currentTarget);
+  };
+
+  const toggleVideoPlayback = (
+    videoRef: React.RefObject<HTMLVideoElement | null>
+  ) => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    if (video.paused) {
+      void video.play();
+    } else {
+      video.pause();
     }
-    if (step === 3 && videoRef3.current) {
-      videoRef3.current.muted = muteOriginal;
-    }
-  }, [step, muteOriginal]);
+  };
 
   // Sync with global playback state
   useEffect(() => {
@@ -112,12 +132,12 @@ export default function CreatePost() {
     }
   };
 
-  const handleVideoVolumeChange = (e: React.SyntheticEvent<HTMLVideoElement>) => {
-    const video = e.currentTarget;
-    if (video.muted !== muteOriginal) {
-      setMuteOriginal(video.muted);
-    }
-  };
+
+  useEffect(() => {
+    if (!muteOriginal) return;
+    enforceLockedMute(videoRef2.current);
+    enforceLockedMute(videoRef3.current);
+  }, [muteOriginal, step, imagePreviewUrls]);
 
   // Search location suggestions with debounce
   useEffect(() => {
@@ -163,7 +183,9 @@ export default function CreatePost() {
   const processFiles = (files: FileList) => {
     const newFiles: File[] = [];
     const newPreviewUrls: string[] = [];
-    let videoCount = selectedImages.filter(f => f.type.startsWith("video/")).length;
+    let videoCount = selectedImages.filter((f) =>
+      f.type.startsWith("video/")
+    ).length;
     let hasError = false;
 
     Array.from(files).forEach((file) => {
@@ -258,17 +280,26 @@ export default function CreatePost() {
         excludedUsernames: privacy === "FRIENDS_EXCEPT" ? excludedUsers : [],
         allowComments: allowComments,
         allowShares: allowShares,
-        music: selectedMusic ? {
-          trackId: selectedMusic.id,
-          title: selectedMusic.title,
-          artist: selectedMusic.artist,
-          thumbnail: selectedMusic.imageUrl,
-          audioUrl: selectedMusic.audioUrl,
-          duration: selectedMusic.duration
-        } : null
+        music: selectedMusic
+          ? {
+              trackId: selectedMusic.id,
+              title: selectedMusic.title,
+              artist: selectedMusic.artist,
+              thumbnail: selectedMusic.imageUrl,
+              audioUrl: selectedMusic.audioUrl,
+              duration: selectedMusic.duration,
+              muteOriginal,
+              originalVolume: muteOriginal ? 0 : 100,
+              musicVolume,
+            }
+          : null,
       };
 
-      console.log("Creating post...", { ...postData, muteOriginal, musicVolume });
+      console.log("Creating post...", {
+        ...postData,
+        muteOriginal,
+        musicVolume,
+      });
 
       const newPost = await createPost(
         currentUser.id,
@@ -340,7 +371,9 @@ export default function CreatePost() {
             ) : (
               <button
                 onClick={handlePost}
-                disabled={(!caption.trim() && selectedImages.length === 0) || isLoading}
+                disabled={
+                  (!caption.trim() && selectedImages.length === 0) || isLoading
+                }
                 className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
                   (!caption.trim() && selectedImages.length === 0) || isLoading
                     ? "bg-gray-100 text-gray-400 cursor-not-allowed dark:bg-[#363636] dark:text-gray-600"
@@ -362,12 +395,20 @@ export default function CreatePost() {
                     onDrop={handleDrop}
                     className="border-2 border-dashed border-gray-300 dark:border-[#363636] rounded-xl p-12 text-center w-full max-w-lg mx-auto hover:border-blue-400 dark:hover:border-blue-500 transition-colors bg-gray-50 dark:bg-[#1a1a1a]"
                   >
-                    <ImagePlus size={64} className="text-gray-400 dark:text-gray-500 mb-4 mx-auto" />
-                    <p className="text-xl font-medium mb-2 dark:text-white">Thêm ảnh và video</p>
+                    <ImagePlus
+                      size={64}
+                      className="text-gray-400 dark:text-gray-500 mb-4 mx-auto"
+                    />
+                    <p className="text-xl font-medium mb-2 dark:text-white">
+                      Thêm ảnh và video
+                    </p>
                     <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
                       Kéo thả hoặc nhấn vào nút bên dưới để tải lên.
                       <br />
-                      <span className="text-xs mt-1 block">Tối đa 10 file (Ảnh &lt; 10MB, Video &lt; 100MB, tối đa 2 video)</span>
+                      <span className="text-xs mt-1 block">
+                        Tối đa 10 file (Ảnh &lt; 10MB, Video &lt; 100MB, tối đa
+                        2 video)
+                      </span>
                     </p>
                     <input
                       id="image-upload"
@@ -388,11 +429,22 @@ export default function CreatePost() {
                   <div className="w-full h-full flex flex-col">
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-2 flex-1 overflow-y-auto min-h-[400px] p-2">
                       {imagePreviewUrls.map((imgUrl, index) => (
-                        <div key={index} className="relative aspect-square bg-black rounded-lg overflow-hidden group">
+                        <div
+                          key={index}
+                          className="relative aspect-square bg-black rounded-lg overflow-hidden group"
+                        >
                           {selectedImages[index]?.type?.startsWith("video/") ? (
-                            <video src={imgUrl} className="w-full h-full object-cover" controls />
+                            <video
+                              src={imgUrl}
+                              className="w-full h-full object-cover"
+                              controls
+                            />
                           ) : (
-                            <img src={imgUrl} alt={`Selected ${index + 1}`} className="w-full h-full object-cover" />
+                            <img
+                              src={imgUrl}
+                              alt={`Selected ${index + 1}`}
+                              className="w-full h-full object-cover"
+                            />
                           )}
                           <button
                             onClick={() => handleRemoveImage(index)}
@@ -407,8 +459,13 @@ export default function CreatePost() {
                           htmlFor="image-upload-more"
                           className="flex flex-col items-center justify-center aspect-square border-2 border-dashed border-gray-300 dark:border-[#363636] rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-[#1a1a1a] transition-colors"
                         >
-                          <ImagePlus size={24} className="text-gray-400 dark:text-gray-500 mb-2" />
-                          <span className="text-sm text-gray-500 font-medium">Thêm nữa</span>
+                          <ImagePlus
+                            size={24}
+                            className="text-gray-400 dark:text-gray-500 mb-2"
+                          />
+                          <span className="text-sm text-gray-500 font-medium">
+                            Thêm nữa
+                          </span>
                           <input
                             id="image-upload-more"
                             type="file"
@@ -431,26 +488,47 @@ export default function CreatePost() {
                 {/* Left Side: Preview */}
                 <div className="w-full md:w-[60%] bg-black rounded-xl flex items-center justify-center overflow-hidden relative shadow-inner">
                   <div className="absolute top-4 left-4 bg-black/60 text-white/90 text-[10px] font-bold px-2 py-1 rounded flex items-center gap-1 z-10 backdrop-blur-sm">
-                    <div className="w-1.5 h-1.5 bg-red-500 rounded-full"></div> PREVIEW
+                    <div className="w-1.5 h-1.5 bg-red-500 rounded-full"></div>{" "}
+                    PREVIEW
                   </div>
                   {selectedImages[0]?.type.startsWith("video/") ? (
-                    <video 
-                      ref={videoRef2}
-                      src={imagePreviewUrls[0]} 
-                      className="w-full h-full object-contain" 
-                      controls 
-                      muted={muteOriginal}
-                      onVolumeChange={handleVideoVolumeChange}
-                    />
+                    <>
+                      <video
+                        ref={videoRef2}
+                        src={imagePreviewUrls[0]}
+                        className="w-full h-full object-contain"
+                        controls={!muteOriginal}
+                        muted={muteOriginal}
+                        onLoadedMetadata={handleVideoAudioGuard}
+                        onVolumeChange={handleVideoAudioGuard}
+                        onPlay={() => setIsVideo2Playing(true)}
+                        onPause={() => setIsVideo2Playing(false)}
+                      />
+                      {muteOriginal && (
+                        <button
+                          type="button"
+                          onClick={() => toggleVideoPlayback(videoRef2)}
+                          className="absolute bottom-16 left-4 bg-black/70 text-white p-2 rounded-lg backdrop-blur-sm"
+                          aria-label={isVideo2Playing ? "Pause video" : "Play video"}
+                        >
+                          {isVideo2Playing ? <Pause size={16} /> : <Play size={16} />}
+                        </button>
+                      )}
+                    </>
                   ) : (
-                    <img src={imagePreviewUrls[0]} className="w-full h-full object-contain" />
+                    <img
+                      src={imagePreviewUrls[0]}
+                      className="w-full h-full object-contain"
+                    />
                   )}
                   {/* Timeline mock at bottom */}
                   <div className="absolute bottom-4 left-4 right-4 h-8 bg-white/10 rounded flex gap-0.5 p-0.5 backdrop-blur-md">
                     {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
                       <div
                         key={i}
-                        className={`h-full flex-1 rounded-sm ${i === 2 ? "bg-blue-400/60" : "bg-white/30"}`}
+                        className={`h-full flex-1 rounded-sm ${
+                          i === 2 ? "bg-blue-400/60" : "bg-white/30"
+                        }`}
                       ></div>
                     ))}
                   </div>
@@ -463,7 +541,7 @@ export default function CreatePost() {
                     <h3 className="font-semibold text-sm flex items-center gap-2 mb-4 dark:text-white">
                       <Music size={16} className="text-[#3b5998]" /> Âm thanh
                     </h3>
-                    
+
                     <NoteMusicPicker
                       selectedMusic={selectedMusic}
                       playingUrl={playingUrl}
@@ -490,14 +568,19 @@ export default function CreatePost() {
                   {/* Cài đặt âm thanh */}
                   <div className="bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-[#363636] rounded-xl p-5 shadow-sm">
                     <h3 className="font-semibold text-sm flex items-center gap-2 mb-5 dark:text-white">
-                      <Settings size={16} className="text-[#3b5998]" /> Cài đặt âm thanh
+                      <Settings size={16} className="text-[#3b5998]" /> Cài đặt
+                      âm thanh
                     </h3>
                     <div className="flex items-center justify-between mb-6">
-                      <span className="text-sm font-medium dark:text-white">Tắt tiếng video gốc</span>
+                      <span className="text-sm font-medium dark:text-white">
+                        Tắt tiếng video gốc
+                      </span>
                       <button
-                        onClick={() => setMuteOriginal(!muteOriginal)}
+                        onClick={handleToggleMuteOriginal}
                         className={`relative w-11 h-6 rounded-full transition-colors ${
-                          muteOriginal ? "bg-[#3b5998]" : "bg-gray-300 dark:bg-gray-600"
+                          muteOriginal
+                            ? "bg-[#3b5998]"
+                            : "bg-gray-300 dark:bg-gray-600"
                         }`}
                       >
                         <span
@@ -509,8 +592,12 @@ export default function CreatePost() {
                     </div>
                     <div>
                       <div className="flex justify-between text-sm mb-3">
-                        <span className="font-medium dark:text-white">Âm lượng nhạc nền</span>
-                        <span className="text-[#3b5998] font-bold">{musicVolume}%</span>
+                        <span className="font-medium dark:text-white">
+                          Âm lượng nhạc nền
+                        </span>
+                        <span className="text-[#3b5998] font-bold">
+                          {musicVolume}%
+                        </span>
                       </div>
                       <div className="flex items-center gap-3">
                         <VolumeX size={16} className="text-gray-400" />
@@ -519,7 +606,9 @@ export default function CreatePost() {
                           min="0"
                           max="100"
                           value={musicVolume}
-                          onChange={(e) => setMusicVolume(Number(e.target.value))}
+                          onChange={(e) =>
+                            setMusicVolume(Number(e.target.value))
+                          }
                           className="flex-1 h-1.5 bg-gray-200 dark:bg-[#363636] rounded-lg appearance-none cursor-pointer accent-[#3b5998]"
                         />
                         <Volume2 size={16} className="text-gray-400" />
@@ -530,12 +619,20 @@ export default function CreatePost() {
                   {/* Info Cards */}
                   <div className="flex gap-3">
                     <div className="flex-1 bg-gray-50 dark:bg-[#1a1a1a] rounded-xl p-4 border border-gray-200 dark:border-[#363636]">
-                      <p className="text-[11px] text-gray-500 mb-0.5 uppercase tracking-wide font-medium">Chế độ xuất video</p>
-                      <p className="text-sm font-semibold dark:text-white">Full HD (1080p)</p>
+                      <p className="text-[11px] text-gray-500 mb-0.5 uppercase tracking-wide font-medium">
+                        Chế độ xuất video
+                      </p>
+                      <p className="text-sm font-semibold dark:text-white">
+                        Full HD (1080p)
+                      </p>
                     </div>
                     <div className="flex-1 bg-green-100/40 dark:bg-green-900/20 rounded-xl p-4 border border-green-200 dark:border-green-900/30">
-                      <p className="text-[11px] text-green-700 dark:text-green-500 mb-0.5 uppercase tracking-wide font-medium">Thời lượng gợi ý</p>
-                      <p className="text-sm font-semibold text-green-800 dark:text-green-400">00:30 Giây</p>
+                      <p className="text-[11px] text-green-700 dark:text-green-500 mb-0.5 uppercase tracking-wide font-medium">
+                        Thời lượng gợi ý
+                      </p>
+                      <p className="text-sm font-semibold text-green-800 dark:text-green-400">
+                        00:30 Giây
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -549,9 +646,34 @@ export default function CreatePost() {
                 <div className="w-full md:w-1/2">
                   <div className="relative rounded-xl overflow-hidden bg-black aspect-[4/5] shadow-sm">
                     {selectedImages[0]?.type.startsWith("video/") ? (
-                      <video ref={videoRef3} src={imagePreviewUrls[0]} className="w-full h-full object-cover" controls muted={muteOriginal} onVolumeChange={handleVideoVolumeChange} />
+                      <>
+                        <video
+                          ref={videoRef3}
+                          src={imagePreviewUrls[0]}
+                          className="w-full h-full object-cover"
+                          controls={!muteOriginal}
+                          muted={muteOriginal}
+                          onLoadedMetadata={handleVideoAudioGuard}
+                          onVolumeChange={handleVideoAudioGuard}
+                          onPlay={() => setIsVideo3Playing(true)}
+                          onPause={() => setIsVideo3Playing(false)}
+                        />
+                        {muteOriginal && (
+                          <button
+                            type="button"
+                            onClick={() => toggleVideoPlayback(videoRef3)}
+                            className="absolute bottom-3 right-3 bg-black/70 text-white p-2 rounded-lg backdrop-blur-sm"
+                            aria-label={isVideo3Playing ? "Pause video" : "Play video"}
+                          >
+                            {isVideo3Playing ? <Pause size={16} /> : <Play size={16} />}
+                          </button>
+                        )}
+                      </>
                     ) : (
-                      <img src={imagePreviewUrls[0]} className="w-full h-full object-cover" />
+                      <img
+                        src={imagePreviewUrls[0]}
+                        className="w-full h-full object-cover"
+                      />
                     )}
                     <button className="absolute bottom-3 left-3 bg-white/90 dark:bg-black/60 p-2 rounded-lg text-black dark:text-white shadow-sm hover:bg-white transition-colors">
                       <Maximize2 size={16} />
@@ -569,7 +691,10 @@ export default function CreatePost() {
                   {/* User Info */}
                   <div className="flex items-center gap-3 mb-4">
                     <img
-                      src={currentUser?.avatarUrl || "https://i.pravatar.cc/150?img=5"}
+                      src={
+                        currentUser?.avatarUrl ||
+                        "https://i.pravatar.cc/150?img=5"
+                      }
                       alt={currentUser?.username || "User"}
                       className="w-10 h-10 rounded-full object-cover border border-gray-100 dark:border-gray-800"
                     />
@@ -601,13 +726,21 @@ export default function CreatePost() {
                         <IconModal
                           open={showEmojiPicker}
                           onClose={() => setShowEmojiPicker(false)}
-                          onEmojiClick={(emojiData) => handleEmojiClick(emojiData.emoji)}
-                          theme={document.documentElement.classList.contains("dark") ? Theme.DARK : Theme.LIGHT}
+                          onEmojiClick={(emojiData) =>
+                            handleEmojiClick(emojiData.emoji)
+                          }
+                          theme={
+                            document.documentElement.classList.contains("dark")
+                              ? Theme.DARK
+                              : Theme.LIGHT
+                          }
                           containerClassName="absolute top-8 left-0 z-50 shadow-xl rounded-xl"
                           pickerProps={{ height: 350, width: 300 }}
                         />
                       </div>
-                      <span className="text-xs text-gray-400 font-medium">{caption.length}/2200</span>
+                      <span className="text-xs text-gray-400 font-medium">
+                        {caption.length}/2200
+                      </span>
                     </div>
                   </div>
 
@@ -627,9 +760,15 @@ export default function CreatePost() {
                     {taggedUsers.length > 0 && (
                       <div className="flex flex-wrap gap-2 px-2 pb-2">
                         {taggedUsers.map((tag) => (
-                          <div key={tag} className="flex items-center gap-1 px-3 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full text-xs font-medium">
+                          <div
+                            key={tag}
+                            className="flex items-center gap-1 px-3 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full text-xs font-medium"
+                          >
                             <span>@{tag}</span>
-                            <button onClick={() => handleRemoveTag(tag)} className="hover:text-blue-800 dark:hover:text-blue-200">
+                            <button
+                              onClick={() => handleRemoveTag(tag)}
+                              className="hover:text-blue-800 dark:hover:text-blue-200"
+                            >
                               <X size={12} />
                             </button>
                           </div>
@@ -659,7 +798,13 @@ export default function CreatePost() {
                             className="flex-1 bg-transparent text-sm outline-none dark:text-white"
                           />
                           {location && (
-                            <button onClick={() => { setLocation(""); setLocationSuggestions([]); }} className="text-gray-400">
+                            <button
+                              onClick={() => {
+                                setLocation("");
+                                setLocationSuggestions([]);
+                              }}
+                              className="text-gray-400"
+                            >
                               <X size={16} />
                             </button>
                           )}
@@ -669,13 +814,24 @@ export default function CreatePost() {
                             {locationSuggestions.map((place: any) => (
                               <button
                                 key={place.place_id}
-                                onClick={() => { setLocation(place.display_name); setLocationSuggestions([]); }}
+                                onClick={() => {
+                                  setLocation(place.display_name);
+                                  setLocationSuggestions([]);
+                                }}
                                 className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 dark:hover:bg-[#363636] text-left border-b border-gray-100 dark:border-[#363636] last:border-0"
                               >
-                                <MapPin size={16} className="text-gray-400 shrink-0" />
+                                <MapPin
+                                  size={16}
+                                  className="text-gray-400 shrink-0"
+                                />
                                 <div className="min-w-0">
-                                  <p className="text-sm font-medium dark:text-white truncate">{place.name || place.display_name.split(",")[0]}</p>
-                                  <p className="text-[11px] text-gray-500 truncate">{place.display_name}</p>
+                                  <p className="text-sm font-medium dark:text-white truncate">
+                                    {place.name ||
+                                      place.display_name.split(",")[0]}
+                                  </p>
+                                  <p className="text-[11px] text-gray-500 truncate">
+                                    {place.display_name}
+                                  </p>
                                 </div>
                               </button>
                             ))}
@@ -687,35 +843,93 @@ export default function CreatePost() {
 
                   {/* Privacy */}
                   <div className="mt-4 px-2">
-                    <p className="text-xs font-bold text-gray-400 mb-3 uppercase tracking-wider">Quyền riêng tư</p>
+                    <p className="text-xs font-bold text-gray-400 mb-3 uppercase tracking-wider">
+                      Quyền riêng tư
+                    </p>
                     <div className="space-y-2">
                       <button
-                        onClick={() => { setPrivacy("PUBLIC"); setShowPrivacyMenu(false); }}
+                        onClick={() => {
+                          setPrivacy("PUBLIC");
+                          setShowPrivacyMenu(false);
+                        }}
                         className={`w-full flex items-center justify-between p-3 rounded-lg border transition-all ${
-                          privacy === "PUBLIC" ? "border-[#3b5998] bg-blue-50/30 dark:bg-blue-900/10" : "border-gray-200 dark:border-[#363636]"
+                          privacy === "PUBLIC"
+                            ? "border-[#3b5998] bg-blue-50/30 dark:bg-blue-900/10"
+                            : "border-gray-200 dark:border-[#363636]"
                         }`}
                       >
                         <div className="flex items-center gap-3">
-                          <Globe size={18} className={privacy === "PUBLIC" ? "text-[#3b5998]" : "text-gray-500"} />
-                          <span className={`text-sm font-medium ${privacy === "PUBLIC" ? "text-[#3b5998] dark:text-blue-400" : "dark:text-white"}`}>Công khai</span>
+                          <Globe
+                            size={18}
+                            className={
+                              privacy === "PUBLIC"
+                                ? "text-[#3b5998]"
+                                : "text-gray-500"
+                            }
+                          />
+                          <span
+                            className={`text-sm font-medium ${
+                              privacy === "PUBLIC"
+                                ? "text-[#3b5998] dark:text-blue-400"
+                                : "dark:text-white"
+                            }`}
+                          >
+                            Công khai
+                          </span>
                         </div>
-                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${privacy === "PUBLIC" ? "border-[#3b5998]" : "border-gray-300"}`}>
-                          {privacy === "PUBLIC" && <div className="w-2 h-2 bg-[#3b5998] rounded-full" />}
+                        <div
+                          className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                            privacy === "PUBLIC"
+                              ? "border-[#3b5998]"
+                              : "border-gray-300"
+                          }`}
+                        >
+                          {privacy === "PUBLIC" && (
+                            <div className="w-2 h-2 bg-[#3b5998] rounded-full" />
+                          )}
                         </div>
                       </button>
-                      
+
                       <button
-                        onClick={() => { setPrivacy("FRIENDS"); setShowPrivacyMenu(false); }}
+                        onClick={() => {
+                          setPrivacy("FRIENDS");
+                          setShowPrivacyMenu(false);
+                        }}
                         className={`w-full flex items-center justify-between p-3 rounded-lg border transition-all ${
-                          privacy === "FRIENDS" ? "border-[#3b5998] bg-blue-50/30 dark:bg-blue-900/10" : "border-gray-200 dark:border-[#363636]"
+                          privacy === "FRIENDS"
+                            ? "border-[#3b5998] bg-blue-50/30 dark:bg-blue-900/10"
+                            : "border-gray-200 dark:border-[#363636]"
                         }`}
                       >
                         <div className="flex items-center gap-3">
-                          <UserCheck size={18} className={privacy === "FRIENDS" ? "text-[#3b5998]" : "text-gray-500"} />
-                          <span className={`text-sm font-medium ${privacy === "FRIENDS" ? "text-[#3b5998] dark:text-blue-400" : "dark:text-white"}`}>Bạn bè</span>
+                          <UserCheck
+                            size={18}
+                            className={
+                              privacy === "FRIENDS"
+                                ? "text-[#3b5998]"
+                                : "text-gray-500"
+                            }
+                          />
+                          <span
+                            className={`text-sm font-medium ${
+                              privacy === "FRIENDS"
+                                ? "text-[#3b5998] dark:text-blue-400"
+                                : "dark:text-white"
+                            }`}
+                          >
+                            Bạn bè
+                          </span>
                         </div>
-                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${privacy === "FRIENDS" ? "border-[#3b5998]" : "border-gray-300"}`}>
-                          {privacy === "FRIENDS" && <div className="w-2 h-2 bg-[#3b5998] rounded-full" />}
+                        <div
+                          className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                            privacy === "FRIENDS"
+                              ? "border-[#3b5998]"
+                              : "border-gray-300"
+                          }`}
+                        >
+                          {privacy === "FRIENDS" && (
+                            <div className="w-2 h-2 bg-[#3b5998] rounded-full" />
+                          )}
                         </div>
                       </button>
 
@@ -729,9 +943,33 @@ export default function CreatePost() {
 
                       {showPrivacyMenu && (
                         <div className="space-y-2 pt-1 pl-4 border-l-2 border-gray-100 dark:border-[#363636] ml-2">
-                           <button onClick={() => { setPrivacy("PRIVATE"); setShowPrivacyMenu(false); }} className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 py-1.5 hover:text-[#3b5998]"><Lock size={16}/> Chỉ mình tôi</button>
-                           <button onClick={() => { setPrivacy("SPECIFIC"); setShowSpecificModal(true); }} className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 py-1.5 hover:text-[#3b5998]"><Users size={16}/> Bạn bè cụ thể...</button>
-                           <button onClick={() => { setPrivacy("FRIENDS_EXCEPT"); setShowExcludedModal(true); }} className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 py-1.5 hover:text-[#3b5998]"><UserCheck size={16}/> Bạn bè ngoại trừ...</button>
+                          <button
+                            onClick={() => {
+                              setPrivacy("PRIVATE");
+                              setShowPrivacyMenu(false);
+                            }}
+                            className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 py-1.5 hover:text-[#3b5998]"
+                          >
+                            <Lock size={16} /> Chỉ mình tôi
+                          </button>
+                          <button
+                            onClick={() => {
+                              setPrivacy("SPECIFIC");
+                              setShowSpecificModal(true);
+                            }}
+                            className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 py-1.5 hover:text-[#3b5998]"
+                          >
+                            <Users size={16} /> Bạn bè cụ thể...
+                          </button>
+                          <button
+                            onClick={() => {
+                              setPrivacy("FRIENDS_EXCEPT");
+                              setShowExcludedModal(true);
+                            }}
+                            className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 py-1.5 hover:text-[#3b5998]"
+                          >
+                            <UserCheck size={16} /> Bạn bè ngoại trừ...
+                          </button>
                         </div>
                       )}
                     </div>
@@ -740,27 +978,63 @@ export default function CreatePost() {
                   {/* Advanced Settings */}
                   <div className="mt-4 px-2 pb-4">
                     <button
-                      onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
+                      onClick={() =>
+                        setShowAdvancedSettings(!showAdvancedSettings)
+                      }
                       className="w-full flex items-center justify-between py-3 hover:bg-gray-50 dark:hover:bg-[#1a1a1a] rounded-lg transition-colors border-t border-gray-100 dark:border-[#363636]"
                     >
                       <div className="flex items-center gap-3 text-sm text-gray-700 dark:text-gray-200 font-medium">
                         <Settings2 size={18} className="text-gray-500" />
                         Cài đặt nâng cao
                       </div>
-                      <span className={`text-gray-400 transition-transform ${showAdvancedSettings ? "rotate-180" : ""}`}>▼</span>
+                      <span
+                        className={`text-gray-400 transition-transform ${
+                          showAdvancedSettings ? "rotate-180" : ""
+                        }`}
+                      >
+                        ▼
+                      </span>
                     </button>
                     {showAdvancedSettings && (
                       <div className="pt-3 pb-2 space-y-4 px-1">
                         <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Cho phép bình luận</span>
-                          <button onClick={() => setAllowComments(!allowComments)} className={`relative w-11 h-6 rounded-full transition-colors ${allowComments ? "bg-[#3b5998]" : "bg-gray-300 dark:bg-gray-600"}`}>
-                            <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform shadow-sm ${allowComments ? "translate-x-5" : "translate-x-0"}`} />
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                            Cho phép bình luận
+                          </span>
+                          <button
+                            onClick={() => setAllowComments(!allowComments)}
+                            className={`relative w-11 h-6 rounded-full transition-colors ${
+                              allowComments
+                                ? "bg-[#3b5998]"
+                                : "bg-gray-300 dark:bg-gray-600"
+                            }`}
+                          >
+                            <span
+                              className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform shadow-sm ${
+                                allowComments
+                                  ? "translate-x-5"
+                                  : "translate-x-0"
+                              }`}
+                            />
                           </button>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Cho phép chia sẻ</span>
-                          <button onClick={() => setAllowShares(!allowShares)} className={`relative w-11 h-6 rounded-full transition-colors ${allowShares ? "bg-[#3b5998]" : "bg-gray-300 dark:bg-gray-600"}`}>
-                            <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform shadow-sm ${allowShares ? "translate-x-5" : "translate-x-0"}`} />
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                            Cho phép chia sẻ
+                          </span>
+                          <button
+                            onClick={() => setAllowShares(!allowShares)}
+                            className={`relative w-11 h-6 rounded-full transition-colors ${
+                              allowShares
+                                ? "bg-[#3b5998]"
+                                : "bg-gray-300 dark:bg-gray-600"
+                            }`}
+                          >
+                            <span
+                              className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform shadow-sm ${
+                                allowShares ? "translate-x-5" : "translate-x-0"
+                              }`}
+                            />
                           </button>
                         </div>
                       </div>
@@ -773,9 +1047,30 @@ export default function CreatePost() {
         </div>
       </div>
 
-      <FriendSelectorModal isOpen={showSpecificModal} onClose={() => setShowSpecificModal(false)} onConfirm={(selected) => setSpecificViewers(selected)} title="Ai có thể xem bài viết này?" description="Chỉ những người bạn được chọn mới có thể xem" initialSelected={specificViewers} />
-      <FriendSelectorModal isOpen={showExcludedModal} onClose={() => setShowExcludedModal(false)} onConfirm={(selected) => setExcludedUsers(selected)} title="Ẩn với" description="Những người bạn được chọn sẽ không thể xem" initialSelected={excludedUsers} />
-      <FriendSelectorModal isOpen={showTagModal} onClose={() => setShowTagModal(false)} onConfirm={(selected) => setTaggedUsers(selected)} title="Gắn thẻ bạn bè" description="Tìm kiếm bạn bè để gắn thẻ" initialSelected={taggedUsers} />
+      <FriendSelectorModal
+        isOpen={showSpecificModal}
+        onClose={() => setShowSpecificModal(false)}
+        onConfirm={(selected) => setSpecificViewers(selected)}
+        title="Ai có thể xem bài viết này?"
+        description="Chỉ những người bạn được chọn mới có thể xem"
+        initialSelected={specificViewers}
+      />
+      <FriendSelectorModal
+        isOpen={showExcludedModal}
+        onClose={() => setShowExcludedModal(false)}
+        onConfirm={(selected) => setExcludedUsers(selected)}
+        title="Ẩn với"
+        description="Những người bạn được chọn sẽ không thể xem"
+        initialSelected={excludedUsers}
+      />
+      <FriendSelectorModal
+        isOpen={showTagModal}
+        onClose={() => setShowTagModal(false)}
+        onConfirm={(selected) => setTaggedUsers(selected)}
+        title="Gắn thẻ bạn bè"
+        description="Tìm kiếm bạn bè để gắn thẻ"
+        initialSelected={taggedUsers}
+      />
     </div>
   );
 }

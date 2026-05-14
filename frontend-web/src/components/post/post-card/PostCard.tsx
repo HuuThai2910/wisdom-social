@@ -156,6 +156,8 @@ export default function PostCard({ post }: PostCardProps) {
     currentMediaUrl,
     currentMedia?.type
   );
+  const shouldMuteOriginal =
+    displayPost.music?.muteOriginal === true || Boolean(displayPost.music?.audioUrl);
   const currentMediaDuration =
     typeof currentMedia?.duration === "number" ? currentMedia.duration : null;
   const videoInstanceId = `${displayPost.id}-${currentImageIndex}`;
@@ -172,7 +174,7 @@ export default function PostCard({ post }: PostCardProps) {
     useMusicAutoplay({
       musicId: musicUniqueId,
       audioPath: displayPost.music?.audioUrl,
-      enabled: Boolean(displayPost.music?.audioUrl),
+      enabled: Boolean(displayPost.music?.audioUrl) && shouldMuteOriginal,
       focusRatio: 0.65,
     });
 

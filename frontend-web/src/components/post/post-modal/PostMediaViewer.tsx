@@ -29,10 +29,14 @@
  * - Dots and arrows only show if multiple images
  */
 
-import React, { useEffect, useRef } from "react";
+import React, { useEffect } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import * as postApi from "../../../services/postService";
 import type { PostData } from "../../../types/post";
+import {
+  enforceVideoAudioState,
+  getVideoAudioState,
+} from "../../../utils/postVideoAudio";
 
 interface PostMediaViewerProps {
   post: PostData;
@@ -52,6 +56,7 @@ const PostMediaViewer: React.FC<PostMediaViewerProps> = ({
   const hasMedia = post.media && post.media.length > 0;
   const totalImages = post?.media?.length || 0;
   const safePostContent = post.content || "";
+  const videoAudioState = getVideoAudioState(post.music);
 
   const isVideoAtIndex = (index: number) => {
     const media = post.media?.[index];
@@ -94,7 +99,7 @@ const PostMediaViewer: React.FC<PostMediaViewerProps> = ({
       return;
     }
 
-    video.muted = true;
+    enforceVideoAudioState(video, videoAudioState);
     video.playsInline = true;
 
     const play = async () => {
@@ -116,7 +121,7 @@ const PostMediaViewer: React.FC<PostMediaViewerProps> = ({
       video.pause();
       if (timeout) clearTimeout(timeout);
     };
-  }, [currentImageIndex, transformedMediaUrls, post, modalVideoRef]);
+  }, [currentImageIndex, transformedMediaUrls, post, modalVideoRef, videoAudioState]);
 
   return (
     <div className="flex-1 bg-black flex items-center justify-center relative group">
@@ -130,9 +135,18 @@ const PostMediaViewer: React.FC<PostMediaViewerProps> = ({
               src={transformedMediaUrls[currentImageIndex] || ""}
               className="max-h-[90vh] max-w-full object-contain"
               autoPlay
-              muted
+              muted={videoAudioState.shouldMuteOriginal}
               playsInline
-              controls
+              controls={!videoAudioState.locked}
+              onLoadedMetadata={(e) => {
+                enforceVideoAudioState(e.currentTarget, videoAudioState);
+              }}
+              onVolumeChange={(e) => {
+                enforceVideoAudioState(e.currentTarget, videoAudioState);
+              }}
+              onPlay={(e) => {
+                enforceVideoAudioState(e.currentTarget, videoAudioState);
+              }}
             />
           ) : (
             <img
