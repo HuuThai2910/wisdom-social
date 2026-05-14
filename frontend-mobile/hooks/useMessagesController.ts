@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { DEFAULT_CHAT_USER_ID } from "@/constants/chat";
 import chatService from "@/services/chatService";
 import chatWebsocketService from "@/services/chatWebsocketService";
 import chatRuntimeStore from "@/stores/chatRuntimeStore";
@@ -24,6 +23,13 @@ const GROUP_SYSTEM_SYNC_TYPES = new Set<Message["type"]>([
     "SYSTEM_DISBAND_GROUP",
     "SYSTEM_UPDATE_SETTING",
     "SYSTEM_REQUIRE_APPROVAL",
+]);
+
+const PRESERVE_EMPTY_PENDING_REQUEST_TYPES = new Set<Message["type"]>([
+    "SYSTEM_ADD_MEMBER",
+    "SYSTEM_KICK_MEMBER",
+    "SYSTEM_UPDATE_ROLE",
+    "SYSTEM_UPDATE_SETTING",
 ]);
 
 function safeParseMemberIds(content: string): number[] {
@@ -82,15 +88,52 @@ function mergeConversationDetails(
     preferred: Conversation,
     fallback: Conversation,
 ): Conversation {
+    const preferredClearsPendingRequestsFromSync =
+        preferred.lastMessage &&
+        PRESERVE_EMPTY_PENDING_REQUEST_TYPES.has(
+            preferred.lastMessage.lastMessageType,
+        ) &&
+        Array.isArray(preferred.pendingRequests) &&
+        preferred.pendingRequests.length === 0;
+
     return {
         ...fallback,
         ...preferred,
         members: preferred.members ?? fallback.members,
         pinnedMessages: preferred.pinnedMessages ?? fallback.pinnedMessages,
-        pendingRequests: preferred.pendingRequests ?? fallback.pendingRequests,
+        pendingRequests: preferredClearsPendingRequestsFromSync
+            ? fallback.pendingRequests ?? preferred.pendingRequests
+            : preferred.pendingRequests ?? fallback.pendingRequests,
         lastMessage: preferred.lastMessage ?? fallback.lastMessage,
         unreadCount: Math.max(preferred.unreadCount ?? 0, fallback.unreadCount ?? 0),
     };
+}
+
+function mergePendingRequestsForSocketUpdate(
+    currentRequests: Conversation["pendingRequests"],
+    incomingRequests: Conversation["pendingRequests"],
+    lastMessageType: Message["type"],
+): Conversation["pendingRequests"] {
+    if (!incomingRequests) return currentRequests;
+
+    if (
+        PRESERVE_EMPTY_PENDING_REQUEST_TYPES.has(lastMessageType) &&
+        incomingRequests.length === 0
+    ) {
+        return currentRequests ?? incomingRequests;
+    }
+
+    if (incomingRequests.length === 0) return incomingRequests;
+
+    return [
+        ...(currentRequests ?? []).filter(
+            (request) =>
+                !incomingRequests.some(
+                    (nextRequest) => nextRequest.id === request.id,
+                ),
+        ),
+        ...incomingRequests,
+    ];
 }
 
 function chooseLatestConversation(
@@ -256,6 +299,7 @@ export function useMessagesController() {
             conversationId: number,
             userId: number,
             memberSnapshotVersion?: number,
+            preserveEmptyPendingRequests = false,
         ) => {
             if (!conversationId || !userId) return;
 
@@ -268,9 +312,23 @@ export function useMessagesController() {
                     const responseData = response.data;
                     if (!response.success || !responseData) return;
 
+                    const previousConversation =
+                        chatRuntimeStore.getConversation(conversationId);
+                    const nextResponseData =
+                        preserveEmptyPendingRequests &&
+                        Array.isArray(responseData.pendingRequests) &&
+                        responseData.pendingRequests.length === 0
+                            ? {
+                                  ...responseData,
+                                  pendingRequests:
+                                      previousConversation?.pendingRequests ??
+                                      responseData.pendingRequests,
+                              }
+                            : responseData;
+
                     const runtimeConversation = chatRuntimeStore.setConversation(
                         conversationId,
-                        responseData,
+                        nextResponseData,
                         { memberSnapshotVersion },
                     );
 
@@ -346,6 +404,10 @@ export function useMessagesController() {
             );
             const shouldForceDetailRefresh =
                 normalizedLastMessage.lastMessageType === "SYSTEM_UPDATE_ROLE";
+            const shouldPreserveEmptyPendingRequests =
+                PRESERVE_EMPTY_PENDING_REQUEST_TYPES.has(
+                    normalizedLastMessage.lastMessageType,
+                );
             const memberSnapshotVersion = shouldRefreshSnapshot
                 ? chatRuntimeStore.markMembersChanging(conversationId)
                 : undefined;
@@ -465,18 +527,13 @@ export function useMessagesController() {
                         ? { ...conv, ...mergedSnapshot }
                         : conv;
                     const pendingRequests =
-                        mergedSnapshot?.pendingRequests &&
-                        mergedSnapshot.pendingRequests.length > 0
-                            ? [
-                                  ...(conv.pendingRequests ?? []).filter(
-                                      (request) =>
-                                          !mergedSnapshot.pendingRequests?.some(
-                                              (nextRequest) =>
-                                                  nextRequest.id === request.id,
-                                          ),
-                                  ),
-                                  ...mergedSnapshot.pendingRequests,
-                              ]
+                        mergedSnapshot &&
+                        "pendingRequests" in mergedSnapshot
+                            ? mergePendingRequestsForSocketUpdate(
+                                  conv.pendingRequests,
+                                  mergedSnapshot.pendingRequests,
+                                  normalizedLastMessage.lastMessageType,
+                              )
                             : baseConversation.pendingRequests;
 
                     let newUnreadCount: number;
@@ -544,6 +601,7 @@ export function useMessagesController() {
                     conversationId,
                     latestUserId,
                     memberSnapshotVersion,
+                    shouldPreserveEmptyPendingRequests,
                 );
             }
         },

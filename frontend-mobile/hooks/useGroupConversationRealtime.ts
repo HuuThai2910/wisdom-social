@@ -16,6 +16,13 @@ const GROUP_SYSTEM_SYNC_TYPES = new Set<Message["type"]>([
     "SYSTEM_REQUIRE_APPROVAL",
 ]);
 
+const PRESERVE_EMPTY_PENDING_REQUEST_TYPES = new Set<Message["type"]>([
+    "SYSTEM_ADD_MEMBER",
+    "SYSTEM_KICK_MEMBER",
+    "SYSTEM_UPDATE_ROLE",
+    "SYSTEM_UPDATE_SETTING",
+]);
+
 function toMembersByUserId(
     members: Record<string, ConversationMember>,
 ): MembersByUserId {
@@ -123,8 +130,18 @@ export function useGroupConversationRealtime({
                 );
 
                 if (conversationResponse.success && conversationResponse.data) {
+                    const previousConversation =
+                        chatRuntimeStore.getConversation(conversationId);
+                    const shouldPreservePendingRequests =
+                        PRESERVE_EMPTY_PENDING_REQUEST_TYPES.has(message.type) &&
+                        Array.isArray(conversationResponse.data.pendingRequests) &&
+                        conversationResponse.data.pendingRequests.length === 0;
                     const nextConversation: Conversation = {
                         ...conversationResponse.data,
+                        pendingRequests: shouldPreservePendingRequests
+                            ? previousConversation?.pendingRequests ??
+                              conversationResponse.data.pendingRequests
+                            : conversationResponse.data.pendingRequests,
                         members: Object.values(acceptedMembers),
                     };
 

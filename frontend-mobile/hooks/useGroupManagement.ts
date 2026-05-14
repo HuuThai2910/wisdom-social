@@ -299,6 +299,9 @@ export function useGroupManagement({
                 await chatService.addMembersToGroup(selectedConversationId, {
                     newMemberIds: validIds,
                 });
+                chatRuntimeStore.removePendingRequests(selectedConversationId, {
+                    userIds: validIds,
+                });
                 await reloadSelectedGroupConversation(memberSnapshotVersion);
                 setIsAddMembersModalOpen(false);
                 if (
@@ -384,6 +387,9 @@ export function useGroupManagement({
                     selectedConversationId,
                     targetUserId,
                 );
+                chatRuntimeStore.removePendingRequests(selectedConversationId, {
+                    userIds: [targetUserId],
+                });
                 await reloadSelectedGroupConversation(memberSnapshotVersion);
                 return true;
             } catch (error) {
@@ -607,6 +613,9 @@ export function useGroupManagement({
                     requestId,
                     isApproved,
                 );
+                chatRuntimeStore.removePendingRequests(selectedConversationId, {
+                    requestIds: [requestId],
+                });
                 await reloadSelectedGroupConversation(memberSnapshotVersion);
                 return true;
             } catch (error) {
