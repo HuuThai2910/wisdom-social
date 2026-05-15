@@ -11,6 +11,13 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Video, ResizeMode } from "expo-av";
+import * as Haptics from "expo-haptics";
+import {
+    PanGestureHandler,
+    State,
+    type PanGestureHandlerGestureEvent,
+    type PanGestureHandlerStateChangeEvent,
+} from "react-native-gesture-handler";
 import { UserAvatar } from "@/components";
 import { colors, spacing } from "@/constants";
 import { Message, Conversation } from "@/types/chat";
@@ -37,6 +44,8 @@ import { buildSystemGroupMessage } from "@/utils/systemCreateGroupMessage";
 
 const RIGHT_SCROLL_CUE_HEIGHT = 38;
 const MESSAGE_LONG_PRESS_DELAY_MS = 500;
+const SWIPE_REPLY_TRIGGER_PX = 56;
+const SWIPE_REPLY_MAX_TRANSLATE_PX = 72;
 
 const GROUP_SYSTEM_MESSAGE_TYPES = new Set<Message["type"]>([
     "SYSTEM_CREATE_GROUP",
@@ -69,6 +78,7 @@ export type MessageBubbleProps = {
     handleExpandPinSystemRun: (runKey: string) => void;
     audioPlayback: any;
     onRecallCall?: (callType: "audio" | "video") => void;
+    onSwipeReply?: (message: Message) => void;
 };
 
 export const MessageBubble = React.memo(
@@ -88,6 +98,7 @@ export const MessageBubble = React.memo(
         handleExpandPinSystemRun,
         audioPlayback,
         onRecallCall,
+        onSwipeReply,
     }: MessageBubbleProps) => {
         const {
             audioLoadingKey,
@@ -117,6 +128,7 @@ export const MessageBubble = React.memo(
 
         // ===== Gesture handling (từ develop) =====
         const suppressNextTapRef = React.useRef(false);
+        const swipeTranslateX = React.useRef(new Animated.Value(0)).current;
 
         const triggerMessageLongPress = React.useCallback(
             (event: any) => {
@@ -133,6 +145,67 @@ export const MessageBubble = React.memo(
             }
             action();
         }, []);
+
+        const swipeReplyTranslateX = swipeTranslateX.interpolate({
+            inputRange: mine
+                ? [-SWIPE_REPLY_MAX_TRANSLATE_PX, 0]
+                : [0, SWIPE_REPLY_MAX_TRANSLATE_PX],
+            outputRange: mine
+                ? [-SWIPE_REPLY_MAX_TRANSLATE_PX, 0]
+                : [0, SWIPE_REPLY_MAX_TRANSLATE_PX],
+            extrapolate: "clamp",
+        });
+        const swipeReplyCueProgress = swipeTranslateX.interpolate({
+            inputRange: mine
+                ? [-SWIPE_REPLY_TRIGGER_PX, -18]
+                : [18, SWIPE_REPLY_TRIGGER_PX],
+            outputRange: mine ? [1, 0] : [0, 1],
+            extrapolate: "clamp",
+        });
+        const handleSwipeGesture = React.useMemo(
+            () =>
+                Animated.event<PanGestureHandlerGestureEvent>(
+                    [{ nativeEvent: { translationX: swipeTranslateX } }],
+                    { useNativeDriver: true },
+                ),
+            [swipeTranslateX],
+        );
+        const resetSwipeReply = React.useCallback(() => {
+            Animated.spring(swipeTranslateX, {
+                toValue: 0,
+                damping: 18,
+                stiffness: 260,
+                mass: 0.75,
+                useNativeDriver: true,
+            }).start();
+        }, [swipeTranslateX]);
+        const handleSwipeStateChange = React.useCallback(
+            (event: PanGestureHandlerStateChangeEvent) => {
+                const { state, translationX, translationY } = event.nativeEvent;
+                if (
+                    state !== State.END &&
+                    state !== State.CANCELLED &&
+                    state !== State.FAILED
+                ) {
+                    return;
+                }
+
+                const movedInReplyDirection = mine
+                    ? translationX <= -SWIPE_REPLY_TRIGGER_PX
+                    : translationX >= SWIPE_REPLY_TRIGGER_PX;
+                const mostlyHorizontal =
+                    Math.abs(translationX) > Math.abs(translationY) * 1.25;
+
+                if (movedInReplyDirection && mostlyHorizontal) {
+                    void Haptics.selectionAsync();
+                    onSwipeReply?.(item);
+                    suppressNextTapRef.current = true;
+                }
+
+                resetSwipeReply();
+            },
+            [item, mine, onSwipeReply, resetSwipeReply],
+        );
 
         // ===== Audio long press timer (từ develop) =====
         const audioWaveLongPressTimerRef = React.useRef<ReturnType<
@@ -443,80 +516,119 @@ export const MessageBubble = React.memo(
 
         return (
             <View style={styles.messageItemWrap}>
-                <View
+                <Animated.View
+                    pointerEvents="none"
                     style={[
-                        styles.row,
-                        isFirstInGroup
-                            ? styles.rowGroupStart
-                            : styles.rowGrouped,
-                        hasReplyPreview &&
-                            !isFirstInGroup &&
-                            styles.rowGroupedWithReply,
-                        isConsecutiveRecalledInGroup &&
-                            styles.rowGroupedRecalled,
-                        mine ? styles.rowMine : styles.rowOther,
+                        styles.swipeReplyCue,
+                        mine
+                            ? styles.swipeReplyCueMine
+                            : styles.swipeReplyCueOther,
+                        {
+                            opacity: swipeReplyCueProgress,
+                            transform: [
+                                {
+                                    scale: swipeReplyCueProgress.interpolate({
+                                        inputRange: [0, 1],
+                                        outputRange: [0.72, 1],
+                                    }),
+                                },
+                            ],
+                        },
                     ]}
                 >
-                    {!mine ? (
-                        showAvatar ? (
-                            <UserAvatar
-                                uri={sender?.avatar}
-                                name={sender?.username ?? "?"}
-                                size={30}
-                            />
-                        ) : (
-                            <View style={styles.avatarSpacer} />
-                        )
-                    ) : null}
-
-                    <View
+                    <Ionicons
+                        name={mine ? "return-up-forward" : "return-up-back"}
+                        size={18}
+                        color="#2563EB"
+                    />
+                </Animated.View>
+                <PanGestureHandler
+                    activeOffsetX={[-16, 16]}
+                    failOffsetY={[-14, 14]}
+                    onGestureEvent={handleSwipeGesture}
+                    onHandlerStateChange={handleSwipeStateChange}
+                >
+                    <Animated.View
                         style={[
-                            styles.messageColumn,
-                            mine
-                                ? styles.messageColumnMine
-                                : styles.messageColumnOther,
+                            styles.swipeReplyRow,
+                            { transform: [{ translateX: swipeReplyTranslateX }] },
                         ]}
                     >
-                        {showSenderLabel ? (
-                            <Text
-                                style={styles.groupSenderLabel}
-                                numberOfLines={1}
-                            >
-                                {senderDisplayName}
-                            </Text>
-                        ) : null}
+                        <View
+                            style={[
+                                styles.row,
+                                isFirstInGroup
+                                    ? styles.rowGroupStart
+                                    : styles.rowGrouped,
+                                hasReplyPreview &&
+                                    !isFirstInGroup &&
+                                    styles.rowGroupedWithReply,
+                                isConsecutiveRecalledInGroup &&
+                                    styles.rowGroupedRecalled,
+                                mine ? styles.rowMine : styles.rowOther,
+                            ]}
+                        >
+                            {!mine ? (
+                                showAvatar ? (
+                                    <UserAvatar
+                                        uri={sender?.avatar}
+                                        name={sender?.username ?? "?"}
+                                        size={30}
+                                    />
+                                ) : (
+                                    <View style={styles.avatarSpacer} />
+                                )
+                            ) : null}
 
-                        {hasReplyPreview ? (
                             <View
                                 style={[
-                                    styles.replyRelationRow,
-                                    mine && styles.replyRelationRowMine,
+                                    styles.messageColumn,
+                                    mine
+                                        ? styles.messageColumnMine
+                                        : styles.messageColumnOther,
                                 ]}
                             >
-                                <Ionicons
-                                    name="arrow-undo"
-                                    size={12}
-                                    color="#6B7280"
-                                />
-                                <Text
-                                    style={[
-                                        styles.replyRelationLabel,
-                                        mine && styles.replyRelationLabelMine,
-                                    ]}
-                                    numberOfLines={1}
-                                >
-                                    {formatReplyLabel({
-                                        currentUserId,
-                                        messageSenderId: item.senderId,
-                                        messageSenderName: senderDisplayName,
-                                        replySenderId,
-                                        replySenderName,
-                                    })}
-                                </Text>
-                            </View>
-                        ) : null}
+                                {showSenderLabel ? (
+                                    <Text
+                                        style={styles.groupSenderLabel}
+                                        numberOfLines={1}
+                                    >
+                                        {senderDisplayName}
+                                    </Text>
+                                ) : null}
 
-                        <Pressable
+                                {hasReplyPreview ? (
+                                    <View
+                                        style={[
+                                            styles.replyRelationRow,
+                                            mine && styles.replyRelationRowMine,
+                                        ]}
+                                    >
+                                        <Ionicons
+                                            name="arrow-undo"
+                                            size={12}
+                                            color="#6B7280"
+                                        />
+                                        <Text
+                                            style={[
+                                                styles.replyRelationLabel,
+                                                mine && styles.replyRelationLabelMine,
+                                            ]}
+                                            numberOfLines={1}
+                                        >
+                                            {formatReplyLabel({
+                                                currentUserId,
+                                                messageSenderId: item.senderId,
+                                                messageSenderName:
+                                                    senderDisplayName,
+                                                replySenderId,
+                                                replySenderName,
+                                            })}
+                                        </Text>
+                                    </View>
+                                ) : null}
+
+                                <Pressable
                             delayLongPress={MESSAGE_LONG_PRESS_DELAY_MS}
                             onLongPress={triggerMessageLongPress}
                         >
@@ -1515,8 +1627,10 @@ export const MessageBubble = React.memo(
                                 </>
                             )}
                         </Pressable>
-                    </View>
-                </View>
+                            </View>
+                        </View>
+                    </Animated.View>
+                </PanGestureHandler>
 
                 {isLastInGroup && messageTime ? (
                     <View
@@ -1633,6 +1747,28 @@ const styles = StyleSheet.create({
     },
     messageItemWrap: {
         width: "100%",
+        position: "relative",
+    },
+    swipeReplyRow: {
+        width: "100%",
+        zIndex: 1,
+    },
+    swipeReplyCue: {
+        position: "absolute",
+        top: 18,
+        height: 34,
+        width: 34,
+        borderRadius: 17,
+        backgroundColor: "#EAF2FF",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 0,
+    },
+    swipeReplyCueOther: {
+        left: 42,
+    },
+    swipeReplyCueMine: {
+        right: 8,
     },
     row: {
         flexDirection: "row",

@@ -418,6 +418,10 @@ export function useChatWindowController(args: {
     >([]);
     const [readOnlyNotice, setReadOnlyNotice] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const currentUserMember = membersById[currentUserId];
+    const isRestrictedMember =
+        conversation?.isMessageRestricted && currentUserMember?.role === "MEMBER";
+    const canRecallOwnMessages = !isRestrictedMember;
     const [jumpToast, setJumpToast] = useState<string | null>(null);
     const onAccessBlockedRef = useRef(onAccessBlocked);
     const [olderCursor, setOlderCursor] = useState<string | null>(null);
@@ -1395,6 +1399,13 @@ if (token !== loadTokenRef.current) return;
 
     const handleRecall = useCallback(
         async (messageId: string) => {
+            if (!canRecallOwnMessages) {
+                setError(
+                    "Chi truong/pho nhom moi duoc thu hoi tin nhan trong che do nay",
+                );
+                return;
+            }
+
             try {
                 await chatService.recallMessage(messageId, currentUserId);
                 applyRecallDomino(messageId);
@@ -1402,7 +1413,7 @@ if (token !== loadTokenRef.current) return;
                 setError("Khong the thu hoi tin nhan");
             }
         },
-        [applyRecallDomino, currentUserId],
+        [applyRecallDomino, canRecallOwnMessages, currentUserId],
     );
 
     const handleSendMixedMedia = useCallback(
@@ -2253,6 +2264,7 @@ if (token !== loadTokenRef.current) return;
         handleSend,
         handleSendMixedMedia,
         handleRecall,
+        canRecallOwnMessages,
         handleDeleteForMe,
         handlePinMessage,
         handleUnpinMessage,

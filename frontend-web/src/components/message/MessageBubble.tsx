@@ -79,6 +79,7 @@ export interface MessageBubbleProps {
     onReply: (message: Message) => void;
     onJumpToMessage?: (messageId: string) => void;
     onRecall: (messageId: string) => void;
+    canRecallOwnMessages?: boolean;
     onRecallCall?: (callType: "audio" | "video") => void;
     onDeleteForMe: (messageId: string) => void;
     onOpenRequireApprovalDetails?: () => void;
@@ -104,6 +105,7 @@ export function MessageBubble({
     onReply,
     onJumpToMessage,
     onRecall,
+    canRecallOwnMessages = true,
     onRecallCall,
     onDeleteForMe,
     onOpenRequireApprovalDetails,
@@ -115,10 +117,40 @@ export function MessageBubble({
     membersById = {},
 }: MessageBubbleProps) {
     const [menuOpen, setMenuOpen] = useState(false);
+    const [menuPosition, setMenuPosition] = useState<{
+        top: number;
+        left?: number;
+        right?: number;
+        placement: "above" | "below";
+    } | null>(null);
     const menuRef = useRef<HTMLDivElement>(null);
+    const menuButtonRef = useRef<HTMLButtonElement>(null);
+
+    const updateMenuPosition = useCallback(() => {
+        const button = menuButtonRef.current;
+        if (!button) return;
+
+        const rect = button.getBoundingClientRect();
+        const estimatedMenuHeight = message.isRecalled
+            ? 56
+            : isOwn && canRecallOwnMessages
+              ? 360
+              : 320;
+        const shouldOpenBelow = rect.top < estimatedMenuHeight + 56;
+
+        setMenuPosition({
+            top: shouldOpenBelow ? rect.bottom + 6 : rect.top - 6,
+            placement: shouldOpenBelow ? "below" : "above",
+            ...(isOwn
+                ? { right: window.innerWidth - rect.right }
+                : { left: rect.left }),
+        });
+    }, [canRecallOwnMessages, isOwn, message.isRecalled]);
 
     useEffect(() => {
         if (!menuOpen) return;
+        updateMenuPosition();
+
         function handleOutside(e: MouseEvent) {
             if (
                 menuRef.current &&
@@ -127,9 +159,19 @@ export function MessageBubble({
                 setMenuOpen(false);
             }
         }
+        function handleWindowChange() {
+            updateMenuPosition();
+        }
+
         document.addEventListener("mousedown", handleOutside);
-        return () => document.removeEventListener("mousedown", handleOutside);
-    }, [menuOpen]);
+        window.addEventListener("resize", handleWindowChange);
+        window.addEventListener("scroll", handleWindowChange, true);
+        return () => {
+            document.removeEventListener("mousedown", handleOutside);
+            window.removeEventListener("resize", handleWindowChange);
+            window.removeEventListener("scroll", handleWindowChange, true);
+        };
+    }, [menuOpen, updateMenuPosition]);
 
     const handleCopy = useCallback(() => {
         if (message.content) navigator.clipboard.writeText(message.content);
@@ -616,10 +658,14 @@ export function MessageBubble({
             {/* Nút "..." — hiện khi hover, căn giữa theo bubble */}
             <div
                 ref={menuRef}
-                className={`relative z-60 opacity-0 group-hover:opacity-100 transition-opacity self-center ${isOwn ? "order-first" : "order-last"}`}
+                className={`relative z-[100] opacity-0 group-hover:opacity-100 transition-opacity self-center ${isOwn ? "order-first" : "order-last"}`}
             >
                 <button
-                    onClick={() => setMenuOpen((v) => !v)}
+                    ref={menuButtonRef}
+                    onClick={() => {
+                        updateMenuPosition();
+                        setMenuOpen((v) => !v);
+                    }}
                     className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 mb-4"
                     title="Tùy chọn"
                 >
@@ -628,7 +674,12 @@ export function MessageBubble({
 
                 {menuOpen && (
                     <div
-                        className={`absolute bottom-full mb-1 ${isOwn ? "right-0" : "left-0"} bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-lg shadow-xl py-1.5 z-70 w-56`}
+                        style={{
+                            top: menuPosition?.top,
+                            left: menuPosition?.left,
+                            right: menuPosition?.right,
+                        }}
+                        className={`fixed ${menuPosition?.placement === "above" ? "-translate-y-full" : ""} max-h-[min(22rem,calc(100vh-4rem))] overflow-y-auto bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-lg shadow-xl py-1.5 z-[9999] w-56`}
                     >
                         {message.isRecalled ? (
                             <button
@@ -740,7 +791,7 @@ export function MessageBubble({
                                 <div className="my-1.5 border-t border-gray-100 dark:border-gray-700" />
 
                                 {/* Thu hồi - chỉ hiện cho tin nhắn của mình */}
-                                {isOwn && (
+                                {isOwn && canRecallOwnMessages && (
                                     <button
                                         onClick={handleRecallClick}
                                         className={menuItemBase}

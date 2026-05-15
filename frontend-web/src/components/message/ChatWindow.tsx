@@ -136,6 +136,7 @@ export default function ChatWindow({
     handlePinMessage,
     handleUnpinMessage,
     handleRecall,
+    canRecallOwnMessages,
     handleDeleteMessageForMe,
     appendRealtimeMessage,
     scrollToBottom,
@@ -810,6 +811,7 @@ export default function ChatWindow({
             onReply={handleReplyMessage}
             onJumpToMessage={requestJumpToMessage}
             onRecall={handleRecall}
+            canRecallOwnMessages={canRecallOwnMessages}
             onRecallCall={(callType) => void startCall(callType)}
             onDeleteForMe={handleDeleteMessageForMe}
             onOpenRequireApprovalDetails={onToggleInfoPanel}

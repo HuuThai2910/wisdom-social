@@ -187,7 +187,9 @@ export const MessageComposer = React.memo(
                                                             styles.recordingWaveBar,
                                                             {
                                                                 height:
-                                                                    index % 5 === 0
+                                                                    index %
+                                                                        5 ===
+                                                                    0
                                                                         ? 18
                                                                         : index %
                                                                                 2 ===
@@ -240,7 +242,9 @@ export const MessageComposer = React.memo(
                                         value={messageText}
                                         onChangeText={(value) => {
                                             setMessageText(value);
-                                            sendTypingSignal(Boolean(value.trim()));
+                                            sendTypingSignal(
+                                                Boolean(value.trim()),
+                                            );
                                         }}
                                         onBlur={() => sendTypingSignal(false)}
                                         onSelectionChange={(event) => {
@@ -265,9 +269,13 @@ export const MessageComposer = React.memo(
                                         {hasTypedText ? (
                                             <>
                                                 <Pressable
-                                                    style={styles.composerActionBtn}
+                                                    style={
+                                                        styles.composerActionBtn
+                                                    }
                                                     hitSlop={8}
-                                                    onPress={onToggleEmojiPicker}
+                                                    onPress={
+                                                        onToggleEmojiPicker
+                                                    }
                                                     disabled={
                                                         uploading || sending
                                                     }
@@ -300,7 +308,9 @@ export const MessageComposer = React.memo(
                                         ) : (
                                             <>
                                                 <Pressable
-                                                    style={styles.composerActionBtn}
+                                                    style={
+                                                        styles.composerActionBtn
+                                                    }
                                                     hitSlop={8}
                                                     onPress={onStartRecording}
                                                     disabled={
@@ -314,7 +324,9 @@ export const MessageComposer = React.memo(
                                                     />
                                                 </Pressable>
                                                 <Pressable
-                                                    style={styles.composerActionBtn}
+                                                    style={
+                                                        styles.composerActionBtn
+                                                    }
                                                     hitSlop={8}
                                                     onPress={onPickMediaAndSend}
                                                     disabled={
@@ -322,41 +334,27 @@ export const MessageComposer = React.memo(
                                                     }
                                                 >
                                                     <Ionicons
-                                                        name="image-outline"
+                                                        name="images-outline"
                                                         size={24}
                                                         color={colors.text}
                                                     />
                                                 </Pressable>
                                                 <Pressable
-                                                    style={styles.composerActionBtn}
+                                                    style={
+                                                        styles.composerActionBtn
+                                                    }
                                                     hitSlop={8}
-                                                    onPress={onPickDocumentAndSend}
+                                                    onPress={
+                                                        onPickDocumentAndSend
+                                                    }
                                                     disabled={
                                                         uploading || sending
                                                     }
                                                 >
                                                     <Ionicons
-                                                        name="document-outline"
+                                                        name="attach-outline"
                                                         size={24}
                                                         color={colors.text}
-                                                    />
-                                                </Pressable>
-                                                <Pressable
-                                                    style={styles.composerActionBtn}
-                                                    hitSlop={8}
-                                                    onPress={onToggleEmojiPicker}
-                                                    disabled={
-                                                        uploading || sending
-                                                    }
-                                                >
-                                                    <Ionicons
-                                                        name={
-                                                            emojiPickerOpen
-                                                                ? "happy"
-                                                                : "happy-outline"
-                                                        }
-                                                        size={23}
-                                                        color="#1D4ED8"
                                                     />
                                                 </Pressable>
                                             </>
@@ -387,11 +385,9 @@ export const MessageComposer = React.memo(
                             Tai tep that bai: {uploadFailedFileNames.join(", ")}
                         </Text>
                     ) : null}
-                    {readOnlyNotice ? null : (
-                        error ? (
-                            <Text style={styles.errorText}>{error}</Text>
-                        ) : null
-                    )}
+                    {readOnlyNotice ? null : error ? (
+                        <Text style={styles.errorText}>{error}</Text>
+                    ) : null}
                 </View>
 
                 <Modal

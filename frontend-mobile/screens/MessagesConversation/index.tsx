@@ -125,6 +125,7 @@ export default function MessagesConversationScreen() {
         handleSend,
         handleSendMixedMedia,
         handleRecall,
+        canRecallOwnMessages,
         handleDeleteForMe,
         handlePinMessage,
         handleUnpinMessage,
@@ -1121,7 +1122,26 @@ export default function MessagesConversationScreen() {
 
     const hasTypedText = messageText.trim().length > 0;
 
-    const closeContextMenu = () => setContextMenu(null);
+    const closeContextMenu = useCallback(() => setContextMenu(null), []);
+
+    const replyToTargetMessage = useCallback(
+        (targetMessage: Message) => {
+            const senderName =
+                membersById[targetMessage.senderId]?.nickname ||
+                membersById[targetMessage.senderId]?.username ||
+                "Nguoi dung";
+
+            setReplyToMessage({
+                id: targetMessage.id,
+                senderName,
+                content: buildReplyPreview(targetMessage),
+            });
+
+            closeContextMenu();
+            focusComposerInput(messageInputRef, { delayMs: 80 });
+        },
+        [closeContextMenu, membersById],
+    );
 
     const handleMessageLongPress = (
         event: GestureResponderEvent,
@@ -1142,7 +1162,13 @@ export default function MessagesConversationScreen() {
             height - MENU_ESTIMATED_HEIGHT - MENU_VERTICAL_MARGIN,
         );
 
-        setContextMenu({ messageId, top, left });
+        setContextMenu({
+            messageId,
+            top,
+            left,
+            mine,
+            minStackTop: insets.top + 72,
+        });
     };
 
     const handleContextAction = (actionKey: string) => {
@@ -1173,19 +1199,7 @@ export default function MessagesConversationScreen() {
             );
 
             if (targetMessage) {
-                const senderName =
-                    membersById[targetMessage.senderId]?.nickname ||
-                    membersById[targetMessage.senderId]?.username ||
-                    "Nguoi dung";
-
-                setReplyToMessage({
-                    id: targetMessage.id,
-                    senderName,
-                    content: buildReplyPreview(targetMessage),
-                });
-
-                closeContextMenu();
-                focusComposerInput(messageInputRef, { delayMs: 80 });
+                replyToTargetMessage(targetMessage);
                 return;
             }
         }
@@ -1581,6 +1595,7 @@ export default function MessagesConversationScreen() {
                             onRecallCall={(callType) => {
                                 void tryStartCall(callType);
                             }}
+                            onSwipeReply={replyToTargetMessage}
                         />
                     )}
                     ListFooterComponent={
@@ -1828,9 +1843,17 @@ export default function MessagesConversationScreen() {
 
             <MessageContextMenu
                 contextMenu={contextMenu}
+                selectedMessage={
+                    contextMenu
+                        ? messages.find(
+                            (message) => message.id === contextMenu.messageId,
+                        )
+                        : null
+                }
                 closeContextMenu={closeContextMenu}
                 handleContextAction={handleContextAction}
                 selectedMessagePinned={selectedMessagePinned}
+                canRecallOwnMessages={canRecallOwnMessages}
             />
             <MediaViewerModal
                 mediaViewer={mediaViewer}

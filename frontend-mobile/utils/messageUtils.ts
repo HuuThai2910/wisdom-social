@@ -62,6 +62,8 @@ export type ContextMenuState = {
     messageId: string;
     top: number;
     left: number;
+    mine: boolean;
+    minStackTop: number;
 };
 
 export type ReplyComposerState = {
@@ -97,32 +99,9 @@ export type PinSystemRunRenderMeta = {
 
 export const contextActions = [
     { key: "copy", label: "Copy tin nhan", icon: "copy-outline" },
-    { key: "pin", label: "Ghim tin nhan", icon: "pin-outline" },
+    { key: "pin", label: "Ghim tin nhan", icon: "attach-outline" },
     { key: "reply", label: "Tra loi", icon: "return-up-back-outline" },
     { key: "divider-1", divider: true },
-    {
-        key: "save",
-        label: "Danh dau tin nhan",
-        icon: "bookmark-outline",
-    },
-    { key: "divider-2", divider: true },
-    {
-        key: "select-many",
-        label: "Chon nhieu tin nhan",
-        icon: "list-outline",
-    },
-    {
-        key: "details",
-        label: "Xem chi tiet",
-        icon: "information-circle-outline",
-    },
-    {
-        key: "more",
-        label: "Tuy chon khac",
-        icon: "ellipsis-horizontal-outline",
-        hasArrow: true,
-    },
-    { key: "divider-3", divider: true },
     {
         key: "unsend",
         label: "Thu hoi",

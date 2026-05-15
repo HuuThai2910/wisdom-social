@@ -1,6 +1,7 @@
 import { AppProvider } from "@/context/AppContext";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 function RootNavigator() {
     return (
@@ -17,8 +18,10 @@ function RootNavigator() {
 
 export default function RootLayout() {
     return (
-        <AppProvider>
-            <RootNavigator />
-        </AppProvider>
+        <GestureHandlerRootView style={{ flex: 1 }}>
+            <AppProvider>
+                <RootNavigator />
+            </AppProvider>
+        </GestureHandlerRootView>
     );
 }
