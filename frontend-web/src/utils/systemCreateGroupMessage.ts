@@ -303,10 +303,8 @@ function buildSystemDisbandGroupMessage(params: {
     isOwn: boolean;
     actorLabel: string;
 }): string {
-    const { isOwn, actorLabel } = params;
-    if (isOwn) return "Bạn đã giải tán nhóm";
-    if (actorLabel === "Người dùng") return "Nhóm đã được giải tán";
-    return `${actorLabel} đã giải tán nhóm`;
+    const { isOwn } = params;
+    return isOwn ? "Bạn đã giải tán nhóm" : "Nhóm trưởng đã giải tán nhóm";
 }
 
 export function buildSystemGroupMessage(params: {

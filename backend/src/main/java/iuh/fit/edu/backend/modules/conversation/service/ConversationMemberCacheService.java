@@ -21,4 +21,6 @@ public interface ConversationMemberCacheService {
     void saveMembersMap(Long conversationId, Map<Long, ConversationMemberResponse> dbMap);
 
     void saveMemberInfo(Long conversationId, Long userId, ConversationMemberResponse info);
+
+    void evictConversation(Long conversationId);
 }

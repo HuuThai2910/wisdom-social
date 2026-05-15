@@ -237,6 +237,7 @@ export interface ConversationMembershipEvent {
 export interface GroupDisbandedEvent {
     domainEventType?: "GROUP_DISBANDED";
     conversationId?: number;
+    lastMessage?: LastMessageUpdate;
 }
 
 export interface NewJoinRequestEvent {
@@ -863,9 +864,10 @@ class WebSocketService {
                     ) {
                         callback(
                             disbandPayload.conversationId,
-                            buildSystemFallbackByDomainEvent(
-                                disbandPayload.domainEventType,
-                            ),
+                            disbandPayload.lastMessage ??
+                                buildSystemFallbackByDomainEvent(
+                                    disbandPayload.domainEventType,
+                                ),
                         );
                         return;
                     }

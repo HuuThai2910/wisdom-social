@@ -301,19 +301,31 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
 
         Set<Long> allNotifyIds = activeMembers.stream()
                 .map(m -> m.getUser().getId()).collect(Collectors.toSet());
+        String requesterName = chatSnapshotHelper.resolveActorDisplayName(conv, requesterId);
 
         // Cập nhật trạng thái hàng loạt trong MySQL
         for (ConversationMember member : activeMembers) {
             member.setStatus(ConversationMemberStatus.GROUP_DISBANDED);
             member.setLeftAt(now);
             member.setUnreadCount(0);
+            member.setFrozenLastMessage(new FrozenLastMessage(
+                    "[]",
+                    requesterId,
+                    requesterName,
+                    MessageType.SYSTEM_DISBAND_GROUP,
+                    now
+            ));
         }
         conversationMemberRepository.saveAll(activeMembers);
 
-        executeSystemActionAndBuildResponse(
+        TransactionUtil.executeAfterCommit(() ->
+                conversationMemberCacheService.evictConversation(conversationId)
+        );
+
+        ConversationResponse response = executeSystemActionAndBuildResponse(
                 conv, requesterId, MessageType.SYSTEM_DISBAND_GROUP, "[]", now);
 
-        eventPublisher.publishEvent(new GroupDisbandedEvent(conversationId, allNotifyIds));
+        eventPublisher.publishEvent(new GroupDisbandedEvent(conversationId, allNotifyIds, response.getLastMessage()));
     }
 
 // ======================= HÀM HELPER =======================

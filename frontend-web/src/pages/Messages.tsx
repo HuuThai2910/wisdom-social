@@ -378,10 +378,8 @@ export default function Messages() {
                             canManageMembers={canManageMembers}
                             canKickMembers={canKickMembers}
                             canUpdateRole={canUpdateRole}
-                            canDisbandGroup={canDisbandGroup}
                             pendingJoinRequestId={pendingJoinRequestId}
                             isLeavingGroup={isLeavingGroup}
-                            isDisbandingGroup={isDisbandingGroup}
                             isTransferOwnerModalOpen={isTransferOwnerModalOpen}
                             pendingKickUserId={pendingKickUserId}
                             pendingRoleUserId={pendingRoleUserId}
@@ -396,19 +394,12 @@ export default function Messages() {
                             onTransferOwnershipAndLeave={
                                 transferOwnershipAndLeave
                             }
-                            onDisbandGroup={disbandGroup}
                             onKickMember={kickMember}
                             onUpdateMemberRole={updateMemberRole}
                             onProcessJoinRequest={processJoinRequest}
                             isConfirmLeaveModalOpen={isConfirmLeaveModalOpen}
                             onSetConfirmLeaveModalOpen={
                                 setIsConfirmLeaveModalOpen
-                            }
-                            isConfirmDisbandModalOpen={
-                                isConfirmDisbandModalOpen
-                            }
-                            onSetConfirmDisbandModalOpen={
-                                setIsConfirmDisbandModalOpen
                             }
                             isConfirmKickModalOpen={isConfirmKickModalOpen}
                             kickTargetUserId={kickTargetUserId}
@@ -1051,8 +1042,14 @@ export default function Messages() {
                     onClose={() => setIsGroupSettingsModalOpen(false)}
                     conversation={selectedGroupConversation}
                     canManageSettings={canManageSettings}
+                    canDisbandGroup={canDisbandGroup}
+                    isDisbandingGroup={isDisbandingGroup}
+                    isLeavingGroup={isLeavingGroup}
                     isUpdatingMessageRestriction={isUpdatingMessageRestriction}
                     isUpdatingJoinApproval={isUpdatingJoinApproval}
+                    onSetConfirmDisbandModalOpen={
+                        setIsConfirmDisbandModalOpen
+                    }
                     onUpdateMessageRestriction={updateMessageRestriction}
                     onUpdateJoinApproval={updateJoinApproval}
                 />

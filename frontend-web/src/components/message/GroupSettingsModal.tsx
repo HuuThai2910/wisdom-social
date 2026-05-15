@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { ArrowLeft, Lock } from "lucide-react";
+import { ArrowLeft, Lock, UserMinus } from "lucide-react";
 import type { Conversation } from "../../services/chatService";
 
 interface GroupSettingsModalProps {
@@ -7,8 +7,12 @@ interface GroupSettingsModalProps {
     onClose: () => void;
     conversation: Conversation;
     canManageSettings: boolean;
+    canDisbandGroup: boolean;
+    isDisbandingGroup: boolean;
+    isLeavingGroup: boolean;
     isUpdatingMessageRestriction: boolean;
     isUpdatingJoinApproval: boolean;
+    onSetConfirmDisbandModalOpen: (open: boolean) => void;
     onUpdateMessageRestriction: (isRestricted: boolean) => Promise<boolean>;
     onUpdateJoinApproval: (isRequired: boolean) => Promise<boolean>;
 }
@@ -18,8 +22,12 @@ export default function GroupSettingsModal({
     onClose,
     conversation,
     canManageSettings,
+    canDisbandGroup,
+    isDisbandingGroup,
+    isLeavingGroup,
     isUpdatingMessageRestriction,
     isUpdatingJoinApproval,
+    onSetConfirmDisbandModalOpen,
     onUpdateMessageRestriction,
     onUpdateJoinApproval,
 }: GroupSettingsModalProps) {
@@ -123,6 +131,20 @@ export default function GroupSettingsModal({
                             <ToggleRow label="Cho phép thành viên mới đọc tin nhắn gần nhất" disabled checked={false} isStaff={canManageSettings} />
                         </div>
                     </div>
+
+                    {canDisbandGroup && (
+                        <div className="mt-2 bg-white dark:bg-black px-4 py-3">
+                            <button
+                                type="button"
+                                onClick={() => onSetConfirmDisbandModalOpen(true)}
+                                disabled={isDisbandingGroup || isLeavingGroup}
+                                className="flex w-full items-center justify-center gap-2 rounded-lg bg-red-50 py-2.5 text-sm font-semibold text-red-600 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/30"
+                            >
+                                <UserMinus size={18} />
+                                {isDisbandingGroup ? "Đang giải tán..." : "Giải tán nhóm"}
+                            </button>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
