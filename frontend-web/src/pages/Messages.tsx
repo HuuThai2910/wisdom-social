@@ -35,6 +35,7 @@ import CreateGroupModal from "../components/message/CreateGroupModal";
 import GroupConversationPanel from "../components/message/GroupConversationPanel";
 import IncomingCallModal from "../components/message/IncomingCallModal";
 import GroupSettingsModal from "../components/message/GroupSettingsModal";
+import InviteLinkModal from "../components/message/InviteLinkModal";
 import ConfirmModal from "../components/message/ConfirmModal";
 import SelectGroupMembersModal from "../components/message/SelectGroupMembersModal";
 import ConversationAvatar from "../components/message/ConversationAvatar";
@@ -43,7 +44,6 @@ import { useGroupManagement } from "../hooks/useGroupManagement";
 import chatService from "../services/chatService";
 import { useSidebarLayout } from "../hooks/useSidebarLayout";
 import { buildConversationLastMessagePreview } from "../utils/conversationLastMessagePreview";
-import { Link } from "react-router-dom";
 
 type DetailSectionKey = "chatInfo" | "customize" | "media" | "privacy";
 
@@ -73,6 +73,7 @@ export default function Messages() {
     const [showInfoPanel, setShowInfoPanel] = useState(false);
     const [isInfoPanelRendered, setIsInfoPanelRendered] = useState(false);
     const [isGroupSettingsModalOpen, setIsGroupSettingsModalOpen] = useState(false);
+    const [isInviteLinkModalOpen, setIsInviteLinkModalOpen] = useState(false);
     const [expandedSections, setExpandedSections] = useState<
         Record<DetailSectionKey, boolean>
     >({
@@ -237,6 +238,7 @@ export default function Messages() {
     const closeGroupDetailSurfaces = useCallback(() => {
         setShowInfoPanel(false);
         setIsGroupSettingsModalOpen(false);
+        setIsInviteLinkModalOpen(false);
         closeAddMembersModal();
         closeTransferOwnerModal();
         setIsConfirmLeaveModalOpen(false);
@@ -411,7 +413,21 @@ export default function Messages() {
                 )}
 
                 <div className="space-y-0">
-                    
+                    {selectedGroupConversation && (
+                        <>
+                            <section className="py-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setIsInviteLinkModalOpen(true)}
+                                    className={detailActionButtonClass}
+                                >
+                                    <Link2 size={18} />
+                                    <span>Link tham gia nhóm</span>
+                                </button>
+                            </section>
+                            <div className="h-px bg-gray-300 dark:bg-[#262626]" />
+                        </>
+                    )}
 
                     <div className="h-px bg-gray-300 dark:bg-[#262626]" />
                     
@@ -534,6 +550,32 @@ export default function Messages() {
                     </section>
                 </div>
             </div>
+            {selectedGroupConversation && (
+                <GroupSettingsModal
+                    isOpen={isGroupSettingsModalOpen}
+                    onClose={() => setIsGroupSettingsModalOpen(false)}
+                    conversation={selectedGroupConversation}
+                    canManageSettings={canManageSettings}
+                    canDisbandGroup={canDisbandGroup}
+                    isDisbandingGroup={isDisbandingGroup}
+                    isLeavingGroup={isLeavingGroup}
+                    isUpdatingMessageRestriction={isUpdatingMessageRestriction}
+                    isUpdatingJoinApproval={isUpdatingJoinApproval}
+                    onSetConfirmDisbandModalOpen={setIsConfirmDisbandModalOpen}
+                    onUpdateMessageRestriction={updateMessageRestriction}
+                    onUpdateJoinApproval={updateJoinApproval}
+                />
+            )}
+            {selectedGroupConversation && (
+                <InviteLinkModal
+                    key={selectedGroupConversation.id}
+                    open={isInviteLinkModalOpen}
+                    conversation={selectedGroupConversation}
+                    canManageInviteLink={canManageSettings}
+                    onClose={() => setIsInviteLinkModalOpen(false)}
+                    onChanged={reload}
+                />
+            )}
         </>
     );
 
@@ -1036,24 +1078,6 @@ export default function Messages() {
                 }}
             />
 
-            {selectedGroupConversation && (
-                <GroupSettingsModal
-                    isOpen={isGroupSettingsModalOpen}
-                    onClose={() => setIsGroupSettingsModalOpen(false)}
-                    conversation={selectedGroupConversation}
-                    canManageSettings={canManageSettings}
-                    canDisbandGroup={canDisbandGroup}
-                    isDisbandingGroup={isDisbandingGroup}
-                    isLeavingGroup={isLeavingGroup}
-                    isUpdatingMessageRestriction={isUpdatingMessageRestriction}
-                    isUpdatingJoinApproval={isUpdatingJoinApproval}
-                    onSetConfirmDisbandModalOpen={
-                        setIsConfirmDisbandModalOpen
-                    }
-                    onUpdateMessageRestriction={updateMessageRestriction}
-                    onUpdateJoinApproval={updateJoinApproval}
-                />
-            )}
         </>
     );
 }

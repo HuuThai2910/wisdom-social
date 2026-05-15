@@ -164,6 +164,64 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
 
     @Transactional(rollbackFor = Exception.class)
     @Override
+    public ConversationResponse joinByInviteLink(Long conversationId, Long userId) {
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+
+        Conversation conv = conversationRepository.findById(conversationId)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy cuộc trò chuyện"));
+
+        if (conv.getType() != ConversationType.GROUP) {
+            throw new IllegalArgumentException("Chỉ nhóm chat mới có thể tham gia bằng link");
+        }
+
+        ConversationMember member = conversationMemberRepository
+                .findByConversation_IdAndUser_Id(conversationId, userId)
+                .orElse(null);
+
+        if (member != null && member.getStatus() == ConversationMemberStatus.ACTIVE) {
+            return conversationMapper.toConversationResponse(conv, userId);
+        }
+
+        if (member != null && member.getStatus() == ConversationMemberStatus.KICKED) {
+            throw new RuntimeException("Bạn đã bị chặn khỏi nhóm");
+        }
+
+        if (member == null) {
+            member = new ConversationMember();
+            member.setConversation(conv);
+            member.setUser(userRepository.getReferenceById(userId));
+        }
+
+        member.setRole(MemberRole.MEMBER);
+        member.setStatus(ConversationMemberStatus.ACTIVE);
+        member.setJoinedAt(now);
+        member.setLeftAt(null);
+        member.setClearedAt(null);
+        member.setHidden(false);
+
+        ConversationMember savedMember = conversationMemberRepository.save(member);
+
+        TransactionUtil.executeAfterCommit(() ->
+                conversationMemberCacheService.saveMemberInfo(
+                        conversationId,
+                        userId,
+                        conversationMemberMapper.toConversationMemberResponse(savedMember)
+                )
+        );
+
+        String targetIdsJson = chatSnapshotHelper.buildMemberSnapshotContent(Collections.singleton(userId));
+        ConversationResponse response = executeSystemActionAndBuildResponse(
+                conv, userId, MessageType.SYSTEM_JOIN_VIA_LINK, targetIdsJson, now);
+
+        Set<Long> allActiveMemberIds = conversationMemberRepository
+                .findUserIdsByConversationIdAndStatus(conversationId, ConversationMemberStatus.ACTIVE);
+
+        eventPublisher.publishEvent(new MemberAddedEvent(response, allActiveMemberIds));
+        return response;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    @Override
     public ConversationResponse leaveGroup(Long conversationId, Long userId) {
         // 1. Chỉ validate logic Leave
         Conversation conv = validateLeavePermission(conversationId, userId);

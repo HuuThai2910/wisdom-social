@@ -17,7 +17,8 @@ export type MessageType =
     | "SYSTEM_UPDATE_ROLE"
     | "SYSTEM_DISBAND_GROUP"
     | "SYSTEM_UPDATE_SETTING"
-    | "SYSTEM_REQUIRE_APPROVAL";
+    | "SYSTEM_REQUIRE_APPROVAL"
+    | "SYSTEM_JOIN_VIA_LINK";
 
 export type MemberRole = "OWNER" | "DEPUTY" | "MEMBER";
 
@@ -100,7 +101,19 @@ export interface Conversation extends ConversationSidebar {
     pinnedMessages?: PinnedMessageDetail[];
     isMessageRestricted?: boolean;
     isJoinApprovalRequired?: boolean;
+    inviteToken?: string | null;
     pendingRequests?: JoinRequest[] | null;
+}
+
+export type InviteUserStatus = "ACTIVE" | "PENDING" | "NOT_MEMBER";
+
+export interface ConversationPreview {
+    conversationId: number;
+    name: string;
+    imageUrl?: string;
+    memberCount: number;
+    isJoinApprovalRequired: boolean;
+    userStatus: InviteUserStatus;
 }
 
 export type JoinRequestStatus = "PENDING" | "APPROVED" | "REJECTED";
@@ -433,6 +446,43 @@ const chatService = {
         );
         return unwrapApiData(
             response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async getOrCreateInviteLink(conversationId: number): Promise<string> {
+        const response = await axiosClient.get(
+            `/conversations/${conversationId}/invite-link`,
+        );
+        return unwrapApiData(response.data as ApiResponse<string> | string);
+    },
+
+    async resetInviteLink(conversationId: number): Promise<string> {
+        const response = await axiosClient.patch(
+            `/conversations/${conversationId}/invite-link/reset`,
+        );
+        return unwrapApiData(response.data as ApiResponse<string> | string);
+    },
+
+    async disableInviteLink(conversationId: number): Promise<void> {
+        await axiosClient.delete(`/conversations/${conversationId}/invite-link`);
+    },
+
+    async previewInvite(token: string): Promise<ConversationPreview> {
+        const response = await axiosClient.get(`/conversations/invite/${token}`);
+        return unwrapApiData(
+            response.data as ApiResponse<ConversationPreview> | ConversationPreview,
+        );
+    },
+
+    async joinByInvite(token: string): Promise<Conversation | { message?: string }> {
+        const response = await axiosClient.post(
+            `/conversations/invite/${token}/join`,
+        );
+        return unwrapApiData(
+            response.data as
+                | ApiResponse<Conversation | { message?: string }>
+                | Conversation
+                | { message?: string },
         );
     },
 

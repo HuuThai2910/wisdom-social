@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import {
     MoreVertical,
     Undo2,
@@ -27,12 +28,21 @@ import {
     CheckCircle2,
     Image as ImageIcon,
     Users,
+    ExternalLink,
+    Loader2,
+    ShieldCheck,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import toast from "react-hot-toast";
 import type {
+    Conversation,
     ConversationMember,
+    ConversationPreview,
+    InviteUserStatus,
     Message,
     MessageType,
 } from "../../services/chatService";
+import chatService from "../../services/chatService";
 import { buildSystemGroupMessage } from "../../utils/systemCreateGroupMessage";
 import AudioPlayer from "./AudioPlayer";
 import {
@@ -52,6 +62,55 @@ import {
     resolveLocalAvailabilityLabel,
     resolveVideoPosterUrl,
 } from "../../utils/messageBubbleUtils";
+
+function extractGroupInviteUrl(content: string): string | null {
+    const match = content.match(/https?:\/\/[^\s]+\/g\/[A-Za-z0-9_-]+/);
+    return match?.[0] ?? null;
+}
+
+function extractGroupInviteToken(url: string): string | null {
+    const match = url.match(/\/g\/([A-Za-z0-9_-]+)/);
+    return match?.[1] ?? null;
+}
+
+function resolveJoinedConversationId(
+    payload: Conversation | { message?: string },
+): number | null {
+    if (!payload || typeof payload !== "object") return null;
+    const record = payload as Record<string, unknown>;
+    const id = Number(record.conversationId ?? record.id);
+    return Number.isFinite(id) ? id : null;
+}
+
+function renderTextWithLinks(content: string, isOwn: boolean): ReactNode {
+    const parts = content.split(/(https?:\/\/[^\s]+)/g);
+    return parts.map((part, index) => {
+        if (!/^https?:\/\/[^\s]+$/.test(part)) {
+            return part;
+        }
+
+        return (
+            <a
+                key={`${part}-${index}`}
+                href={part}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                    textDecorationLine: "underline",
+                    textUnderlineOffset: "2px",
+                }}
+                className={`font-medium hover:opacity-80 ${
+                    isOwn
+                        ? "text-white"
+                        : "text-blue-600 dark:text-blue-300"
+                }`}
+                onClick={(event) => event.stopPropagation()}
+            >
+                {part}
+            </a>
+        );
+    });
+}
 
 /* ─── MessageBubble ────────────────────────────────────────────────────────── */
 
@@ -116,7 +175,16 @@ export function MessageBubble({
     currentUserId,
     membersById = {},
 }: MessageBubbleProps) {
+    const navigate = useNavigate();
     const [menuOpen, setMenuOpen] = useState(false);
+    const [inviteModalOpen, setInviteModalOpen] = useState(false);
+    const [inviteLoading, setInviteLoading] = useState(false);
+    const [inviteJoining, setInviteJoining] = useState(false);
+    const [inviteError, setInviteError] = useState("");
+    const [invitePreview, setInvitePreview] =
+        useState<ConversationPreview | null>(null);
+    const [inviteUserStatus, setInviteUserStatus] =
+        useState<InviteUserStatus | null>(null);
     const [menuPosition, setMenuPosition] = useState<{
         top: number;
         left?: number;
@@ -173,10 +241,77 @@ export function MessageBubble({
         };
     }, [menuOpen, updateMenuPosition]);
 
+    const groupInviteUrl =
+        message.type === "TEXT" && !message.isRecalled
+            ? extractGroupInviteUrl(message.content)
+            : null;
+    const groupInviteToken = groupInviteUrl
+        ? extractGroupInviteToken(groupInviteUrl)
+        : null;
+
     const handleCopy = useCallback(() => {
         if (message.content) navigator.clipboard.writeText(message.content);
         setMenuOpen(false);
     }, [message.content]);
+
+    const openInvitePreview = useCallback(async () => {
+        if (!groupInviteToken) return;
+
+        setInviteModalOpen(true);
+        setInviteLoading(true);
+        setInviteError("");
+        setInvitePreview(null);
+        setInviteUserStatus(null);
+
+        try {
+            const preview = await chatService.previewInvite(groupInviteToken);
+            if (preview.userStatus === "ACTIVE") {
+                navigate(`/messages/${preview.conversationId}`);
+                setInviteModalOpen(false);
+                return;
+            }
+
+            setInvitePreview(preview);
+            setInviteUserStatus(preview.userStatus);
+        } catch {
+            setInviteError("Link tham gia không hợp lệ hoặc đã bị vô hiệu hóa.");
+        } finally {
+            setInviteLoading(false);
+        }
+    }, [groupInviteToken, navigate]);
+
+    const handleJoinInvite = useCallback(async () => {
+        if (!groupInviteToken || inviteUserStatus !== "NOT_MEMBER") return;
+
+        try {
+            setInviteJoining(true);
+            const response = await chatService.joinByInvite(groupInviteToken);
+            const conversationId = resolveJoinedConversationId(response);
+            if (conversationId) {
+                setInviteModalOpen(false);
+                navigate(`/messages/${conversationId}`);
+                return;
+            }
+
+            setInviteUserStatus("PENDING");
+            toast.success("Đã gửi yêu cầu tham gia nhóm.");
+            setInviteModalOpen(false);
+        } catch (error) {
+            const message =
+                error &&
+                typeof error === "object" &&
+                "response" in (error as Record<string, unknown>)
+                    ? (
+                          error as {
+                              response?: { data?: { message?: string } };
+                          }
+                      ).response?.data?.message
+                    : null;
+            toast.error(message || "Không thể tham gia nhóm.");
+        } finally {
+            setInviteJoining(false);
+        }
+    }, [groupInviteToken, inviteUserStatus, navigate]);
 
     const handleRecallClick = useCallback(() => {
         onRecall(message.id);
@@ -241,7 +376,6 @@ export function MessageBubble({
               minute: "2-digit",
           })
         : "";
-
     // Tooltip giờ có ngữ cảnh: hôm nay → giờ, hôm qua → "Hôm qua HH:MM", cũ → "D Tháng M, YYYY HH:MM"
     const tooltipTimeStr = (() => {
         const date = new Date(message.createdAt);
@@ -606,7 +740,8 @@ export function MessageBubble({
                 | "SYSTEM_LEAVE_GROUP"
                 | "SYSTEM_DISBAND_GROUP"
                 | "SYSTEM_UPDATE_SETTING"
-                | "SYSTEM_REQUIRE_APPROVAL",
+                | "SYSTEM_REQUIRE_APPROVAL"
+                | "SYSTEM_JOIN_VIA_LINK",
             content: message.content,
             isOwn,
             senderName,
@@ -985,12 +1120,14 @@ export function MessageBubble({
                                         : message.type === "IMAGE"
                                           ? "bg-transparent text-black dark:text-white"
                                           : message.type === "VIDEO"
+                                          ? "bg-transparent text-black dark:text-white"
+                                          : message.type === "FILE"
                                             ? "bg-transparent text-black dark:text-white"
-                                            : message.type === "FILE"
+                                            : groupInviteUrl
                                               ? "bg-transparent text-black dark:text-white"
-                                              : isOwn
-                                                ? "bg-blue-500 text-white"
-                                                : "bg-gray-200 dark:bg-gray-700 text-black dark:text-white"
+                                            : isOwn
+                                              ? "bg-blue-500 text-white"
+                                              : "bg-gray-200 dark:bg-gray-700 text-black dark:text-white"
                                 } transition-all duration-300 ${highlightedBubbleClass}`}
                             >
                                 {message.isRecalled ? (
@@ -1352,9 +1489,57 @@ export function MessageBubble({
                                             Gọi lại
                                         </span>
                                     </button>
+                                ) : groupInviteUrl ? (
+                                    <button
+                                        type="button"
+                                        onClick={openInvitePreview}
+                                        className="block w-80 max-w-[78vw] overflow-hidden rounded-2xl bg-blue-50 text-left text-gray-900 shadow-md ring-1 ring-blue-200 transition-colors hover:bg-blue-100 dark:bg-blue-950/30 dark:text-gray-100 dark:ring-blue-900/60 dark:hover:bg-blue-950/45"
+                                    >
+                                        <div className="mx-3 mt-3 overflow-hidden rounded-xl bg-blue-600">
+                                            <div className="relative flex h-28 items-center gap-3 overflow-hidden px-4 text-white">
+                                                <span className="absolute -left-8 top-0 h-36 w-36 rounded-full bg-white/10" />
+                                                <span className="absolute left-12 top-[-2rem] h-44 w-44 rounded-full bg-white/10" />
+                                                <span className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-white/95 text-gray-400 ring-2 ring-white/80">
+                                                    <Users size={28} />
+                                                </span>
+                                                <span className="relative min-w-0">
+                                                    <span className="block text-sm font-medium text-white/85">
+                                                        Nhóm
+                                                    </span>
+                                                    <span className="mt-1 block truncate text-lg font-bold">
+                                                        Link tham gia nhóm
+                                                    </span>
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div className="px-3 py-2.5">
+                                            <div className="flex items-center justify-between gap-3">
+                                                <span className="min-w-0">
+                                                    <span className="block truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                                        Mời tham gia nhóm
+                                                    </span>
+                                                    <span className="mt-0.5 block text-xs text-gray-500 dark:text-gray-400">
+                                                        Bấm để xem thông tin nhóm
+                                                    </span>
+                                                </span>
+                                                <ExternalLink
+                                                    size={16}
+                                                    className="shrink-0 text-gray-400"
+                                                />
+                                            </div>
+                                            {isLastInGroup && (
+                                                <span className="mt-1 block text-right text-[11px] text-gray-400 dark:text-gray-500">
+                                                    {timeStr}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </button>
                                 ) : (
-                                    <p className="px-4 py-1.5 text-sm">
-                                        {message.content}
+                                    <p className="whitespace-pre-wrap px-4 py-1.5 text-sm break-words">
+                                        {renderTextWithLinks(
+                                            message.content,
+                                            isOwn,
+                                        )}
                                     </p>
                                 )}
                             </div>
@@ -1379,7 +1564,8 @@ export function MessageBubble({
                 {!message.isRecalled &&
                     isLastInGroup &&
                     isOwn &&
-                    !isFileMessageBubble && (
+                    !isFileMessageBubble &&
+                    !groupInviteUrl && (
                         <p
                             className={`text-xs mt-0.5 px-1 text-gray-400  dark:text-gray-500 ${isOwn ? "self-end" : "self-start"}`}
                         >
@@ -1392,6 +1578,7 @@ export function MessageBubble({
                     isLastInGroup &&
                     !isOwn &&
                     !isFileMessageBubble &&
+                    !groupInviteUrl &&
                     message.type !== "CALL" && (
                         <p className="text-xs mt-0.5 px-1 text-gray-400 dark:text-gray-500 self-start">
                             {timeStr}
@@ -1411,6 +1598,85 @@ export function MessageBubble({
                     </div>
                 )}
             </div>
+            {inviteModalOpen && (
+                <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/45 px-4 py-6">
+                    <div className="w-full max-w-sm overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-gray-200 dark:bg-[#111111] dark:ring-[#303030]">
+                        {inviteLoading ? (
+                            <div className="flex h-64 items-center justify-center">
+                                <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+                            </div>
+                        ) : inviteError ? (
+                            <div className="px-6 py-8 text-center">
+                                <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-red-50 text-red-500 dark:bg-red-950/30">
+                                    <ShieldCheck size={24} />
+                                </div>
+                                <h3 className="text-lg font-bold text-gray-950 dark:text-white">
+                                    Link không khả dụng
+                                </h3>
+                                <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                                    {inviteError}
+                                </p>
+                                <button
+                                    type="button"
+                                    onClick={() => setInviteModalOpen(false)}
+                                    className="mt-6 h-10 rounded-md bg-gray-100 px-5 text-sm font-semibold text-gray-800 hover:bg-gray-200 dark:bg-[#262626] dark:text-gray-100 dark:hover:bg-[#333333]"
+                                >
+                                    Đóng
+                                </button>
+                            </div>
+                        ) : invitePreview ? (
+                            <div className="px-6 py-7 text-center">
+                                <img
+                                    src={invitePreview.imageUrl}
+                                    alt={invitePreview.name}
+                                    className="mx-auto h-20 w-20 rounded-full object-cover ring-1 ring-gray-200 dark:ring-[#303030]"
+                                />
+                                <h3 className="mt-4 text-xl font-bold text-gray-950 dark:text-white">
+                                    {invitePreview.name}
+                                </h3>
+                                <p className="mt-2 inline-flex items-center justify-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+                                    <Users size={16} />
+                                    {invitePreview.memberCount} thành viên
+                                </p>
+                                {invitePreview.isJoinApprovalRequired && (
+                                    <p className="mt-4 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-950/25 dark:text-amber-300">
+                                        Nhóm này yêu cầu Quản trị viên phê duyệt
+                                    </p>
+                                )}
+                                <div className="mt-7 grid grid-cols-2 gap-3">
+                                    <button
+                                        type="button"
+                                        disabled={inviteJoining}
+                                        onClick={() => setInviteModalOpen(false)}
+                                        className="h-10 rounded-md bg-gray-100 text-sm font-semibold text-gray-800 hover:bg-gray-200 disabled:opacity-60 dark:bg-[#262626] dark:text-gray-100 dark:hover:bg-[#333333]"
+                                    >
+                                        Đóng
+                                    </button>
+                                    <button
+                                        type="button"
+                                        disabled={
+                                            inviteJoining ||
+                                            inviteUserStatus === "PENDING"
+                                        }
+                                        onClick={handleJoinInvite}
+                                        className={`h-10 rounded-md text-sm font-semibold disabled:cursor-not-allowed ${
+                                            inviteUserStatus === "PENDING"
+                                                ? "bg-gray-200 text-gray-500 dark:bg-[#262626] dark:text-gray-400"
+                                                : "bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-70"
+                                        }`}
+                                    >
+                                        {inviteUserStatus === "PENDING"
+                                            ? "Đang chờ duyệt"
+                                            : inviteJoining
+                                              ? "Đang tham gia..."
+                                              : "Tham gia nhóm"}
+                                    </button>
+                                </div>
+                            </div>
+                        ) : null}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

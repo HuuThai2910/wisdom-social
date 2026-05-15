@@ -188,9 +188,11 @@ export default function GroupConversationPanel({
                     <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">
                         {request.userName || "Thành viên"}
                     </p>
-                    <p className="truncate text-xs text-gray-500 dark:text-gray-400">
-                        Được mời bởi: {request.inviterName || "Không rõ"}
-                    </p>
+                    {request.inviterName && (
+                        <p className="truncate text-xs text-gray-500 dark:text-gray-400">
+                            Được mời bởi: {request.inviterName}
+                        </p>
+                    )}
                     {formatRelativeTime(request.createdAt) && (
                         <p className="mt-0.5 flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500">
                             <Clock size={12} />

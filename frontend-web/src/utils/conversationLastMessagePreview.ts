@@ -20,7 +20,8 @@ type GroupSystemPreviewType =
     | "SYSTEM_LEAVE_GROUP"
     | "SYSTEM_DISBAND_GROUP"
     | "SYSTEM_UPDATE_SETTING"
-    | "SYSTEM_REQUIRE_APPROVAL";
+    | "SYSTEM_REQUIRE_APPROVAL"
+    | "SYSTEM_JOIN_VIA_LINK";
 
 const DEFAULT_PREVIEW_TEXT = "Bắt đầu trò chuyện";
 
@@ -33,6 +34,7 @@ const GROUP_SYSTEM_PREVIEW_TYPES = new Set<GroupSystemPreviewType>([
     "SYSTEM_DISBAND_GROUP",
     "SYSTEM_UPDATE_SETTING",
     "SYSTEM_REQUIRE_APPROVAL",
+    "SYSTEM_JOIN_VIA_LINK",
 ]);
 
 function isGroupSystemPreviewType(

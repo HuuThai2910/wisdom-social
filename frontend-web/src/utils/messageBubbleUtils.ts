@@ -77,6 +77,7 @@ const GROUP_SYSTEM_MESSAGE_TYPES = new Set<MessageType>([
     "SYSTEM_DISBAND_GROUP",
     "SYSTEM_UPDATE_SETTING",
     "SYSTEM_REQUIRE_APPROVAL",
+    "SYSTEM_JOIN_VIA_LINK",
 ]);
 
 export function isGroupSystemType(
@@ -89,7 +90,8 @@ export function isGroupSystemType(
     | "SYSTEM_LEAVE_GROUP"
     | "SYSTEM_DISBAND_GROUP"
     | "SYSTEM_UPDATE_SETTING"
-    | "SYSTEM_REQUIRE_APPROVAL" {
+    | "SYSTEM_REQUIRE_APPROVAL"
+    | "SYSTEM_JOIN_VIA_LINK" {
     return GROUP_SYSTEM_MESSAGE_TYPES.has(type);
 }
 

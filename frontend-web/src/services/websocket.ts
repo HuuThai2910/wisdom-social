@@ -599,8 +599,8 @@ class WebSocketService {
         // BƯỚC 3: Kiểm tra đã subscribe destination này chưa để tránh duplicate
         const existingSubscription = this.subscriptions.get(destination);
         if (existingSubscription) {
-            // console.log(`Already subscribed to ${destination}`);
-            return;
+            existingSubscription.unsubscribe();
+            this.subscriptions.delete(destination);
         }
 
         /**
@@ -879,11 +879,19 @@ class WebSocketService {
                         joinRequestPayload.requestData
                     ) {
                         const request = joinRequestPayload.requestData;
+                        const requestSnapshotContent =
+                            request.content ||
+                            JSON.stringify([
+                                {
+                                    id: request.userId,
+                                    name: request.userName,
+                                },
+                            ]);
                         callback(
                             joinRequestPayload.conversationId,
                             {
                                 lastMessageContent:
-                                    request.content || "",
+                                    requestSnapshotContent,
                                 lastMessageType: "SYSTEM_REQUIRE_APPROVAL",
                                 lastSenderId: request.inviterId ?? 0,
                                 lastSenderName: request.inviterName ?? "",

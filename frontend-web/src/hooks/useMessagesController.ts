@@ -27,6 +27,7 @@ const PRESERVE_EMPTY_PENDING_REQUEST_TYPES = new Set<MessageType>([
     "SYSTEM_UPDATE_ROLE",
     "SYSTEM_UPDATE_SETTING",
     "SYSTEM_REQUIRE_APPROVAL",
+    "SYSTEM_JOIN_VIA_LINK",
 ]);
 
 /**
@@ -429,7 +430,9 @@ export function useMessagesController() {
                 lastMessage.lastMessageType,
             );
             const shouldForceDetailRefresh =
-                lastMessage.lastMessageType === "SYSTEM_UPDATE_ROLE";
+                lastMessage.lastMessageType === "SYSTEM_UPDATE_ROLE" ||
+                lastMessage.lastMessageType === "SYSTEM_UPDATE_SETTING" ||
+                lastMessage.lastMessageType === "SYSTEM_REQUIRE_APPROVAL";
             const shouldPreserveEmptyPendingRequests =
                 PRESERVE_EMPTY_PENDING_REQUEST_TYPES.has(
                     lastMessage.lastMessageType,

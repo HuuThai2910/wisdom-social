@@ -5,7 +5,6 @@
 package iuh.fit.edu.backend.modules.conversation.service.impl;
 
 import iuh.fit.edu.backend.common.util.MediaUrlBuilder;
-import iuh.fit.edu.backend.modules.conversation.dto.request.AddMemberRequest;
 import iuh.fit.edu.backend.modules.conversation.dto.response.*;
 import iuh.fit.edu.backend.modules.conversation.entity.Conversation;
 import iuh.fit.edu.backend.modules.conversation.entity.ConversationMember;
@@ -323,9 +322,7 @@ public class ConversationServiceImpl implements ConversationService {
             return java.util.Collections.singletonMap("message", "Đã gửi yêu cầu tham gia đến Quản trị viên");
         } else {
             // Trường hợp nhóm tự do -> Add thẳng (Tái sử dụng service member)
-            AddMemberRequest addReq = new AddMemberRequest();
-            addReq.setNewMemberIds(java.util.Collections.singleton(userId));
-            return conversationMemberService.addMembers(conv.getId(), addReq, userId);
+            return conversationMemberService.joinByInviteLink(conv.getId(), userId);
         }
     }
 
