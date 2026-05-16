@@ -421,7 +421,8 @@ export const MessageBubble = React.memo(
         // ===== CALL logic (từ develop - quan trọng) =====
         const isRichCardMessage =
             !item.isRecalled &&
-            (item.type === "IMAGE" ||
+            (Boolean(groupInviteToken) ||
+                item.type === "IMAGE" ||
                 item.type === "FILE" ||
                 item.type === "VIDEO" ||
                 item.type === "AUDIO" ||
@@ -2065,11 +2066,9 @@ const styles = StyleSheet.create({
         overflow: "hidden",
         borderRadius: 18,
         backgroundColor: "#EFF6FF",
-        borderWidth: 1,
-        borderColor: "#BFDBFE",
     },
     inviteCardMine: {
-        backgroundColor: "#DBEAFE",
+        backgroundColor: "#EFF6FF",
         borderColor: "#93C5FD",
     },
     inviteHero: {
