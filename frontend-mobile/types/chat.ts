@@ -23,7 +23,8 @@ export type MessageType =
     | "SYSTEM_UPDATE_ROLE"
     | "SYSTEM_DISBAND_GROUP"
     | "SYSTEM_UPDATE_SETTING"
-    | "SYSTEM_REQUIRE_APPROVAL";
+    | "SYSTEM_REQUIRE_APPROVAL"
+    | "SYSTEM_JOIN_VIA_LINK";
 
 export type MemberRole = "OWNER" | "DEPUTY" | "MEMBER";
 
@@ -117,6 +118,7 @@ export interface ConversationSidebar {
     isMessageRestricted?: boolean;
     isJoinApprovalRequired?: boolean;
     pendingRequests?: JoinRequest[] | null;
+    inviteToken?: string | null;
 }
 
 export interface Conversation extends ConversationSidebar {
@@ -144,6 +146,17 @@ export interface JoinRequest {
 }
 
 export type GroupJoinRequest = JoinRequest;
+
+export type InviteUserStatus = "ACTIVE" | "PENDING" | "NOT_MEMBER";
+
+export interface ConversationPreview {
+    conversationId: number;
+    name: string;
+    imageUrl?: string | null;
+    memberCount: number;
+    isJoinApprovalRequired: boolean;
+    userStatus: InviteUserStatus;
+}
 
 export interface SendMessageRequest {
     content: string;

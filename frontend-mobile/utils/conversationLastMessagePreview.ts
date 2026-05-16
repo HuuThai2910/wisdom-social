@@ -28,6 +28,7 @@ const GROUP_SYSTEM_PREVIEW_TYPES = new Set([
     "SYSTEM_DISBAND_GROUP",
     "SYSTEM_UPDATE_SETTING",
     "SYSTEM_REQUIRE_APPROVAL",
+    "SYSTEM_JOIN_VIA_LINK",
 ]);
 
 function isSystemMessageType(type: unknown): type is string {

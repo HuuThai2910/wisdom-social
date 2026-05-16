@@ -13,7 +13,7 @@ import { buildConversationLastMessagePreview } from "@/utils/conversationLastMes
 import { Ionicons } from "@expo/vector-icons";
 import { Audio } from "expo-av";
 import * as Haptics from "expo-haptics";
-import { useRouter, useSegments } from "expo-router";
+import { useLocalSearchParams, useRouter, useSegments } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
     Alert,
@@ -75,6 +75,10 @@ type MenuActionKey = (typeof menuActions)[number]["key"];
 export default function MessagesListScreen() {
     const router = useRouter();
     const segments = useSegments();
+    const { refreshAt, pendingJoinNotice } = useLocalSearchParams<{
+        refreshAt?: string;
+        pendingJoinNotice?: string;
+    }>();
     const insets = useSafeAreaInsets();
     const {
         searchQuery,
@@ -186,6 +190,17 @@ export default function MessagesListScreen() {
         };
     }, []);
 
+    useEffect(() => {
+        if (!refreshAt) return;
+        void reload();
+        if (pendingJoinNotice === "1") {
+            Alert.alert(
+                "Đang chờ phê duyệt",
+                "Yêu cầu tham gia nhóm của bạn đã được gửi đến trưởng/phó nhóm.",
+            );
+        }
+    }, [pendingJoinNotice, refreshAt, reload]);
+
     const closeMenu = () => setMenuState(null);
 
     const handleItemLongPress = (
@@ -255,7 +270,11 @@ export default function MessagesListScreen() {
                 }
                 rightActions={[
                     {
-                        icon: "create-outline",
+                        icon: "qr-code-outline",
+                        onPress: () => router.push("/(stack)/qr-scanner"),
+                    },
+                    {
+                        icon: "people-outline",
                         onPress: openCreateGroupModal,
                     },
                 ]}

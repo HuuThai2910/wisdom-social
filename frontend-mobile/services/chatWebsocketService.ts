@@ -895,11 +895,19 @@ class ChatWebsocketService {
                         joinRequestPayload.requestData
                     ) {
                         const request = joinRequestPayload.requestData;
+                        const requestSnapshotContent =
+                            request.content ||
+                            JSON.stringify([
+                                {
+                                    id: request.userId,
+                                    name: request.userName,
+                                },
+                            ]);
                         listeners.forEach((listener) =>
                             listener.onConversationUpdated(
                                 joinRequestPayload.conversationId,
                                 {
-                                    lastMessageContent: request.content || "",
+                                    lastMessageContent: requestSnapshotContent,
                                     lastMessageType: "SYSTEM_REQUIRE_APPROVAL",
                                     lastSenderId: request.inviterId ?? 0,
                                     lastSenderName: request.inviterName ?? "",

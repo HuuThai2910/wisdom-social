@@ -282,6 +282,21 @@ export function ConversationDetailsScreen() {
 
                 <View style={styles.divider} />
 
+                {isGroup && (
+                    <>
+                        <DetailItem
+                            icon="link-outline"
+                            label="Link tham gia nhóm"
+                            onPress={() =>
+                                router.push(
+                                    `/messages/details/invite-link/${id}`,
+                                )
+                            }
+                        />
+                        <View style={styles.divider} />
+                    </>
+                )}
+
                 <CollapsibleSection
                     title="File phương tiện, File & Link"
                     isOpen={expandedSections.media}

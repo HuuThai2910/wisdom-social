@@ -256,7 +256,7 @@ export const MessageComposer = React.memo(
                                         placeholder={
                                             uploading
                                                 ? "Đang tải tệp..."
-                                                : "Nhắn tin...."
+                                                : "Nhắn tin"
                                         }
                                         placeholderTextColor={colors.textMuted}
                                         style={styles.input}

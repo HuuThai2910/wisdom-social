@@ -20,6 +20,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Audio, type AVPlaybackStatus, ResizeMode, Video } from "expo-av";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Alert,
@@ -87,9 +88,16 @@ import {
 import { PinnedBanner } from "@/components/PinnedBanner";
 import { buildPinnedBannerItemsFromSnapshot } from "@/utils/pinnedMessageSnapshot";
 import { useOneToOneCall } from "@/hooks/useOneToOneCall";
+import { consumeInviteReturnSync } from "@/utils/inviteReturnSync";
 export default function MessagesConversationScreen() {
-    const { conversationId: conversationIdParam } = useLocalSearchParams<{
+    const {
+        conversationId: conversationIdParam,
+        refreshAt,
+        pendingJoinNotice,
+    } = useLocalSearchParams<{
         conversationId?: string;
+        refreshAt?: string;
+        pendingJoinNotice?: string;
     }>();
     const conversationId = Number(conversationIdParam ?? 0);
     const router = useRouter();
@@ -165,6 +173,27 @@ export default function MessagesConversationScreen() {
         start: 0,
         end: 0,
     });
+
+    useEffect(() => {
+        if (!refreshAt) return;
+        void resetToPresent();
+        if (pendingJoinNotice === "1") {
+            Alert.alert(
+                "Đang chờ phê duyệt",
+                "Yêu cầu tham gia nhóm của bạn đã được gửi đến trưởng/phó nhóm.",
+            );
+        }
+    }, [pendingJoinNotice, refreshAt, resetToPresent]);
+
+    useFocusEffect(
+        useCallback(() => {
+            if (!Number.isFinite(conversationId)) return undefined;
+            if (consumeInviteReturnSync(conversationId)) {
+                void resetToPresent();
+            }
+            return undefined;
+        }, [conversationId, resetToPresent]),
+    );
 
     // Mapping web -> mobile:
     // - useGroupManagement giu nguyen API/state flow cua web.

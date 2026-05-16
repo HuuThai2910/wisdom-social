@@ -182,9 +182,9 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
             return conversationMapper.toConversationResponse(conv, userId);
         }
 
-        if (member != null && member.getStatus() == ConversationMemberStatus.KICKED) {
-            throw new RuntimeException("Bạn đã bị chặn khỏi nhóm");
-        }
+//        if (member != null && member.getStatus() == ConversationMemberStatus.KICKED) {
+//            throw new RuntimeException("Bạn đã bị chặn khỏi nhóm");
+//        }
 
         if (member == null) {
             member = new ConversationMember();

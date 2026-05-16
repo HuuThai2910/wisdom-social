@@ -4,6 +4,7 @@ import type {
     ApiResponse,
     BulkPresignedRequest,
     Conversation,
+    ConversationPreview,
     ConversationSidebar,
     ConversationMember,
     CreateGroupRequest,
@@ -335,6 +336,42 @@ const chatService = {
         );
         return unwrapApiData(
             response.data as ApiResponse<JoinRequest[]> | JoinRequest[],
+        );
+    },
+
+    async getOrCreateInviteLink(conversationId: number): Promise<string> {
+        const response = await apiClient.get(
+            `/conversations/${conversationId}/invite-link`,
+        );
+        const payload = response.data as ApiResponse<string> | string;
+        return unwrapApiData(payload);
+    },
+
+    async resetInviteLink(conversationId: number): Promise<string> {
+        const response = await apiClient.patch(
+            `/conversations/${conversationId}/invite-link/reset`,
+        );
+        const payload = response.data as ApiResponse<string> | string;
+        return unwrapApiData(payload);
+    },
+
+    async disableInviteLink(conversationId: number): Promise<void> {
+        await apiClient.delete(`/conversations/${conversationId}/invite-link`);
+    },
+
+    async previewInvite(token: string): Promise<ConversationPreview> {
+        const response = await apiClient.get(`/conversations/invite/${token}`);
+        return unwrapApiData(
+            response.data as ApiResponse<ConversationPreview> | ConversationPreview,
+        );
+    },
+
+    async joinByInvite(token: string): Promise<Conversation | { message?: string }> {
+        const response = await apiClient.post(
+            `/conversations/invite/${token}/join`,
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation | { message?: string }> | Conversation | { message?: string },
         );
     },
 

@@ -339,9 +339,11 @@ function JoinRequestItem({
                 <Text style={styles.memberName} numberOfLines={1}>
                     {requestName}
                 </Text>
-                <Text style={styles.requestMeta} numberOfLines={1}>
-                    Được mời bởi: {request.inviterName || "Không rõ"}
-                </Text>
+                {request.inviterName ? (
+                    <Text style={styles.requestMeta} numberOfLines={1}>
+                        Được mời bởi: {request.inviterName}
+                    </Text>
+                ) : null}
                 {!!formatRelativeTime(request.createdAt) && (
                     <Text style={styles.requestMeta}>
                         {formatRelativeTime(request.createdAt)}

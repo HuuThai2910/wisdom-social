@@ -9,6 +9,7 @@ import {
     Linking,
     Platform,
 } from "react-native";
+import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Video, ResizeMode } from "expo-av";
 import * as Haptics from "expo-haptics";
@@ -41,11 +42,37 @@ import {
     formatReplyLabel,
 } from "@/utils/messageUtils";
 import { buildSystemGroupMessage } from "@/utils/systemCreateGroupMessage";
+import { extractGroupInviteToken } from "@/utils/groupInvite";
 
 const RIGHT_SCROLL_CUE_HEIGHT = 38;
 const MESSAGE_LONG_PRESS_DELAY_MS = 500;
 const SWIPE_REPLY_TRIGGER_PX = 56;
 const SWIPE_REPLY_MAX_TRANSLATE_PX = 72;
+const URL_PATTERN = /(https?:\/\/[^\s]+)/g;
+
+function renderTextWithLinks(content: string, mine: boolean) {
+    const parts = content.split(URL_PATTERN);
+    return parts.map((part, index) => {
+        if (!/^https?:\/\/[^\s]+$/.test(part)) {
+            return part;
+        }
+
+        return (
+            <Text
+                key={`${part}-${index}`}
+                style={[
+                    styles.inlineLink,
+                    mine && styles.inlineLinkMine,
+                ]}
+                onPress={() => {
+                    void Linking.openURL(part);
+                }}
+            >
+                {part}
+            </Text>
+        );
+    });
+}
 
 const GROUP_SYSTEM_MESSAGE_TYPES = new Set<Message["type"]>([
     "SYSTEM_CREATE_GROUP",
@@ -56,6 +83,7 @@ const GROUP_SYSTEM_MESSAGE_TYPES = new Set<Message["type"]>([
     "SYSTEM_DISBAND_GROUP",
     "SYSTEM_UPDATE_SETTING",
     "SYSTEM_REQUIRE_APPROVAL",
+    "SYSTEM_JOIN_VIA_LINK",
 ]);
 
 export type MessageBubbleProps = {
@@ -100,6 +128,7 @@ export const MessageBubble = React.memo(
         onRecallCall,
         onSwipeReply,
     }: MessageBubbleProps) => {
+        const router = useRouter();
         const {
             audioLoadingKey,
             playingAudioKey,
@@ -360,6 +389,10 @@ export const MessageBubble = React.memo(
                       ? "Cuoc goi"
                       : replyPreviewContent || "Tin nhan";
         const trimmedContent = item.content?.trim() ?? "";
+        const groupInviteToken =
+            item.type === "TEXT" && !item.isRecalled
+                ? extractGroupInviteToken(trimmedContent)
+                : null;
         const messageIsEmojiOnly =
             item.type === "TEXT" &&
             !item.isRecalled &&
@@ -373,7 +406,8 @@ export const MessageBubble = React.memo(
             item.type !== "CALL" &&
             item.type !== "SYSTEM_PIN" &&
             item.type !== "SYSTEM_UPIN" &&
-            !GROUP_SYSTEM_MESSAGE_TYPES.has(item.type);
+            !GROUP_SYSTEM_MESSAGE_TYPES.has(item.type) &&
+            !groupInviteToken;
 
         const shouldShowAttachmentCaption =
             !item.isRecalled &&
@@ -486,7 +520,8 @@ export const MessageBubble = React.memo(
                     | "SYSTEM_LEAVE_GROUP"
                     | "SYSTEM_DISBAND_GROUP"
                     | "SYSTEM_UPDATE_SETTING"
-                    | "SYSTEM_REQUIRE_APPROVAL",
+                    | "SYSTEM_REQUIRE_APPROVAL"
+                    | "SYSTEM_JOIN_VIA_LINK",
                 content: item.content,
                 isOwn: mine,
                 senderName: senderDisplayName,
@@ -1590,6 +1625,75 @@ export const MessageBubble = React.memo(
                                                 </Pressable>
                                             ) : null}
 
+                                            {groupInviteToken ? (
+                                                <Pressable
+                                                    style={[
+                                                        styles.inviteCard,
+                                                        mine && styles.inviteCardMine,
+                                                        !mine && styles.cardShadow,
+                                                    ]}
+                                                    delayLongPress={
+                                                        MESSAGE_LONG_PRESS_DELAY_MS
+                                                    }
+                                                    onLongPress={
+                                                        triggerMessageLongPress
+                                                    }
+                                                    onPress={() =>
+                                                        runTapAction(() =>
+                                                            router.push({
+                                                                pathname:
+                                                                    "/(stack)/group-invite/[token]" as any,
+                                                                params: {
+                                                                    token: groupInviteToken,
+                                                                    returnConversationId:
+                                                                        String(
+                                                                            item.conversationId,
+                                                                        ),
+                                                                },
+                                                            } as any),
+                                                        )
+                                                    }
+                                                >
+                                                    <View style={styles.inviteHero}>
+                                                        <View style={styles.inviteCircleLarge} />
+                                                        <View style={styles.inviteCircleSmall} />
+                                                        <View style={styles.inviteAvatar}>
+                                                            <Ionicons
+                                                                name="people-outline"
+                                                                size={28}
+                                                                color="#8a94a6"
+                                                            />
+                                                        </View>
+                                                        <View style={styles.inviteHeroText}>
+                                                            <Text style={styles.inviteEyebrow}>
+                                                                Nhóm
+                                                            </Text>
+                                                            <Text
+                                                                numberOfLines={1}
+                                                                style={styles.inviteTitle}
+                                                            >
+                                                                Link tham gia nhóm
+                                                            </Text>
+                                                        </View>
+                                                    </View>
+                                                    <View style={styles.inviteMeta}>
+                                                        <View style={{ flex: 1 }}>
+                                                            <Text style={styles.inviteMetaTitle}>
+                                                                Mời tham gia nhóm
+                                                            </Text>
+                                                            <Text style={styles.inviteMetaSub}>
+                                                                Bấm để xem thông tin nhóm
+                                                            </Text>
+                                                        </View>
+                                                        <Ionicons
+                                                            name="open-outline"
+                                                            size={18}
+                                                            color="#94a3b8"
+                                                        />
+                                                    </View>
+                                                </Pressable>
+                                            ) : null}
+
                                             {shouldShowFallbackText ? (
                                                 <Text
                                                     style={[
@@ -1598,8 +1702,12 @@ export const MessageBubble = React.memo(
                                                             styles.messageTextMine,
                                                     ]}
                                                 >
-                                                    {item.content ||
-                                                        "Tin nhan khong co noi dung"}
+                                                    {item.content
+                                                        ? renderTextWithLinks(
+                                                              item.content,
+                                                              mine,
+                                                          )
+                                                        : "Tin nhan khong co noi dung"}
                                                 </Text>
                                             ) : null}
 
@@ -1942,6 +2050,96 @@ const styles = StyleSheet.create({
     },
     messageTextMine: {
         color: colors.white,
+    },
+    inlineLink: {
+        color: colors.primary,
+        textDecorationLine: "underline",
+        fontWeight: "700",
+    },
+    inlineLinkMine: {
+        color: colors.white,
+    },
+    inviteCard: {
+        width: 286,
+        maxWidth: "100%",
+        overflow: "hidden",
+        borderRadius: 18,
+        backgroundColor: "#EFF6FF",
+        borderWidth: 1,
+        borderColor: "#BFDBFE",
+    },
+    inviteCardMine: {
+        backgroundColor: "#DBEAFE",
+        borderColor: "#93C5FD",
+    },
+    inviteHero: {
+        margin: 10,
+        height: 104,
+        borderRadius: 14,
+        backgroundColor: "#1D63FF",
+        overflow: "hidden",
+        flexDirection: "row",
+        alignItems: "center",
+        paddingHorizontal: 16,
+    },
+    inviteCircleLarge: {
+        position: "absolute",
+        left: -42,
+        top: -20,
+        width: 150,
+        height: 150,
+        borderRadius: 75,
+        backgroundColor: "rgba(255,255,255,0.12)",
+    },
+    inviteCircleSmall: {
+        position: "absolute",
+        left: 44,
+        top: -34,
+        width: 176,
+        height: 176,
+        borderRadius: 88,
+        backgroundColor: "rgba(255,255,255,0.12)",
+    },
+    inviteAvatar: {
+        width: 58,
+        height: 58,
+        borderRadius: 29,
+        backgroundColor: "#F8FAFC",
+        alignItems: "center",
+        justifyContent: "center",
+        borderWidth: 2,
+        borderColor: "rgba(255,255,255,0.75)",
+    },
+    inviteHeroText: {
+        marginLeft: 14,
+        flex: 1,
+    },
+    inviteEyebrow: {
+        color: "rgba(255,255,255,0.82)",
+        fontSize: 13,
+        fontWeight: "700",
+    },
+    inviteTitle: {
+        marginTop: 5,
+        color: "#fff",
+        fontSize: 18,
+        fontWeight: "900",
+    },
+    inviteMeta: {
+        paddingHorizontal: 14,
+        paddingBottom: 12,
+        flexDirection: "row",
+        alignItems: "center",
+    },
+    inviteMetaTitle: {
+        color: colors.text,
+        fontSize: 14,
+        fontWeight: "800",
+    },
+    inviteMetaSub: {
+        marginTop: 2,
+        color: colors.textMuted,
+        fontSize: 12,
     },
     recalledText: {
         fontStyle: "italic",

@@ -11,7 +11,8 @@ export type GroupSystemMessageType =
     | "SYSTEM_LEAVE_GROUP"
     | "SYSTEM_DISBAND_GROUP"
     | "SYSTEM_UPDATE_SETTING"
-    | "SYSTEM_REQUIRE_APPROVAL";
+    | "SYSTEM_REQUIRE_APPROVAL"
+    | "SYSTEM_JOIN_VIA_LINK";
 
 function formatCommaNameList(names: string[]): string {
     return names.join(", ");
@@ -325,7 +326,18 @@ function buildSystemUpdateSettingMessage(params: {
     actorLabel: string;
 }): string {
     const { content, isOwn, actorLabel } = params;
-    const isRestricted = content.includes("isMessageRestricted:true");
+    const normalizedContent = content.trim();
+    const isMessageRestrictionSetting =
+        normalizedContent.includes("isMessageRestricted") ||
+        normalizedContent.includes("chỉ Trưởng/Phó nhóm được gửi tin nhắn");
+
+    if (!isMessageRestrictionSetting) {
+        return isOwn ? `Bạn ${normalizedContent}` : `${actorLabel} ${normalizedContent}`;
+    }
+
+    const isRestricted =
+        normalizedContent.includes("isMessageRestricted:true") ||
+        normalizedContent.includes("đã bật chế độ chỉ Trưởng/Phó nhóm được gửi tin nhắn");
 
     if (isRestricted) {
         return isOwn
@@ -415,8 +427,22 @@ export function buildSystemGroupMessage(params: {
             .filter((name): name is string => Boolean(name));
         const joinedNames =
             formatCommaNameList(memberNames) || "Thành viên mới";
+        const hasInviter =
+            Boolean(senderName?.trim()) ||
+            (typeof senderId === "number" &&
+                Number.isFinite(senderId) &&
+                senderId > 0);
+        if (!hasInviter) {
+            return `${joinedNames} yêu cầu tham gia nhóm và cần trưởng/phó nhóm phê duyệt.`;
+        }
         const inviterLabel = isOwn ? "bạn" : actorLabel;
-        return `${joinedNames} được ${inviterLabel} mời tham gia nhóm và cần bạn phê duyệt.`;
+        return `${joinedNames} được ${inviterLabel} mời tham gia nhóm và cần trưởng/phó nhóm phê duyệt.`;
+    }
+
+    if (type === "SYSTEM_JOIN_VIA_LINK") {
+        return isOwn
+            ? "Bạn đã tham gia nhóm bằng link"
+            : `${actorLabel} đã tham gia nhóm bằng link`;
     }
 
     return buildSystemUpdateSettingMessage({

@@ -23,6 +23,7 @@ const GROUP_SYSTEM_SYNC_TYPES = new Set<Message["type"]>([
     "SYSTEM_DISBAND_GROUP",
     "SYSTEM_UPDATE_SETTING",
     "SYSTEM_REQUIRE_APPROVAL",
+    "SYSTEM_JOIN_VIA_LINK",
 ]);
 
 const PRESERVE_EMPTY_PENDING_REQUEST_TYPES = new Set<Message["type"]>([
@@ -31,6 +32,7 @@ const PRESERVE_EMPTY_PENDING_REQUEST_TYPES = new Set<Message["type"]>([
     "SYSTEM_UPDATE_ROLE",
     "SYSTEM_UPDATE_SETTING",
     "SYSTEM_REQUIRE_APPROVAL",
+    "SYSTEM_JOIN_VIA_LINK",
 ]);
 
 function safeParseMemberIds(content: string): number[] {

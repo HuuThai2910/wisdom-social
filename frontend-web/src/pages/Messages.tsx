@@ -28,6 +28,11 @@ import {
     Settings,
     LogOut,
     Link2,
+    UserPlus,
+    Users,
+    Users2,
+    UserPlus2,
+    LucideUserPlus2,
    
 } from "lucide-react";
 import ChatWindow from "../components/message/ChatWindow";
@@ -607,7 +612,7 @@ export default function Messages() {
                                 title="Tạo nhóm mới"
                                 className="rounded-full p-2 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-[#262626] dark:hover:text-white"
                             >
-                                <Edit size={20} />
+                                <LucideUserPlus2 size={20} />
                             </button>
                         </div>
 
