@@ -94,14 +94,23 @@ export default function MessagesConversationScreen() {
         conversationId: conversationIdParam,
         refreshAt,
         pendingJoinNotice,
+        backToMessages,
     } = useLocalSearchParams<{
         conversationId?: string;
         refreshAt?: string;
         pendingJoinNotice?: string;
+        backToMessages?: string;
     }>();
     const conversationId = Number(conversationIdParam ?? 0);
     const router = useRouter();
     const insets = useSafeAreaInsets();
+    const handleBackPress = useCallback(() => {
+        if (backToMessages === "1") {
+            router.replace("/(tabs)/activity");
+            return;
+        }
+        router.back();
+    }, [backToMessages, router]);
     const handleAccessBlocked = useCallback(() => {
         router.replace("/(tabs)/activity");
     }, [router]);
@@ -237,7 +246,7 @@ export default function MessagesConversationScreen() {
             await resetToPresent();
         },
         onClearSelection: () => {
-            router.back();
+            handleBackPress();
         },
     });
 
@@ -1426,7 +1435,7 @@ export default function MessagesConversationScreen() {
                 <View style={styles.header}>
                     <Pressable
                         style={styles.headerBackBtn}
-                        onPress={() => router.back()}
+                        onPress={handleBackPress}
                         hitSlop={8}
                     >
                         <Ionicons
@@ -1477,7 +1486,7 @@ export default function MessagesConversationScreen() {
                 <View style={styles.header}>
                     <Pressable
                         style={styles.headerBackBtn}
-                        onPress={() => router.back()}
+                        onPress={handleBackPress}
                         hitSlop={8}
                     >
                         <Ionicons

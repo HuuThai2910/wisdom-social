@@ -165,9 +165,9 @@ export function GroupInviteScreen() {
 
         if (returnTo === "messages") {
             router.replace({
-                pathname: "/(stack)/messages" as any,
+                pathname: "/(tabs)/activity",
                 params: { refreshAt },
-            } as any);
+            });
             return;
         }
 
@@ -199,6 +199,7 @@ export function GroupInviteScreen() {
                     params: {
                         conversationId: String(conversationId),
                         refreshAt: String(Date.now()),
+                        backToMessages: "1",
                     },
                 });
                 return;
@@ -219,12 +220,12 @@ export function GroupInviteScreen() {
             }
 
             router.replace({
-                pathname: "/(stack)/messages" as any,
+                pathname: "/(tabs)/activity",
                 params: {
                     refreshAt: String(Date.now()),
                     pendingJoinNotice: "1",
                 },
-            } as any);
+            });
             return;
         } catch (err) {
             const message =
