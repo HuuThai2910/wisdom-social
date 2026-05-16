@@ -230,6 +230,29 @@ public class MessageCommandService {
         eventPublisher.publishEvent(new PinUpdatedEvent(conversationId, pinnedList));
     }
 
+    public MessageResponse addReaction(String messageId, Long userId, String emoji) {
+        String normalizedEmoji = Optional.ofNullable(emoji)
+                .map(String::trim)
+                .filter(value -> !value.isEmpty())
+                .orElseThrow(() -> new IllegalArgumentException("Emoji không được để trống"));
+
+        Message message = messageRepository.findById(messageId)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy tin nhắn"));
+
+        conversationMemberService.getMemberInfo(message.getConversationId(), userId);
+
+        Message updatedMessage = messageRepository
+                .incrementReactionCounter(messageId, userId, normalizedEmoji)
+                .orElseThrow(() -> new RuntimeException("Không thể cập nhật reaction"));
+
+        MessageResponse response = messageMapper.toMessageResponse(updatedMessage);
+        TransactionUtil.executeAfterCommit(() -> {
+            messageCacheService.updateMessage(response);
+            eventPublisher.publishEvent(new iuh.fit.edu.backend.modules.chat.event.payload.MessageReactionEvent(response));
+        });
+        return response;
+    }
+
     /**
      * Hàm xử lý việc gọi
      */

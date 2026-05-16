@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import chatService from "@/services/chatService";
+import { Alert } from "react-native";
+import chatService, { isMaxPinLimitError } from "@/services/chatService";
 import chatWebsocketService from "@/services/chatWebsocketService";
 import chatRuntimeStore from "@/stores/chatRuntimeStore";
-import type { Conversation, ConversationSidebar, Message } from "@/types/chat";
+import type {
+    Conversation,
+    ConversationPin,
+    ConversationSidebar,
+    Message,
+} from "@/types/chat";
 import { useAppContext } from "@/context/AppContext";
 import { useFocusEffect } from "@react-navigation/native";
 
@@ -34,6 +40,31 @@ const PRESERVE_EMPTY_PENDING_REQUEST_TYPES = new Set<Message["type"]>([
     "SYSTEM_REQUIRE_APPROVAL",
     "SYSTEM_JOIN_VIA_LINK",
 ]);
+
+const MAX_PINNED_CONVERSATIONS = 4;
+
+function sortWithPinnedConversations(
+    conversations: Conversation[],
+    pinnedConversations: ConversationPin[],
+): Conversation[] {
+    const pinnedOrder = new Map(
+        pinnedConversations.map((pin, index) => [pin.conversationId, index]),
+    );
+
+    return [...conversations].sort((left, right) => {
+        const leftPinnedOrder = pinnedOrder.get(left.id);
+        const rightPinnedOrder = pinnedOrder.get(right.id);
+
+        if (leftPinnedOrder !== undefined && rightPinnedOrder !== undefined) {
+            return leftPinnedOrder - rightPinnedOrder;
+        }
+
+        if (leftPinnedOrder !== undefined) return -1;
+        if (rightPinnedOrder !== undefined) return 1;
+
+        return 0;
+    });
+}
 
 function safeParseMemberIds(content: string): number[] {
     if (!content) return [];
@@ -207,6 +238,9 @@ function getProcessedJoinRequestId(
 export function useMessagesController() {
     const [searchQuery, setSearchQuery] = useState("");
     const [conversations, setConversations] = useState<Conversation[]>([]);
+    const [pinnedConversations, setPinnedConversations] = useState<
+        ConversationPin[]
+    >([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
@@ -230,7 +264,11 @@ export function useMessagesController() {
                 );
             }
 
-            const response = await chatService.getConversations(currentUserId);
+            const [response, pins] = await Promise.all([
+                chatService.getConversations(currentUserId),
+                chatService.fetchPinnedConversations(),
+            ]);
+            setPinnedConversations(pins);
             if (response.success && response.data) {
                 const sidebarConversations = response.data.map(
                     toConversationFromSidebar,
@@ -240,7 +278,7 @@ export function useMessagesController() {
                     chatRuntimeStore.getAllConversations(),
                 ]);
 
-                setConversations(merged);
+                setConversations(sortWithPinnedConversations(merged, pins));
                 merged.forEach((conversation) => {
                     chatRuntimeStore.setConversation(
                         conversation.id,
@@ -263,6 +301,129 @@ export function useMessagesController() {
     useEffect(() => {
         void loadConversations();
     }, [loadConversations]);
+
+    const fetchPinnedConversations = useCallback(async () => {
+        const pins = await chatService.fetchPinnedConversations();
+        setPinnedConversations(pins);
+        setConversations((prev) => sortWithPinnedConversations(prev, pins));
+        return pins;
+    }, []);
+
+    const [onPinLimitReachedRef] = useState<{ current: ((conversationId: number) => void) | null }>({ current: null });
+
+    const registerPinLimitCallback = useCallback(
+        (cb: ((conversationId: number) => void) | null) => {
+            onPinLimitReachedRef.current = cb;
+        },
+        [onPinLimitReachedRef],
+    );
+
+    const showMaxPinLimitAlert = useCallback(
+        (conversationId: number) => {
+            if (onPinLimitReachedRef.current) {
+                onPinLimitReachedRef.current(conversationId);
+            } else {
+                Alert.alert(
+                    "Thông báo",
+                    `Bạn chỉ được ghim tối đa ${MAX_PINNED_CONVERSATIONS} cuộc hội thoại. Hãy bỏ ghim 1 cuộc hội thoại trước.`,
+                );
+            }
+        },
+        [onPinLimitReachedRef],
+    );
+
+    const pinConversation = useCallback(
+        async (conversationId: number) => {
+            const conversation = conversations.find(
+                (item) => item.id === conversationId,
+            );
+            if (!conversation) return false;
+
+            if (
+                pinnedConversations.length >= MAX_PINNED_CONVERSATIONS &&
+                !pinnedConversations.some(
+                    (pin) => pin.conversationId === conversationId,
+                )
+            ) {
+                showMaxPinLimitAlert(conversationId);
+                return false;
+            }
+
+            const previousPins = pinnedConversations;
+            const nextPins: ConversationPin[] = [
+                {
+                    conversationId,
+                    pinnedAt: new Date().toISOString(),
+                    conversation,
+                },
+                ...previousPins.filter(
+                    (pin) => pin.conversationId !== conversationId,
+                ),
+            ];
+
+            setPinnedConversations(nextPins);
+            setConversations((prev) =>
+                sortWithPinnedConversations(prev, nextPins),
+            );
+
+            try {
+                const savedPin =
+                    await chatService.pinConversation(conversationId);
+                setPinnedConversations((currentPins) => {
+                    const syncedPins = [
+                        savedPin,
+                        ...currentPins.filter(
+                            (pin) => pin.conversationId !== conversationId,
+                        ),
+                    ];
+                    setConversations((prev) =>
+                        sortWithPinnedConversations(prev, syncedPins),
+                    );
+                    return syncedPins;
+                });
+                return true;
+            } catch (error) {
+                setPinnedConversations(previousPins);
+                setConversations((prev) =>
+                    sortWithPinnedConversations(prev, previousPins),
+                );
+                if (isMaxPinLimitError(error)) {
+                    showMaxPinLimitAlert(conversationId);
+                } else {
+                    setError("Không thể ghim cuộc trò chuyện");
+                }
+                return false;
+            }
+        },
+        [conversations, pinnedConversations, showMaxPinLimitAlert],
+    );
+
+    const unpinConversation = useCallback(
+        async (conversationId: number) => {
+            const previousPins = pinnedConversations;
+            const nextPins = previousPins.filter(
+                (pin) => pin.conversationId !== conversationId,
+            );
+
+            setPinnedConversations(nextPins);
+            setConversations((prev) =>
+                sortWithPinnedConversations(prev, nextPins),
+            );
+
+            try {
+                await chatService.unpinConversation(conversationId);
+                return true;
+            } catch {
+                setPinnedConversations(previousPins);
+                setConversations((prev) =>
+                    sortWithPinnedConversations(prev, previousPins),
+                );
+                setError("Không thể bỏ ghim cuộc trò chuyện");
+                return false;
+            }
+        },
+        [pinnedConversations],
+    );
 
     useEffect(() => {
         return chatRuntimeStore.subscribeConversationChanges(
@@ -697,9 +858,13 @@ export function useMessagesController() {
 
     const filteredConversations = useMemo(() => {
         const query = searchQuery.trim().toLowerCase();
-        if (!query) return conversations;
+        const source = sortWithPinnedConversations(
+            conversations,
+            pinnedConversations,
+        );
+        if (!query) return source;
 
-        return conversations.filter((conversation) => {
+        return source.filter((conversation) => {
             const candidate = [
                 conversation.name,
                 conversation.lastMessage?.lastMessageContent,
@@ -710,7 +875,7 @@ export function useMessagesController() {
 
             return candidate.includes(query);
         });
-    }, [conversations, searchQuery]);
+    }, [conversations, pinnedConversations, searchQuery]);
 
     const clearUnreadCount = useCallback((conversationId: number) => {
         setConversations((prev) =>
@@ -746,12 +911,20 @@ export function useMessagesController() {
         searchQuery,
         setSearchQuery,
         conversations,
+        pinnedConversations,
+        isPinLimitReached:
+            pinnedConversations.length >= MAX_PINNED_CONVERSATIONS,
         filteredConversations,
         loading,
         error,
         currentUserId,
         clearUnreadCount,
+        pinConversation,
+        unpinConversation,
+        fetchPinnedConversations,
         deleteConversationForMe,
         reload: loadConversations,
+        registerPinLimitCallback,
+        maxPinnedConversations: MAX_PINNED_CONVERSATIONS,
     };
 }

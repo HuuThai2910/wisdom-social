@@ -21,7 +21,7 @@ import java.util.List;
  * @version: 1.0
  */
 @Repository
-public interface MessageRepository extends MongoRepository<Message, String> {
+public interface MessageRepository extends MongoRepository<Message, String>, MessageReactionRepository {
     // Lấy ra 20 tin nhắn mới nhất
     List<Message> findByConversationIdOrderByCreatedAtDesc(
             Long conversationId,

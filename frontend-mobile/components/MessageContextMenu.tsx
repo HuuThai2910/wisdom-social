@@ -44,6 +44,7 @@ type Props = {
     selectedMessage?: Message | null;
     closeContextMenu: () => void;
     handleContextAction: (actionKey: string) => void;
+    onReaction: (messageId: string, emoji: string) => void;
     selectedMessagePinned: boolean;
     canRecallOwnMessages: boolean;
 };
@@ -53,6 +54,7 @@ export function MessageContextMenu({
     selectedMessage,
     closeContextMenu,
     handleContextAction,
+    onReaction,
     selectedMessagePinned,
     canRecallOwnMessages,
 }: Props) {
@@ -228,6 +230,7 @@ export function MessageContextMenu({
                                     ]}
                                     onPress={(event) => {
                                         event.stopPropagation();
+                                        onReaction(contextMenu.messageId, emoji);
                                         closeContextMenu();
                                     }}
                                 >

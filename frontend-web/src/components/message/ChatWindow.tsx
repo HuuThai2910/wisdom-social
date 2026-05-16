@@ -138,6 +138,7 @@ export default function ChatWindow({
     handleRecall,
     canRecallOwnMessages,
     handleDeleteMessageForMe,
+    addReaction,
     appendRealtimeMessage,
     scrollToBottom,
     recallToast,
@@ -814,6 +815,7 @@ export default function ChatWindow({
             canRecallOwnMessages={canRecallOwnMessages}
             onRecallCall={(callType) => void startCall(callType)}
             onDeleteForMe={handleDeleteMessageForMe}
+            onReaction={addReaction}
             onOpenRequireApprovalDetails={onToggleInfoPanel}
             onMediaLoad={() => {
               stabilizeMediaLayoutOnMediaLoad();

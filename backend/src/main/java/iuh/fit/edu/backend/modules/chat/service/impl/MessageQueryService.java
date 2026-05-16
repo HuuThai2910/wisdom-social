@@ -40,6 +40,20 @@ public class MessageQueryService {
     private final MessageCacheService messageCacheService;
     private final MessageMapper messageMapper;
 
+    public MessageResponse getMessageById(String messageId, Long userId) {
+        Message message = messageRepository.findById(messageId)
+                .orElseThrow(() -> new RuntimeException("Tin nhắn không tồn tại"));
+
+        conversationMemberService.getMemberInfo(message.getConversationId(), userId);
+        if (message.getDeletedFor() != null && message.getDeletedFor().contains(userId)) {
+            throw new RuntimeException("Không thể tìm thấy tin nhắn");
+        }
+
+        MessageResponse response = messageMapper.toMessageResponse(message);
+        response.setDeletedFor(null);
+        return response;
+    }
+
     /**
      * Lấy ra tin nhắn trong cuộc hội thoại
      * Mặc định limit = 20

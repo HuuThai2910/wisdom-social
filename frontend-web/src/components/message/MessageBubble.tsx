@@ -140,7 +140,8 @@ export interface MessageBubbleProps {
     onRecall: (messageId: string) => void;
     canRecallOwnMessages?: boolean;
     onRecallCall?: (callType: "audio" | "video") => void;
-    onDeleteForMe: (messageId: string) => void;
+    onDeleteForMe?: (messageId: string) => void;
+    onReaction?: (messageId: string, emoji: string) => void;
     onOpenRequireApprovalDetails?: () => void;
     onMediaLoad?: () => void;
     isFirstInGroup?: boolean;
@@ -167,6 +168,7 @@ export function MessageBubble({
     canRecallOwnMessages = true,
     onRecallCall,
     onDeleteForMe,
+    onReaction,
     onOpenRequireApprovalDetails,
     onMediaLoad,
     isFirstInGroup = true,
@@ -177,6 +179,8 @@ export function MessageBubble({
 }: MessageBubbleProps) {
     const navigate = useNavigate();
     const [menuOpen, setMenuOpen] = useState(false);
+    const [reactionOpen, setReactionOpen] = useState(false);
+    const reactionRef = useRef<HTMLDivElement>(null);
     const [inviteModalOpen, setInviteModalOpen] = useState(false);
     const [inviteLoading, setInviteLoading] = useState(false);
     const [inviteJoining, setInviteJoining] = useState(false);
@@ -240,6 +244,21 @@ export function MessageBubble({
             window.removeEventListener("scroll", handleWindowChange, true);
         };
     }, [menuOpen, updateMenuPosition]);
+
+    // Close reaction picker when clicking outside
+    useEffect(() => {
+        if (!reactionOpen) return;
+        function handleOutside(e: MouseEvent) {
+            if (
+                reactionRef.current &&
+                !reactionRef.current.contains(e.target as Node)
+            ) {
+                setReactionOpen(false);
+            }
+        }
+        document.addEventListener("mousedown", handleOutside);
+        return () => document.removeEventListener("mousedown", handleOutside);
+    }, [reactionOpen]);
 
     const groupInviteUrl =
         message.type === "TEXT" && !message.isRecalled
@@ -790,11 +809,53 @@ export function MessageBubble({
                 </div>
             )}
 
-            {/* Nút "..." — hiện khi hover, căn giữa theo bubble */}
+            {/* Emoji reaction bar + "..." — hiện khi hover */}
             <div
-                ref={menuRef}
-                className={`relative z-[100] opacity-0 group-hover:opacity-100 transition-opacity self-center ${isOwn ? "order-first" : "order-last"}`}
+                className={`relative z-[100] flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity self-center ${
+                    isOwn ? "order-first flex-row-reverse" : "order-last"
+                }`}
             >
+                {/* Reaction emoji pill */}
+                <div ref={reactionRef} className="relative">
+                    <button
+                        type="button"
+                        onClick={() => setReactionOpen((v) => !v)}
+                        className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 mb-4"
+                        title="Thả cảm xúc"
+                    >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="12" cy="12" r="10"/>
+                            <path d="M8 14s1.5 2 4 2 4-2 4-2"/>
+                            <line x1="9" y1="9" x2="9.01" y2="9"/>
+                            <line x1="15" y1="9" x2="15.01" y2="9"/>
+                        </svg>
+                    </button>
+                    {reactionOpen && (
+                        <div
+                            className={`absolute bottom-full mb-1 flex items-center gap-0.5 px-2 py-1.5 rounded-full bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 shadow-xl z-[9999] ${
+                                isOwn ? "right-0" : "left-0"
+                            }`}
+                        >
+                            {["👍","❤️","😂","😅","😭","😡"].map((emoji) => (
+                                <button
+                                    key={emoji}
+                                    type="button"
+                                    onClick={() => {
+                                        setReactionOpen(false);
+                                        onReaction?.(message.id, emoji);
+                                    }}
+                                    className="text-xl leading-none p-0.5 rounded-full hover:scale-125 hover:bg-gray-100 dark:hover:bg-gray-700 transition-transform duration-150"
+                                    title={emoji}
+                                >
+                                    {emoji}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                {/* "..." menu button */}
+                <div ref={menuRef} className="relative">
                 <button
                     ref={menuButtonRef}
                     onClick={() => {
@@ -958,6 +1019,7 @@ export function MessageBubble({
                         )}
                     </div>
                 )}
+            </div>
             </div>
 
             {/* Cột: bubble + metadata dưới (với tin người gửi) */}
@@ -1557,6 +1619,24 @@ export function MessageBubble({
                         <span className="text-xs text-blue-500 font-medium text-red-500">
                             Đã ghim
                         </span>
+                    </div>
+                )}
+
+                {/* Reactions indicator */}
+                {message.iconName && message.iconName.length > 0 && (
+                    <div className={`flex items-center gap-1 mt-0.5 px-1 relative z-10 ${isOwn ? "self-end" : "self-start"}`}>
+                        <div className="flex items-center bg-white dark:bg-gray-800 shadow-[0_2px_8px_rgba(0,0,0,0.08)] dark:shadow-[0_2px_8px_rgba(0,0,0,0.5)] rounded-full px-1.5 py-0.5 border border-gray-100 dark:border-gray-700">
+                            {message.iconName.slice(0, 3).map((reaction, i) => (
+                                <span key={i} className="text-[13px] leading-tight flex-shrink-0 -mr-0.5 last:mr-0">
+                                    {reaction.name}
+                                </span>
+                            ))}
+                            {message.iconName.reduce((sum, r) => sum + r.user.reduce((acc, u) => acc + u.quantity, 0), 0) > 1 && (
+                                <span className="text-[11px] font-medium text-gray-600 dark:text-gray-300 ml-1.5 leading-tight">
+                                    {message.iconName.reduce((sum, r) => sum + r.user.reduce((acc, u) => acc + u.quantity, 0), 0)}
+                                </span>
+                            )}
+                        </div>
                     </div>
                 )}
 

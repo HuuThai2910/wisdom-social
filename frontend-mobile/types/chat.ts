@@ -59,6 +59,17 @@ export interface Message {
     isRecalled?: boolean;
     attachments?: MessageAttachment[];
     deletedFor?: number[];
+    iconName?: MessageReaction[];
+}
+
+export interface MessageReactionUser {
+    userId: number;
+    quantity: number;
+}
+
+export interface MessageReaction {
+    name: string;
+    user: MessageReactionUser[];
 }
 
 export interface ReferenceUser {
@@ -119,6 +130,12 @@ export interface ConversationSidebar {
     isJoinApprovalRequired?: boolean;
     pendingRequests?: JoinRequest[] | null;
     inviteToken?: string | null;
+}
+
+export interface ConversationPin {
+    conversationId: number;
+    pinnedAt: string;
+    conversation?: ConversationSidebar;
 }
 
 export interface Conversation extends ConversationSidebar {
@@ -300,4 +317,9 @@ export interface JoinRequestProcessedEvent {
     domainEventType: "JOIN_REQUEST_PROCESSED";
     conversationId: number;
     requestId: number;
+}
+
+export interface MessageReactionEvent {
+    domainEventType: "MESSAGE_REACTION";
+    messageResponse: Message;
 }

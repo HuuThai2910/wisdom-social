@@ -48,6 +48,16 @@ public class MessageServiceImpl implements MessageService{
     }
 
     @Override
+    public MessageResponse addReaction(String messageId, Long userId, String emoji) {
+        return commandService.addReaction(messageId, userId, emoji);
+    }
+
+    @Override
+    public MessageResponse getMessageById(String messageId, Long userId) {
+        return queryService.getMessageById(messageId, userId);
+    }
+
+    @Override
     public MessageResponse sendCallMessage(SendCallMessageRequest sendCallMessageRequest, Long userId) {
         return commandService.sendCallMessage(sendCallMessageRequest, userId);
     }

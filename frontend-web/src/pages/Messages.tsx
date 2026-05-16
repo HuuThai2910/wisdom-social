@@ -1,53 +1,40 @@
-import { useState, useRef, useEffect, useCallback } from "react";
 import {
-    Search,
-    Edit,
-    MailOpen,
-    BellOff,
-    User,
-    Ban,
     Archive,
-    Trash2,
-    Flag,
-    MoreHorizontal,
+    Ban,
+    Bell,
+    BellOff,
     ChevronDown,
     ChevronUp,
     CircleUserRound,
-    Bell,
-    Pin,
-    Palette,
-    ThumbsUp,
-    Type,
-    Images,
-    FileText,
-    Eye,
-    Lock,
-    TimerReset,
     EyeOff,
-    X,
-    Settings,
-    LogOut,
+    FileText,
+    Flag,
+    Images,
     Link2,
-    UserPlus,
-    Users,
-    Users2,
-    UserPlus2,
+    Lock,
+    LogOut,
     LucideUserPlus2,
-   
+    Pin,
+    MoreHorizontal,
+    Search,
+    Settings,
+    Trash2,
+    User,
+    X,
 } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import ChatWindow from "../components/message/ChatWindow";
+import ConfirmModal from "../components/message/ConfirmModal";
+import ConversationAvatar from "../components/message/ConversationAvatar";
 import CreateGroupModal from "../components/message/CreateGroupModal";
 import GroupConversationPanel from "../components/message/GroupConversationPanel";
-import IncomingCallModal from "../components/message/IncomingCallModal";
 import GroupSettingsModal from "../components/message/GroupSettingsModal";
 import InviteLinkModal from "../components/message/InviteLinkModal";
-import ConfirmModal from "../components/message/ConfirmModal";
 import SelectGroupMembersModal from "../components/message/SelectGroupMembersModal";
-import ConversationAvatar from "../components/message/ConversationAvatar";
-import { useMessagesController } from "../hooks/useMessagesController";
 import { useGroupManagement } from "../hooks/useGroupManagement";
-import chatService from "../services/chatService";
+import { useMessagesController } from "../hooks/useMessagesController";
 import { useSidebarLayout } from "../hooks/useSidebarLayout";
+import chatService from "../services/chatService";
 import { buildConversationLastMessagePreview } from "../utils/conversationLastMessagePreview";
 
 type DetailSectionKey = "chatInfo" | "customize" | "media" | "privacy";
@@ -63,10 +50,15 @@ export default function Messages() {
         selectedConversationId,
         currentUserId,
         conversations,
+        pinnedConversations,
+        isPinLimitReached,
         filteredConversations,
         handleSelectConversation,
         clearSelectedConversation,
         handleDeleteConversationForMe,
+        pinConversation,
+        unpinConversation,
+        replacePinnedConversation,
         getDisplayInfo,
         formatTime,
         clearUnreadCount,
@@ -77,8 +69,15 @@ export default function Messages() {
     const [openMenuConvId, setOpenMenuConvId] = useState<number | null>(null);
     const [showInfoPanel, setShowInfoPanel] = useState(false);
     const [isInfoPanelRendered, setIsInfoPanelRendered] = useState(false);
-    const [isGroupSettingsModalOpen, setIsGroupSettingsModalOpen] = useState(false);
+    const [isGroupSettingsModalOpen, setIsGroupSettingsModalOpen] =
+        useState(false);
     const [isInviteLinkModalOpen, setIsInviteLinkModalOpen] = useState(false);
+    const [pendingPinConversationId, setPendingPinConversationId] = useState<
+        number | null
+    >(null);
+    const [selectedUnpinConversationId, setSelectedUnpinConversationId] =
+        useState<number | null>(null);
+    const [isReplacingPin, setIsReplacingPin] = useState(false);
     const [expandedSections, setExpandedSections] = useState<
         Record<DetailSectionKey, boolean>
     >({
@@ -169,6 +168,13 @@ export default function Messages() {
     const selectedStatus = selectedConversation?.lastMessage?.lastMessageAt
         ? `Hoạt động ${formatTime(selectedConversation.lastMessage.lastMessageAt)} trước`
         : "Đang hoạt động gần đây";
+    const pendingPinConversation =
+        pendingPinConversationId != null
+            ? conversations.find((conv) => conv.id === pendingPinConversationId)
+            : null;
+    const pendingPinDisplayInfo = pendingPinConversation
+        ? getDisplayInfo(pendingPinConversation)
+        : null;
 
     const toggleDetailSection = useCallback((key: DetailSectionKey) => {
         setExpandedSections((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -274,6 +280,61 @@ export default function Messages() {
         [handleDeleteConversationForMe],
     );
 
+    const openReplacePinModal = useCallback((conversationId: number) => {
+        setPendingPinConversationId(conversationId);
+        setSelectedUnpinConversationId(null);
+    }, []);
+
+    const closeReplacePinModal = useCallback(() => {
+        if (isReplacingPin) return;
+        setPendingPinConversationId(null);
+        setSelectedUnpinConversationId(null);
+    }, [isReplacingPin]);
+
+    const handleToggleConversationPin = useCallback(
+        (conversationId: number, isPinnedConversation: boolean) => {
+            setOpenMenuConvId(null);
+
+            if (isPinnedConversation) {
+                void unpinConversation(conversationId);
+                return;
+            }
+
+            if (isPinLimitReached) {
+                openReplacePinModal(conversationId);
+                return;
+            }
+
+            void pinConversation(conversationId);
+        },
+        [
+            isPinLimitReached,
+            openReplacePinModal,
+            pinConversation,
+            unpinConversation,
+        ],
+    );
+
+    const handleConfirmReplacePin = useCallback(async () => {
+        if (!pendingPinConversationId || !selectedUnpinConversationId) return;
+
+        setIsReplacingPin(true);
+        const success = await replacePinnedConversation(
+            selectedUnpinConversationId,
+            pendingPinConversationId,
+        );
+        setIsReplacingPin(false);
+
+        if (success) {
+            setPendingPinConversationId(null);
+            setSelectedUnpinConversationId(null);
+        }
+    }, [
+        pendingPinConversationId,
+        replacePinnedConversation,
+        selectedUnpinConversationId,
+    ]);
+
     const handleToggleInfoPanel = useCallback(() => {
         if (!selectedConversationId) {
             return;
@@ -361,9 +422,11 @@ export default function Messages() {
                             Tìm kiếm
                         </button>
                         {isGroupConversation && (
-                            <button 
+                            <button
                                 type="button"
-                                onClick={() => setIsGroupSettingsModalOpen(true)}
+                                onClick={() =>
+                                    setIsGroupSettingsModalOpen(true)
+                                }
                                 className="flex flex-col items-center gap-1.5 rounded-md px-2 py-2 text-xs text-gray-700 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-gray-800 dark:hover:text-white"
                             >
                                 <span className="flex h-8 w-8 items-center justify-center rounded-md bg-gray-100 dark:bg-gray-900">
@@ -423,7 +486,9 @@ export default function Messages() {
                             <section className="py-2">
                                 <button
                                     type="button"
-                                    onClick={() => setIsInviteLinkModalOpen(true)}
+                                    onClick={() =>
+                                        setIsInviteLinkModalOpen(true)
+                                    }
                                     className={detailActionButtonClass}
                                 >
                                     <Link2 size={18} />
@@ -435,7 +500,6 @@ export default function Messages() {
                     )}
 
                     <div className="h-px bg-gray-300 dark:bg-[#262626]" />
-                    
 
                     <section className="py-2">
                         <button
@@ -468,7 +532,7 @@ export default function Messages() {
                                     <FileText size={18} />
                                     <span>File</span>
                                 </button>
-                                 <button className={detailActionButtonClass}>
+                                <button className={detailActionButtonClass}>
                                     <Link2 size={18} />
                                     <span>Link</span>
                                 </button>
@@ -477,8 +541,6 @@ export default function Messages() {
                     </section>
 
                     <div className="h-px bg-gray-400 dark:bg-[#262626]" />
-                
-
 
                     <section className="py-2">
                         <button
@@ -507,7 +569,7 @@ export default function Messages() {
                                     <BellOff size={18} />
                                     <span>Tắt thông báo</span>
                                 </button>
-                              
+
                                 <button className={detailActionButtonClass}>
                                     <EyeOff size={18} />
                                     <span>Hạn chế</span>
@@ -656,6 +718,11 @@ export default function Messages() {
                                 const isActive =
                                     selectedConversationId === conv.id;
                                 const isMenuOpen = openMenuConvId === conv.id;
+                                const isPinnedConversation =
+                                    pinnedConversations.some(
+                                        (pin) =>
+                                            pin.conversationId === conv.id,
+                                    );
                                 const messagePreview =
                                     buildConversationLastMessagePreview({
                                         conversation: conv,
@@ -699,9 +766,18 @@ export default function Messages() {
                                             </div>
 
                                             <div className="flex-1 min-w-0">
-                                                <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">
-                                                    {displayInfo.name}
-                                                </p>
+                                                <div className="flex min-w-0 items-center gap-1.5">
+                                                    {isPinnedConversation && (
+                                                        <Pin
+                                                            size={13}
+                                                            className="shrink-0 fill-red-500 text-red-500"
+                                                            aria-label="Đã ghim"
+                                                        />
+                                                    )}
+                                                    <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">
+                                                        {displayInfo.name}
+                                                    </p>
+                                                </div>
                                                 <p
                                                     className={`truncate text-sm ${
                                                         conv.unreadCount &&
@@ -782,18 +858,21 @@ export default function Messages() {
 
                                                     <button
                                                         onClick={() =>
-                                                            setOpenMenuConvId(
-                                                                null,
+                                                            handleToggleConversationPin(
+                                                                conv.id,
+                                                                isPinnedConversation,
                                                             )
                                                         }
                                                         className={menuItemBase}
                                                     >
-                                                        <MailOpen
+                                                        <Pin
                                                             size={20}
                                                             className="text-gray-700 dark:text-gray-300"
                                                         />
                                                         <span className="dark:text-white">
-                                                            Đánh dấu là chưa đọc
+                                                            {isPinnedConversation
+                                                                ? "Bỏ ghim cuộc trò chuyện"
+                                                                : "Ghim cuộc trò chuyện"}
                                                         </span>
                                                     </button>
                                                     <button
@@ -819,14 +898,17 @@ export default function Messages() {
                                                                     null,
                                                                 )
                                                             }
-                                                            className={menuItemBase}
+                                                            className={
+                                                                menuItemBase
+                                                            }
                                                         >
                                                             <User
                                                                 size={20}
                                                                 className="text-gray-700 dark:text-gray-300"
                                                             />
                                                             <span className="dark:text-white">
-                                                                Xem trang cá nhân
+                                                                Xem trang cá
+                                                                nhân
                                                             </span>
                                                         </button>
                                                     )}
@@ -1003,6 +1085,131 @@ export default function Messages() {
                 </div>
             </div>
 
+            {pendingPinConversationId && (
+                <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/55 px-4 py-6">
+                    <div className="w-full max-w-lg overflow-hidden rounded-md border border-gray-200 bg-white shadow-2xl dark:border-[#303030] dark:bg-[#111111]">
+                        <div className="border-b border-gray-200 px-5 py-4 dark:border-[#2a2a2a]">
+                            <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+                                Ghim hội thoại
+                            </h2>
+                        </div>
+
+                        <div className="px-5 py-5">
+                            <p className="text-sm leading-6 text-gray-700 dark:text-gray-200">
+                                Bạn chỉ được ghim tối đa 4 trò chuyện.
+                                <br />
+                                Để ghim trò chuyện{" "}
+                                <span className="font-semibold">
+                                    {pendingPinDisplayInfo?.name ||
+                                        "này"}
+                                </span>
+                                , vui lòng bỏ ghim ít nhất 1 trò chuyện bên
+                                dưới.
+                            </p>
+
+                            <div className="mt-6 space-y-3">
+                                {pinnedConversations.map((pin) => {
+                                    const pinnedConversation =
+                                        conversations.find(
+                                            (conv) =>
+                                                conv.id ===
+                                                pin.conversationId,
+                                        ) ?? pin.conversation;
+                                    const pinnedDisplayInfo = pinnedConversation
+                                        ? getDisplayInfo(
+                                              pinnedConversation as Parameters<
+                                                  typeof getDisplayInfo
+                                              >[0],
+                                          )
+                                        : null;
+                                    const isSelected =
+                                        selectedUnpinConversationId ===
+                                        pin.conversationId;
+
+                                    return (
+                                        <div
+                                            key={pin.conversationId}
+                                            className={`flex items-center gap-3 rounded-md border px-1 py-2 transition-colors ${
+                                                isSelected
+                                                    ? "border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950/30"
+                                                    : "border-transparent"
+                                            }`}
+                                        >
+                                            {pinnedDisplayInfo && (
+                                                <ConversationAvatar
+                                                    name={
+                                                        pinnedDisplayInfo.name
+                                                    }
+                                                    avatarUrl={
+                                                        pinnedDisplayInfo.avatar
+                                                    }
+                                                    compositeAvatarUrls={
+                                                        pinnedDisplayInfo.hasCompositeAvatar
+                                                            ? pinnedDisplayInfo.compositeAvatars
+                                                            : undefined
+                                                    }
+                                                    fallbackAvatarUrl={
+                                                        pinnedDisplayInfo.fallbackAvatar
+                                                    }
+                                                    sizeClassName="h-11 w-11"
+                                                    ringClassName="ring-1 ring-gray-200 dark:ring-[#2a2a2a]"
+                                                />
+                                            )}
+                                            <p className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-900 dark:text-white">
+                                                {pinnedDisplayInfo?.name ||
+                                                    `Hội thoại ${pin.conversationId}`}
+                                            </p>
+                                            <button
+                                                type="button"
+                                                onClick={() =>
+                                                    setSelectedUnpinConversationId(
+                                                        pin.conversationId,
+                                                    )
+                                                }
+                                                disabled={isReplacingPin}
+                                                className={`rounded px-4 py-1.5 text-sm font-semibold transition-colors disabled:opacity-60 ${
+                                                    isSelected
+                                                        ? "bg-blue-600 text-white hover:bg-blue-700"
+                                                        : "bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-[#2a2a2a] dark:text-gray-100 dark:hover:bg-[#363636]"
+                                                }`}
+                                            >
+                                                {isSelected
+                                                    ? "Đã chọn"
+                                                    : "Bỏ ghim"}
+                                            </button>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-5 py-4 dark:border-[#2a2a2a]">
+                            <button
+                                type="button"
+                                onClick={closeReplacePinModal}
+                                disabled={isReplacingPin}
+                                className="rounded-md bg-gray-200 px-5 py-2 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-300 disabled:opacity-60 dark:bg-[#2a2a2a] dark:text-gray-100 dark:hover:bg-[#363636]"
+                            >
+                                Hủy
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => void handleConfirmReplacePin()}
+                                disabled={
+                                    isReplacingPin ||
+                                    !selectedUnpinConversationId
+                                }
+                                className="rounded-md bg-blue-500 px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:bg-blue-300"
+                            >
+                                {isReplacingPin
+                                    ? "Đang ghim..."
+                                    : "Ghim hội thoại"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <CreateGroupModal
                 open={isCreateGroupModalOpen}
                 friends={friendsForCreateGroup}
@@ -1082,7 +1289,6 @@ export default function Messages() {
                     }
                 }}
             />
-
         </>
     );
 }
