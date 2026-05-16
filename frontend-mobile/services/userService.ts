@@ -1,4 +1,5 @@
 import apiClient from "@/api/apiClient";
+import { buildS3Url } from "@/utils/s3";
 
 export type UpdateUserPayload = {
     name?: string;
@@ -18,7 +19,6 @@ export type User = {
     email?: string;
     bio?: string;
     avatarUrl?: string;
-    avatar?: string;
     phone?: string;
     birthday?: string;
     gender?: "MALE" | "FEMALE" | "HIDDEN";
@@ -26,18 +26,6 @@ export type User = {
     followers?: number;
     following?: number;
     postsCount?: number;
-};
-
-const toPublicImageUrl = (url?: string | null): string | undefined => {
-    if (!url) return undefined;
-    if (
-        url.startsWith("http") ||
-        url.startsWith("file://") ||
-        url.startsWith("content://")
-    ) {
-        return url;
-    }
-    return `https://cnmt-hk1-amz.s3.ap-southeast-1.amazonaws.com/${url}`;
 };
 
 const mapUser = (raw: Record<string, unknown> | null | undefined): User => {
@@ -48,10 +36,14 @@ const mapUser = (raw: Record<string, unknown> | null | undefined): User => {
             : `user${id ?? ""}`;
     const avatarUrl =
         typeof raw?.avatarUrl === "string"
-            ? toPublicImageUrl(raw.avatarUrl)
-            : typeof raw?.avatar === "string"
-              ? toPublicImageUrl(raw.avatar)
+            ? buildS3Url(raw.avatarUrl)
               : undefined;
+
+    // Debug logging
+    if (raw?.avatarUrl) {
+        console.log('[userService] Raw avatarUrl:', raw.avatarUrl);
+        console.log('[userService] Built S3 URL:', avatarUrl);
+    }
 
     return {
         id: String(id ?? ""),
@@ -67,7 +59,6 @@ const mapUser = (raw: Record<string, unknown> | null | undefined): User => {
         phone: typeof raw?.phone === "string" ? raw.phone : undefined,
         bio: typeof raw?.bio === "string" ? raw.bio : undefined,
         avatarUrl,
-        avatar: avatarUrl,
         birthday: typeof raw?.birthday === "string" ? raw.birthday : undefined,
         gender:
             raw?.gender === "MALE" ||

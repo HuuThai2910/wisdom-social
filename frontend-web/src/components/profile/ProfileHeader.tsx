@@ -33,7 +33,7 @@ export default function ProfileHeader({
   const [postsCount, setPostsCount] = useState(0);
   const [notePlaceholder] = useState(
     () =>
-      NOTE_PLACEHOLDERS[Math.floor(Math.random() * NOTE_PLACEHOLDERS.length)]
+      NOTE_PLACEHOLDERS[Math.floor(Math.random() * NOTE_PLACEHOLDERS.length)],
   );
   const { note, showNoteModal, openNoteModal, closeNoteModal, setNote } =
     useProfileNote(user?.id);
