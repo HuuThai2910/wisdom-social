@@ -158,6 +158,10 @@ export default function SelectGroupMembersModal({
                                                 friend.avatarUrl ||
                                                 DEFAULT_AVATAR_URL
                                             }
+                                            onError={(event) => {
+                                                event.currentTarget.src =
+                                                    DEFAULT_AVATAR_URL;
+                                            }}
                                             alt={getDisplayName(friend)}
                                             className="h-9 w-9 rounded-full object-cover"
                                         />
