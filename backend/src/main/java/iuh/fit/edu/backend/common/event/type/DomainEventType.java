@@ -47,6 +47,17 @@ public enum DomainEventType {
     PAGE_JOIN_REJECTED,
     PAGE_JOIN_CANCELLED,
 
+    // Page post events
+    PAGE_POST_SUBMITTED,
+    PAGE_POST_APPROVED,
+    PAGE_POST_REJECTED,
+    PAGE_POST_REMOVED,
+
+    // Page list events
+    PAGE_CREATED,
+    PAGE_UPDATED,
+    PAGE_DELETED,
+
     // Post, Comment, Reaction, Notification
     POST,
     COMMENT,

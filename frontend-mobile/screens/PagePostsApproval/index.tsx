@@ -15,6 +15,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { colors, spacing } from "@/constants";
 import { useAppContext } from "@/context/AppContext";
 import pageService, { PagePostItem } from "@/services/pageService";
+import { usePagePostEvents } from "@/hooks/usePagePostEvents";
 
 export default function PagePostsApprovalScreen() {
     const router = useRouter();
@@ -42,6 +43,32 @@ export default function PagePostsApprovalScreen() {
     useEffect(() => {
         void loadPosts();
     }, [loadPosts]);
+
+    // Real-time: tự động cập nhật danh sách bài chờ duyệt
+    usePagePostEvents({
+        pageId: numericPageId || undefined,
+        onPostSubmitted: (_postId, post) => {
+            // Bài viết mới được gửi → thêm vào đầu danh sách pending
+            if (post) {
+                const newPost = post as unknown as PagePostItem;
+                setPosts(prev => {
+                    if (prev.some(p => p.id === newPost.id)) return prev;
+                    return [newPost, ...prev];
+                });
+            }
+        },
+        onPostApproved: (postId) => {
+            // Bài viết được duyệt → xóa khỏi danh sách pending
+            setPosts(prev => prev.filter(p => p.id !== postId));
+        },
+        onPostRejected: (postId) => {
+            // Bài viết bị từ chối → xóa khỏi danh sách pending
+            setPosts(prev => prev.filter(p => p.id !== postId));
+        },
+        onPostRemoved: (postId) => {
+            setPosts(prev => prev.filter(p => p.id !== postId));
+        },
+    });
 
     const handleApprove = async (post: PagePostItem) => {
         setActionLoadingId(post.id);
