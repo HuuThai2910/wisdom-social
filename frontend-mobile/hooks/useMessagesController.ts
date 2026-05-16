@@ -425,6 +425,71 @@ export function useMessagesController() {
         [pinnedConversations],
     );
 
+    const replacePinnedConversation = useCallback(
+        async (conversationIdToUnpin: number, conversationIdToPin: number) => {
+            if (conversationIdToUnpin === conversationIdToPin) return true;
+
+            const conversation = conversations.find(
+                (conv) => conv.id === conversationIdToPin,
+            );
+            if (!conversation) return false;
+
+            const previousPins = pinnedConversations;
+            const optimisticPin: ConversationPin = {
+                conversationId: conversationIdToPin,
+                pinnedAt: new Date().toISOString(),
+                conversation,
+            };
+            const nextPins = [
+                optimisticPin,
+                ...previousPins.filter(
+                    (pin) =>
+                        pin.conversationId !== conversationIdToUnpin &&
+                        pin.conversationId !== conversationIdToPin,
+                ),
+            ];
+
+            setPinnedConversations(nextPins);
+            setConversations((prev) =>
+                sortWithPinnedConversations(prev, nextPins),
+            );
+
+            try {
+                await chatService.unpinConversation(conversationIdToUnpin);
+                const savedPin =
+                    await chatService.pinConversation(conversationIdToPin);
+                const syncedPins = [
+                    savedPin,
+                    ...nextPins.filter(
+                        (pin) => pin.conversationId !== conversationIdToPin,
+                    ),
+                ];
+                setPinnedConversations(syncedPins);
+                setConversations((prev) =>
+                    sortWithPinnedConversations(prev, syncedPins),
+                );
+                return true;
+            } catch (error) {
+                const pins = await chatService
+                    .fetchPinnedConversations()
+                    .catch(() => previousPins);
+                setPinnedConversations(pins);
+                setConversations((prev) =>
+                    sortWithPinnedConversations(prev, pins),
+                );
+                if (isMaxPinLimitError(error)) {
+                    showMaxPinLimitAlert(conversationIdToPin);
+                }
+                return false;
+            }
+        },
+        [
+            conversations,
+            pinnedConversations,
+            showMaxPinLimitAlert,
+        ],
+    );
+
     useEffect(() => {
         return chatRuntimeStore.subscribeConversationChanges(
             (updatedConversation) => {
@@ -921,6 +986,7 @@ export function useMessagesController() {
         clearUnreadCount,
         pinConversation,
         unpinConversation,
+        replacePinnedConversation,
         fetchPinnedConversations,
         deleteConversationForMe,
         reload: loadConversations,

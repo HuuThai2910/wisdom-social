@@ -15,6 +15,7 @@ import chatService, {
 } from "../services/chatService";
 import websocketService, {
     type MemberUpdatedEvent,
+    type MessageReactionEvent,
     type MessageSeenEvent,
     type PinUpdatedEvent,
     type TypingEvent,
@@ -1690,6 +1691,19 @@ const list = Array.isArray(cursorData?.data)
         [conversationId, userId],
     );
 
+    const handleMessageReactionEvent = useCallback(
+        (updatedMessage: Message) => {
+            setMessages((prev) => {
+                const nextMessages = prev.map((message) =>
+                    message.id === updatedMessage.id ? updatedMessage : message,
+                );
+                chatRuntimeStore.setMessages(conversationId, nextMessages);
+                return nextMessages;
+            });
+        },
+        [conversationId],
+    );
+
     /**
      * sendTypingSignal - Gửi signal "đang gõ" lên backend
      *
@@ -2054,6 +2068,7 @@ const list = Array.isArray(cursorData?.data)
         handleMessageRecalled,
         handleMessageSeen,
         handleTyping,
+        handleMessageReactionEvent,
         loadInitialData,
         markAsRead,
     ]);

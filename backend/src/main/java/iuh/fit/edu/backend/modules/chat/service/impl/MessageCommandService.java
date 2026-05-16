@@ -230,6 +230,7 @@ public class MessageCommandService {
         eventPublisher.publishEvent(new PinUpdatedEvent(conversationId, pinnedList));
     }
 
+    @Transactional
     public MessageResponse addReaction(String messageId, Long userId, String emoji) {
         String normalizedEmoji = Optional.ofNullable(emoji)
                 .map(String::trim)
@@ -246,10 +247,10 @@ public class MessageCommandService {
                 .orElseThrow(() -> new RuntimeException("Không thể cập nhật reaction"));
 
         MessageResponse response = messageMapper.toMessageResponse(updatedMessage);
-        TransactionUtil.executeAfterCommit(() -> {
-            messageCacheService.updateMessage(response);
-            eventPublisher.publishEvent(new iuh.fit.edu.backend.modules.chat.event.payload.MessageReactionEvent(response));
-        });
+        
+        messageCacheService.updateMessage(response);
+        eventPublisher.publishEvent(new iuh.fit.edu.backend.modules.chat.event.payload.MessageReactionEvent(response));
+        
         return response;
     }
 

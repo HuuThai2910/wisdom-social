@@ -62,7 +62,6 @@ public class ChatEventPublisher {
     }
 
     // Hàm xử lý gửi sự kiện cập nhật reaction cho redis pub/sub
-    @Async
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void handleMessageReaction(MessageReactionEvent event){
         log.info("Publishing message reaction to redis pub/sub for conversation: {}", event.getMessageResponse().getConversationId());

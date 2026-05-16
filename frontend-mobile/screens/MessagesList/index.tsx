@@ -93,6 +93,8 @@ export default function MessagesListScreen() {
         clearUnreadCount,
         pinConversation,
         unpinConversation,
+        replacePinnedConversation,
+        fetchPinnedConversations,
         deleteConversationForMe,
         reload,
         registerPinLimitCallback,
@@ -130,12 +132,13 @@ export default function MessagesListScreen() {
     const [pinLimitModal, setPinLimitModal] = useState<{
         visible: boolean;
         pendingConversationId: number | null;
-    }>({ visible: false, pendingConversationId: null });
+        unpinIds: number[];
+    }>({ visible: false, pendingConversationId: null, unpinIds: [] });
 
     // Register callback so the hook calls our modal instead of Alert
     useEffect(() => {
         registerPinLimitCallback((conversationId) => {
-            setPinLimitModal({ visible: true, pendingConversationId: conversationId });
+            setPinLimitModal({ visible: true, pendingConversationId: conversationId, unpinIds: [] });
         });
         return () => registerPinLimitCallback(null);
     }, [registerPinLimitCallback]);
@@ -144,12 +147,17 @@ export default function MessagesListScreen() {
         setPinLimitModal({ visible: false, pendingConversationId: null });
 
     const handleUnpinAndPin = async (unpinId: number, pendingId: number | null) => {
-        closePinLimitModal();
+        setPinLimitModal((prev) => ({ ...prev, visible: false }));
         await unpinConversation(unpinId);
         if (pendingId !== null) {
-            await pinConversation(pendingId);
+            // Delay slightly to ensure sequential API processing if needed
+            setTimeout(async () => {
+                await pinConversation(pendingId);
+                await fetchPinnedConversations();
+            }, 100);
+        } else {
+            await fetchPinnedConversations();
         }
-        await fetchPinnedConversations();
     };
 
     const selectedConversation = useMemo(
@@ -443,70 +451,121 @@ export default function MessagesListScreen() {
                         <Text style={styles.pinModalSubtitle}>
                             Để có thể ghim trò chuyện{" "}
                             <Text style={styles.pinModalSubtitleBold}>
-                                {pinLimitModal.pendingConversationId !== null
-                                    ? (() => {
-                                          const conv = filteredConversations.find(
-                                              (c) => c.id === pinLimitModal.pendingConversationId,
-                                          );
-                                          if (!conv) return "này";
-                                          const info = buildConversationDisplayInfo({
-                                              conversation: conv,
-                                              currentUserId,
-                                          });
-                                          return info.name;
-                                      })()
-                                    : "này"}
+                                {(() => {
+                                    const conv = filteredConversations.find(
+                                        (c) => c.id === pinLimitModal.pendingConversationId,
+                                    );
+                                    if (!conv) return "này";
+                                    const info = buildConversationDisplayInfo({
+                                        conversation: conv,
+                                        currentUserId,
+                                    });
+                                    return info.name;
+                                })()}
                             </Text>
                             , vui lòng bỏ ghim ít nhất 1 trò chuyện bên dưới
                         </Text>
 
-                        {pinnedConversations.map((pin) => {
-                            const conv = filteredConversations.find(
-                                (c) => c.id === pin.conversationId,
-                            );
-                            const info = conv
-                                ? buildConversationDisplayInfo({
-                                      conversation: conv,
-                                      currentUserId,
-                                  })
-                                : null;
-                            const displayName = info?.name ?? `Cuộc trò chuyện`;
-                            const avatarUrl = info?.avatarUrl;
+                        <View style={styles.pinModalList}>
+                            {pinnedConversations.map((pin) => {
+                                const info = pin.conversation
+                                    ? buildConversationDisplayInfo({
+                                          conversation: pin.conversation as any,
+                                          currentUserId,
+                                      })
+                                    : null;
+                                const displayName = info?.name ?? `Hội thoại ${pin.conversationId}`;
+                                const avatarUrl = info?.avatarUrl;
+                                
+                                const isSelectedToUnpin = pinLimitModal.unpinIds?.includes(pin.conversationId);
 
-                            return (
-                                <View key={pin.conversationId} style={styles.pinModalItem}>
-                                    <View style={styles.pinModalItemLeft}>
-                                        {avatarUrl ? (
-                                            <Image
-                                                source={{ uri: avatarUrl }}
-                                                style={styles.pinModalAvatar}
-                                            />
-                                        ) : (
-                                            <View style={[styles.pinModalAvatar, styles.pinModalAvatarFallback]}>
-                                                <Text style={styles.pinModalAvatarFallbackText}>
-                                                    {displayName.charAt(0).toUpperCase()}
-                                                </Text>
-                                            </View>
-                                        )}
-                                        <Text style={styles.pinModalItemName} numberOfLines={1}>
-                                            {displayName}
-                                        </Text>
+                                return (
+                                    <View key={pin.conversationId} style={styles.pinModalItem}>
+                                        <View style={styles.pinModalItemLeft}>
+                                            {avatarUrl ? (
+                                                <Image
+                                                    source={{ uri: avatarUrl }}
+                                                    style={styles.pinModalAvatar}
+                                                />
+                                            ) : (
+                                                <View style={[styles.pinModalAvatar, styles.pinModalAvatarFallback]}>
+                                                    <Text style={styles.pinModalAvatarFallbackText}>
+                                                        {displayName.charAt(0).toUpperCase()}
+                                                    </Text>
+                                                </View>
+                                            )}
+                                            <Text style={styles.pinModalItemName} numberOfLines={1}>
+                                                {displayName}
+                                            </Text>
+                                        </View>
+                                        <Pressable
+                                            style={[
+                                                styles.pinModalUnpinBtn,
+                                                isSelectedToUnpin && styles.pinModalUnpinBtnSelected
+                                            ]}
+                                            onPress={() => {
+                                                setPinLimitModal(prev => {
+                                                    const unpinIds = prev.unpinIds || [];
+                                                    const nextUnpinIds = unpinIds.includes(pin.conversationId)
+                                                        ? unpinIds.filter((id: number) => id !== pin.conversationId)
+                                                        : [...unpinIds, pin.conversationId];
+                                                    return { ...prev, unpinIds: nextUnpinIds };
+                                                });
+                                            }}
+                                        >
+                                            <Text style={[
+                                                styles.pinModalUnpinBtnText,
+                                                isSelectedToUnpin && styles.pinModalUnpinBtnTextSelected
+                                            ]}>
+                                                {isSelectedToUnpin ? "Ghim lại" : "Bỏ ghim"}
+                                            </Text>
+                                        </Pressable>
                                     </View>
-                                    <Pressable
-                                        style={styles.pinModalUnpinBtn}
-                                        onPress={() => handleUnpinAndPin(pin.conversationId, pinLimitModal.pendingConversationId)}
-                                    >
-                                        <Text style={styles.pinModalUnpinBtnText}>Bỏ ghim</Text>
-                                    </Pressable>
-                                </View>
-                            );
-                        })}
+                                );
+                            })}
+                        </View>
 
                         <Pressable
-                            style={[styles.pinModalActionBtn, styles.pinModalActionBtnDisabled]}
-                            disabled
+                            style={[
+                                styles.pinModalActionBtn,
+                                !(pinLimitModal.unpinIds?.length > 0) && styles.pinModalActionBtnDisabled,
+                                (pinLimitModal.unpinIds?.length > 0) && styles.pinModalActionBtnActive
+                            ]}
+                            disabled={!(pinLimitModal.unpinIds?.length > 0)}
+                            onPress={async () => {
+                                const unpinIds = pinLimitModal.unpinIds || [];
+                                const pendingId = pinLimitModal.pendingConversationId;
+                                
+                                setPinLimitModal({ visible: false, pendingConversationId: null, unpinIds: [] });
+                                
+                                if (pendingId !== null && unpinIds.length > 0) {
+                                    // Use replacePinnedConversation for the first unpin + pin
+                                    const firstToUnpin = unpinIds[0];
+                                    const othersToUnpin = unpinIds.slice(1);
+                                    
+                                    // Unpin others first
+                                    for (const id of othersToUnpin) {
+                                        await unpinConversation(id);
+                                    }
+                                    
+                                    // Swap the last one
+                                    await replacePinnedConversation(firstToUnpin, pendingId);
+                                    await fetchPinnedConversations();
+                                } else if (unpinIds.length > 0) {
+                                    // Only unpinning
+                                    for (const id of unpinIds) {
+                                        await unpinConversation(id);
+                                    }
+                                    await fetchPinnedConversations();
+                                }
+                            }}
                         >
-                            <Text style={styles.pinModalActionBtnText}>Ghim trò chuyện</Text>
+                            <Text style={[
+                                styles.pinModalActionBtnText,
+                                (pinLimitModal.unpinIds?.length > 0) && styles.pinModalActionBtnTextActive
+                            ]}>
+                                Ghim trò chuyện
+                            </Text>
                         </Pressable>
 
                         <Pressable style={styles.pinModalCancelBtn} onPress={closePinLimitModal}>
@@ -628,10 +687,7 @@ export default function MessagesListScreen() {
                                         "destructive" in action &&
                                         Boolean(action.destructive);
                                     const isPinAction = action.key === "pin";
-                                    const isDisabled =
-                                        isPinAction &&
-                                        !selectedConversationPinned &&
-                                        isPinLimitReached;
+                                    const isDisabled = false; // Luôn cho phép nhấn Ghim để kích hoạt modal đổi ghim khi đạt giới hạn
                                     const label = isPinAction
                                         ? selectedConversationPinned
                                             ? "Bỏ ghim"
@@ -831,10 +887,18 @@ const styles = StyleSheet.create({
         borderRadius: 20,
         backgroundColor: "#F3F4F6",
     },
+    pinModalUnpinBtnSelected: {
+        backgroundColor: "#EBF5FF",
+        borderWidth: 1,
+        borderColor: "#3B82F6",
+    },
     pinModalUnpinBtnText: {
         fontSize: 13,
         fontWeight: "600",
         color: "#374151",
+    },
+    pinModalUnpinBtnTextSelected: {
+        color: "#3B82F6",
     },
     pinModalActionBtn: {
         marginTop: 16,
@@ -845,10 +909,16 @@ const styles = StyleSheet.create({
     pinModalActionBtnDisabled: {
         backgroundColor: "#E5E7EB",
     },
+    pinModalActionBtnActive: {
+        backgroundColor: "#006AF5",
+    },
     pinModalActionBtnText: {
         fontSize: 15,
         fontWeight: "600",
         color: "#9CA3AF",
+    },
+    pinModalActionBtnTextActive: {
+        color: "#fff",
     },
     pinModalCancelBtn: {
         marginTop: 10,
@@ -859,5 +929,8 @@ const styles = StyleSheet.create({
         fontSize: 15,
         color: "#374151",
         fontWeight: "500",
+    },
+    pinModalList: {
+        marginVertical: 10,
     },
 });

@@ -45,6 +45,7 @@ import type {
 import chatService from "../../services/chatService";
 import { buildSystemGroupMessage } from "../../utils/systemCreateGroupMessage";
 import AudioPlayer from "./AudioPlayer";
+import ReactionDetailModal from "./ReactionDetailModal";
 import {
     formatBytes,
     getFileNameFromUrl,
@@ -180,6 +181,7 @@ export function MessageBubble({
     const navigate = useNavigate();
     const [menuOpen, setMenuOpen] = useState(false);
     const [reactionOpen, setReactionOpen] = useState(false);
+    const [reactionDetailOpen, setReactionDetailOpen] = useState(false);
     const reactionRef = useRef<HTMLDivElement>(null);
     const [inviteModalOpen, setInviteModalOpen] = useState(false);
     const [inviteLoading, setInviteLoading] = useState(false);
@@ -1625,7 +1627,13 @@ export function MessageBubble({
                 {/* Reactions indicator */}
                 {message.iconName && message.iconName.length > 0 && (
                     <div className={`flex items-center gap-1 mt-0.5 px-1 relative z-10 ${isOwn ? "self-end" : "self-start"}`}>
-                        <div className="flex items-center bg-white dark:bg-gray-800 shadow-[0_2px_8px_rgba(0,0,0,0.08)] dark:shadow-[0_2px_8px_rgba(0,0,0,0.5)] rounded-full px-1.5 py-0.5 border border-gray-100 dark:border-gray-700">
+                        <div 
+                            className="flex items-center bg-white dark:bg-gray-800 shadow-[0_2px_8px_rgba(0,0,0,0.08)] dark:shadow-[0_2px_8px_rgba(0,0,0,0.5)] rounded-full px-1.5 py-0.5 border border-gray-100 dark:border-gray-700 cursor-pointer hover:scale-105 transition-transform active:scale-95"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setReactionDetailOpen(true);
+                            }}
+                        >
                             {message.iconName.slice(0, 3).map((reaction, i) => (
                                 <span key={i} className="text-[13px] leading-tight flex-shrink-0 -mr-0.5 last:mr-0">
                                     {reaction.name}
@@ -1757,6 +1765,13 @@ export function MessageBubble({
                     </div>
                 </div>
             )}
+
+            <ReactionDetailModal
+                open={reactionDetailOpen}
+                onClose={() => setReactionDetailOpen(false)}
+                reactions={message.iconName}
+                membersById={membersById}
+            />
         </div>
     );
 }

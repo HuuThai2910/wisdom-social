@@ -835,6 +835,7 @@ export default function ChatWindow({
             isHighlighted={highlightedMessageId === message.id}
             isFirstInGroup={isFirstInGroup}
             isLastInGroup={isLastInGroup}
+            membersById={membersById}
           />
 
           {/* Read Receipt Avatars - hiển thị avatar "đã xem" bên dưới tin nhắn */}
