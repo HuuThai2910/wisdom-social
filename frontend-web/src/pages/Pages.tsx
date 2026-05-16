@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { Plus, Search, Loader2, Users, Heart, Globe, Building2 } from "lucide-react";
+import { Plus, Search, Loader2, Globe, Building2 } from "lucide-react";
 import pageService, { type Page } from "../services/pageService";
 import { buildS3Url } from "../utils/s3";
+import { useRealtimePageList } from "../hooks/useRealtimePageList";
 
 type TabType = "all" | "my-pages";
 
@@ -15,7 +16,7 @@ export default function Pages() {
     const loadPages = useCallback(async () => {
         setLoading(true);
         try {
-            const data = activeTab === "all" 
+            const data = activeTab === "all"
                 ? await pageService.getAllPages()
                 : await pageService.getMyPages();
             setPages(data || []);
@@ -29,6 +30,31 @@ export default function Pages() {
     useEffect(() => {
         loadPages();
     }, [loadPages]);
+
+    // Real-time: lắng nghe page mới được tạo / bị xóa / cập nhật
+    useRealtimePageList({
+        onPageCreated: (pageId, page) => {
+            if (page) {
+                setPages(prev => {
+                    const newPage = page as unknown as Page;
+                    if (prev.some(p => p.id === newPage.id)) return prev;
+                    return [newPage, ...prev];
+                });
+            } else {
+                void loadPages();
+            }
+        },
+        onPageDeleted: (pageId) => {
+            setPages(prev => prev.filter(p => p.id !== pageId));
+        },
+        onPageUpdated: (_pageId, page) => {
+            if (page) {
+                const updatedPage = page as unknown as Page;
+                setPages(prev => prev.map(p => p.id === updatedPage.id ? updatedPage : p));
+            }
+        },
+    });
+
 
     const filteredPages = pages.filter(page => 
         page.name.toLowerCase().includes(searchQuery.toLowerCase()) ||

@@ -25,6 +25,7 @@ export function usePageEvents(options: {
 
     useEffect(() => {
         let cancelled = false;
+        let currentHandler: ((event: PageEvent) => void) | null = null;
 
         const setup = async () => {
             try {
@@ -37,9 +38,12 @@ export function usePageEvents(options: {
             if (cancelled) return;
 
             const handler = (event: PageEvent) => {
+                console.log("📡 [Mobile] Realtime Page Event received:", event.eventType, event);
                 setRefreshTrigger((n) => n + 1);
                 onEventRef.current?.(event);
             };
+
+            currentHandler = handler;
 
             if (pageId) {
                 pageWebsocketService.subscribeToPageMembers(pageId, handler);
@@ -53,11 +57,11 @@ export function usePageEvents(options: {
 
         return () => {
             cancelled = true;
-            if (pageId) {
-                pageWebsocketService.unsubscribeFromPageMembers(pageId);
+            if (pageId && currentHandler) {
+                pageWebsocketService.unsubscribeFromPageMembers(pageId, currentHandler);
             }
-            if (userId) {
-                pageWebsocketService.unsubscribeFromUserPageEvents(userId);
+            if (userId && currentHandler) {
+                pageWebsocketService.unsubscribeFromUserPageEvents(userId, currentHandler);
             }
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps

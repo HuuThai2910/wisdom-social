@@ -1364,6 +1364,38 @@ class WebSocketService {
 
     // ── Page realtime ─────────────────────────────────────────────────────
 
+    subscribeToPagePosts(pageId: number, onEvent: (event: Record<string, unknown>) => void) {
+        if (!this.client?.connected) return;
+        const destination = `/topic/page/${pageId}/posts`;
+        if (this.subscriptions.has(destination)) return;
+        const sub = this.client.subscribe(destination, (msg: IMessage) => {
+            try { onEvent(JSON.parse(msg.body) as Record<string, unknown>); } catch { /* ignore */ }
+        });
+        this.subscriptions.set(destination, sub);
+    }
+
+    unsubscribeFromPagePosts(pageId: number) {
+        const destination = `/topic/page/${pageId}/posts`;
+        this.subscriptions.get(destination)?.unsubscribe();
+        this.subscriptions.delete(destination);
+    }
+
+    subscribeToPageList(onEvent: (event: Record<string, unknown>) => void) {
+        if (!this.client?.connected) return;
+        const destination = `/topic/pages`;
+        if (this.subscriptions.has(destination)) return;
+        const sub = this.client.subscribe(destination, (msg: IMessage) => {
+            try { onEvent(JSON.parse(msg.body) as Record<string, unknown>); } catch { /* ignore */ }
+        });
+        this.subscriptions.set(destination, sub);
+    }
+
+    unsubscribeFromPageList() {
+        const destination = `/topic/pages`;
+        this.subscriptions.get(destination)?.unsubscribe();
+        this.subscriptions.delete(destination);
+    }
+
     subscribeToPageMembers(pageId: number, onEvent: (event: Record<string, unknown>) => void) {
         if (!this.client?.connected) return;
         const destination = `/topic/page/${pageId}/members`;

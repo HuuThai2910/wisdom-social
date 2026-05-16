@@ -52,7 +52,12 @@ export default function PagePendingRequestsScreen() {
     // real-time: new requests arrive via WebSocket
     const wsRefresh = usePageEvents({ pageId: numericPageId || undefined });
     useEffect(() => {
-        if (wsRefresh > 0) void load();
+        if (wsRefresh > 0) {
+            const timer = setTimeout(() => {
+                void load();
+            }, 500);
+            return () => clearTimeout(timer);
+        }
     }, [wsRefresh, load]);
 
     const onRefresh = () => {

@@ -17,6 +17,8 @@ import { colors } from "@/constants";
 import { useAppContext } from "@/context/AppContext";
 import pageService, { PageData } from "@/services/pageService";
 import { buildS3Url } from "@/utils/s3";
+import chatWebsocketService from "@/services/chatWebsocketService";
+import pageWebsocketService, { type PageListEvent } from "@/services/pageWebsocketService";
 
 export default function PagesScreen() {
   const router = useRouter();
@@ -52,6 +54,53 @@ export default function PagesScreen() {
       void loadData();
     }, [loadData]),
   );
+
+  // Real-time: lắng nghe page mới tạo / xóa / cập nhật
+  // Dùng ref cho loadData để tránh re-subscribe mỗi lần activeTab thay đổi
+  const loadDataRef = React.useRef(loadData);
+  loadDataRef.current = loadData;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const setup = async () => {
+      try {
+        await chatWebsocketService.connect();
+      } catch { /* ignore — fallback to pull-to-refresh */ }
+
+      if (cancelled) return;
+
+      pageWebsocketService.subscribeToPageList((event: PageListEvent) => {
+        console.log("📡 [Mobile] Realtime Page List Event:", event);
+
+        if (event.eventType === "PAGE_CREATED") {
+          if (event.page) {
+            const newPage = event.page as unknown as PageData;
+            setPages(prev => {
+              if (prev.some(p => p.id === newPage.id)) return prev;
+              return [newPage, ...prev];
+            });
+          } else {
+            void loadDataRef.current();
+          }
+        } else if (event.eventType === "PAGE_DELETED" && event.pageId) {
+          setPages(prev => prev.filter(p => p.id !== event.pageId));
+        } else if (event.eventType === "PAGE_UPDATED" && event.page) {
+          const updated = event.page as unknown as PageData;
+          setPages(prev => prev.map(p => p.id === updated.id ? updated : p));
+        }
+      });
+    };
+
+    void setup();
+
+    return () => {
+      cancelled = true;
+      pageWebsocketService.unsubscribeFromPageList();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
 
   const onRefresh = async () => {
     setRefreshing(true);

@@ -29,6 +29,7 @@ import pageService from "@/services/pageService";
 import { buildS3Url } from "@/utils/s3";
 import userService from "@/services/userService";
 import { usePageEvents } from "@/hooks/usePageEvents";
+import { usePagePostEvents } from "@/hooks/usePagePostEvents";
 import AppHeader from "@/components/AppHeader";
 import type {
   PageData,
@@ -238,13 +239,58 @@ export default function PageDetailScreen() {
     userId: numericUserId ?? undefined,
   });
   useEffect(() => {
-    if (wsRefresh > 0) void load();
-  }, [wsRefresh, load]);
+    if (wsRefresh > 0) {
+      const timer = setTimeout(() => {
+        void load();
+        void loadPending();
+        void loadWaiting();
+        if (activeSection === "posts") void loadPosts();
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [wsRefresh, load, loadPending, loadWaiting, loadPosts, activeSection]);
+
+  // Real-time: lắng nghe sự kiện bài viết của page
+  usePagePostEvents({
+    pageId: numericPageId || undefined,
+    onPostSubmitted: (_postId, post) => {
+      // Bài viết mới gửi lên → thêm vào postsWaiting (admin/mod thấy ngay)
+      if (post && canManage) {
+        const newPost = post as unknown as import("@/services/pageService").PagePostItem;
+        setPostsWaiting(prev => {
+          if (prev.some(p => p.id === newPost.id)) return prev;
+          return [newPost, ...prev];
+        });
+      }
+    },
+    onPostApproved: (postId, post) => {
+      // Bài viết được duyệt → xóa khỏi waiting, thêm vào posts
+      setPostsWaiting(prev => prev.filter(p => p.id !== postId));
+      if (post) {
+        const approvedPost = post as unknown as PostItem;
+        setPosts(prev => {
+          if (prev.some(p => p.id === postId)) return prev;
+          return [approvedPost, ...prev];
+        });
+      }
+    },
+    onPostRejected: (postId) => {
+      // Bài viết bị từ chối → xóa khỏi waiting
+      setPostsWaiting(prev => prev.filter(p => p.id !== postId));
+    },
+    onPostRemoved: (postId) => {
+      // Bài viết bị xóa → xóa khỏi posts
+      setPosts(prev => prev.filter(p => p.id !== postId));
+    },
+  });
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     void load();
-  }, [load]);
+    void loadPending();
+    void loadWaiting();
+    if (activeSection === "posts") void loadPosts();
+  }, [load, loadPending, loadWaiting, loadPosts, activeSection]);
 
   // ── User search for add member ─────────────────────────────────────────
 
