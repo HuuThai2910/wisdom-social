@@ -13,6 +13,8 @@ public interface GroupJoinRequestRepository extends JpaRepository<GroupJoinReque
     // Tìm các yêu cầu đang chờ duyệt của một nhóm
     List<GroupJoinRequest> findByConversationIdAndStatusOrderByCreatedAtDesc(Long conversationId, JoinRequestStatus status);
 
+    List<GroupJoinRequest> findByConversationIdAndStatus(Long conversationId, JoinRequestStatus status);
+
     // Kiểm tra xem user đã có yêu cầu nào đang chờ duyệt ở nhóm này chưa
     boolean existsByConversationIdAndUserIdAndStatus(Long conversationId, Long userId, JoinRequestStatus status);
 }

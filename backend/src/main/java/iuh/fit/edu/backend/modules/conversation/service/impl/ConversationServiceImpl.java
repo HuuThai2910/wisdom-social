@@ -394,6 +394,9 @@ public class ConversationServiceImpl implements ConversationService {
         } else {
             conv.setJoinApprovalRequired(flagValue);
             content = flagValue ? "đã bật chế độ phê duyệt thành viên" : "đã tắt chế độ phê duyệt thành viên";
+            if (!flagValue) {
+                groupJoinRequestService.cancelPendingRequestsWhenApprovalDisabled(conversationId, requesterId);
+            }
         }
         String requesterName = chatSnapshotHelper.resolveActorDisplayName(conv, requesterId);
 

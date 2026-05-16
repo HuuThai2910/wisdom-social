@@ -75,6 +75,43 @@ export function ManageGroupScreen() {
     };
 
     const handleToggleJoinApproval = async (value: boolean) => {
+        if (
+            joinApprovalRequired &&
+            !value
+        ) {
+            const localPendingCount =
+                selectedConversation.pendingRequests?.length ?? 0;
+            const pendingJoinRequestCount =
+                localPendingCount > 0
+                    ? localPendingCount
+                    : await groupManagement.getPendingJoinRequestCount();
+
+            if (pendingJoinRequestCount <= 0) {
+                await commitJoinApprovalChange(value);
+                return;
+            }
+
+            Alert.alert(
+                "Tắt chế độ phê duyệt?",
+                `Hiện có ${pendingJoinRequestCount} yêu cầu tham gia đang chờ. Nếu tắt chế độ phê duyệt, tất cả các yêu cầu này sẽ bị hủy.`,
+                [
+                    { text: "Hủy", style: "cancel" },
+                    {
+                        text: "Tắt và hủy yêu cầu",
+                        style: "destructive",
+                        onPress: () => {
+                            void commitJoinApprovalChange(value);
+                        },
+                    },
+                ],
+            );
+            return;
+        }
+
+        await commitJoinApprovalChange(value);
+    };
+
+    const commitJoinApprovalChange = async (value: boolean) => {
         setJoinApprovalRequired(value);
         const success = await groupManagement.updateJoinApproval(value);
         if (!success) {

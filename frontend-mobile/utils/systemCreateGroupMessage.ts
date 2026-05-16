@@ -332,12 +332,16 @@ function buildSystemUpdateSettingMessage(params: {
         normalizedContent.includes("chỉ Trưởng/Phó nhóm được gửi tin nhắn");
 
     if (!isMessageRestrictionSetting) {
-        return isOwn ? `Bạn ${normalizedContent}` : `${actorLabel} ${normalizedContent}`;
+        return isOwn
+            ? `Bạn ${normalizedContent}`
+            : `${actorLabel} ${normalizedContent}`;
     }
 
     const isRestricted =
         normalizedContent.includes("isMessageRestricted:true") ||
-        normalizedContent.includes("đã bật chế độ chỉ Trưởng/Phó nhóm được gửi tin nhắn");
+        normalizedContent.includes(
+            "đã bật chế độ chỉ Trưởng/Phó nhóm được gửi tin nhắn",
+        );
 
     if (isRestricted) {
         return isOwn
@@ -436,7 +440,9 @@ export function buildSystemGroupMessage(params: {
             return `${joinedNames} yêu cầu tham gia nhóm và cần trưởng/phó nhóm phê duyệt.`;
         }
         const inviterLabel = isOwn ? "bạn" : actorLabel;
-        return `${joinedNames} được ${inviterLabel} mời tham gia nhóm và cần trưởng/phó nhóm phê duyệt.`;
+        return inviterLabel === "Người dùng"
+            ? `${joinedNames} yêu cầu tham gia nhóm và cần trưởng/phó nhóm phê duyệt.`
+            : `${joinedNames} được ${inviterLabel} mời tham gia nhóm và cần trưởng/phó nhóm phê duyệt.`;
     }
 
     if (type === "SYSTEM_JOIN_VIA_LINK") {

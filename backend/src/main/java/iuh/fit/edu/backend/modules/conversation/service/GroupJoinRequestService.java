@@ -27,4 +27,6 @@ public interface GroupJoinRequestService {
     GroupJoinRequest getRequestById(Long requestId);
 
     boolean hasPendingRequest(Long id, Long userId);
+
+    void cancelPendingRequestsWhenApprovalDisabled(Long conversationId, Long processorId);
 }

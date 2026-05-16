@@ -12,6 +12,7 @@ import iuh.fit.edu.backend.modules.conversation.dto.response.JoinRequestResponse
 import iuh.fit.edu.backend.modules.conversation.entity.Conversation;
 import iuh.fit.edu.backend.modules.conversation.entity.ConversationMember;
 import iuh.fit.edu.backend.modules.conversation.entity.GroupJoinRequest;
+import iuh.fit.edu.backend.modules.conversation.event.payload.JoinRequestProcessedEvent;
 import iuh.fit.edu.backend.modules.conversation.event.payload.ConversationUpdatedEvent;
 import iuh.fit.edu.backend.modules.conversation.event.payload.NewJoinRequestEvent;
 import iuh.fit.edu.backend.modules.conversation.repository.ConversationMemberRepository;
@@ -146,6 +147,35 @@ public class GroupJoinRequestServiceImpl implements GroupJoinRequestService {
     public boolean hasPendingRequest(Long conversationId, Long userId) {
         return requestRepository.existsByConversationIdAndUserIdAndStatus(
                 conversationId, userId, JoinRequestStatus.PENDING);
+    }
+
+    @Transactional
+    @Override
+    public void cancelPendingRequestsWhenApprovalDisabled(Long conversationId, Long processorId) {
+        List<GroupJoinRequest> pendingRequests = requestRepository.findByConversationIdAndStatus(
+                conversationId,
+                JoinRequestStatus.PENDING
+        );
+        if (pendingRequests.isEmpty()) return;
+
+        Instant now = Instant.now();
+        pendingRequests.forEach(request -> {
+            request.setStatus(JoinRequestStatus.REJECTED);
+            request.setProcessedAt(now);
+            request.setProcessorId(processorId);
+        });
+        requestRepository.saveAll(pendingRequests);
+
+        Set<Long> adminIds = memberRepository.findAdminIdsByConversationId(conversationId);
+        if (adminIds.isEmpty()) return;
+
+        pendingRequests.forEach(request ->
+                eventPublisher.publishEvent(new JoinRequestProcessedEvent(
+                        conversationId,
+                        request.getId(),
+                        adminIds
+                ))
+        );
     }
 
     private JoinRequestResponse mapJoinRequestResponse(GroupJoinRequest req){

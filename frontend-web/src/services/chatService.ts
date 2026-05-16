@@ -502,6 +502,15 @@ const chatService = {
         );
     },
 
+    async getPendingJoinRequests(conversationId: number): Promise<JoinRequest[]> {
+        const response = await axiosClient.get(
+            `/conversations/${conversationId}/join-requests`,
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<JoinRequest[]> | JoinRequest[],
+        );
+    },
+
     async updateConversationMemberNickname(
         request: UpdateNicknameRequest,
     ): Promise<void> {

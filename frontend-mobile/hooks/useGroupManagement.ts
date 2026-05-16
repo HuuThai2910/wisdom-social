@@ -595,6 +595,24 @@ export function useGroupManagement({
         [canManageSettings, reloadSelectedGroupConversation, selectedConversationId],
     );
 
+    const getPendingJoinRequestCount = useCallback(async () => {
+        if (!selectedConversationId || !canManageSettings) {
+            return 0;
+        }
+
+        try {
+            const requests =
+                await chatService.getPendingJoinRequests(selectedConversationId);
+            return requests.length;
+        } catch {
+            return selectedGroupConversation?.pendingRequests?.length ?? 0;
+        }
+    }, [
+        canManageSettings,
+        selectedConversationId,
+        selectedGroupConversation?.pendingRequests,
+    ]);
+
     const processJoinRequest = useCallback(
         async (requestId: number, isApproved: boolean) => {
             if (!selectedConversationId || !canManageSettings) {
@@ -685,6 +703,7 @@ export function useGroupManagement({
         disbandGroup,
         updateMessageRestriction,
         updateJoinApproval,
+        getPendingJoinRequestCount,
         processJoinRequest,
         refreshFriends: loadFriends,
     };
