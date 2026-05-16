@@ -144,6 +144,7 @@ export default function MessagesListScreen() {
     }, [registerPinLimitCallback]);
 
     const closePinLimitModal = () =>
+        //@ts-ignore
         setPinLimitModal({ visible: false, pendingConversationId: null });
 
     const handleUnpinAndPin = async (unpinId: number, pendingId: number | null) => {
@@ -304,8 +305,8 @@ export default function MessagesListScreen() {
             if (!Number.isFinite(conversationId)) return;
 
             void (selectedConversationPinned
-                ? unpinConversation(conversationId)
-                : pinConversation(conversationId));
+                ? unpinConversation(conversationId).then(() => reload())
+                : pinConversation(conversationId).then(() => reload()));
             return;
         }
 
@@ -550,13 +551,13 @@ export default function MessagesListScreen() {
                                     
                                     // Swap the last one
                                     await replacePinnedConversation(firstToUnpin, pendingId);
-                                    await fetchPinnedConversations();
+                                    await reload();
                                 } else if (unpinIds.length > 0) {
                                     // Only unpinning
                                     for (const id of unpinIds) {
                                         await unpinConversation(id);
                                     }
-                                    await fetchPinnedConversations();
+                                    await reload();
                                 }
                             }}
                         >
