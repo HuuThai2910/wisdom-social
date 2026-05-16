@@ -27,6 +27,8 @@ public interface ConversationMemberService {
 
     ConversationResponse addMembers(Long conversationId, AddMemberRequest request, Long inviterId);
 
+    ConversationResponse joinByInviteLink(Long conversationId, Long userId);
+
     @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
     ConversationResponse leaveGroup(Long conversationId, Long userId);
 

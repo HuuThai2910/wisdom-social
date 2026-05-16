@@ -12,6 +12,7 @@ import {
     View,
 } from "react-native";
 import UserAvatar from "@/components/UserAvatar";
+import { buildS3Url } from "@/utils/s3";
 
 interface CreateGroupSubmitPayload {
     name: string;
@@ -183,7 +184,7 @@ export default function CreateGroupModal({
                                             ) : null}
                                         </View>
                                         <UserAvatar
-                                            uri={friend.avatarUrl}
+                                            uri={buildS3Url(friend.avatarUrl)}
                                             name={getFriendDisplayName(friend)}
                                             size={38}
                                         />

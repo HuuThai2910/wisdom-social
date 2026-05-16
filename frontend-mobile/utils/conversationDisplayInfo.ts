@@ -120,17 +120,14 @@ export function buildConversationDisplayInfo({
     const otherMember = normalizedMembers.find(
         (member) => member.userId !== currentUserId,
     );
-
     const explicitDirectName = conversation.name?.trim();
-    const explicitDirectAvatar = conversation.imageUrl?.trim() || null;
+    const explicitDirectAvatarUrl = conversation.imageUrl?.trim();
 
     return {
-        name:
-            explicitDirectName ||
-            (otherMember
-                ? resolveMemberDisplayName(otherMember)
-                : DIRECT_NAME_FALLBACK),
-        avatarUrl: explicitDirectAvatar || otherMember?.avatar?.trim() || null,
+        name: otherMember
+            ? resolveMemberDisplayName(otherMember)
+            : explicitDirectName || DIRECT_NAME_FALLBACK,
+        avatarUrl: otherMember?.avatar?.trim() || explicitDirectAvatarUrl || null,
         compositeAvatarUrls: [],
     };
 }

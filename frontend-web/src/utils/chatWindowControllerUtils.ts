@@ -38,6 +38,8 @@ export const GROUP_SYSTEM_MEMBER_SYNC_TYPES = new Set<MessageType>([
     "SYSTEM_LEAVE_GROUP",
     "SYSTEM_DISBAND_GROUP",
     "SYSTEM_UPDATE_SETTING",
+    "SYSTEM_REQUIRE_APPROVAL",
+    "SYSTEM_JOIN_VIA_LINK",
 ]);
 
 export type LoadOlderOptions = { keepAtBottom?: boolean };

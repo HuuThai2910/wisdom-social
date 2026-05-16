@@ -4,6 +4,7 @@
  */
 package iuh.fit.edu.backend.modules.conversation.service.impl;
 
+import iuh.fit.edu.backend.modules.conversation.dto.response.JoinRequestResponse;
 import iuh.fit.edu.backend.modules.conversation.entity.Conversation;
 import iuh.fit.edu.backend.modules.conversation.entity.ConversationMember;
 import iuh.fit.edu.backend.modules.conversation.entity.FrozenLastMessage;
@@ -20,6 +21,7 @@ import iuh.fit.edu.backend.modules.conversation.constant.ConversationType;
 import iuh.fit.edu.backend.modules.conversation.constant.MemberRole;
 import iuh.fit.edu.backend.modules.conversation.repository.ConversationMemberRepository;
 import iuh.fit.edu.backend.modules.conversation.repository.ConversationRepository;
+import iuh.fit.edu.backend.modules.conversation.service.GroupJoinRequestService;
 import iuh.fit.edu.backend.modules.user.repository.UserRepository;
 import iuh.fit.edu.backend.modules.conversation.service.ConversationMemberCacheService;
 import iuh.fit.edu.backend.modules.conversation.service.ConversationMemberService;
@@ -56,6 +58,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
     private final InternalMessageService internalMessageService;
     private final ConversationMemberCacheService conversationMemberCacheService;
     private final ChatSnapshotHelper chatSnapshotHelper;
+    private final GroupJoinRequestService joinRequestService;
 
     /**
      * Lấy danh sách toàn bộ thành viên. Ưu tiên lấy từ Cache, nếu rỗng thì gọi DB.
@@ -104,6 +107,26 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
 
         // Kiểm tra phòng chat
         Conversation conv = validateGroupAndInviter(conversationId, inviterId);
+        ConversationMember inviter = getActiveMember(conversationId, inviterId);
+
+        // LUỒNG DUYỆT THÀNH VIÊN
+        if (conv.isJoinApprovalRequired() && inviter.getRole() == MemberRole.MEMBER) {
+            for (Long targetUserId : request.getNewMemberIds()) {
+                joinRequestService.createRequest(conversationId, targetUserId, inviterId);
+            }
+
+            String targetIdsJson = chatSnapshotHelper.buildMemberSnapshotContent(request.getNewMemberIds());
+
+            ConversationResponse response = executeSystemActionAndBuildResponse(
+                    conv, inviterId, MessageType.SYSTEM_REQUIRE_APPROVAL, targetIdsJson, now);
+
+            Set<Long> allActiveMemberIds = conversationMemberRepository
+                    .findUserIdsByConversationIdAndStatus(conversationId, ConversationMemberStatus.ACTIVE);
+
+            // Cập nhật Sidebar cho tất cả mọi người
+            eventPublisher.publishEvent(new ConversationUpdatedEvent(conversationId, response.getLastMessage(), allActiveMemberIds));
+            return response;
+        }
 
         Set<Long> actuallyAddedIds = new HashSet<>();
         List<ConversationMember> membersToSave = prepareMembersForAddition(
@@ -122,11 +145,73 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
             }
         });
 
+        // Nếu danh sách add chỉ có 1 người, và người đó chính là người mời -> Là luồng bấm Link!
+        boolean isJoinViaLink = actuallyAddedIds.size() == 1 && actuallyAddedIds.contains(inviterId);
+        MessageType msgType = isJoinViaLink ? MessageType.SYSTEM_JOIN_VIA_LINK : MessageType.SYSTEM_ADD_MEMBER;
+
         // Ghi Log vào MongoDB qua MessageFacade
         String targetIdsJson = chatSnapshotHelper.buildMemberSnapshotContent(actuallyAddedIds);
 
         ConversationResponse response = executeSystemActionAndBuildResponse(
-                conv, inviterId, MessageType.SYSTEM_ADD_MEMBER, targetIdsJson, now);
+                conv, inviterId, msgType, targetIdsJson, now);
+
+        Set<Long> allActiveMemberIds = conversationMemberRepository
+                .findUserIdsByConversationIdAndStatus(conversationId, ConversationMemberStatus.ACTIVE);
+
+        eventPublisher.publishEvent(new MemberAddedEvent(response, allActiveMemberIds));
+        return response;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    @Override
+    public ConversationResponse joinByInviteLink(Long conversationId, Long userId) {
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+
+        Conversation conv = conversationRepository.findById(conversationId)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy cuộc trò chuyện"));
+
+        if (conv.getType() != ConversationType.GROUP) {
+            throw new IllegalArgumentException("Chỉ nhóm chat mới có thể tham gia bằng link");
+        }
+
+        ConversationMember member = conversationMemberRepository
+                .findByConversation_IdAndUser_Id(conversationId, userId)
+                .orElse(null);
+
+        if (member != null && member.getStatus() == ConversationMemberStatus.ACTIVE) {
+            return conversationMapper.toConversationResponse(conv, userId);
+        }
+
+//        if (member != null && member.getStatus() == ConversationMemberStatus.KICKED) {
+//            throw new RuntimeException("Bạn đã bị chặn khỏi nhóm");
+//        }
+
+        if (member == null) {
+            member = new ConversationMember();
+            member.setConversation(conv);
+            member.setUser(userRepository.getReferenceById(userId));
+        }
+
+        member.setRole(MemberRole.MEMBER);
+        member.setStatus(ConversationMemberStatus.ACTIVE);
+        member.setJoinedAt(now);
+        member.setLeftAt(null);
+        member.setClearedAt(null);
+        member.setHidden(false);
+
+        ConversationMember savedMember = conversationMemberRepository.save(member);
+
+        TransactionUtil.executeAfterCommit(() ->
+                conversationMemberCacheService.saveMemberInfo(
+                        conversationId,
+                        userId,
+                        conversationMemberMapper.toConversationMemberResponse(savedMember)
+                )
+        );
+
+        String targetIdsJson = chatSnapshotHelper.buildMemberSnapshotContent(Collections.singleton(userId));
+        ConversationResponse response = executeSystemActionAndBuildResponse(
+                conv, userId, MessageType.SYSTEM_JOIN_VIA_LINK, targetIdsJson, now);
 
         Set<Long> allActiveMemberIds = conversationMemberRepository
                 .findUserIdsByConversationIdAndStatus(conversationId, ConversationMemberStatus.ACTIVE);
@@ -274,18 +359,31 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
 
         Set<Long> allNotifyIds = activeMembers.stream()
                 .map(m -> m.getUser().getId()).collect(Collectors.toSet());
+        String requesterName = chatSnapshotHelper.resolveActorDisplayName(conv, requesterId);
 
         // Cập nhật trạng thái hàng loạt trong MySQL
         for (ConversationMember member : activeMembers) {
             member.setStatus(ConversationMemberStatus.GROUP_DISBANDED);
             member.setLeftAt(now);
+            member.setUnreadCount(0);
+            member.setFrozenLastMessage(new FrozenLastMessage(
+                    "[]",
+                    requesterId,
+                    requesterName,
+                    MessageType.SYSTEM_DISBAND_GROUP,
+                    now
+            ));
         }
         conversationMemberRepository.saveAll(activeMembers);
 
-        executeSystemActionAndBuildResponse(
+        TransactionUtil.executeAfterCommit(() ->
+                conversationMemberCacheService.evictConversation(conversationId)
+        );
+
+        ConversationResponse response = executeSystemActionAndBuildResponse(
                 conv, requesterId, MessageType.SYSTEM_DISBAND_GROUP, "[]", now);
 
-        eventPublisher.publishEvent(new GroupDisbandedEvent(conversationId, allNotifyIds));
+        eventPublisher.publishEvent(new GroupDisbandedEvent(conversationId, allNotifyIds, response.getLastMessage()));
     }
 
 // ======================= HÀM HELPER =======================
@@ -364,10 +462,10 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
     private ConversationResponse executeSystemActionAndBuildResponse(
             Conversation conv, Long actorId, MessageType type, String content, Instant now) {
 
-        // 1. Lưu MongoDB
+        // Lưu MongoDB
         internalMessageService.createSystemMessage(conv.getId(), actorId, type, content);
 
-        // 2. Cập nhật Snapshot (MySQL)
+        // Cập nhật Snapshot (MySQL)
         String actorName = chatSnapshotHelper.resolveActorDisplayName(conv, actorId);
         conv.setLastMessageContent(content);
         conv.setLastSenderId(actorId);
@@ -376,7 +474,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
         conv.setLastSenderName(actorName);
         conversationRepository.save(conv);
 
-        // 3. Map DTO và xử lý cờ Read
+        // Map DTO và xử lý cờ Read
         ConversationResponse response = conversationMapper.toConversationResponse(conv, actorId);
         if (response.getLastMessage() != null) {
             response.getLastMessage().setLastSenderName(actorName);

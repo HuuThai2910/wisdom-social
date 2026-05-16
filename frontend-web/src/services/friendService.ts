@@ -1,5 +1,6 @@
 import axiosClient from "../api/axiosClient";
 import type { User } from '../types';
+import { buildS3Url } from "../utils/s3";
 
 export interface FriendRequest {
     senderId: number;
@@ -18,14 +19,27 @@ export const friendService = {
             const rawData = response.data.data || response.data || [];
 
             // Map friends data to expected format for frontend components
-            return rawData.map((friend: any) => ({
-                id: friend.userId?.toString() || friend.id?.toString(),
-                username: friend.username,
-                fullName: friend.fullName || friend.name || friend.username,
-                name: friend.name || friend.fullName || friend.username,
-                avatarUrl: friend.avatarUrl || friend.avatar || "https://i.pravatar.cc/150?img=5",
-                avatar: friend.avatar || friend.avatarUrl || "https://i.pravatar.cc/150?img=5",
-            }));
+            return rawData.map((friend: any) => {
+                const rawAvatar =
+                    friend.avatarUrl ||
+                    friend.avatar ||
+                    friend.imageUrl ||
+                    friend.profilePicture ||
+                    "";
+                const avatarUrl =
+                    buildS3Url(rawAvatar) ||
+                    rawAvatar ||
+                    "https://i.pravatar.cc/150?img=5";
+
+                return {
+                    id: Number(friend.userId ?? friend.id),
+                    username: friend.username,
+                    fullName: friend.fullName || friend.name || friend.username,
+                    name: friend.name || friend.fullName || friend.username,
+                    avatarUrl,
+                    avatar: avatarUrl,
+                };
+            });
         } catch (error) {
             console.error(`Error fetching friends for user ${userId}:`, error);
             return [];

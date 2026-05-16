@@ -10,7 +10,9 @@ type GroupSystemMessageType =
     | "SYSTEM_KICK_MEMBER"
     | "SYSTEM_LEAVE_GROUP"
     | "SYSTEM_DISBAND_GROUP"
-    | "SYSTEM_UPDATE_SETTING";
+    | "SYSTEM_UPDATE_SETTING"
+    | "SYSTEM_REQUIRE_APPROVAL"
+    | "SYSTEM_JOIN_VIA_LINK";
 
 function formatCommaNameList(names: string[]): string {
     return names.join(", ");
@@ -28,7 +30,7 @@ function safeParseMemberEntries(content: string): MemberSnapshot[] {
         const parsed = JSON.parse(content) as unknown;
         if (Array.isArray(parsed)) {
             return parsed
-                .map((value) => {
+                .map((value): MemberSnapshot | null => {
                     if (typeof value === "number") {
                         return Number.isFinite(value) ? { id: value } : null;
                     }
@@ -302,10 +304,8 @@ function buildSystemDisbandGroupMessage(params: {
     isOwn: boolean;
     actorLabel: string;
 }): string {
-    const { isOwn, actorLabel } = params;
-    if (isOwn) return "Bạn đã giải tán nhóm";
-    if (actorLabel === "Người dùng") return "Nhóm đã được giải tán";
-    return `${actorLabel} đã giải tán nhóm`;
+    const { isOwn } = params;
+    return isOwn ? "Bạn đã giải tán nhóm" : "Nhóm trưởng đã giải tán nhóm";
 }
 
 export function buildSystemGroupMessage(params: {
@@ -374,6 +374,32 @@ export function buildSystemGroupMessage(params: {
 
     if (type === "SYSTEM_UPDATE_SETTING") {
         return isOwn ? `Bạn ${content}` : `${actorLabel} ${content}`;
+    }
+
+    if (type === "SYSTEM_REQUIRE_APPROVAL") {
+        const memberNames = safeParseMemberEntries(content)
+            .map((entry) => resolveMemberLabelFromSnapshot(entry, membersById))
+            .filter((name): name is string => Boolean(name));
+        const joinedNames =
+            formatCommaNameList(memberNames) || "Thành viên mới";
+        const hasInviter =
+            Boolean(senderName?.trim()) ||
+            (typeof senderId === "number" &&
+                Number.isFinite(senderId) &&
+                senderId > 0);
+        if (!hasInviter) {
+            return `${joinedNames} yêu cầu tham gia nhóm và cần trưởng/phó nhóm phê duyệt.`;
+        }
+        const inviterLabel = isOwn ? "bạn" : actorLabel;
+        return inviterLabel === "Người dùng"
+            ? `${joinedNames} yêu cầu tham gia nhóm và cần trưởng/phó nhóm phê duyệt.`
+            : `${joinedNames} được ${inviterLabel} mời tham gia nhóm và cần trưởng/phó nhóm phê duyệt.`;
+    }
+
+    if (type === "SYSTEM_JOIN_VIA_LINK") {
+        return isOwn
+            ? "Bạn đã tham gia nhóm bằng link"
+            : `${actorLabel} đã tham gia nhóm bằng link`;
     }
 
     return buildSystemDisbandGroupMessage({

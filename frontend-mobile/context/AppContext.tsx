@@ -149,18 +149,6 @@ const defaultNotificationSettings: NotificationSettings = {
 
 const AppContext = createContext<AppContextValue | undefined>(undefined);
 
-const toPublicImageUrl = (url?: string | null): string | undefined => {
-    if (!url) return undefined;
-    if (
-        url.startsWith("http") ||
-        url.startsWith("file://") ||
-        url.startsWith("content://")
-    ) {
-        return url;
-    }
-    return `https://cnmt-hk1-amz.s3.ap-southeast-1.amazonaws.com/${url}`;
-};
-
 const normalizeGender = (
     gender?: string | null,
 ): User["gender"] | undefined => {
@@ -182,24 +170,21 @@ const toInternationalPhone = (phone?: string | null): string => {
 const mapApiUserToAppUser = (apiUser: ApiAuthUser): User => {
     const normalizedUsername =
         apiUser.username?.trim().toLowerCase() || `user${apiUser.id}`;
-    const avatarUrl =
-        toPublicImageUrl(apiUser.avatarUrl) ||
-        "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=300&q=80";
+   
 
     return {
-        id: String(apiUser.id),
-        username: normalizedUsername,
-        fullName: apiUser.name?.trim() || normalizedUsername,
-        name: apiUser.name?.trim() || normalizedUsername,
-        bio: apiUser.bio?.trim() || "Welcome to Wisdom Social",
-        avatar: avatarUrl,
-        avatarUrl,
-        birthday: apiUser.birthday ?? undefined,
-        gender: normalizeGender(apiUser.gender),
-        phone: apiUser.phone,
-        followers: 0,
-        following: 0,
-        hasPinCode: apiUser.hasPinCode,
+      id: String(apiUser.id),
+      username: normalizedUsername,
+      fullName: apiUser.name?.trim() || normalizedUsername,
+      name: apiUser.name?.trim() || normalizedUsername,
+      bio: apiUser.bio?.trim() || "Welcome to Wisdom Social",
+      avatarUrl: apiUser.avatarUrl || undefined,
+      birthday: apiUser.birthday ?? undefined,
+      gender: normalizeGender(apiUser.gender),
+      phone: apiUser.phone,
+      followers: 0,
+      following: 0,
+      hasPinCode: apiUser.hasPinCode,
     };
 };
 
@@ -734,7 +719,6 @@ export function AppProvider({ children }: PropsWithChildren) {
             addComment,
             addPost,
             updateProfile,
-            refreshCurrentUser,
             sendMessage,
             markNotificationsRead,
             getUserById,

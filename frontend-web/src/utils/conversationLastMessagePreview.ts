@@ -18,7 +18,10 @@ type GroupSystemPreviewType =
     | "SYSTEM_UPDATE_ROLE"
     | "SYSTEM_KICK_MEMBER"
     | "SYSTEM_LEAVE_GROUP"
-    | "SYSTEM_DISBAND_GROUP";
+    | "SYSTEM_DISBAND_GROUP"
+    | "SYSTEM_UPDATE_SETTING"
+    | "SYSTEM_REQUIRE_APPROVAL"
+    | "SYSTEM_JOIN_VIA_LINK";
 
 const DEFAULT_PREVIEW_TEXT = "Bắt đầu trò chuyện";
 
@@ -29,6 +32,9 @@ const GROUP_SYSTEM_PREVIEW_TYPES = new Set<GroupSystemPreviewType>([
     "SYSTEM_KICK_MEMBER",
     "SYSTEM_LEAVE_GROUP",
     "SYSTEM_DISBAND_GROUP",
+    "SYSTEM_UPDATE_SETTING",
+    "SYSTEM_REQUIRE_APPROVAL",
+    "SYSTEM_JOIN_VIA_LINK",
 ]);
 
 function isGroupSystemPreviewType(
@@ -39,6 +45,10 @@ function isGroupSystemPreviewType(
         : never,
 ): type is GroupSystemPreviewType {
     return GROUP_SYSTEM_PREVIEW_TYPES.has(type as GroupSystemPreviewType);
+}
+
+function isSystemMessageType(type: unknown): type is string {
+    return typeof type === "string" && type.startsWith("SYSTEM_");
 }
 
 export function buildConversationLastMessagePreview({
@@ -54,15 +64,39 @@ export function buildConversationLastMessagePreview({
         };
     }
 
-    if (isGroupSystemPreviewType(lastMessage.lastMessageType)) {
+    if (isSystemMessageType(lastMessage.lastMessageType)) {
         const isFallbackMessage =
             !lastMessage.lastMessageContent?.trim() &&
             !lastMessage.lastSenderName?.trim() &&
             lastMessage.lastSenderId <= 0;
 
         if (isFallbackMessage) {
+            if (lastMessage.lastMessageType === "SYSTEM_DISBAND_GROUP") {
+                return {
+                    text: buildSystemGroupMessage({
+                        type: lastMessage.lastMessageType,
+                        content: lastMessage.lastMessageContent,
+                        isOwn: false,
+                        senderName: lastMessage.lastSenderName,
+                        senderId: lastMessage.lastSenderId,
+                        currentUserId,
+                        membersById: {},
+                    }),
+                    showSenderPrefix: false,
+                    senderLabel: "",
+                };
+            }
+
             return {
                 text: DEFAULT_PREVIEW_TEXT,
+                showSenderPrefix: false,
+                senderLabel: "",
+            };
+        }
+
+        if (!isGroupSystemPreviewType(lastMessage.lastMessageType)) {
+            return {
+                text: lastMessage.lastMessageContent?.trim() || DEFAULT_PREVIEW_TEXT,
                 showSenderPrefix: false,
                 senderLabel: "",
             };

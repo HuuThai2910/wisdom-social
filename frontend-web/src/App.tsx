@@ -26,6 +26,7 @@ import CheckInbox from "./pages/CheckInbox";
 import VerifyOTP from "./pages/VerifyOTP";
 import ResetPassword from "./pages/ResetPassword";
 import QRLogin from "./pages/QRLogin";
+import GroupInvite from "./pages/GroupInvite";
 
 // Private Pages
 import Home from "./pages/Home";
@@ -112,6 +113,7 @@ function App() {
                   <Route path="/verify-otp" element={<VerifyOTP />} />
                   <Route path="/reset-password" element={<ResetPassword />} />
                 </Route>
+                <Route path="/g/:token" element={<GroupInvite />} />
 
                 {/* Private Routes */}
                 <Route

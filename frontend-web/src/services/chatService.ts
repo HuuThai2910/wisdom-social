@@ -16,7 +16,9 @@ export type MessageType =
     | "SYSTEM_KICK_MEMBER"
     | "SYSTEM_UPDATE_ROLE"
     | "SYSTEM_DISBAND_GROUP"
-    | "SYSTEM_UPDATE_SETTING";
+    | "SYSTEM_UPDATE_SETTING"
+    | "SYSTEM_REQUIRE_APPROVAL"
+    | "SYSTEM_JOIN_VIA_LINK";
 
 export type MemberRole = "OWNER" | "DEPUTY" | "MEMBER";
 
@@ -98,7 +100,38 @@ export interface Conversation extends ConversationSidebar {
     members?: ConversationMember[];
     pinnedMessages?: PinnedMessageDetail[];
     isMessageRestricted?: boolean;
+    isJoinApprovalRequired?: boolean;
+    inviteToken?: string | null;
+    pendingRequests?: JoinRequest[] | null;
 }
+
+export type InviteUserStatus = "ACTIVE" | "PENDING" | "NOT_MEMBER";
+
+export interface ConversationPreview {
+    conversationId: number;
+    name: string;
+    imageUrl?: string;
+    memberCount: number;
+    isJoinApprovalRequired: boolean;
+    userStatus: InviteUserStatus;
+}
+
+export type JoinRequestStatus = "PENDING" | "APPROVED" | "REJECTED";
+
+export interface JoinRequest {
+    id: number;
+    conversationId: number;
+    userId: number;
+    userName: string;
+    userAvatar?: string;
+    inviterId?: number | null;
+    inviterName?: string | null;
+    status: JoinRequestStatus;
+    content?: string | null;
+    createdAt: string;
+}
+
+export type GroupJoinRequest = JoinRequest;
 
 export interface ConversationMember {
     id?: number;
@@ -395,6 +428,86 @@ const chatService = {
         );
         return unwrapApiData(
             response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async updateJoinApprovalRequired(
+        conversationId: number,
+        isRequired: boolean,
+    ): Promise<Conversation> {
+        const response = await axiosClient.patch(
+            `/conversations/${conversationId}/settings/join-approval`,
+            null,
+            {
+                params: {
+                    isRequired,
+                },
+            },
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async getOrCreateInviteLink(conversationId: number): Promise<string> {
+        const response = await axiosClient.get(
+            `/conversations/${conversationId}/invite-link`,
+        );
+        return unwrapApiData(response.data as ApiResponse<string> | string);
+    },
+
+    async resetInviteLink(conversationId: number): Promise<string> {
+        const response = await axiosClient.patch(
+            `/conversations/${conversationId}/invite-link/reset`,
+        );
+        return unwrapApiData(response.data as ApiResponse<string> | string);
+    },
+
+    async disableInviteLink(conversationId: number): Promise<void> {
+        await axiosClient.delete(`/conversations/${conversationId}/invite-link`);
+    },
+
+    async previewInvite(token: string): Promise<ConversationPreview> {
+        const response = await axiosClient.get(`/conversations/invite/${token}`);
+        return unwrapApiData(
+            response.data as ApiResponse<ConversationPreview> | ConversationPreview,
+        );
+    },
+
+    async joinByInvite(token: string): Promise<Conversation | { message?: string }> {
+        const response = await axiosClient.post(
+            `/conversations/invite/${token}/join`,
+        );
+        return unwrapApiData(
+            response.data as
+                | ApiResponse<Conversation | { message?: string }>
+                | Conversation
+                | { message?: string },
+        );
+    },
+
+    async processJoinRequest(
+        conversationId: number,
+        requestId: number,
+        isApproved: boolean,
+    ): Promise<void> {
+        await axiosClient.patch(
+            `/conversations/${conversationId}/join-requests/${requestId}`,
+            null,
+            {
+                params: {
+                    isApproved,
+                },
+            },
+        );
+    },
+
+    async getPendingJoinRequests(conversationId: number): Promise<JoinRequest[]> {
+        const response = await axiosClient.get(
+            `/conversations/${conversationId}/join-requests`,
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<JoinRequest[]> | JoinRequest[],
         );
     },
 

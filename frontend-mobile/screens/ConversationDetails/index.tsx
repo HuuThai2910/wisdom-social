@@ -1,4 +1,4 @@
-import React, { useMemo, useState, ComponentProps } from "react";
+﻿import React, { useMemo, useState, ComponentProps } from "react";
 import {
     View,
     Text,
@@ -7,15 +7,23 @@ import {
     Pressable,
     Alert,
     SafeAreaView,
-    Animated,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-import { colors, spacing } from "@/constants";
+import { colors } from "@/constants";
 import { UserAvatar, TransferOwnershipModal } from "@/components";
-import { useMessagesController } from "@/hooks/useMessagesController";
+import {
+    setActiveConversationId,
+    useMessagesController,
+} from "@/hooks/useMessagesController";
 import { useGroupManagement } from "@/hooks/useGroupManagement";
 import { formatRelativeTime } from "@/utils/format";
+import { useGroupConversationRealtime } from "@/hooks/useGroupConversationRealtime";
+import chatRuntimeStore from "@/stores/chatRuntimeStore";
+import chatService from "@/services/chatService";
+import chatWebsocketService from "@/services/chatWebsocketService";
+import { buildConversationDisplayInfo } from "@/utils/conversationDisplayInfo";
 
 export function ConversationDetailsScreen() {
     const { conversationId } = useLocalSearchParams<{ conversationId: string }>();
@@ -25,6 +33,7 @@ export function ConversationDetailsScreen() {
     const {
         conversations,
         currentUserId,
+        clearUnreadCount,
         reload,
     } = useMessagesController();
 
@@ -40,10 +49,87 @@ export function ConversationDetailsScreen() {
         reloadConversations: reload,
     });
 
+    useGroupConversationRealtime({
+        conversationId: id,
+        currentUserId,
+        reloadConversations: reload,
+    });
+
+    useFocusEffect(
+        React.useCallback(() => {
+            if (!Number.isFinite(id) || !currentUserId) return undefined;
+
+            let unsubscribeMessages: (() => void) | undefined;
+            let disposed = false;
+
+            setActiveConversationId(id);
+            clearUnreadCount(id);
+
+            const cachedMessages = chatRuntimeStore.getMessages(id);
+            const lastMessageId = cachedMessages.at(-1)?.id;
+            void chatService
+                .markAsRead(id, currentUserId, lastMessageId)
+                .catch(() => undefined);
+            void chatService
+                .getConversation(id, currentUserId)
+                .then((response) => {
+                    if (response.success && response.data) {
+                        chatRuntimeStore.setConversation(id, response.data);
+                    }
+                })
+                .catch(() => undefined);
+            const setupMessageReadSync = async () => {
+                try {
+                    if (!chatWebsocketService.isConnected()) {
+                        await chatWebsocketService.connect();
+                    }
+                    if (disposed) return;
+
+                    unsubscribeMessages =
+                        chatWebsocketService.subscribeToConversationMessages(
+                            id,
+                            (message) => {
+                                if (
+                                    Number(message.senderId) ===
+                                    Number(currentUserId)
+                                ) {
+                                    return;
+                                }
+
+                                clearUnreadCount(id);
+                                void chatService
+                                    .markAsRead(
+                                        id,
+                                        currentUserId,
+                                        message.id,
+                                    )
+                                    .catch(() => undefined);
+                            },
+                        );
+                } catch {
+                    // The user-conversation subscription still keeps the unread badge local state in sync.
+                }
+            };
+
+            void setupMessageReadSync();
+
+            return () => {
+                disposed = true;
+                unsubscribeMessages?.();
+                setActiveConversationId(null);
+            };
+        }, [clearUnreadCount, currentUserId, id]),
+    );
+
     const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
         media: true,
         privacy: true,
     });
+
+    const activityStatus = useMemo(() => {
+        if (!selectedConversation?.updatedAt) return "Đang hoạt động gần đây";
+        return `Hoạt động ${formatRelativeTime(selectedConversation.updatedAt)} trước`;
+    }, [selectedConversation?.updatedAt]);
 
     if (!selectedConversation) {
         return (
@@ -54,19 +140,28 @@ export function ConversationDetailsScreen() {
                     </Pressable>
                 </View>
                 <View style={styles.centered}>
-                    <Text style={styles.errorText}>Khong tim thay hoi thoai</Text>
+                    <Text style={styles.errorText}>Không tìm thấy hội thoại</Text>
                 </View>
             </SafeAreaView>
         );
     }
 
     const isGroup = selectedConversation.type === "GROUP";
-    const memberCount = selectedConversation.members?.length || 0;
-
-    const activityStatus = useMemo(() => {
-        if (!selectedConversation.updatedAt) return "Đang hoạt động gần đây";
-        return `Hoạt động ${formatRelativeTime(selectedConversation.updatedAt)} trước`;
-    }, [selectedConversation.updatedAt]);
+    const cachedMembers = Object.values(chatRuntimeStore.getMembers(id));
+    const conversationDisplayInfo = buildConversationDisplayInfo({
+        conversation: selectedConversation,
+        currentUserId,
+        members: cachedMembers.length > 0 ? cachedMembers : undefined,
+    });
+    const memberCount = groupManagement.groupMembers.length;
+    const canReviewJoinRequests =
+        groupManagement.currentMemberRole === "OWNER" ||
+        groupManagement.currentMemberRole === "DEPUTY";
+    const pendingRequestCount = canReviewJoinRequests
+        ? (selectedConversation.pendingRequests ?? []).filter(
+              (request) => request.status === "PENDING",
+          ).length
+        : 0;
 
     const toggleSection = (key: string) => {
         setExpandedSections(prev => ({ ...prev, [key]: !prev[key] }));
@@ -80,12 +175,12 @@ export function ConversationDetailsScreen() {
         }
 
         Alert.alert(
-            "Roi khoi nhom?",
-            `Ban co chac muon roi khoi nhom "${selectedConversation.name || "nay"}"?`,
+            "Rời khỏi nhóm?",
+            `Bạn có chắc muốn rời khỏi nhóm "${selectedConversation.name || "này"}"?`,
             [
-                { text: "Huy", style: "cancel" },
+                { text: "Hủy", style: "cancel" },
                 {
-                    text: "Roi nhom",
+                    text: "Rời nhóm",
                     style: "destructive",
                     onPress: async () => {
                         const success = await groupManagement.leaveGroup();
@@ -111,12 +206,12 @@ export function ConversationDetailsScreen() {
                 {/* Profile Section */}
                 <View style={styles.profileSection}>
                     <UserAvatar
-                        uri={selectedConversation.imageUrl}
-                        name={selectedConversation.name || "?"}
+                        uri={conversationDisplayInfo.avatarUrl || undefined}
+                        name={conversationDisplayInfo.name || "?"}
                         size={80}
                     />
                     <Text style={styles.conversationName}>
-                        {selectedConversation.name || "Nguoi dung"}
+                        {conversationDisplayInfo.name}
                     </Text>
                     <Text style={styles.activityStatus}>{activityStatus}</Text>
                     
@@ -172,13 +267,35 @@ export function ConversationDetailsScreen() {
                             <View style={styles.memberIconWrap}>
                                 <Ionicons name="people" size={20} color={colors.textMuted} />
                             </View>
-                            <Text style={styles.memberCountText}>{memberCount} thành viên</Text>
+                            <View style={styles.memberSummaryText}>
+                                <Text style={styles.memberCountText}>{memberCount} thành viên</Text>
+                                {pendingRequestCount > 0 && (
+                                    <Text style={styles.pendingRequestText}>
+                                        Có {pendingRequestCount} yêu cầu tham gia nhóm
+                                    </Text>
+                                )}
+                            </View>
                             <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
                         </Pressable>
                     </CollapsibleSection>
                 )}
 
                 <View style={styles.divider} />
+
+                {isGroup && (
+                    <>
+                        <DetailItem
+                            icon="link-outline"
+                            label="Link tham gia nhóm"
+                            onPress={() =>
+                                router.push(
+                                    `/messages/details/invite-link/${id}`,
+                                )
+                            }
+                        />
+                        <View style={styles.divider} />
+                    </>
+                )}
 
                 <CollapsibleSection
                     title="File phương tiện, File & Link"
@@ -447,10 +564,18 @@ const styles = StyleSheet.create({
         justifyContent: "center",
     },
     memberCountText: {
-        flex: 1,
         fontSize: 14,
         fontWeight: "600",
         color: colors.text,
+    },
+    memberSummaryText: {
+        flex: 1,
+    },
+    pendingRequestText: {
+        fontSize: 13,
+        fontWeight: "600",
+        color: colors.primary,
+        marginTop: 3,
     },
     detailItem: {
         flexDirection: "row",

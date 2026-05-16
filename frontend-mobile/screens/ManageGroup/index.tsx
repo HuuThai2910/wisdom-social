@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from "react";
+﻿import React, { useMemo, useState, useEffect } from "react";
 import {
     View,
     Text,
@@ -12,9 +12,10 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { colors, spacing } from "@/constants";
+import { colors } from "@/constants";
 import { useMessagesController } from "@/hooks/useMessagesController";
 import { useGroupManagement } from "@/hooks/useGroupManagement";
+import { useGroupConversationRealtime } from "@/hooks/useGroupConversationRealtime";
 
 export function ManageGroupScreen() {
     const { conversationId } = useLocalSearchParams<{ conversationId: string }>();
@@ -39,11 +40,24 @@ export function ManageGroupScreen() {
         reloadConversations: reload,
     });
 
+    useGroupConversationRealtime({
+        conversationId: id,
+        currentUserId,
+        reloadConversations: reload,
+    });
+
     const [canSendMessages, setCanSendMessages] = useState(!selectedConversation?.isMessageRestricted);
+    const [joinApprovalRequired, setJoinApprovalRequired] = useState(
+        Boolean(selectedConversation?.isJoinApprovalRequired),
+    );
 
     useEffect(() => {
         setCanSendMessages(!selectedConversation?.isMessageRestricted);
     }, [selectedConversation?.isMessageRestricted]);
+
+    useEffect(() => {
+        setJoinApprovalRequired(Boolean(selectedConversation?.isJoinApprovalRequired));
+    }, [selectedConversation?.isJoinApprovalRequired]);
 
     if (!selectedConversation) return null;
 
@@ -60,14 +74,59 @@ export function ManageGroupScreen() {
         }
     };
 
+    const handleToggleJoinApproval = async (value: boolean) => {
+        if (
+            joinApprovalRequired &&
+            !value
+        ) {
+            const localPendingCount =
+                selectedConversation.pendingRequests?.length ?? 0;
+            const pendingJoinRequestCount =
+                localPendingCount > 0
+                    ? localPendingCount
+                    : await groupManagement.getPendingJoinRequestCount();
+
+            if (pendingJoinRequestCount <= 0) {
+                await commitJoinApprovalChange(value);
+                return;
+            }
+
+            Alert.alert(
+                "Tắt chế độ phê duyệt?",
+                `Hiện có ${pendingJoinRequestCount} yêu cầu tham gia đang chờ. Nếu tắt chế độ phê duyệt, tất cả các yêu cầu này sẽ bị hủy.`,
+                [
+                    { text: "Hủy", style: "cancel" },
+                    {
+                        text: "Tắt và hủy yêu cầu",
+                        style: "destructive",
+                        onPress: () => {
+                            void commitJoinApprovalChange(value);
+                        },
+                    },
+                ],
+            );
+            return;
+        }
+
+        await commitJoinApprovalChange(value);
+    };
+
+    const commitJoinApprovalChange = async (value: boolean) => {
+        setJoinApprovalRequired(value);
+        const success = await groupManagement.updateJoinApproval(value);
+        if (!success) {
+            setJoinApprovalRequired(!value);
+        }
+    };
+
     const handleDisbandGroup = () => {
         Alert.alert(
-            "Giai tan nhom?",
-            "Tat ca thanh vien se bi xoa khoi nhom va cuoc tro chuyen nay se ket thuc. Hanh dong nay khong the hoan tac.",
+            "Giải tán nhóm?",
+            "Tất cả thành viên sẽ bị xóa khỏi nhóm và cuộc trò chuyện này sẽ kết thúc. Hành động này không thể hoàn tác.",
             [
-                { text: "Huy", style: "cancel" },
+                { text: "Hủy", style: "cancel" },
                 {
-                    text: "Giai tan",
+                    text: "Giải tán",
                     style: "destructive",
                     onPress: async () => {
                         const success = await groupManagement.disbandGroup();
@@ -116,7 +175,14 @@ export function ManageGroupScreen() {
                 </View>
 
                 <View style={styles.section}>
-                    <ToggleRow label="Chế độ phê duyệt thành viên" value={false} disabled isAdmin={isAdmin} />
+                    <ToggleRow
+                        label="Chế độ phê duyệt thành viên"
+                        value={joinApprovalRequired}
+                        onValueChange={isAdmin ? handleToggleJoinApproval : undefined}
+                        disabled={!isAdmin || groupManagement.isUpdatingJoinApproval}
+                        loading={groupManagement.isUpdatingJoinApproval}
+                        isAdmin={isAdmin}
+                    />
                     <ToggleRow label="Cho phép thành viên mới đọc tin nhắn cũ" value={false} disabled isAdmin={isAdmin} />
                 </View>
 

@@ -1,4 +1,5 @@
 import { colors } from "@/constants";
+import { useEffect, useState } from "react";
 import { Image, StyleSheet, Text, View } from "react-native";
 
 type Props = {
@@ -8,7 +9,14 @@ type Props = {
 };
 
 export default function UserAvatar({ uri, name, size = 40 }: Props) {
-    if (!uri) {
+    const [failed, setFailed] = useState(false);
+    const normalizedUri = uri?.trim();
+
+    useEffect(() => {
+        setFailed(false);
+    }, [normalizedUri]);
+
+    if (!normalizedUri || failed) {
         return (
             <View
                 style={[
@@ -25,7 +33,8 @@ export default function UserAvatar({ uri, name, size = 40 }: Props) {
 
     return (
         <Image
-            source={{ uri }}
+            source={{ uri: normalizedUri }}
+            onError={() => setFailed(true)}
             style={{
                 width: size,
                 height: size,

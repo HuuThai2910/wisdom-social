@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
     View,
     Text,
@@ -13,11 +13,13 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { colors } from "@/constants";
+import { extractGroupInviteToken } from "@/utils/groupInvite";
 
 export default function QrScannerScreen() {
     const [permission, requestPermission] = useCameraPermissions();
     const [scanned, setScanned] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
+    const scanLockRef = useRef(false);
     const router = useRouter();
 
     useEffect(() => {
@@ -35,15 +37,31 @@ export default function QrScannerScreen() {
     useEffect(() => {
         setScanned(false);
         setIsProcessing(false);
+        scanLockRef.current = false;
     }, []);
 
     const handleBarCodeScanned = ({ data }: { type: string; data: string }) => {
-        if (scanned || isProcessing) return;
+        if (scanLockRef.current || scanned || isProcessing) return;
 
+        scanLockRef.current = true;
         setScanned(true);
         setIsProcessing(true);
 
         try {
+            const inviteToken = extractGroupInviteToken(data);
+            if (inviteToken) {
+                setTimeout(() => {
+                    router.replace({
+                        pathname: "/(stack)/group-invite/[token]" as any,
+                        params: {
+                            token: inviteToken,
+                            returnTo: "messages",
+                        },
+                    } as any);
+                }, 100);
+                return;
+            }
+
             const qrData = JSON.parse(data);
 
             if (qrData.type === "qr_login" && qrData.session_id) {
@@ -58,6 +76,7 @@ export default function QrScannerScreen() {
                     {
                         text: "OK",
                         onPress: () => {
+                            scanLockRef.current = false;
                             setScanned(false);
                             setIsProcessing(false);
                         },
@@ -68,10 +87,11 @@ export default function QrScannerScreen() {
             Alert.alert("Lỗi", "Không thể đọc mã QR. Vui lòng thử lại.", [
                 {
                     text: "OK",
-                    onPress: () => {
-                        setScanned(false);
-                        setIsProcessing(false);
-                    },
+                onPress: () => {
+                    scanLockRef.current = false;
+                    setScanned(false);
+                    setIsProcessing(false);
+                },
                 },
             ]);
         }

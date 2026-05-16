@@ -96,4 +96,8 @@ public class ConversationMemberCacheServiceImpl implements ConversationMemberCac
         // HSET: Ghi đè vào đúng ô của user đó
         redisTemplate.opsForHash().put(redisKey, userId.toString(), info);
     }
+    @Override
+    public void evictConversation(Long conversationId) {
+        redisTemplate.delete(getRedisKey(conversationId));
+    }
 }

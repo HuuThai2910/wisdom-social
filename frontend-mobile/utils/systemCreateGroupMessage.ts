@@ -10,7 +10,9 @@ export type GroupSystemMessageType =
     | "SYSTEM_KICK_MEMBER"
     | "SYSTEM_LEAVE_GROUP"
     | "SYSTEM_DISBAND_GROUP"
-    | "SYSTEM_UPDATE_SETTING";
+    | "SYSTEM_UPDATE_SETTING"
+    | "SYSTEM_REQUIRE_APPROVAL"
+    | "SYSTEM_JOIN_VIA_LINK";
 
 function formatCommaNameList(names: string[]): string {
     return names.join(", ");
@@ -107,10 +109,10 @@ function safeParseRolePayload(content: string): {
 }
 
 function formatRoleLabel(role?: string): string {
-    if (role === "OWNER") return "Truong nhom";
-    if (role === "DEPUTY") return "Pho nhom";
-    if (role === "MEMBER") return "Thanh vien";
-    return "vai tro moi";
+    if (role === "OWNER") return "Trưởng nhóm";
+    if (role === "DEPUTY") return "Phó nhóm";
+    if (role === "MEMBER") return "Thành viên";
+    return "vai trò mới";
 }
 
 function resolveMemberLabel(
@@ -124,7 +126,17 @@ function resolveMemberLabel(
     const username = member?.username?.trim();
     if (username) return username;
 
-    return "Nguoi dung";
+    return "Người dùng";
+}
+
+function isUnknownLabel(label?: string): boolean {
+    const normalized = label?.trim().toLowerCase();
+    return (
+        !normalized ||
+        normalized === "unknown" ||
+        normalized === "nguoi dung" ||
+        normalized === "ngÆ°á»i dÃ¹ng"
+    );
 }
 
 function resolveMemberLabelFromSnapshot(
@@ -132,13 +144,13 @@ function resolveMemberLabelFromSnapshot(
     membersById: Record<number, MemberLookup>,
 ): string | null {
     const rawName = snapshot.name?.trim();
-    if (rawName && rawName !== "Nguoi dung") {
+    if (rawName && rawName !== "Người dùng") {
         return rawName;
     }
 
     if (typeof snapshot.id === "number" && Number.isFinite(snapshot.id)) {
         const label = resolveMemberLabel(snapshot.id, membersById);
-        return label === "Nguoi dung" ? null : label;
+        return label === "Người dùng" ? null : label;
     }
 
     return null;
@@ -160,13 +172,13 @@ function resolveActorLabel(params: {
 }): string {
     const { senderName, senderId, membersById } = params;
     const normalizedSenderName = senderName?.trim();
-    if (normalizedSenderName) return normalizedSenderName;
+    if (!isUnknownLabel(normalizedSenderName)) return normalizedSenderName;
 
     if (typeof senderId === "number" && Number.isFinite(senderId)) {
         return resolveMemberLabel(senderId, membersById);
     }
 
-    return "Nguoi dung";
+    return "Người dùng";
 }
 
 function buildSystemAddMembersMessage(params: {
@@ -192,8 +204,8 @@ function buildSystemAddMembersMessage(params: {
             .map((entry) => resolveMemberLabelFromSnapshot(entry, membersById))
             .filter((name): name is string => Boolean(name));
         const joinedNames = formatCommaNameList(memberNames);
-        if (!joinedNames) return "Ban da them thanh vien vao nhom";
-        return `Ban da them ${joinedNames} vao nhom`;
+        if (!joinedNames) return "Bạn đã thêm thành viên vào nhóm";
+        return `Bạn đã thêm ${joinedNames} vào nhóm`;
     }
 
     const hasCurrentUser = memberIds.includes(currentUserId);
@@ -206,18 +218,18 @@ function buildSystemAddMembersMessage(params: {
     const joinedOtherNames = formatCommaNameList(otherNames);
 
     if (hasCurrentUser && joinedOtherNames) {
-        return `${actorLabel} da them ban, ${joinedOtherNames} vao nhom`;
+        return `${actorLabel} đã thêm bạn, ${joinedOtherNames} vào nhóm`;
     }
 
     if (hasCurrentUser) {
-        return `${actorLabel} da them ban vao nhom`;
+        return `${actorLabel} đã thêm bạn vào nhóm`;
     }
 
     if (joinedOtherNames) {
-        return `${actorLabel} da them ${joinedOtherNames} vao nhom`;
+        return `${actorLabel} đã thêm ${joinedOtherNames} vào nhóm`;
     }
 
-    return `${actorLabel} da cap nhat thanh vien nhom`;
+    return `${actorLabel} đã cập nhật thành viên nhóm`;
 }
 
 function buildSystemRoleUpdateMessage(params: {
@@ -233,17 +245,17 @@ function buildSystemRoleUpdateMessage(params: {
     const targetLabel =
         typeof payload.targetId === "number"
             ? payload.targetId === currentUserId
-                ? "ban"
+                ? "bạn"
                 : payload.targetName?.trim() ||
                   resolveMemberLabel(payload.targetId, membersById)
-            : "mot thanh vien";
+            : "một thành viên";
     const roleLabel = formatRoleLabel(payload.newRole);
 
     if (isOwn) {
-        return `Ban da cap nhat ${targetLabel} thanh ${roleLabel}`;
+        return `Bạn đã cập nhật ${targetLabel} thành ${roleLabel}`;
     }
 
-    return `${actorLabel} da cap nhat ${targetLabel} thanh ${roleLabel}`;
+    return `${actorLabel} đã cập nhật ${targetLabel} thành ${roleLabel}`;
 }
 
 function buildSystemKickMemberMessage(params: {
@@ -260,22 +272,22 @@ function buildSystemKickMemberMessage(params: {
 
     if (typeof targetId !== "number") {
         return isOwn
-            ? "Ban da xoa mot thanh vien khoi nhom"
-            : `${actorLabel} da xoa mot thanh vien khoi nhom`;
+            ? "Bạn đã xóa một thành viên khỏi nhóm"
+            : `${actorLabel} đã xóa một thành viên khỏi nhóm`;
     }
 
     const targetLabel =
         targetId === currentUserId
-            ? "ban"
-            : targetName && targetName !== "Nguoi dung"
+            ? "bạn"
+            : targetName && targetName !== "Người dùng"
               ? targetName
               : resolveMemberLabel(targetId, membersById);
 
     if (isOwn) {
-        return `Ban da xoa ${targetLabel} khoi nhom`;
+        return `Bạn đã xóa ${targetLabel} khỏi nhóm`;
     }
 
-    return `${actorLabel} da xoa ${targetLabel} khoi nhom`;
+    return `${actorLabel} đã xóa ${targetLabel} khỏi nhóm`;
 }
 
 function buildSystemLeaveGroupMessage(params: {
@@ -285,17 +297,17 @@ function buildSystemLeaveGroupMessage(params: {
     membersById: Record<number, MemberLookup>;
 }): string {
     const { isOwn, actorLabel, senderId, membersById } = params;
-    if (isOwn) return "Ban da roi khoi nhom";
+    if (isOwn) return "Bạn đã rời khỏi nhóm";
 
     if (typeof senderId === "number" && Number.isFinite(senderId)) {
         const username = resolveMemberUsername(senderId, membersById);
         if (username) {
-            return `${username} da roi khoi nhom`;
+            return `${username} đã rời khỏi nhóm`;
         }
     }
 
-    if (actorLabel === "Nguoi dung") return "Mot thanh vien da roi khoi nhom";
-    return `${actorLabel} da roi khoi nhom`;
+    if (actorLabel === "Người dùng") return "Một thành viên đã rời khỏi nhóm";
+    return `${actorLabel} đã rời khỏi nhóm`;
 }
 
 function buildSystemDisbandGroupMessage(params: {
@@ -303,9 +315,9 @@ function buildSystemDisbandGroupMessage(params: {
     actorLabel: string;
 }): string {
     const { isOwn, actorLabel } = params;
-    if (isOwn) return "Ban da giai tan nhom";
-    if (actorLabel === "Nguoi dung") return "Nhom da duoc giai tan";
-    return `${actorLabel} da giai tan nhom`;
+    if (isOwn) return "Bạn đã giải tán nhóm";
+    if (actorLabel === "Người dùng") return "Nhóm đã được giải tán";
+    return `${actorLabel} đã giải tán nhóm`;
 }
 
 function buildSystemUpdateSettingMessage(params: {
@@ -314,7 +326,22 @@ function buildSystemUpdateSettingMessage(params: {
     actorLabel: string;
 }): string {
     const { content, isOwn, actorLabel } = params;
-    const isRestricted = content.includes("isMessageRestricted:true");
+    const normalizedContent = content.trim();
+    const isMessageRestrictionSetting =
+        normalizedContent.includes("isMessageRestricted") ||
+        normalizedContent.includes("chỉ Trưởng/Phó nhóm được gửi tin nhắn");
+
+    if (!isMessageRestrictionSetting) {
+        return isOwn
+            ? `Bạn ${normalizedContent}`
+            : `${actorLabel} ${normalizedContent}`;
+    }
+
+    const isRestricted =
+        normalizedContent.includes("isMessageRestricted:true") ||
+        normalizedContent.includes(
+            "đã bật chế độ chỉ Trưởng/Phó nhóm được gửi tin nhắn",
+        );
 
     if (isRestricted) {
         return isOwn
@@ -396,6 +423,32 @@ export function buildSystemGroupMessage(params: {
             isOwn,
             actorLabel,
         });
+    }
+
+    if (type === "SYSTEM_REQUIRE_APPROVAL") {
+        const memberNames = safeParseMemberEntries(content)
+            .map((entry) => resolveMemberLabelFromSnapshot(entry, membersById))
+            .filter((name): name is string => Boolean(name));
+        const joinedNames =
+            formatCommaNameList(memberNames) || "Thành viên mới";
+        const hasInviter =
+            Boolean(senderName?.trim()) ||
+            (typeof senderId === "number" &&
+                Number.isFinite(senderId) &&
+                senderId > 0);
+        if (!hasInviter) {
+            return `${joinedNames} yêu cầu tham gia nhóm và cần trưởng/phó nhóm phê duyệt.`;
+        }
+        const inviterLabel = isOwn ? "bạn" : actorLabel;
+        return inviterLabel === "Người dùng"
+            ? `${joinedNames} yêu cầu tham gia nhóm và cần trưởng/phó nhóm phê duyệt.`
+            : `${joinedNames} được ${inviterLabel} mời tham gia nhóm và cần trưởng/phó nhóm phê duyệt.`;
+    }
+
+    if (type === "SYSTEM_JOIN_VIA_LINK") {
+        return isOwn
+            ? "Bạn đã tham gia nhóm bằng link"
+            : `${actorLabel} đã tham gia nhóm bằng link`;
     }
 
     return buildSystemUpdateSettingMessage({

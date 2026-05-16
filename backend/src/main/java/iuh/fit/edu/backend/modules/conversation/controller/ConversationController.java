@@ -9,6 +9,7 @@ import iuh.fit.edu.backend.modules.conversation.dto.request.AddMemberRequest;
 import iuh.fit.edu.backend.modules.conversation.dto.request.CreateGroupRequest;
 import iuh.fit.edu.backend.common.dto.response.CursorResponse;
 import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationMemberResponse;
+import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationPreviewResponse;
 import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationResponse;
 import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationSidebarResponse;
 import iuh.fit.edu.backend.modules.chat.dto.response.MessageResponse;
@@ -171,6 +172,51 @@ public class ConversationController {
         Long userId = this.userService.getCurrentUser().getId();
         ConversationResponse response = this.conversationService.updateMessageRestriction(conversationId, userId, isRestricted);
         return ResponseEntity.ok(response);
+    }
+    @PatchMapping("/{conversationId}/settings/join-approval")
+    public ResponseEntity<ConversationResponse> updateJoinApprovalSetting(
+            @PathVariable Long conversationId,
+            @RequestParam boolean isRequired) {
+        Long userId = this.userService.getCurrentUser().getId();
+        return ResponseEntity.ok(conversationService.updateJoinApprovalRequired(conversationId, userId, isRequired));
+    }
+
+    @GetMapping("/{conversationId}/invite-link")
+    public ResponseEntity<String> getInviteLink(
+            @PathVariable Long conversationId) {
+        Long userId = this.userService.getCurrentUser().getId();
+        return ResponseEntity.ok(conversationService.getOrGenerateInviteLink(conversationId, userId));
+    }
+
+    @PatchMapping("/{conversationId}/invite-link/reset")
+    public ResponseEntity<String> resetInviteLink(
+            @PathVariable Long conversationId) {
+        Long userId = this.userService.getCurrentUser().getId();
+        return ResponseEntity.ok(conversationService.resetInviteLink(conversationId, userId));
+    }
+
+    @DeleteMapping("/{conversationId}/invite-link")
+    public ResponseEntity<Void> disableInviteLink(
+            @PathVariable Long conversationId) {
+        Long userId = this.userService.getCurrentUser().getId();
+        conversationService.disableInviteLink(conversationId, userId);
+        return ResponseEntity.noContent().build();
+    }
+
+
+    @GetMapping("/invite/{token}")
+    public ResponseEntity<ConversationPreviewResponse> previewGroup(
+            @PathVariable String token) {
+        Long userId = this.userService.getCurrentUser().getId();
+        return ResponseEntity.ok(conversationService.previewGroupFromToken(token, userId));
+    }
+
+    @PostMapping("/invite/{token}/join")
+    public ResponseEntity<?> joinGroupByToken(
+            @PathVariable String token,
+            @RequestParam(required = false) String message) {
+        Long userId = this.userService.getCurrentUser().getId();
+        return ResponseEntity.ok(conversationService.joinGroupFromToken(token, userId, message));
     }
 
 

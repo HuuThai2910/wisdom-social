@@ -10,6 +10,7 @@ import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.util.concurrent.Executor;
+import java.util.concurrent.ThreadPoolExecutor;
 
 
 /*
@@ -22,15 +23,33 @@ import java.util.concurrent.Executor;
 @EnableAsync
 public class AsyncConfig {
 
-    // Được sử dụng để spring đẩy task vào threadPool 'wsExecutor'
-    // Tránh block request khi chat nhiều user cùng lúc
-    @Bean(name = "wsExecutor")
+    @Bean(name = "taskExecutor")
     public Executor taskExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(10); // Số luồng cơ bản
-        executor.setMaxPoolSize(50);  // Số luồng tối đa khi tải cao
-        executor.setQueueCapacity(1000); // Tối đa 1000 task chờ khi thread bận
-        executor.setThreadNamePrefix("Async-WS-");
+
+        // Core Pool Size: Số lượng Thread luôn luôn duy trì trạng thái sẵn sàng chạy
+        // Việc đẩy Redis là tác vụ I/O nhẹ, để 10-20 là đủ cho một server trung bình
+        executor.setCorePoolSize(20);
+
+        // Max Pool Size: Nếu số lượng task đến cùng lúc quá đông, được phép phình ra tối đa bao nhiêu Thread?
+        executor.setMaxPoolSize(100);
+
+        // Queue Capacity: Nếu cả 100 Thread đều đang bận, thì cho phép bao nhiêu task xếp hàng chờ?
+        // Đặt 500 nghĩa là chịu được khoảng burst 500 tin nhắn gửi cùng lúc mà không rơi vãi
+        executor.setQueueCapacity(500);
+
+        // Đặt tên Thread để sau này đọc Log hoặc Monitor dễ bắt lỗi
+        executor.setThreadNamePrefix("ChatEvent-Async-");
+
+        // CHIẾN LƯỢC BẮT BUỘC KHI QUÁ TẢI (RejectedExecutionHandler)
+        // Nếu Queue vượt quá 500 và Thread vượt 100 -> CallerRunsPolicy
+        // Tức là: Không được vứt task đi, mà ép chính cái luồng API (Main Thread) phải tự đi mà chạy tác vụ này!
+        // Việc này làm API bị chậm lại một chút lúc hệ thống đang kiệt sức, nhưng bảo đảm KHÔNG BAO GIỜ MẤT SỰ KIỆN.
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+
+        // Cài đặt thời gian sống cho các Thread dôi dư (Ngoài 20 Core) khi chúng nhàn rỗi (giây)
+        executor.setKeepAliveSeconds(60);
+
         executor.initialize();
         return executor;
     }

@@ -20,6 +20,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Audio, type AVPlaybackStatus, ResizeMode, Video } from "expo-av";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Alert,
@@ -87,13 +88,32 @@ import {
 import { PinnedBanner } from "@/components/PinnedBanner";
 import { buildPinnedBannerItemsFromSnapshot } from "@/utils/pinnedMessageSnapshot";
 import { useOneToOneCall } from "@/hooks/useOneToOneCall";
+import { consumeInviteReturnSync } from "@/utils/inviteReturnSync";
 export default function MessagesConversationScreen() {
-    const { conversationId: conversationIdParam } = useLocalSearchParams<{
+    const {
+        conversationId: conversationIdParam,
+        refreshAt,
+        pendingJoinNotice,
+        backToMessages,
+    } = useLocalSearchParams<{
         conversationId?: string;
+        refreshAt?: string;
+        pendingJoinNotice?: string;
+        backToMessages?: string;
     }>();
     const conversationId = Number(conversationIdParam ?? 0);
     const router = useRouter();
     const insets = useSafeAreaInsets();
+    const handleBackPress = useCallback(() => {
+        if (backToMessages === "1") {
+            router.replace("/(tabs)/activity");
+            return;
+        }
+        router.back();
+    }, [backToMessages, router]);
+    const handleAccessBlocked = useCallback(() => {
+        router.replace("/(tabs)/activity");
+    }, [router]);
 
     const {
         currentUserId,
@@ -122,6 +142,7 @@ export default function MessagesConversationScreen() {
         handleSend,
         handleSendMixedMedia,
         handleRecall,
+        canRecallOwnMessages,
         handleDeleteForMe,
         handlePinMessage,
         handleUnpinMessage,
@@ -132,6 +153,7 @@ export default function MessagesConversationScreen() {
         resetToPresent,
     } = useChatWindowController({
         conversationId: Number.isFinite(conversationId) ? conversationId : 0,
+        onAccessBlocked: handleAccessBlocked,
     });
 
     const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(
@@ -160,6 +182,27 @@ export default function MessagesConversationScreen() {
         start: 0,
         end: 0,
     });
+
+    useEffect(() => {
+        if (!refreshAt) return;
+        void resetToPresent();
+        if (pendingJoinNotice === "1") {
+            Alert.alert(
+                "Đang chờ phê duyệt",
+                "Yêu cầu tham gia nhóm của bạn đã được gửi đến trưởng/phó nhóm.",
+            );
+        }
+    }, [pendingJoinNotice, refreshAt, resetToPresent]);
+
+    useFocusEffect(
+        useCallback(() => {
+            if (!Number.isFinite(conversationId)) return undefined;
+            if (consumeInviteReturnSync(conversationId)) {
+                void resetToPresent();
+            }
+            return undefined;
+        }, [conversationId, resetToPresent]),
+    );
 
     // Mapping web -> mobile:
     // - useGroupManagement giu nguyen API/state flow cua web.
@@ -203,7 +246,7 @@ export default function MessagesConversationScreen() {
             await resetToPresent();
         },
         onClearSelection: () => {
-            router.back();
+            handleBackPress();
         },
     });
 
@@ -1117,7 +1160,26 @@ export default function MessagesConversationScreen() {
 
     const hasTypedText = messageText.trim().length > 0;
 
-    const closeContextMenu = () => setContextMenu(null);
+    const closeContextMenu = useCallback(() => setContextMenu(null), []);
+
+    const replyToTargetMessage = useCallback(
+        (targetMessage: Message) => {
+            const senderName =
+                membersById[targetMessage.senderId]?.nickname ||
+                membersById[targetMessage.senderId]?.username ||
+                "Nguoi dung";
+
+            setReplyToMessage({
+                id: targetMessage.id,
+                senderName,
+                content: buildReplyPreview(targetMessage),
+            });
+
+            closeContextMenu();
+            focusComposerInput(messageInputRef, { delayMs: 80 });
+        },
+        [closeContextMenu, membersById],
+    );
 
     const handleMessageLongPress = (
         event: GestureResponderEvent,
@@ -1138,7 +1200,13 @@ export default function MessagesConversationScreen() {
             height - MENU_ESTIMATED_HEIGHT - MENU_VERTICAL_MARGIN,
         );
 
-        setContextMenu({ messageId, top, left });
+        setContextMenu({
+            messageId,
+            top,
+            left,
+            mine,
+            minStackTop: insets.top + 72,
+        });
     };
 
     const handleContextAction = (actionKey: string) => {
@@ -1169,19 +1237,7 @@ export default function MessagesConversationScreen() {
             );
 
             if (targetMessage) {
-                const senderName =
-                    membersById[targetMessage.senderId]?.nickname ||
-                    membersById[targetMessage.senderId]?.username ||
-                    "Nguoi dung";
-
-                setReplyToMessage({
-                    id: targetMessage.id,
-                    senderName,
-                    content: buildReplyPreview(targetMessage),
-                });
-
-                closeContextMenu();
-                focusComposerInput(messageInputRef, { delayMs: 80 });
+                replyToTargetMessage(targetMessage);
                 return;
             }
         }
@@ -1346,7 +1402,16 @@ export default function MessagesConversationScreen() {
         readOnlyNotice.includes("giải tán") ||
         readOnlyNotice.includes("Không thể truy cập")
     );
-    const isErrorState = Boolean(isAccessBlocked) || (!loading && !conversation);
+    const normalizedReadOnlyNotice = readOnlyNotice?.toLowerCase() ?? "";
+    const isPlainTextAccessBlocked =
+        normalizedReadOnlyNotice.includes("xoa") ||
+        normalizedReadOnlyNotice.includes("roi") ||
+        normalizedReadOnlyNotice.includes("giai tan") ||
+        normalizedReadOnlyNotice.includes("khong the truy cap");
+    const isErrorState =
+        Boolean(isAccessBlocked) ||
+        isPlainTextAccessBlocked ||
+        (!loading && !conversation);
 
     if (isErrorState) {
         const displayName =
@@ -1370,7 +1435,7 @@ export default function MessagesConversationScreen() {
                 <View style={styles.header}>
                     <Pressable
                         style={styles.headerBackBtn}
-                        onPress={() => router.back()}
+                        onPress={handleBackPress}
                         hitSlop={8}
                     >
                         <Ionicons
@@ -1421,7 +1486,7 @@ export default function MessagesConversationScreen() {
                 <View style={styles.header}>
                     <Pressable
                         style={styles.headerBackBtn}
-                        onPress={() => router.back()}
+                        onPress={handleBackPress}
                         hitSlop={8}
                     >
                         <Ionicons
@@ -1568,6 +1633,7 @@ export default function MessagesConversationScreen() {
                             onRecallCall={(callType) => {
                                 void tryStartCall(callType);
                             }}
+                            onSwipeReply={replyToTargetMessage}
                         />
                     )}
                     ListFooterComponent={
@@ -1815,9 +1881,17 @@ export default function MessagesConversationScreen() {
 
             <MessageContextMenu
                 contextMenu={contextMenu}
+                selectedMessage={
+                    contextMenu
+                        ? messages.find(
+                            (message) => message.id === contextMenu.messageId,
+                        )
+                        : null
+                }
                 closeContextMenu={closeContextMenu}
                 handleContextAction={handleContextAction}
                 selectedMessagePinned={selectedMessagePinned}
+                canRecallOwnMessages={canRecallOwnMessages}
             />
             <MediaViewerModal
                 mediaViewer={mediaViewer}

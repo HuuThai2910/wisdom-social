@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { DEFAULT_CHAT_USER_ID } from "@/constants/chat";
 import chatService from "@/services/chatService";
 import chatWebsocketService from "@/services/chatWebsocketService";
 import chatRuntimeStore from "@/stores/chatRuntimeStore";
-import type { Conversation, ConversationSidebar } from "@/types/chat";
+import type { Conversation, ConversationSidebar, Message } from "@/types/chat";
 import { useAppContext } from "@/context/AppContext";
+import { useFocusEffect } from "@react-navigation/native";
 
 // Module-level ref: track which conversation is currently open on screen.
 // Set by useChatWindowController (via setActiveConversationId) when entering/leaving a chat.
@@ -12,6 +12,28 @@ import { useAppContext } from "@/context/AppContext";
 const activeConversationIdRef = { current: null as number | null };
 type UnlockListener = (conversationId: number) => void;
 const unlockListeners = new Set<UnlockListener>();
+const refreshingConversationIds = new Set<number>();
+
+const GROUP_SYSTEM_SYNC_TYPES = new Set<Message["type"]>([
+    "SYSTEM_CREATE_GROUP",
+    "SYSTEM_ADD_MEMBER",
+    "SYSTEM_UPDATE_ROLE",
+    "SYSTEM_KICK_MEMBER",
+    "SYSTEM_LEAVE_GROUP",
+    "SYSTEM_DISBAND_GROUP",
+    "SYSTEM_UPDATE_SETTING",
+    "SYSTEM_REQUIRE_APPROVAL",
+    "SYSTEM_JOIN_VIA_LINK",
+]);
+
+const PRESERVE_EMPTY_PENDING_REQUEST_TYPES = new Set<Message["type"]>([
+    "SYSTEM_ADD_MEMBER",
+    "SYSTEM_KICK_MEMBER",
+    "SYSTEM_UPDATE_ROLE",
+    "SYSTEM_UPDATE_SETTING",
+    "SYSTEM_REQUIRE_APPROVAL",
+    "SYSTEM_JOIN_VIA_LINK",
+]);
 
 function safeParseMemberIds(content: string): number[] {
     if (!content) return [];
@@ -65,6 +87,58 @@ function sortConversationsByLatest(
     );
 }
 
+function mergeConversationDetails(
+    preferred: Conversation,
+    fallback: Conversation,
+): Conversation {
+    const preferredClearsPendingRequestsFromSync =
+        preferred.lastMessage &&
+        PRESERVE_EMPTY_PENDING_REQUEST_TYPES.has(
+            preferred.lastMessage.lastMessageType,
+        ) &&
+        Array.isArray(preferred.pendingRequests) &&
+        preferred.pendingRequests.length === 0;
+
+    return {
+        ...fallback,
+        ...preferred,
+        members: preferred.members ?? fallback.members,
+        pinnedMessages: preferred.pinnedMessages ?? fallback.pinnedMessages,
+        pendingRequests: preferredClearsPendingRequestsFromSync
+            ? fallback.pendingRequests ?? preferred.pendingRequests
+            : preferred.pendingRequests ?? fallback.pendingRequests,
+        lastMessage: preferred.lastMessage ?? fallback.lastMessage,
+        unreadCount: Math.max(preferred.unreadCount ?? 0, fallback.unreadCount ?? 0),
+    };
+}
+
+function mergePendingRequestsForSocketUpdate(
+    currentRequests: Conversation["pendingRequests"],
+    incomingRequests: Conversation["pendingRequests"],
+    lastMessageType: Message["type"],
+): Conversation["pendingRequests"] {
+    if (!incomingRequests) return currentRequests;
+
+    if (
+        PRESERVE_EMPTY_PENDING_REQUEST_TYPES.has(lastMessageType) &&
+        incomingRequests.length === 0
+    ) {
+        return currentRequests ?? incomingRequests;
+    }
+
+    if (incomingRequests.length === 0) return incomingRequests;
+
+    return [
+        ...(currentRequests ?? []).filter(
+            (request) =>
+                !incomingRequests.some(
+                    (nextRequest) => nextRequest.id === request.id,
+                ),
+        ),
+        ...incomingRequests,
+    ];
+}
+
 function chooseLatestConversation(
     left: Conversation,
     right: Conversation,
@@ -72,17 +146,17 @@ function chooseLatestConversation(
     const leftTime = getConversationSortTime(left);
     const rightTime = getConversationSortTime(right);
 
-    if (rightTime > leftTime) return right;
-    if (rightTime < leftTime) return left;
+    if (rightTime > leftTime) return mergeConversationDetails(right, left);
+    if (rightTime < leftTime) return mergeConversationDetails(left, right);
 
     // If timestamps are equal, preserve the higher unread value to avoid
     // stale runtime patches dropping bold/badge state.
     const leftUnread = left.unreadCount ?? 0;
     const rightUnread = right.unreadCount ?? 0;
-    if (rightUnread > leftUnread) return right;
-    if (rightUnread < leftUnread) return left;
+    if (rightUnread > leftUnread) return mergeConversationDetails(right, left);
+    if (rightUnread < leftUnread) return mergeConversationDetails(left, right);
 
-    return right;
+    return mergeConversationDetails(right, left);
 }
 
 function mergeConversationsByFreshness(
@@ -111,7 +185,23 @@ function mergeConversationsByFreshness(
 function toConversationFromSidebar(
     conversation: ConversationSidebar,
 ): Conversation {
-    return { ...conversation };
+    const {
+        members: _members,
+        pinnedMessages: _pinnedMessages,
+        ...sidebarConversation
+    } = conversation as Conversation;
+
+    return { ...sidebarConversation };
+}
+
+function getProcessedJoinRequestId(
+    conversation?: Conversation,
+): number | null {
+    const value = (
+        conversation as (Conversation & { processedJoinRequestId?: unknown }) | undefined
+    )?.processedJoinRequestId;
+    const requestId = Number(value);
+    return Number.isFinite(requestId) ? requestId : null;
 }
 
 export function useMessagesController() {
@@ -124,7 +214,6 @@ export function useMessagesController() {
     const currentUserId = Number(currentUser?.id ?? 0);
 
     const currentUserIdRef = useRef(currentUserId);
-
     useEffect(() => {
         currentUserIdRef.current = currentUserId;
     }, [currentUserId]);
@@ -162,10 +251,10 @@ export function useMessagesController() {
             }
 
             setConversations([]);
-            setError(response.message || "Khong the tai danh sach hoi thoai");
+            setError(response.message || "Không thể tải danh sách hội thoại");
         } catch {
             setConversations([]);
-            setError("Khong the tai danh sach hoi thoai");
+            setError("Không thể tải danh sách hội thoại");
         } finally {
             setLoading(false);
         }
@@ -174,6 +263,119 @@ export function useMessagesController() {
     useEffect(() => {
         void loadConversations();
     }, [loadConversations]);
+
+    useEffect(() => {
+        return chatRuntimeStore.subscribeConversationChanges(
+            (updatedConversation) => {
+                setConversations((prev) => {
+                    const exists = prev.some(
+                        (conversation) =>
+                            conversation.id === updatedConversation.id,
+                    );
+
+                    if (!exists) {
+                        return sortConversationsByLatest([
+                            updatedConversation,
+                            ...prev,
+                        ]);
+                    }
+
+                    return sortConversationsByLatest(
+                        prev.map((conversation) =>
+                            conversation.id === updatedConversation.id
+                                ? {
+                                      ...conversation,
+                                      ...updatedConversation,
+                                      members:
+                                          updatedConversation.members ??
+                                          conversation.members,
+                                      pinnedMessages:
+                                          updatedConversation.pinnedMessages ??
+                                          conversation.pinnedMessages,
+                                      pendingRequests:
+                                          updatedConversation.pendingRequests ??
+                                          conversation.pendingRequests,
+                                      lastMessage:
+                                          updatedConversation.lastMessage ??
+                                          conversation.lastMessage,
+                                  }
+                                : conversation,
+                        ),
+                    );
+                });
+            },
+        );
+    }, []);
+
+    const refreshConversationById = useCallback(
+        (
+            conversationId: number,
+            userId: number,
+            memberSnapshotVersion?: number,
+            preserveEmptyPendingRequests = false,
+        ) => {
+            if (!conversationId || !userId) return;
+
+            if (refreshingConversationIds.has(conversationId)) return;
+
+            refreshingConversationIds.add(conversationId);
+            chatService
+                .getConversation(conversationId, userId)
+                .then((response) => {
+                    const responseData = response.data;
+                    if (!response.success || !responseData) return;
+
+                    const previousConversation =
+                        chatRuntimeStore.getConversation(conversationId);
+                    const nextResponseData =
+                        preserveEmptyPendingRequests &&
+                        Array.isArray(responseData.pendingRequests) &&
+                        responseData.pendingRequests.length === 0
+                            ? {
+                                  ...responseData,
+                                  pendingRequests:
+                                      previousConversation?.pendingRequests ??
+                                      responseData.pendingRequests,
+                              }
+                            : responseData;
+
+                    const runtimeConversation = chatRuntimeStore.setConversation(
+                        conversationId,
+                        nextResponseData,
+                        { memberSnapshotVersion },
+                    );
+
+                    setConversations((prev) => {
+                        const exists = prev.some(
+                            (conversation) =>
+                                conversation.id === conversationId,
+                        );
+
+                        const nextConversation = exists
+                            ? undefined
+                            : runtimeConversation;
+
+                        const next = exists
+                            ? prev.map((conversation) =>
+                                  conversation.id === conversationId
+                                      ? mergeConversationDetails(
+                                            runtimeConversation,
+                                            conversation,
+                                        )
+                                      : conversation,
+                              )
+                            : [nextConversation!, ...prev];
+
+                        return sortConversationsByLatest(next);
+                    });
+                })
+                .catch(() => undefined)
+                .finally(() => {
+                    refreshingConversationIds.delete(conversationId);
+                });
+        },
+        [],
+    );
 
     const handleConversationUpdate = useCallback(
         (
@@ -184,6 +386,32 @@ export function useMessagesController() {
             if (!lastMessage) return;
 
             const latestUserId = currentUserIdRef.current;
+            const processedJoinRequestId =
+                getProcessedJoinRequestId(conversationSnapshot);
+            if (processedJoinRequestId !== null) {
+                chatRuntimeStore.removePendingRequests(conversationId, {
+                    requestIds: [processedJoinRequestId],
+                });
+                setConversations((prev) =>
+                    sortConversationsByLatest(
+                        prev.map((conversation) =>
+                            conversation.id === conversationId
+                                ? {
+                                      ...conversation,
+                                      pendingRequests:
+                                          conversation.pendingRequests?.filter(
+                                              (request) =>
+                                                  Number(request.id) !==
+                                                  processedJoinRequestId,
+                                          ) ?? conversation.pendingRequests,
+                                  }
+                                : conversation,
+                        ),
+                    ),
+                );
+                return;
+            }
+
             const normalizedSenderId = Number(lastMessage.lastSenderId);
             const isMyMessage = Number.isFinite(normalizedSenderId)
                 ? normalizedSenderId === latestUserId
@@ -210,6 +438,18 @@ export function useMessagesController() {
                 ...lastMessage,
                 read: isReadUpdate,
             };
+            const shouldRefreshSnapshot = GROUP_SYSTEM_SYNC_TYPES.has(
+                normalizedLastMessage.lastMessageType,
+            );
+            const shouldForceDetailRefresh =
+                normalizedLastMessage.lastMessageType === "SYSTEM_UPDATE_ROLE";
+            const shouldPreserveEmptyPendingRequests =
+                PRESERVE_EMPTY_PENDING_REQUEST_TYPES.has(
+                    normalizedLastMessage.lastMessageType,
+                );
+            const memberSnapshotVersion = shouldRefreshSnapshot
+                ? chatRuntimeStore.markMembersChanging(conversationId)
+                : undefined;
 
             const isUnlockingMessage =
                 lastMessage.lastMessageType === "SYSTEM_ADD_MEMBER" &&
@@ -242,13 +482,16 @@ export function useMessagesController() {
                             unreadCount: nextUnreadCount,
                         };
 
-                        chatRuntimeStore.setConversation(
+                        const runtimeConversation = chatRuntimeStore.setConversation(
                             conversationId,
                             snapshotWithLastMessage,
+                            memberSnapshotVersion !== undefined
+                                ? { memberSnapshotVersion }
+                                : undefined,
                         );
 
                         return sortConversationsByLatest([
-                            snapshotWithLastMessage,
+                            runtimeConversation,
                             ...prev,
                         ]);
                     }
@@ -268,13 +511,14 @@ export function useMessagesController() {
                                     return innerPrev;
                                 }
 
-                                chatRuntimeStore.setConversation(
-                                    conversation.id,
-                                    conversation,
-                                );
+                                const runtimeConversation =
+                                    chatRuntimeStore.setConversation(
+                                        conversation.id,
+                                        conversation,
+                                    );
 
                                 return sortConversationsByLatest([
-                                    conversation,
+                                    runtimeConversation,
                                     ...innerPrev,
                                 ]);
                             });
@@ -321,6 +565,15 @@ export function useMessagesController() {
                     const baseConversation = mergedSnapshot
                         ? { ...conv, ...mergedSnapshot }
                         : conv;
+                    const pendingRequests =
+                        mergedSnapshot &&
+                        "pendingRequests" in mergedSnapshot
+                            ? mergePendingRequestsForSocketUpdate(
+                                  conv.pendingRequests,
+                                  mergedSnapshot.pendingRequests,
+                                  normalizedLastMessage.lastMessageType,
+                              )
+                            : baseConversation.pendingRequests;
 
                     let newUnreadCount: number;
                     if (isReadUpdate) {
@@ -339,6 +592,7 @@ export function useMessagesController() {
 
                     return {
                         ...baseConversation,
+                        pendingRequests,
                         updatedAt: lastMessage.lastMessageAt,
                         lastMessage: normalizedLastMessage,
                         unreadCount: newUnreadCount,
@@ -348,64 +602,98 @@ export function useMessagesController() {
                 const updatedConversation = next.find(
                     (conv) => conv.id === conversationId,
                 );
+                let runtimeConversation: Conversation | null = null;
                 if (updatedConversation) {
-                    chatRuntimeStore.setConversation(
+                    runtimeConversation = chatRuntimeStore.setConversation(
                         conversationId,
                         updatedConversation,
+                        conversationSnapshot &&
+                            memberSnapshotVersion !== undefined
+                            ? { memberSnapshotVersion }
+                            : undefined,
                     );
                 }
 
-                return sortConversationsByLatest(next);
-            });
-        },
-        [],
-    );
-
-    useEffect(() => {
-        let disposed = false;
-        let retryTimeout: ReturnType<typeof setTimeout> | null = null;
-
-        const setup = async () => {
-            try {
-                if (disposed) return;
-
-                const wasConnected = chatWebsocketService.isConnected();
-                if (!wasConnected) {
-                    await chatWebsocketService.connect();
+                if (!runtimeConversation) {
+                    return sortConversationsByLatest(next);
                 }
 
-                if (disposed) return;
+                return sortConversationsByLatest(
+                    next.map((conv) =>
+                        conv.id === conversationId
+                            ? mergeConversationDetails(
+                                  runtimeConversation!,
+                                  conv,
+                              )
+                            : conv,
+                    ),
+                );
+            });
 
-                chatWebsocketService.subscribeToUserConversations(
+            if (
+                shouldRefreshSnapshot &&
+                (shouldForceDetailRefresh ||
+                    !conversationSnapshot ||
+                    !conversationSnapshot.members)
+            ) {
+                refreshConversationById(
+                    conversationId,
+                    latestUserId,
+                    memberSnapshotVersion,
+                    shouldPreserveEmptyPendingRequests,
+                );
+            }
+        },
+        [refreshConversationById],
+    );
+
+    useFocusEffect(
+        useCallback(() => {
+            let disposed = false;
+            let retryTimeout: ReturnType<typeof setTimeout> | null = null;
+
+            const setup = async () => {
+                try {
+                    if (disposed) return;
+
+                    const wasConnected = chatWebsocketService.isConnected();
+                    if (!wasConnected) {
+                        await chatWebsocketService.connect();
+                    }
+
+                    if (disposed) return;
+
+                    chatWebsocketService.subscribeToUserConversations(
+                        currentUserId,
+                        handleConversationUpdate,
+                    );
+
+                    // Re-sync when the screen regains focus so stack screens
+                    // don't keep stale members/roles after child screens update.
+                    void loadConversations();
+                } catch {
+                    if (!disposed) {
+                        retryTimeout = setTimeout(() => {
+                            void setup();
+                        }, 2000);
+                    }
+                }
+            };
+
+            void setup();
+
+            return () => {
+                disposed = true;
+                if (retryTimeout) {
+                    clearTimeout(retryTimeout);
+                }
+                chatWebsocketService.unsubscribeFromUserConversations(
                     currentUserId,
                     handleConversationUpdate,
                 );
-
-                // Re-sync list once after (re)connect to recover events missed while offline.
-                if (!wasConnected) {
-                    void loadConversations();
-                }
-            } catch {
-                if (!disposed) {
-                    retryTimeout = setTimeout(() => {
-                        void setup();
-                    }, 2000);
-                }
-            }
-        };
-
-        void setup();
-
-        return () => {
-            disposed = true;
-            if (retryTimeout) {
-                clearTimeout(retryTimeout);
-            }
-            chatWebsocketService.unsubscribeFromUserConversations(
-                currentUserId,
-            );
-        };
-    }, [currentUserId, handleConversationUpdate, loadConversations]);
+            };
+        }, [currentUserId, handleConversationUpdate, loadConversations]),
+    );
 
     const filteredConversations = useMemo(() => {
         const query = searchQuery.trim().toLowerCase();
@@ -448,7 +736,7 @@ export function useMessagesController() {
                     prev.filter((conv) => conv.id !== conversationId),
                 );
             } catch {
-                setError("Khong the xoa cuoc tro chuyen");
+            setError("Không thể xóa cuộc trò chuyện");
             }
         },
         [currentUserId],

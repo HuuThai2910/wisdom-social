@@ -73,7 +73,6 @@ export function useChatWindowController(args: {
 }) {
     const { conversationId, onMarkAsRead, forcedReadOnlyNotice, onForbidden } =
         args;
-    void onForbidden;
 
     // userId: lấy từ AuthContext (security integration - không nhận qua prop nữa)
     const { currentUser } = useAuth();
@@ -103,8 +102,12 @@ export function useChatWindowController(args: {
     const [localReadOnlyNotice, setReadOnlyNotice] = useState<string | null>(
         null,
     );
+    const currentUserMember = membersById[userId];
+    const isRestrictedMember =
+        conversation?.isMessageRestricted && currentUserMember?.role === "MEMBER";
+    const canRecallOwnMessages = !isRestrictedMember;
+
     const readOnlyNotice = useMemo(() => {
-        const currentUserMember = membersById[userId];
         const isRestrictedForMe = conversation?.isMessageRestricted && currentUserMember?.role === "MEMBER";
 
         if (isRestrictedForMe) {
@@ -118,11 +121,16 @@ export function useChatWindowController(args: {
             result: notice,
         });
         return notice;
-    }, [forcedReadOnlyNotice, localReadOnlyNotice, conversation?.isMessageRestricted, membersById, userId]);
+    }, [forcedReadOnlyNotice, localReadOnlyNotice, conversation?.isMessageRestricted, currentUserMember?.role]);
 
     const prevForcedNoticeRef = useRef<string | null | undefined>(
         forcedReadOnlyNotice,
     );
+    const onForbiddenRef = useRef(onForbidden);
+
+    useEffect(() => {
+        onForbiddenRef.current = onForbidden;
+    }, [onForbidden]);
 
     // ====== Ghi âm tin nhắn thoại (Voice recording) ======
     // isRecording: true nếu đang ghi âm, dùng để hiện overlay ghi âm trong UI
@@ -638,6 +646,7 @@ export function useChatWindowController(args: {
                         websocketService.unsubscribeFromConversationPins(
                             conversationId,
                         );
+                        onForbiddenRef.current?.();
                         return;
                     }
 
@@ -776,6 +785,7 @@ const list = Array.isArray(cursorData?.data)
                     websocketService.unsubscribeFromConversationPins(
                         conversationId,
                     );
+                    onForbiddenRef.current?.();
                 } else {
                     setError(apiMessage);
                 }
@@ -799,6 +809,7 @@ const list = Array.isArray(cursorData?.data)
         websocketService.unsubscribeFromConversation(conversationId);
         websocketService.unsubscribeFromConversationMembers(conversationId);
         websocketService.unsubscribeFromConversationPins(conversationId);
+        onForbiddenRef.current?.();
     }, [conversationId, forcedReadOnlyNotice]);
 
     const loadOlderMessages = useCallback(
@@ -1242,6 +1253,7 @@ const list = Array.isArray(cursorData?.data)
                 websocketService.unsubscribeFromConversationPins(
                     conversationId,
                 );
+                onForbiddenRef.current?.();
             }
 
             if (GROUP_SYSTEM_MEMBER_SYNC_TYPES.has(normalizedIncoming.type)) {
@@ -1353,6 +1365,13 @@ const list = Array.isArray(cursorData?.data)
     // Gọi API thu hồi tin nhắn (chỉ người gửi, trong 24h)
     const handleRecall = useCallback(
         async (messageId: string) => {
+            if (!canRecallOwnMessages) {
+                setRecallToast(
+                    "Chỉ Trưởng/Phó nhóm mới được thu hồi tin nhắn trong chế độ này",
+                );
+                return;
+            }
+
             // Kiểm tra 24h ở FE trước để tránh round-trip không cần thiết
             const msg = messages.find((m) => m.id === messageId);
             if (msg) {
@@ -1370,7 +1389,7 @@ const list = Array.isArray(cursorData?.data)
                 setRecallToast("Không thể thu hồi tin nhắn");
             }
         },
-        [messages, userId],
+        [canRecallOwnMessages, messages, userId],
     );
 
     // Xóa tin nhắn ở phía tôi (chỉ local, không ảnh hưởng người khác)
@@ -2794,6 +2813,7 @@ const list = Array.isArray(cursorData?.data)
         handlePinMessage,
         handleUnpinMessage,
         handleRecall,
+        canRecallOwnMessages,
         handleDeleteMessageForMe,
         handleDeleteConversationForMe,
         handleFileUpload,

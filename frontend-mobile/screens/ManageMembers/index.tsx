@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import {
     View,
     Text,
@@ -11,11 +11,13 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { colors, spacing } from "@/constants";
+import { colors } from "@/constants";
 import { UserAvatar, SelectGroupMembersModal } from "@/components";
 import { useMessagesController } from "@/hooks/useMessagesController";
 import { useGroupManagement } from "@/hooks/useGroupManagement";
-import type { ConversationMember, MemberRole } from "@/types/chat";
+import { useGroupConversationRealtime } from "@/hooks/useGroupConversationRealtime";
+import type { ConversationMember, JoinRequest, MemberRole } from "@/types/chat";
+import { buildS3Url } from "@/utils/s3";
 
 export function ManageMembersScreen() {
     const { conversationId } = useLocalSearchParams<{ conversationId: string }>();
@@ -40,6 +42,12 @@ export function ManageMembersScreen() {
         reloadConversations: reload,
     });
 
+    useGroupConversationRealtime({
+        conversationId: id,
+        currentUserId,
+        reloadConversations: reload,
+    });
+
     const members = useMemo(() => {
         const list = (selectedConversation?.members ?? []).filter(
             (m) => !m.status || m.status === "ACTIVE"
@@ -50,6 +58,13 @@ export function ManageMembersScreen() {
     if (!selectedConversation) return null;
 
     const isOwner = groupManagement.currentMemberRole === "OWNER";
+    const isDeputy = groupManagement.currentMemberRole === "DEPUTY";
+    const canReviewJoinRequests = isOwner || isDeputy;
+    const pendingRequests = canReviewJoinRequests
+        ? (selectedConversation.pendingRequests ?? []).filter(
+              (request) => request.status === "PENDING",
+          )
+        : [];
 
     const handleDisbandGroup = () => {
         Alert.alert(
@@ -164,6 +179,35 @@ export function ManageMembersScreen() {
                                 </Pressable>
                             </View>
                         )}
+                        {pendingRequests.length > 0 && (
+                            <View style={styles.requestSection}>
+                                <Text style={styles.requestTitle}>
+                                    Yêu cầu tham gia nhóm ({pendingRequests.length})
+                                </Text>
+                                {pendingRequests.map((request) => (
+                                    <JoinRequestItem
+                                        key={request.id}
+                                        request={request}
+                                        isPending={
+                                            groupManagement.pendingJoinRequestId ===
+                                            request.id
+                                        }
+                                        onApprove={() =>
+                                            groupManagement.processJoinRequest(
+                                                request.id,
+                                                true,
+                                            )
+                                        }
+                                        onReject={() =>
+                                            groupManagement.processJoinRequest(
+                                                request.id,
+                                                false,
+                                            )
+                                        }
+                                    />
+                                ))}
+                            </View>
+                        )}
                         <View style={styles.listHeaderRow}>
                             <Text style={styles.listHeaderTitle}>
                                 Danh sách thành viên ({members.length})
@@ -213,6 +257,7 @@ function MemberItem({
     onPress: () => void;
     isPending: boolean;
 }) {
+
     return (
         <Pressable
             style={({ pressed }) => [
@@ -224,7 +269,7 @@ function MemberItem({
             <View style={styles.memberLeft}>
                 <View>
                     <UserAvatar
-                        uri={member.avatar}
+                        uri={buildS3Url(member.avatar)}
                         name={member.nickname || member.username || "?"}
                         size={44}
                     />
@@ -247,6 +292,85 @@ function MemberItem({
             </View>
             {isPending && <ActivityIndicator size="small" color={colors.primary} />}
         </Pressable>
+    );
+}
+
+function formatRelativeTime(value?: string): string {
+    if (!value) return "";
+    const time = new Date(value).getTime();
+    if (!Number.isFinite(time)) return "";
+
+    const diffSeconds = Math.max(0, Math.floor((Date.now() - time) / 1000));
+    if (diffSeconds < 60) return "Vừa xong";
+    const diffMinutes = Math.floor(diffSeconds / 60);
+    if (diffMinutes < 60) return `${diffMinutes} phút trước`;
+    const diffHours = Math.floor(diffMinutes / 60);
+    if (diffHours < 24) return `${diffHours} giờ trước`;
+    return `${Math.floor(diffHours / 24)} ngày trước`;
+}
+
+function JoinRequestItem({
+    request,
+    isPending,
+    onApprove,
+    onReject,
+}: {
+    request: JoinRequest;
+    isPending: boolean;
+    onApprove: () => void;
+    onReject: () => void;
+}) {
+    const requestName =
+        request.userName ||
+        request.nickname ||
+        request.username ||
+        "Thanh vien";
+    const requestAvatar =
+        request.userAvatar || request.avatarUrl || request.avatar || undefined;
+
+    return (
+        <View style={styles.requestItem}>
+            <UserAvatar
+                uri={buildS3Url(requestAvatar)}
+                name={requestName}
+                size={44}
+            />
+            <View style={styles.requestBody}>
+                <Text style={styles.memberName} numberOfLines={1}>
+                    {requestName}
+                </Text>
+                {request.inviterName ? (
+                    <Text style={styles.requestMeta} numberOfLines={1}>
+                        Được mời bởi: {request.inviterName}
+                    </Text>
+                ) : null}
+                {!!formatRelativeTime(request.createdAt) && (
+                    <Text style={styles.requestMeta}>
+                        {formatRelativeTime(request.createdAt)}
+                    </Text>
+                )}
+                <View style={styles.requestActions}>
+                    <Pressable
+                        disabled={isPending}
+                        style={[styles.requestButton, styles.rejectButton]}
+                        onPress={onReject}
+                    >
+                        <Text style={styles.rejectButtonText}>Từ chối</Text>
+                    </Pressable>
+                    <Pressable
+                        disabled={isPending}
+                        style={[styles.requestButton, styles.approveButton]}
+                        onPress={onApprove}
+                    >
+                        {isPending ? (
+                            <ActivityIndicator size="small" color={colors.primary} />
+                        ) : (
+                            <Text style={styles.approveButtonText}>Đồng ý</Text>
+                        )}
+                    </Pressable>
+                </View>
+            </View>
+        </View>
     );
 }
 
@@ -292,6 +416,59 @@ const styles = StyleSheet.create({
     },
     topActionSection: {
         padding: 16,
+    },
+    requestSection: {
+        paddingHorizontal: 16,
+        paddingBottom: 16,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: colors.border,
+    },
+    requestTitle: {
+        fontSize: 14,
+        fontWeight: "700",
+        color: colors.text,
+        marginBottom: 10,
+    },
+    requestItem: {
+        flexDirection: "row",
+        gap: 12,
+        paddingVertical: 10,
+    },
+    requestBody: {
+        flex: 1,
+    },
+    requestMeta: {
+        fontSize: 12,
+        color: colors.textMuted,
+        marginTop: 2,
+    },
+    requestActions: {
+        flexDirection: "row",
+        gap: 8,
+        marginTop: 10,
+    },
+    requestButton: {
+        flex: 1,
+        alignItems: "center",
+        justifyContent: "center",
+        minHeight: 36,
+        borderRadius: 8,
+    },
+    rejectButton: {
+        backgroundColor: "#e5e7eb",
+    },
+    approveButton: {
+        backgroundColor: "#e8f1ff",
+    },
+    rejectButtonText: {
+        fontSize: 14,
+        fontWeight: "700",
+        color: colors.text,
+    },
+    approveButtonText: {
+        fontSize: 14,
+        fontWeight: "700",
+        color: colors.primary,
     },
     addMemberBtn: {
         flexDirection: "row",

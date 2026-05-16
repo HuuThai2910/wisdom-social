@@ -6,7 +6,7 @@
  */
 import { Client, type IMessage } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
-import type { Conversation, Message, MessageType } from "./chatService";
+import type { Conversation, JoinRequest, Message, MessageType } from "./chatService";
 
 const resolveSockJsUrl = (): string => {
     const envUrl = import.meta.env.VITE_WS_URL;
@@ -62,7 +62,9 @@ export type DomainEventType =
     | "GROUP_DISBANDED"
     | "PIN_MESSAGE"
     | "UPIN_MESSAGE"
-    | "MEMBER_UPDATED";
+    | "MEMBER_UPDATED"
+    | "NEW_JOIN_REQUEST"
+    | "JOIN_REQUEST_PROCESSED";
 
 export interface PinUpdatedEvent {
     domainEventType: "PIN_MESSAGE" | "UPIN_MESSAGE";
@@ -235,6 +237,19 @@ export interface ConversationMembershipEvent {
 export interface GroupDisbandedEvent {
     domainEventType?: "GROUP_DISBANDED";
     conversationId?: number;
+    lastMessage?: LastMessageUpdate;
+}
+
+export interface NewJoinRequestEvent {
+    domainEventType: "NEW_JOIN_REQUEST";
+    conversationId: number;
+    requestData: JoinRequest;
+}
+
+export interface JoinRequestProcessedEvent {
+    domainEventType: "JOIN_REQUEST_PROCESSED";
+    conversationId: number;
+    requestId: number;
 }
 
 /**
@@ -243,7 +258,14 @@ export interface GroupDisbandedEvent {
  */
 export type LastMessageUpdate = ConversationUpdatedEvent["lastMessage"];
 
-export type ConversationSnapshot = Conversation;
+export type ConversationSnapshot = Conversation & {
+    processedJoinRequestId?: number;
+};
+
+function toFiniteNumber(value: unknown): number | null {
+    const numberValue = Number(value);
+    return Number.isFinite(numberValue) ? numberValue : null;
+}
 
 function toLastMessageUpdate(
     conversation: Conversation,
@@ -577,8 +599,8 @@ class WebSocketService {
         // BƯỚC 3: Kiểm tra đã subscribe destination này chưa để tránh duplicate
         const existingSubscription = this.subscriptions.get(destination);
         if (existingSubscription) {
-            // console.log(`Already subscribed to ${destination}`);
-            return;
+            existingSubscription.unsubscribe();
+            this.subscriptions.delete(destination);
         }
 
         /**
@@ -805,7 +827,9 @@ class WebSocketService {
                         | ConversationUpdatedEvent
                         | ConversationCreatedEvent
                         | ConversationMembershipEvent
-                        | GroupDisbandedEvent;
+                        | GroupDisbandedEvent
+                        | NewJoinRequestEvent
+                        | JoinRequestProcessedEvent;
 
                     const createdConversation = (
                         payload as {
@@ -840,9 +864,86 @@ class WebSocketService {
                     ) {
                         callback(
                             disbandPayload.conversationId,
-                            buildSystemFallbackByDomainEvent(
-                                disbandPayload.domainEventType,
-                            ),
+                            disbandPayload.lastMessage ??
+                                buildSystemFallbackByDomainEvent(
+                                    disbandPayload.domainEventType,
+                                ),
+                        );
+                        return;
+                    }
+
+                    const joinRequestPayload = payload as NewJoinRequestEvent;
+                    if (
+                        joinRequestPayload.domainEventType === "NEW_JOIN_REQUEST" &&
+                        typeof joinRequestPayload.conversationId === "number" &&
+                        joinRequestPayload.requestData
+                    ) {
+                        const request = joinRequestPayload.requestData;
+                        const requestSnapshotContent =
+                            request.content ||
+                            JSON.stringify([
+                                {
+                                    id: request.userId,
+                                    name: request.userName,
+                                },
+                            ]);
+                        callback(
+                            joinRequestPayload.conversationId,
+                            {
+                                lastMessageContent:
+                                    requestSnapshotContent,
+                                lastMessageType: "SYSTEM_REQUIRE_APPROVAL",
+                                lastSenderId: request.inviterId ?? 0,
+                                lastSenderName: request.inviterName ?? "",
+                                lastMessageAt:
+                                    request.createdAt ||
+                                    new Date().toISOString(),
+                                read: false,
+                            },
+                            {
+                                id: joinRequestPayload.conversationId,
+                                type: "GROUP",
+                                updatedAt:
+                                    request.createdAt ||
+                                    new Date().toISOString(),
+                                pendingRequests: [request],
+                            } as ConversationSnapshot,
+                        );
+                        return;
+                    }
+
+                    const processedJoinRequestPayload =
+                        payload as JoinRequestProcessedEvent;
+                    const processedJoinConversationId = toFiniteNumber(
+                        processedJoinRequestPayload.conversationId,
+                    );
+                    const processedJoinRequestId = toFiniteNumber(
+                        processedJoinRequestPayload.requestId,
+                    );
+                    if (
+                        processedJoinRequestPayload.domainEventType ===
+                            "JOIN_REQUEST_PROCESSED" &&
+                        processedJoinConversationId !== null &&
+                        processedJoinRequestId !== null
+                    ) {
+                        const now = new Date().toISOString();
+                        callback(
+                            processedJoinConversationId,
+                            {
+                                lastMessageContent: "",
+                                lastMessageType: "SYSTEM_REQUIRE_APPROVAL",
+                                lastSenderId: 0,
+                                lastSenderName: "",
+                                lastMessageAt: now,
+                                read: true,
+                            },
+                            {
+                                id: processedJoinConversationId,
+                                type: "GROUP",
+                                updatedAt: now,
+                                processedJoinRequestId:
+                                    processedJoinRequestId,
+                            } as ConversationSnapshot,
                         );
                         return;
                     }

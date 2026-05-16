@@ -6,12 +6,14 @@ import type {
     ConversationMembershipEvent,
     ConversationUpdatedEvent,
     GroupDisbandedEvent,
+    JoinRequestProcessedEvent,
     LastMessage,
     MemberUpdatedEvent,
     Message,
     MessageCreatedEvent,
     MessageRecalledEvent,
     MessageSeenEvent,
+    NewJoinRequestEvent,
     PinUpdatedEvent,
     TypingEvent,
 } from "@/types/chat";
@@ -23,13 +25,28 @@ type ConversationEvent =
     | MessageSeenEvent
     | TypingEvent;
 
-type ConversationSnapshot = Conversation;
+type ConversationSnapshot = Conversation & {
+    processedJoinRequestId?: number;
+};
 
 type UserConversationEvent =
     | ConversationUpdatedEvent
     | ConversationCreatedEvent
     | ConversationMembershipEvent
-    | GroupDisbandedEvent;
+    | GroupDisbandedEvent
+    | JoinRequestProcessedEvent
+    | NewJoinRequestEvent;
+
+type UserConversationUpdateHandler = (
+    conversationId: number,
+    lastMessage: ConversationUpdatedEvent["lastMessage"],
+    conversation?: ConversationSnapshot,
+) => void;
+
+interface UserConversationListener {
+    onConversationUpdated: UserConversationUpdateHandler;
+    onDisbanded?: (conversationId: number) => void;
+}
 
 function toLastMessageUpdate(conversation: Conversation): LastMessage | null {
     return conversation.lastMessage ?? null;
@@ -104,6 +121,11 @@ function buildSystemFallbackByDomainEvent(
         read: false,
     };
 }
+
+function toFiniteNumber(value: unknown): number | null {
+    const numberValue = Number(value);
+    return Number.isFinite(numberValue) ? numberValue : null;
+}
 export type CallStatus =
     | "calling"
     | "ringing"
@@ -158,6 +180,11 @@ class ChatWebsocketService {
         number,
         Set<(event: CallSignalPayload) => void>
     >();
+    private userConversationListeners = new Map<
+        number,
+        Map<UserConversationUpdateHandler, UserConversationListener>
+    >();
+    private nextUniqueSubscriptionId = 0;
 
     private syncSubscriptions(): void {
         if (!this.client?.connected) return;
@@ -645,6 +672,83 @@ class ChatWebsocketService {
         this.removeSubscription(destination);
     }
 
+    subscribeToConversationMessages(
+        conversationId: number,
+        onMessage: (message: Message) => void,
+    ): () => void {
+        const destination = `/topic/conversation/${conversationId}`;
+        const key = `${destination}::message-watch::${++this.nextUniqueSubscriptionId}`;
+
+        this.subscriptionFactories.set(key, () => {
+            const client = this.client;
+            if (!client?.connected) {
+                throw new Error("WebSocket not connected");
+            }
+
+            return client.subscribe(destination, (message: IMessage) => {
+                try {
+                    const raw = JSON.parse(message.body) as
+                        | ConversationEvent
+                        | {
+                              payload?: unknown;
+                              data?: unknown;
+                              domainEventType?: unknown;
+                              type?: unknown;
+                          };
+
+                    const container =
+                        (raw as { payload?: unknown }).payload ??
+                        (raw as { data?: unknown }).data ??
+                        raw;
+                    const domainType = String(
+                        (
+                            container as {
+                                domainEventType?: unknown;
+                                type?: unknown;
+                            }
+                        ).domainEventType ??
+                            (
+                                container as {
+                                    domainEventType?: unknown;
+                                    type?: unknown;
+                                }
+                            ).type ??
+                            (
+                                raw as {
+                                    domainEventType?: unknown;
+                                    type?: unknown;
+                                }
+                            ).domainEventType ??
+                            (
+                                raw as {
+                                    domainEventType?: unknown;
+                                    type?: unknown;
+                                }
+                            ).type ??
+                            "",
+                    );
+
+                    if (domainType !== "MESSAGE_CREATED") return;
+
+                    const createdMessage = (
+                        container as { messageResponse?: Message }
+                    ).messageResponse;
+                    if (createdMessage) {
+                        onMessage(createdMessage);
+                    }
+                } catch {
+                    // no-op
+                }
+            });
+        });
+
+        this.syncSubscriptions();
+
+        return () => {
+            this.removeSubscription(key);
+        };
+    }
+
     subscribeToConversationPins(
         conversationId: number,
         onPinUpdated: (event: PinUpdatedEvent) => void,
@@ -701,14 +805,23 @@ class ChatWebsocketService {
 
     subscribeToUserConversations(
         userId: number,
-        onConversationUpdated: (
-            conversationId: number,
-            lastMessage: ConversationUpdatedEvent["lastMessage"],
-            conversation?: ConversationSnapshot,
-        ) => void,
+        onConversationUpdated: UserConversationUpdateHandler,
         onDisbanded?: (conversationId: number) => void,
     ): void {
+        const existingListeners =
+            this.userConversationListeners.get(userId) ?? new Map();
+        existingListeners.set(onConversationUpdated, {
+            onConversationUpdated,
+            onDisbanded,
+        });
+        this.userConversationListeners.set(userId, existingListeners);
+
         const destination = `/topic/user/${userId}/conversations`;
+        if (this.subscriptionFactories.has(destination)) {
+            this.syncSubscriptions();
+            return;
+        }
+
         this.registerSubscription(destination, () => {
             const client = this.client;
             if (!client?.connected) {
@@ -718,6 +831,12 @@ class ChatWebsocketService {
             return client.subscribe(destination, (message: IMessage) => {
                 try {
                     const payload = JSON.parse(message.body) as UserConversationEvent;
+                    const listeners = Array.from(
+                        this.userConversationListeners
+                            .get(userId)
+                            ?.values() ?? [],
+                    );
+                    if (listeners.length === 0) return;
 
                     const createdConversation = (
                         payload as { conversationResponse?: Conversation }
@@ -736,10 +855,12 @@ class ChatWebsocketService {
                                 resolvedLastMessage,
                         };
 
-                        onConversationUpdated(
-                            createdConversation.id,
-                            resolvedLastMessage,
-                            conversationSnapshot,
+                        listeners.forEach((listener) =>
+                            listener.onConversationUpdated(
+                                createdConversation.id,
+                                resolvedLastMessage,
+                                conversationSnapshot,
+                            ),
                         );
                         return;
                     }
@@ -749,14 +870,98 @@ class ChatWebsocketService {
                         disbandPayload.domainEventType === "GROUP_DISBANDED" &&
                         typeof disbandPayload.conversationId === "number"
                     ) {
+                        const conversationId = disbandPayload.conversationId;
                         // Gọi callback chuyên biệt nếu có (dùng trong useChatWindowController)
-                        onDisbanded?.(disbandPayload.conversationId);
+                        listeners.forEach((listener) =>
+                            listener.onDisbanded?.(conversationId),
+                        );
 
                         // Vẫn gọi onConversationUpdated để cập nhật sidebar list
-                        onConversationUpdated(
-                            disbandPayload.conversationId,
-                            buildSystemFallbackByDomainEvent(
-                                disbandPayload.domainEventType,
+                        listeners.forEach((listener) =>
+                            listener.onConversationUpdated(
+                                conversationId,
+                                buildSystemFallbackByDomainEvent(
+                                    disbandPayload.domainEventType,
+                                ),
+                            ),
+                        );
+                        return;
+                    }
+
+                    const joinRequestPayload = payload as NewJoinRequestEvent;
+                    if (
+                        joinRequestPayload.domainEventType === "NEW_JOIN_REQUEST" &&
+                        typeof joinRequestPayload.conversationId === "number" &&
+                        joinRequestPayload.requestData
+                    ) {
+                        const request = joinRequestPayload.requestData;
+                        const requestSnapshotContent =
+                            request.content ||
+                            JSON.stringify([
+                                {
+                                    id: request.userId,
+                                    name: request.userName,
+                                },
+                            ]);
+                        listeners.forEach((listener) =>
+                            listener.onConversationUpdated(
+                                joinRequestPayload.conversationId,
+                                {
+                                    lastMessageContent: requestSnapshotContent,
+                                    lastMessageType: "SYSTEM_REQUIRE_APPROVAL",
+                                    lastSenderId: request.inviterId ?? 0,
+                                    lastSenderName: request.inviterName ?? "",
+                                    lastMessageAt:
+                                        request.createdAt ||
+                                        new Date().toISOString(),
+                                    read: false,
+                                },
+                                {
+                                    id: joinRequestPayload.conversationId,
+                                    type: "GROUP",
+                                    updatedAt:
+                                        request.createdAt ||
+                                        new Date().toISOString(),
+                                    pendingRequests: [request],
+                                } as ConversationSnapshot,
+                            ),
+                        );
+                        return;
+                    }
+
+                    const processedJoinRequestPayload =
+                        payload as JoinRequestProcessedEvent;
+                    const processedJoinConversationId = toFiniteNumber(
+                        processedJoinRequestPayload.conversationId,
+                    );
+                    const processedJoinRequestId = toFiniteNumber(
+                        processedJoinRequestPayload.requestId,
+                    );
+                    if (
+                        processedJoinRequestPayload.domainEventType ===
+                            "JOIN_REQUEST_PROCESSED" &&
+                        processedJoinConversationId !== null &&
+                        processedJoinRequestId !== null
+                    ) {
+                        const now = new Date().toISOString();
+                        listeners.forEach((listener) =>
+                            listener.onConversationUpdated(
+                                processedJoinConversationId,
+                                {
+                                    lastMessageContent: "",
+                                    lastMessageType: "SYSTEM_REQUIRE_APPROVAL",
+                                    lastSenderId: 0,
+                                    lastSenderName: "",
+                                    lastMessageAt: now,
+                                    read: true,
+                                },
+                                {
+                                    id: processedJoinConversationId,
+                                    type: "GROUP",
+                                    updatedAt: now,
+                                    processedJoinRequestId:
+                                        processedJoinRequestId,
+                                } as ConversationSnapshot,
                             ),
                         );
                         return;
@@ -767,9 +972,11 @@ class ChatWebsocketService {
                         typeof updatedEvent.conversationId === "number" &&
                         updatedEvent.lastMessage
                     ) {
-                        onConversationUpdated(
-                            updatedEvent.conversationId,
-                            updatedEvent.lastMessage,
+                        listeners.forEach((listener) =>
+                            listener.onConversationUpdated(
+                                updatedEvent.conversationId,
+                                updatedEvent.lastMessage,
+                            ),
                         );
                     }
                 } catch {
@@ -777,6 +984,23 @@ class ChatWebsocketService {
                 }
             });
         });
+    }
+
+     subscribeToTopic(
+        destination: string,
+        onMessage: (body: string) => void,
+    ): void {
+        this.registerSubscription(destination, () => {
+            const client = this.client;
+            if (!client?.connected) throw new Error("WebSocket not connected");
+            return client.subscribe(destination, (msg: IMessage) => {
+                onMessage(msg.body);
+            });
+        });
+    }
+
+    unsubscribeFromTopic(destination: string): void {
+        this.removeSubscription(destination);
     }
 
 
@@ -841,8 +1065,23 @@ class ChatWebsocketService {
     }
 
 
-    unsubscribeFromUserConversations(userId: number): void {
+    unsubscribeFromUserConversations(
+        userId: number,
+        onConversationUpdated?: UserConversationUpdateHandler,
+    ): void {
         const destination = `/topic/user/${userId}/conversations`;
+        const listeners = this.userConversationListeners.get(userId);
+
+        if (listeners && onConversationUpdated) {
+            listeners.delete(onConversationUpdated);
+            if (listeners.size === 0) {
+                this.userConversationListeners.delete(userId);
+                this.removeSubscription(destination);
+            }
+            return;
+        }
+
+        this.userConversationListeners.delete(userId);
         this.removeSubscription(destination);
     }
 
@@ -929,6 +1168,32 @@ class ChatWebsocketService {
             destination: `/app/chat/${conversationId}/typing`,
             body: JSON.stringify({ userId, isTyping }),
         });
+    }
+
+    subscribeToProfileUpdates(
+        phone: string,
+        onProfileUpdated: (payload: Record<string, unknown>) => void,
+    ): void {
+        const destination = `/topic/user/${phone}/profile-update`;
+        this.registerSubscription(destination, () => {
+            const client = this.client;
+            if (!client?.connected) {
+                throw new Error("WebSocket not connected");
+            }
+
+            return client.subscribe(destination, (msg: IMessage) => {
+                try {
+                    const raw = JSON.parse(msg.body) as Record<string, unknown>;
+                    onProfileUpdated(raw);
+                } catch {
+                    // no-op
+                }
+            });
+        });
+    }
+
+    unsubscribeFromProfileUpdates(phone: string): void {
+        this.removeSubscription(`/topic/user/${phone}/profile-update`);
     }
 }
 

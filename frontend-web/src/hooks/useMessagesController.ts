@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import chatService, { type Conversation } from "../services/chatService";
+import chatService, {
+    type Conversation,
+    type MessageType,
+} from "../services/chatService";
 import websocketService, {
     type ConversationSnapshot,
     type LastMessageUpdate,
@@ -17,6 +20,15 @@ import {
     safeParseMemberIds,
     sortConversationsByLastMessageAt,
 } from "../utils/messagesControllerUtils";
+
+const PRESERVE_EMPTY_PENDING_REQUEST_TYPES = new Set<MessageType>([
+    "SYSTEM_ADD_MEMBER",
+    "SYSTEM_KICK_MEMBER",
+    "SYSTEM_UPDATE_ROLE",
+    "SYSTEM_UPDATE_SETTING",
+    "SYSTEM_REQUIRE_APPROVAL",
+    "SYSTEM_JOIN_VIA_LINK",
+]);
 
 /**
  * useMessagesController
@@ -289,7 +301,11 @@ export function useMessagesController() {
     }, []);
 
     const refreshConversationById = useCallback(
-        (conversationId: number, userId: number) => {
+        (
+            conversationId: number,
+            userId: number,
+            preserveEmptyPendingRequests = false,
+        ) => {
             const inFlight = refreshingConversationIdsRef.current;
             if (inFlight.has(conversationId)) return;
 
@@ -299,6 +315,24 @@ export function useMessagesController() {
                 .then((response) => {
                     const responseData = response.data;
                     if (!response.success || !responseData) return;
+                    const previousConversation =
+                        chatRuntimeStore.getConversation(conversationId);
+                    const nextResponseData =
+                        preserveEmptyPendingRequests &&
+                        Array.isArray(responseData.pendingRequests) &&
+                        responseData.pendingRequests.length === 0
+                            ? {
+                                  ...responseData,
+                                  pendingRequests:
+                                      previousConversation?.pendingRequests ??
+                                      responseData.pendingRequests,
+                              }
+                            : responseData;
+
+                    chatRuntimeStore.setConversation(
+                        conversationId,
+                        nextResponseData,
+                    );
 
                     setConversations((prev) => {
                         const existed = prev.some(
@@ -306,7 +340,7 @@ export function useMessagesController() {
                         );
                         if (!existed) {
                             return sortConversationsByLastMessageAt([
-                                responseData,
+                                nextResponseData,
                                 ...prev,
                             ]);
                         }
@@ -316,13 +350,13 @@ export function useMessagesController() {
                                 conv.id === conversationId
                                     ? {
                                           ...conv,
-                                          ...responseData,
+                                          ...nextResponseData,
                                           lastMessage:
-                                              responseData.lastMessage ??
+                                              nextResponseData.lastMessage ??
                                               conv.lastMessage,
                                           unreadCount:
                                               conv.unreadCount ??
-                                              responseData.unreadCount,
+                                              nextResponseData.unreadCount,
                                       }
                                     : conv,
                             ),
@@ -335,6 +369,14 @@ export function useMessagesController() {
                 .finally(() => {
                     inFlight.delete(conversationId);
                 });
+        },
+        [],
+    );
+
+    const getProcessedJoinRequestId = useCallback(
+        (conversation?: ConversationSnapshot): number | null => {
+            const requestId = Number(conversation?.processedJoinRequestId);
+            return Number.isFinite(requestId) ? requestId : null;
         },
         [],
     );
@@ -352,6 +394,31 @@ export function useMessagesController() {
             const latestUserId = currentUserIdRef.current;
             const latestSelectedConversationId =
                 selectedConversationIdRef.current;
+            const processedJoinRequestId =
+                getProcessedJoinRequestId(conversationSnapshot);
+            if (processedJoinRequestId !== null) {
+                chatRuntimeStore.removePendingRequests(conversationId, {
+                    requestIds: [processedJoinRequestId],
+                });
+                setConversations((prevConversations) =>
+                    sortConversationsByLastMessageAt(
+                        prevConversations.map((conversation) =>
+                            conversation.id === conversationId
+                                ? {
+                                      ...conversation,
+                                      pendingRequests:
+                                          conversation.pendingRequests?.filter(
+                                              (request) =>
+                                                  Number(request.id) !==
+                                                  processedJoinRequestId,
+                                          ) ?? conversation.pendingRequests,
+                                  }
+                                : conversation,
+                        ),
+                    ),
+                );
+                return;
+            }
 
             const isMyMessage = lastMessage.lastSenderId === latestUserId;
             const isViewingThisConversation =
@@ -362,6 +429,14 @@ export function useMessagesController() {
             const shouldRefreshSnapshot = GROUP_SYSTEM_SYNC_TYPES.has(
                 lastMessage.lastMessageType,
             );
+            const shouldForceDetailRefresh =
+                lastMessage.lastMessageType === "SYSTEM_UPDATE_ROLE" ||
+                lastMessage.lastMessageType === "SYSTEM_UPDATE_SETTING" ||
+                lastMessage.lastMessageType === "SYSTEM_REQUIRE_APPROVAL";
+            const shouldPreserveEmptyPendingRequests =
+                PRESERVE_EMPTY_PENDING_REQUEST_TYPES.has(
+                    lastMessage.lastMessageType,
+                );
             const snapshotReadOnlyNotice =
                 resolveReadOnlyNoticeFromConversation(
                     conversationSnapshot,
@@ -510,6 +585,20 @@ export function useMessagesController() {
                         conversationSnapshot.id === conversationId
                             ? { ...conv, ...conversationSnapshot }
                             : conv;
+                    const pendingRequests =
+                        conversationSnapshot?.pendingRequests &&
+                        conversationSnapshot.pendingRequests.length > 0
+                            ? [
+                                  ...(conv.pendingRequests ?? []).filter(
+                                      (request) =>
+                                          !conversationSnapshot.pendingRequests?.some(
+                                              (nextRequest) =>
+                                                  nextRequest.id === request.id,
+                                          ),
+                                  ),
+                                  ...conversationSnapshot.pendingRequests,
+                              ]
+                            : baseConversation.pendingRequests;
 
                     let lastName = "";
                     if (baseConversation.type === "GROUP") {
@@ -535,6 +624,7 @@ export function useMessagesController() {
 
                     return {
                         ...baseConversation,
+                        pendingRequests,
                         lastMessage: {
                             lastMessageContent: lastMessage.lastMessageContent,
                             lastMessageType: lastMessage.lastMessageType,
@@ -553,11 +643,18 @@ export function useMessagesController() {
                 return sortConversationsByLastMessageAt(updatedConversations);
             });
 
-            if (shouldRefreshSnapshot && !conversationSnapshot) {
-                refreshConversationById(conversationId, latestUserId);
+            if (
+                shouldRefreshSnapshot &&
+                (shouldForceDetailRefresh || !conversationSnapshot)
+            ) {
+                refreshConversationById(
+                    conversationId,
+                    latestUserId,
+                    shouldPreserveEmptyPendingRequests,
+                );
             }
         },
-        [refreshConversationById],
+        [getProcessedJoinRequestId, refreshConversationById],
     );
 
     // ====== WebSocket: subscribe updates cho list hội thoại ======
