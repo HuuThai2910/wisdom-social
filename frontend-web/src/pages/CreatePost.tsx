@@ -338,7 +338,15 @@ export default function CreatePost() {
               </button>
             ) : (
               <button
-                onClick={() => setStep(step - 1)}
+                onClick={() => {
+                  if (step === 3 && selectedImages.length === 0) {
+                    setStep(1);
+                  } else if (step === 3 && !selectedImages.some(f => f.type.startsWith('video/'))) {
+                    setStep(1);
+                  } else {
+                    setStep(step - 1);
+                  }
+                }}
                 className="text-sm font-semibold hover:text-gray-600 dark:text-white dark:hover:text-gray-300 flex items-center"
               >
                 <ArrowLeft size={20} className="mr-1" />
@@ -358,13 +366,14 @@ export default function CreatePost() {
 
             {step < 3 ? (
               <button
-                onClick={() => setStep(step + 1)}
-                disabled={selectedImages.length === 0}
-                className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
-                  selectedImages.length > 0
-                    ? "bg-[#3b5998] hover:bg-[#2d4373] text-white"
-                    : "bg-gray-100 text-gray-400 cursor-not-allowed dark:bg-[#363636] dark:text-gray-600"
-                }`}
+                onClick={() => {
+                  if (step === 1 && !selectedImages.some(f => f.type.startsWith('video/'))) {
+                    setStep(3);
+                  } else {
+                    setStep(step + 1);
+                  }
+                }}
+                className="px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors bg-[#3b5998] hover:bg-[#2d4373] text-white"
               >
                 Tiếp tục
               </button>
@@ -642,7 +651,8 @@ export default function CreatePost() {
             {/* Step 3: Post Details */}
             {step === 3 && (
               <div className="flex flex-col md:flex-row gap-6 p-2 md:p-0 min-h-[500px]">
-                {/* Mini Preview Left */}
+                {/* Mini Preview Left - only show when there are images */}
+                {selectedImages.length > 0 && (
                 <div className="w-full md:w-1/2">
                   <div className="relative rounded-xl overflow-hidden bg-black aspect-[4/5] shadow-sm">
                     {selectedImages[0]?.type.startsWith("video/") ? (
@@ -685,9 +695,10 @@ export default function CreatePost() {
                     )}
                   </div>
                 </div>
+                )}
 
                 {/* Form Right */}
-                <div className="w-full md:w-1/2 flex flex-col pt-2">
+                <div className={`w-full ${selectedImages.length > 0 ? 'md:w-1/2' : 'md:w-full'} flex flex-col pt-2`}>
                   {/* User Info */}
                   <div className="flex items-center gap-3 mb-4">
                     <img

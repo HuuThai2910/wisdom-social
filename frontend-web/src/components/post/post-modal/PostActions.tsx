@@ -31,8 +31,8 @@
  * - Bookmark icon fills when saved
  */
 
-import React, { useRef } from "react";
-import { Bookmark, Heart, Send, MessageCircle } from "lucide-react";
+import React from "react";
+import { Bookmark, Send, Heart } from "lucide-react";
 
 interface PostActionsProps {
   currentReaction: string | null;
@@ -99,24 +99,17 @@ const PostActions: React.FC<PostActionsProps> = ({
             >
               <button
                 onClick={() => {
-                  if (!currentReaction) {
-                    onReaction("LIKE");
-                  } else {
-                    onReaction(currentReaction);
-                  }
+                  // Like button should always toggle LIKE specifically
+                  onReaction("LIKE");
                 }}
                 className="hover:scale-110 transition-transform"
               >
                 {currentReaction ? (
-                  currentReaction === "LIKE" ? (
-                    <Heart className="w-6 h-6 text-red-500 fill-red-500" />
-                  ) : (
-                    <span className="text-2xl">
-                      {REACTION_EMOJI[currentReaction] || "👍"}
-                    </span>
-                  )
+                  <span className="text-2xl">
+                    {REACTION_EMOJI[currentReaction] || "👍"}
+                  </span>
                 ) : (
-                  <Heart className="w-6 h-6 dark:text-white hover:text-gray-500 transition-colors" />
+                  <Heart size={24} strokeWidth={1.8} className="dark:text-white" />
                 )}
               </button>
 
@@ -142,7 +135,7 @@ const PostActions: React.FC<PostActionsProps> = ({
 
             {/* Send/Share Button */}
             {allowShares !== false && (
-              <button 
+              <button
                 onClick={onShare}
                 className="hover:opacity-70 transition-opacity"
               >
@@ -157,7 +150,9 @@ const PostActions: React.FC<PostActionsProps> = ({
             className="hover:opacity-70 transition-opacity"
           >
             <Bookmark
-              className={`w-6 h-6 dark:text-white ${isSaved ? "fill-black dark:fill-white" : ""}`}
+              className={`w-6 h-6 dark:text-white ${
+                isSaved ? "fill-black dark:fill-white" : ""
+              }`}
             />
           </button>
         </div>

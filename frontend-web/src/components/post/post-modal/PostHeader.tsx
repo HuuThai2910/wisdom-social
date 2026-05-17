@@ -41,6 +41,7 @@ import { Users, Globe, Lock, Music, Play, Pause } from "lucide-react";
 import type { PostData, UserData } from "../../../types/post";
 import PostHeaderMenu from "../PostHeaderMenu";
 import useMusicAutoplay from "../../../hooks/useMusicAutoplay";
+import { useFriendStatus } from "../../../hooks/useFriendStatus";
 
 interface PostHeaderProps {
   post: PostData;
@@ -82,6 +83,16 @@ const PostHeader: React.FC<PostHeaderProps> = ({
     avatarUrl: author?.avatarUrl || "https://i.pravatar.cc/150?img=5",
   };
 
+  // Check friendship status with post author
+  const {
+    status: friendshipStatus,
+    sendRequest,
+    acceptRequest,
+    rejectRequest,
+    cancelRequest,
+    loading: friendActionLoading,
+  } = useFriendStatus(Number(authorDisplay.id));
+
   return (
     <div className="p-3 border-b dark:border-[#363636] flex items-center justify-between shrink-0">
       <div className="flex items-center gap-3">
@@ -103,9 +114,52 @@ const PostHeader: React.FC<PostHeaderProps> = ({
             {!isOwnPost && (
               <div className="flex items-center gap-2">
                 <span className="text-gray-400 text-[10px]">•</span>
-                <button className="text-[#3b5998] text-xs font-bold hover:text-[#2d4373] transition-colors bg-blue-50 dark:bg-blue-900/20 px-3 py-1 rounded-full">
-                  Kết bạn
-                </button>
+                {/* Show friend action button based on friendship status */}
+                {friendshipStatus === "loading" ? (
+                  <button
+                    disabled
+                    className="text-[#3b5998] text-xs font-bold px-3 py-1 rounded-full bg-blue-50 dark:bg-blue-900/20 opacity-50 cursor-not-allowed"
+                  >
+                    ...
+                  </button>
+                ) : friendshipStatus === "none" ? (
+                  <button
+                    onClick={sendRequest}
+                    disabled={friendActionLoading}
+                    className="text-[#3b5998] text-xs font-bold hover:text-[#2d4373] transition-colors bg-blue-50 dark:bg-blue-900/20 px-3 py-1 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Kết bạn
+                  </button>
+                ) : friendshipStatus === "pending_sent" ? (
+                  <button
+                    onClick={cancelRequest}
+                    disabled={friendActionLoading}
+                    className="text-gray-600 text-xs font-bold hover:text-gray-800 transition-colors bg-gray-100 dark:bg-gray-700 px-3 py-1 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Đã gửi lời mời
+                  </button>
+                ) : friendshipStatus === "pending_received" ? (
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={acceptRequest}
+                      disabled={friendActionLoading}
+                      className="text-[#3b5998] text-xs font-bold hover:text-[#2d4373] transition-colors bg-blue-50 dark:bg-blue-900/20 px-2 py-1 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Chấp nhận
+                    </button>
+                    <button
+                      onClick={rejectRequest}
+                      disabled={friendActionLoading}
+                      className="text-gray-600 text-xs font-bold hover:text-gray-800 transition-colors bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Từ chối
+                    </button>
+                  </div>
+                ) : friendshipStatus === "friends" ? (
+                  <span className="text-gray-500 text-xs font-semibold">
+                    Bạn bè
+                  </span>
+                ) : null}
               </div>
             )}
           </div>
@@ -132,11 +186,22 @@ const PostHeader: React.FC<PostHeaderProps> = ({
       <div className="flex items-center gap-2">
         {/* Privacy Badge (Icon Only) */}
         {isOwnPost && post.privacy && (
-          <div className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors cursor-pointer" title={post.privacy}>
-            {post.privacy === "PUBLIC" && <Globe className="w-4 h-4 text-gray-400" />}
-            {post.privacy === "FRIENDS" && <Users className="w-4 h-4 text-gray-400" />}
-            {post.privacy === "ONLY_ME" && <Lock className="w-4 h-4 text-gray-400" />}
-            {["SPECIFIC", "EXCEPT"].includes(post.privacy) && <Users className="w-4 h-4 text-gray-400" />}
+          <div
+            className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors cursor-pointer"
+            title={post.privacy}
+          >
+            {post.privacy === "PUBLIC" && (
+              <Globe className="w-4 h-4 text-gray-400" />
+            )}
+            {post.privacy === "FRIENDS" && (
+              <Users className="w-4 h-4 text-gray-400" />
+            )}
+            {post.privacy === "ONLY_ME" && (
+              <Lock className="w-4 h-4 text-gray-400" />
+            )}
+            {["SPECIFIC", "EXCEPT"].includes(post.privacy) && (
+              <Users className="w-4 h-4 text-gray-400" />
+            )}
           </div>
         )}
 

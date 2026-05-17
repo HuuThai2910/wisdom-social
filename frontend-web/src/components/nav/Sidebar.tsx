@@ -18,6 +18,8 @@ import {
   Flag,
   ChevronLeft,
   ChevronRight,
+  FileText,
+  Sparkles,
 } from "lucide-react";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
@@ -31,6 +33,7 @@ export default function Sidebar() {
   const { isDark, toggleTheme } = useTheme();
   const currentUser = useCurrentUser();
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [showCreateMenu, setShowCreateMenu] = useState(false);
   const { sidebarCollapsed, toggleSidebarCollapsed } = useSidebarLayout();
   const showLabels = !sidebarCollapsed;
 
@@ -59,7 +62,6 @@ export default function Sidebar() {
       badge: friendRequestsCount,
     },
     { icon: Flag, label: "Pages", path: "/pages" },
-    { icon: PlusSquare, label: "Create", path: "/create" },
   ];
 
   const isActive = (path: string) => {
@@ -139,6 +141,63 @@ export default function Sidebar() {
               </li>
             );
           })}
+
+          {/* Create Button with Dropdown */}
+          <li className="relative">
+            <button
+              onClick={() => setShowCreateMenu(!showCreateMenu)}
+              className={`flex w-full items-center rounded-lg py-3 transition-all hover:bg-gray-100 dark:hover:bg-[#262626] ${
+                showLabels ? "gap-4 px-3" : "justify-center px-2"
+              } ${
+                location.pathname === "/create" || location.pathname === "/create-story"
+                  ? "font-bold"
+                  : "font-normal"
+              } dark:text-white`}
+            >
+              <PlusSquare
+                className={
+                  location.pathname === "/create" || location.pathname === "/create-story"
+                    ? "fill-current"
+                    : ""
+                }
+                size={26}
+                strokeWidth={
+                  location.pathname === "/create" || location.pathname === "/create-story"
+                    ? 2.5
+                    : 1.5
+                }
+              />
+              {showLabels && <span className="text-[16px]">Create</span>}
+            </button>
+
+            {showCreateMenu && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setShowCreateMenu(false)}
+                />
+                <div className="absolute left-full bottom-0 ml-2 w-56 bg-white dark:bg-[#262626] border border-gray-200 dark:border-[#363636] rounded-2xl shadow-xl overflow-hidden z-50">
+                  <Link
+                    to="/create"
+                    onClick={() => setShowCreateMenu(false)}
+                    className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-gray-100 dark:hover:bg-[#363636] dark:text-white transition-colors"
+                  >
+                    <FileText size={20} />
+                    <span className="text-sm font-medium">Tạo bài viết</span>
+                  </Link>
+                  <div className="border-t border-gray-200 dark:border-[#363636]" />
+                  <Link
+                    to="/create-story"
+                    onClick={() => setShowCreateMenu(false)}
+                    className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-gray-100 dark:hover:bg-[#363636] dark:text-white transition-colors"
+                  >
+                    <Sparkles size={20} />
+                    <span className="text-sm font-medium">Tạo tin</span>
+                  </Link>
+                </div>
+              </>
+            )}
+          </li>
 
           {/* Profile */}
           {currentUser && (

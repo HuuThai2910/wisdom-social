@@ -43,6 +43,7 @@ import ProfileBlocked from "./pages/ProfileBlocked";
 import ProfileShared from "./pages/ProfileShared";
 import ProfileGeneral from "./pages/ProfileGeneral";
 import CreatePost from "./pages/CreatePost";
+import CreateStory from "./pages/CreateStory";
 import Settings from "./pages/Settings";
 import ProfileLayout from "./components/profile/ProfileLayout";
 
@@ -138,6 +139,7 @@ function App() {
                   <Route path="/messages" element={<Messages />} />
                   <Route path="/messages/:conversationId" element={<Messages />} />
                   <Route path="/create" element={<CreatePost />} />
+                  <Route path="/create-story" element={<CreateStory />} />
 
                   {/* Profile Routes */}
                   <Route path="/profile/:username" element={<ProfileLayout />}>
