@@ -34,6 +34,10 @@ public interface MessageService {
 
     void unpinMessage(String messageId, Long userId);
 
+    MessageResponse addReaction(String messageId, Long userId, String emoji);
+
+    MessageResponse getMessageById(String messageId, Long userId);
+
     CursorResponse<List<MessageResponse>> getMessagesByConversation(
             Long conversationId,
             Long userId,

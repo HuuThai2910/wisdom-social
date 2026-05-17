@@ -138,6 +138,7 @@ export default function ChatWindow({
     handleRecall,
     canRecallOwnMessages,
     handleDeleteMessageForMe,
+    addReaction,
     appendRealtimeMessage,
     scrollToBottom,
     recallToast,
@@ -814,6 +815,7 @@ export default function ChatWindow({
             canRecallOwnMessages={canRecallOwnMessages}
             onRecallCall={(callType) => void startCall(callType)}
             onDeleteForMe={handleDeleteMessageForMe}
+            onReaction={addReaction}
             onOpenRequireApprovalDetails={onToggleInfoPanel}
             onMediaLoad={() => {
               stabilizeMediaLayoutOnMediaLoad();
@@ -833,6 +835,7 @@ export default function ChatWindow({
             isHighlighted={highlightedMessageId === message.id}
             isFirstInGroup={isFirstInGroup}
             isLastInGroup={isLastInGroup}
+            membersById={membersById}
           />
 
           {/* Read Receipt Avatars - hiển thị avatar "đã xem" bên dưới tin nhắn */}

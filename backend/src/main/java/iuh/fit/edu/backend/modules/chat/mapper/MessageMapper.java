@@ -52,6 +52,26 @@ public abstract class MessageMapper {
                 .toList();
     }
 
+    protected List<MessageResponse.IconNameResponse> mapIconName(List<Message.IconName> iconName) {
+        if (iconName == null) return null;
+        return iconName.stream()
+                .map(reaction -> MessageResponse.IconNameResponse.builder()
+                        .name(reaction.getName())
+                        .user(mapIconUsers(reaction.getUser()))
+                        .build())
+                .toList();
+    }
+
+    protected List<MessageResponse.IconUserResponse> mapIconUsers(List<Message.IconUser> users) {
+        if (users == null) return null;
+        return users.stream()
+                .map(user -> MessageResponse.IconUserResponse.builder()
+                        .userId(user.getUserId())
+                        .quantity(user.getQuantity())
+                        .build())
+                .toList();
+    }
+
 
     // 3. Logic tùy biến chạy NGAY SAU KHI MapStruct map xong
     @AfterMapping

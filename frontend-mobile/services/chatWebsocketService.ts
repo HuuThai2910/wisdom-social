@@ -16,6 +16,7 @@ import type {
     NewJoinRequestEvent,
     PinUpdatedEvent,
     TypingEvent,
+    MessageReactionEvent,
 } from "@/types/chat";
 import apiClient from "@/api/apiClient";
 
@@ -23,7 +24,8 @@ type ConversationEvent =
     | MessageCreatedEvent
     | MessageRecalledEvent
     | MessageSeenEvent
-    | TypingEvent;
+    | TypingEvent
+    | MessageReactionEvent;
 
 type ConversationSnapshot = Conversation & {
     processedJoinRequestId?: number;
@@ -525,6 +527,7 @@ class ChatWebsocketService {
         onRecall?: (messageId: string) => void,
         onSeen?: (event: MessageSeenEvent) => void,
         onTyping?: (event: TypingEvent) => void,
+        onReaction?: (message: Message) => void,
     ): void {
         const destination = `/topic/conversation/${conversationId}`;
         console.log(`${WS_DEBUG_PREFIX} subscribeToConversation`, {
@@ -596,6 +599,16 @@ class ChatWebsocketService {
                         ).messageResponse;
                         if (createdMessage) {
                             onMessage(createdMessage);
+                        }
+                        return;
+                    }
+
+                    if (domainType === "MESSAGE_REACTION") {
+                        const payload = (
+                            container as { messageResponse?: Message }
+                        ).messageResponse;
+                        if (payload) {
+                            onReaction?.(payload);
                         }
                         return;
                     }

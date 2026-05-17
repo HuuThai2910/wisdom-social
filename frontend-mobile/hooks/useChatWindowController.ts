@@ -15,6 +15,7 @@ import type {
     LocalUploadFile,
     MemberStatus,
     Message,
+    MessageReactionEvent,
     MessageSeenEvent,
     PinnedMessageDetail,
     TypingEvent,
@@ -108,6 +109,61 @@ function normalizeReplyPreviewContent(message: Message): Message {
 
 function normalizeMessagesForUi(messages: Message[]): Message[] {
     return messages.map(normalizeReplyPreviewContent);
+}
+
+function incrementMessageReaction(
+    message: Message,
+    emoji: string,
+    userId: number,
+): Message {
+    const reactions = message.iconName ?? [];
+    const reactionIndex = reactions.findIndex((reaction) => reaction.name === emoji);
+
+    if (reactionIndex < 0) {
+        return {
+            ...message,
+            iconName: [
+                ...reactions,
+                {
+                    name: emoji,
+                    user: [{ userId, quantity: 1 }],
+                },
+            ],
+        };
+    }
+
+    const nextReactions = reactions.map((reaction, index) => {
+        if (index !== reactionIndex) return reaction;
+
+        const users = reaction.user ?? [];
+        const userIndex = users.findIndex(
+            (reactionUser) => Number(reactionUser.userId) === Number(userId),
+        );
+
+        if (userIndex < 0) {
+            return {
+                ...reaction,
+                user: [...users, { userId, quantity: 1 }],
+            };
+        }
+
+        return {
+            ...reaction,
+            user: users.map((reactionUser, reactionUserIndex) =>
+                reactionUserIndex === userIndex
+                    ? {
+                          ...reactionUser,
+                          quantity: reactionUser.quantity + 1,
+                      }
+                    : reactionUser,
+            ),
+        };
+    });
+
+    return {
+        ...message,
+        iconName: nextReactions,
+    };
 }
 
 function isImageFile(file: LocalUploadFile): boolean {
@@ -910,6 +966,19 @@ if (token !== loadTokenRef.current) return;
         [conversationId],
     );
 
+    const handleMessageReactionEvent = useCallback(
+        (updatedMessage: Message) => {
+            setMessages((prev) => {
+                const nextMessages = prev.map((message) =>
+                    message.id === updatedMessage.id ? updatedMessage : message,
+                );
+                chatRuntimeStore.setMessages(conversationId, nextMessages);
+                return nextMessages;
+            });
+        },
+        [conversationId],
+    );
+
     const handleNewMessage = useCallback(
         (incomingMessage: Message) => {
             const normalizedIncoming =
@@ -1195,6 +1264,7 @@ if (token !== loadTokenRef.current) return;
                     applyRecallDomino,
                     handleMessageSeen,
                     handleTyping,
+                    handleMessageReactionEvent,
                 );
 
                 chatWebsocketService.subscribeToConversationPins(
@@ -1326,6 +1396,7 @@ if (token !== loadTokenRef.current) return;
         currentUserId,
         executeMarkAsRead,
         handleMessageSeen,
+        handleMessageReactionEvent,
         handleNewMessage,
         handleTyping,
         isScreenFocused,
@@ -1774,6 +1845,39 @@ if (token !== loadTokenRef.current) return;
             }
         },
         [currentUserId],
+    );
+
+    const addReaction = useCallback(
+        async (messageId: string, emoji: string) => {
+            let previousMessages: Message[] = [];
+
+            setMessages((prev) => {
+                previousMessages = prev;
+                const next = prev.map((message) =>
+                    message.id === messageId
+                        ? incrementMessageReaction(message, emoji, currentUserId)
+                        : message,
+                );
+                chatRuntimeStore.setMessages(conversationId, next);
+                return next;
+            });
+
+            try {
+                const updatedMessage = await chatService.addReaction(messageId, emoji);
+                setMessages((prev) => {
+                    const next = prev.map((message) =>
+                        message.id === messageId ? updatedMessage : message,
+                    );
+                    chatRuntimeStore.setMessages(conversationId, next);
+                    return next;
+                });
+            } catch {
+                setMessages(previousMessages);
+                chatRuntimeStore.setMessages(conversationId, previousMessages);
+                setError("Khong the tha reaction");
+            }
+        },
+        [conversationId, currentUserId],
     );
 
     const sendTypingSignal = useCallback(
@@ -2269,6 +2373,7 @@ if (token !== loadTokenRef.current) return;
         handleDeleteForMe,
         handlePinMessage,
         handleUnpinMessage,
+        addReaction,
         sendTypingSignal,
         loadOlderMessages,
         loadNewerMessages,

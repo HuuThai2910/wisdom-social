@@ -15,6 +15,7 @@ import chatService, {
 } from "../services/chatService";
 import websocketService, {
     type MemberUpdatedEvent,
+    type MessageReactionEvent,
     type MessageSeenEvent,
     type PinUpdatedEvent,
     type TypingEvent,
@@ -56,6 +57,61 @@ import {
 } from "../utils/chatWindowControllerUtils";
 
 export type { ReadReceipt } from "../utils/chatWindowControllerUtils";
+
+function incrementMessageReaction(
+    message: Message,
+    emoji: string,
+    userId: number,
+): Message {
+    const reactions = message.iconName ?? [];
+    const reactionIndex = reactions.findIndex((reaction) => reaction.name === emoji);
+
+    if (reactionIndex < 0) {
+        return {
+            ...message,
+            iconName: [
+                ...reactions,
+                {
+                    name: emoji,
+                    user: [{ userId, quantity: 1 }],
+                },
+            ],
+        };
+    }
+
+    const nextReactions = reactions.map((reaction, index) => {
+        if (index !== reactionIndex) return reaction;
+
+        const users = reaction.user ?? [];
+        const userIndex = users.findIndex(
+            (reactionUser) => Number(reactionUser.userId) === Number(userId),
+        );
+
+        if (userIndex < 0) {
+            return {
+                ...reaction,
+                user: [...users, { userId, quantity: 1 }],
+            };
+        }
+
+        return {
+            ...reaction,
+            user: users.map((reactionUser, reactionUserIndex) =>
+                reactionUserIndex === userIndex
+                    ? {
+                          ...reactionUser,
+                          quantity: reactionUser.quantity + 1,
+                      }
+                    : reactionUser,
+            ),
+        };
+    });
+
+    return {
+        ...message,
+        iconName: nextReactions,
+    };
+}
 
 /**
  * useChatWindowController
@@ -1635,6 +1691,19 @@ const list = Array.isArray(cursorData?.data)
         [conversationId, userId],
     );
 
+    const handleMessageReactionEvent = useCallback(
+        (updatedMessage: Message) => {
+            setMessages((prev) => {
+                const nextMessages = prev.map((message) =>
+                    message.id === updatedMessage.id ? updatedMessage : message,
+                );
+                chatRuntimeStore.setMessages(conversationId, nextMessages);
+                return nextMessages;
+            });
+        },
+        [conversationId],
+    );
+
     /**
      * sendTypingSignal - Gửi signal "đang gõ" lên backend
      *
@@ -1923,6 +1992,7 @@ const list = Array.isArray(cursorData?.data)
                     handleMessageRecalled,
                     handleMessageSeen, // Nhận MESSAGE_SEEN event từ topic conversation
                     handleTyping, // Nhận TYPING event từ topic conversation
+                    handleMessageReactionEvent, // Nhận MESSAGE_REACTION event
                 );
                 websocketService.subscribeToConversationMembers(
                     conversationId,
@@ -1998,6 +2068,7 @@ const list = Array.isArray(cursorData?.data)
         handleMessageRecalled,
         handleMessageSeen,
         handleTyping,
+        handleMessageReactionEvent,
         loadInitialData,
         markAsRead,
     ]);
@@ -2238,6 +2309,42 @@ const list = Array.isArray(cursorData?.data)
             }
         },
         [refreshPinnedMessages, userId],
+    );
+
+    const addReaction = useCallback(
+        async (messageId: string, emoji: string) => {
+            let previousMessages: Message[] = [];
+
+            setMessages((prev) => {
+                previousMessages = prev;
+                const nextMessages = prev.map((message) =>
+                    message.id === messageId
+                        ? incrementMessageReaction(message, emoji, userId)
+                        : message,
+                );
+                chatRuntimeStore.setMessages(conversationId, nextMessages);
+                return nextMessages;
+            });
+
+            try {
+                const updatedMessage = await chatService.addReaction(
+                    messageId,
+                    emoji,
+                );
+                setMessages((prev) => {
+                    const nextMessages = prev.map((message) =>
+                        message.id === messageId ? updatedMessage : message,
+                    );
+                    chatRuntimeStore.setMessages(conversationId, nextMessages);
+                    return nextMessages;
+                });
+            } catch {
+                setMessages(previousMessages);
+                chatRuntimeStore.setMessages(conversationId, previousMessages);
+                setError("Không thể thả reaction");
+            }
+        },
+        [conversationId, userId],
     );
 
     // Upload file/image/video/audio: presign → S3 PUT → sendMessage với objectKey
@@ -2812,6 +2919,7 @@ const list = Array.isArray(cursorData?.data)
         handleSend,
         handlePinMessage,
         handleUnpinMessage,
+        addReaction,
         handleRecall,
         canRecallOwnMessages,
         handleDeleteMessageForMe,

@@ -19,7 +19,7 @@ import {
     type PanGestureHandlerGestureEvent,
     type PanGestureHandlerStateChangeEvent,
 } from "react-native-gesture-handler";
-import { UserAvatar } from "@/components";
+import { UserAvatar, ReactionDetailModal } from "@/components";
 import { colors, spacing } from "@/constants";
 import { Message, Conversation } from "@/types/chat";
 import { type MembersByUserId } from "@/stores/chatRuntimeStore";
@@ -129,6 +129,7 @@ export const MessageBubble = React.memo(
         onSwipeReply,
     }: MessageBubbleProps) => {
         const router = useRouter();
+        const [reactionDetailVisible, setReactionDetailVisible] = React.useState(false);
         const {
             audioLoadingKey,
             playingAudioKey,
@@ -1741,6 +1742,34 @@ export const MessageBubble = React.memo(
                     </Animated.View>
                 </PanGestureHandler>
 
+                {item.iconName && item.iconName.length > 0 ? (
+                    <View
+                        style={[
+                            styles.messageMetaRow,
+                            mine
+                                ? styles.messageMetaRowMine
+                                : styles.messageMetaRowOther,
+                            { marginTop: 4, zIndex: 10 }
+                        ]}
+                    >
+                        <Pressable 
+                            style={{ flexDirection: "row", alignItems: "center", backgroundColor: "#fff", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 12, borderWidth: 1, borderColor: "#E5E7EB", shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 1 }}
+                            onPress={() => setReactionDetailVisible(true)}
+                        >
+                            {item.iconName.slice(0, 3).map((reaction, i) => (
+                                <Text key={i} style={{ fontSize: 13, marginRight: i === Math.min(item.iconName!.length, 3) - 1 ? 0 : -2 }}>
+                                    {reaction.name}
+                                </Text>
+                            ))}
+                            {item.iconName.reduce((sum, r) => sum + r.user.reduce((acc, u) => acc + u.quantity, 0), 0) > 1 && (
+                                <Text style={{ fontSize: 11, fontWeight: "600", color: "#6B7280", marginLeft: 4 }}>
+                                    {item.iconName.reduce((sum, r) => sum + r.user.reduce((acc, u) => acc + u.quantity, 0), 0)}
+                                </Text>
+                            )}
+                        </Pressable>
+                    </View>
+                ) : null}
+
                 {isLastInGroup && messageTime ? (
                     <View
                         style={[
@@ -1787,6 +1816,13 @@ export const MessageBubble = React.memo(
                         </View>
                     </View>
                 ) : null}
+
+                <ReactionDetailModal
+                    visible={reactionDetailVisible}
+                    onClose={() => setReactionDetailVisible(false)}
+                    reactions={item.iconName || []}
+                    membersById={membersById}
+                />
             </View>
         );
     },

@@ -15,6 +15,7 @@ public enum DomainEventType {
     MESSAGE_CREATED,
     MESSAGE_RECALLED,
     MESSAGE_SEEN,
+    MESSAGE_REACTION,
     TYPING,
     PIN_MESSAGE,
     UPIN_MESSAGE,

@@ -51,6 +51,7 @@ export type DomainEventType =
     | "MESSAGE_CREATED" // Tin nhắn mới được tạo
     | "MESSAGE_RECALLED" // Tin nhắn bị thu hồi
     | "MESSAGE_SEEN" // Đánh dấu đã xem tin nhắn
+    | "MESSAGE_REACTION" // Cập nhật reaction của tin nhắn
     | "TYPING" // User đang soạn tin nhắn
     | "ROOM_CREATED" // Phòng chat mới
     | "ROOM_UPDATED" // Phòng chat được cập nhật
@@ -156,6 +157,11 @@ export interface MessageSeenEvent {
         lastMessageId: string;
         seenAt: string;
     };
+}
+
+export interface MessageReactionEvent {
+    domainEventType: "MESSAGE_REACTION";
+    messageResponse: Message;
 }
 
 /**
@@ -585,6 +591,7 @@ class WebSocketService {
         onRecall?: (messageId: string) => void,
         onMessageSeen?: (event: MessageSeenEvent) => void,
         onTyping?: (event: TypingEvent) => void,
+        onReaction?: (message: Message) => void,
     ) {
         // BƯỚC 1: Kiểm tra client đã kết nối chưa
         // client.connected = true chỉ khi STOMP handshake hoàn tất
@@ -623,7 +630,8 @@ class WebSocketService {
                         | MessageCreatedEvent
                         | MessageRecalledEvent
                         | MessageSeenEvent
-                        | TypingEvent;
+                        | TypingEvent
+                        | MessageReactionEvent;
 
                     console.log("Received conversation event:", event);
 
@@ -642,6 +650,10 @@ class WebSocketService {
                         const payload = (event as MessageCreatedEvent)
                             .messageResponse;
                         if (payload) callback(payload);
+                    } else if (event.domainEventType === "MESSAGE_REACTION") {
+                        const payload = (event as MessageReactionEvent)
+                            .messageResponse;
+                        if (payload) onReaction?.(payload);
                     }
                 } catch (error) {
                     console.error("Error parsing message:", error);

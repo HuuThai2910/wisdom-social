@@ -135,6 +135,23 @@ public class MessageCacheServiceImpl implements MessageCacheService {
     }
 
     @Override
+    public void updateMessage(MessageResponse message) {
+        String key = getKey(message.getConversationId());
+        if (Boolean.FALSE.equals(redisTemplate.hasKey(key))) {
+            return;
+        }
+
+        List<Object> objects = getFullListFromCache(key);
+        int targetIndex = findMessageIndex(objects, message.getId());
+        if (targetIndex == -1) {
+            return;
+        }
+
+        redisTemplate.opsForList().set(key, targetIndex, message);
+        log.info("Đã cập nhật tin nhắn {} trong Redis tại index: {}", message.getId(), targetIndex);
+    }
+
+    @Override
     public void addDeletedUserToMessage(String messageId, Long conversationId, Long userId) {
         String key = getKey(conversationId);
 

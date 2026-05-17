@@ -61,6 +61,18 @@ public class ChatEventPublisher {
         pubSubRedisTemplate.convertAndSend(RedisPubSubConfig.CHAT_CHANNEL, envelope);
     }
 
+    // Hàm xử lý gửi sự kiện cập nhật reaction cho redis pub/sub
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void handleMessageReaction(MessageReactionEvent event){
+        log.info("Publishing message reaction to redis pub/sub for conversation: {}", event.getMessageResponse().getConversationId());
+        RedisEnvelope envelope = new RedisEnvelope(
+                Collections.emptySet(),
+                event.getDomainEventType(),
+                event
+        );
+        pubSubRedisTemplate.convertAndSend(RedisPubSubConfig.CHAT_CHANNEL, envelope);
+    }
+
     // Hàm xử lý gửi sự kiện xem tin nhắn cho redis pub/sub
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void handleMessageSeenEvent(MessageSeenEvent event) {

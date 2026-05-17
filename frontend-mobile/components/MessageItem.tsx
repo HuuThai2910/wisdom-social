@@ -1,6 +1,7 @@
 import { colors, spacing } from "@/constants";
 import { User } from "@/types";
 import { formatRelativeTime } from "@/utils/format";
+import { Ionicons } from "@expo/vector-icons";
 import {
     GestureResponderEvent,
     Pressable,
@@ -15,6 +16,7 @@ type Props = {
     preview: string;
     updatedAt: string;
     unreadCount?: number;
+    isPinned?: boolean;
     onPress: () => void;
     onLongPress?: (event: GestureResponderEvent) => void;
     delayLongPress?: number;
@@ -25,6 +27,7 @@ export default function MessageItem({
     preview,
     updatedAt,
     unreadCount = 0,
+    isPinned = false,
     onPress,
     onLongPress,
     delayLongPress = 300,
@@ -40,9 +43,17 @@ export default function MessageItem({
         >
             <UserAvatar uri={user.avatar} name={user.username} size={52} />
             <View style={styles.content}>
-                <Text style={[styles.name, hasUnread && styles.nameUnread]}>
-                    {user.username}
-                </Text>
+                <View style={styles.nameRow}>
+                    {isPinned ? (
+                        <Ionicons name="pin" size={13} color="#2563EB" />
+                    ) : null}
+                    <Text
+                        numberOfLines={1}
+                        style={[styles.name, hasUnread && styles.nameUnread]}
+                    >
+                        {user.username}
+                    </Text>
+                </View>
                 <Text
                     numberOfLines={1}
                     style={[styles.preview, hasUnread && styles.previewUnread]}
@@ -79,7 +90,13 @@ const styles = StyleSheet.create({
         marginLeft: spacing.md,
         flex: 1,
     },
+    nameRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+    },
     name: {
+        flex: 1,
         fontWeight: "600",
         color: colors.text,
         fontSize: 15,

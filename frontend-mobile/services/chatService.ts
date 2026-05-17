@@ -5,6 +5,7 @@ import type {
     BulkPresignedRequest,
     Conversation,
     ConversationPreview,
+    ConversationPin,
     ConversationSidebar,
     ConversationMember,
     CreateGroupRequest,
@@ -67,6 +68,26 @@ function unwrapApiData<T>(payload: ApiResponse<T> | T): T {
     return payload as T;
 }
 
+export function isMaxPinLimitError(error: unknown): boolean {
+    const responseData =
+        error &&
+        typeof error === "object" &&
+        "response" in error
+            ? (error as { response?: { data?: unknown } }).response?.data
+            : undefined;
+
+    if (!responseData || typeof responseData !== "object") return false;
+
+    const payload = responseData as { errors?: unknown };
+    const errors = payload.errors;
+    const nestedCode =
+        errors && typeof errors === "object" && "code" in errors
+            ? (errors as { code?: unknown }).code
+            : undefined;
+
+    return nestedCode === "MAX_PIN_LIMIT";
+}
+
 const chatService = {
     async getConversations(
         userId: number,
@@ -83,6 +104,24 @@ const chatService = {
             `/conversations/${conversationId}`,
         );
         return response.data;
+    },
+
+    async fetchPinnedConversations(): Promise<ConversationPin[]> {
+        const response = await apiClient.get("/pins");
+        return unwrapApiData(
+            response.data as ApiResponse<ConversationPin[]> | ConversationPin[],
+        );
+    },
+
+    async pinConversation(conversationId: number): Promise<ConversationPin> {
+        const response = await apiClient.post("/pins", { conversationId });
+        return unwrapApiData(
+            response.data as ApiResponse<ConversationPin> | ConversationPin,
+        );
+    },
+
+    async unpinConversation(conversationId: number): Promise<void> {
+        await apiClient.delete(`/pins/${conversationId}`);
     },
 
     async getConversationMembers(
@@ -192,6 +231,14 @@ const chatService = {
 
     async unpinMessage(messageId: string, userId: number): Promise<void> {
         await apiClient.delete(`/messages/${messageId}/pin`);
+    },
+
+    async addReaction(messageId: string, emoji: string): Promise<Message> {
+        const response = await apiClient.post(
+            `/messages/${messageId}/reactions`,
+            { emoji },
+        );
+        return normalizeMessagePayload(response.data);
     },
 
     async deleteMessageForMe(messageId: string, userId: number): Promise<void> {

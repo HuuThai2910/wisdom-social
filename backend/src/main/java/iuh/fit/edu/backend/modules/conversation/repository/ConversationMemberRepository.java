@@ -46,6 +46,22 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
             "ORDER BY c.lastMessageAt DESC")
     List<ConversationMember> findActiveSidebarByUserId(@Param("userId") Long userId);
 
+    @Query("""
+    SELECT DISTINCT cm
+    FROM ConversationMember cm
+    JOIN FETCH cm.conversation c
+    LEFT JOIN FETCH c.members members
+    LEFT JOIN FETCH members.user
+    WHERE cm.user.id = :userId
+      AND c.id IN :conversationIds
+      AND cm.isHidden = false
+      AND cm.status = iuh.fit.edu.backend.modules.conversation.constant.ConversationMemberStatus.ACTIVE
+""")
+    List<ConversationMember> findActiveSidebarByUserIdAndConversationIds(
+            @Param("userId") Long userId,
+            @Param("conversationIds") Set<Long> conversationIds
+    );
+
     // Lay ra danh sach member o trong mot cuoc hoi thoai
     List<ConversationMember> findByConversationIdAndUserIdIn(Long conversationId, Set<Long> userIds);
 

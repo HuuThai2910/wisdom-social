@@ -146,6 +146,7 @@ export default function MessagesConversationScreen() {
         handleDeleteForMe,
         handlePinMessage,
         handleUnpinMessage,
+        addReaction,
         sendTypingSignal,
         loadOlderMessages,
         loadNewerMessages,
@@ -1890,6 +1891,7 @@ export default function MessagesConversationScreen() {
                 }
                 closeContextMenu={closeContextMenu}
                 handleContextAction={handleContextAction}
+                onReaction={addReaction}
                 selectedMessagePinned={selectedMessagePinned}
                 canRecallOwnMessages={canRecallOwnMessages}
             />

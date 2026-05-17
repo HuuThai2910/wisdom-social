@@ -46,6 +46,7 @@ export interface Message {
     isRecalled?: boolean;
     attachments?: MessageAttachment[];
     deletedFor?: number[];
+    iconName?: MessageReaction[];
 }
 
 export interface MessageAttachment {
@@ -53,6 +54,16 @@ export interface MessageAttachment {
     type?: string;
     fileName?: string;
     fileSize?: number;
+}
+
+export interface MessageReactionUser {
+    userId: number;
+    quantity: number;
+}
+
+export interface MessageReaction {
+    name: string;
+    user: MessageReactionUser[];
 }
 
 export interface ReferenceUser {
@@ -94,6 +105,12 @@ export interface ConversationSidebar {
     updatedAt: string;
     lastMessage?: LastMessage;
     unreadCount?: number;
+}
+
+export interface ConversationPin {
+    conversationId: number;
+    pinnedAt: string;
+    conversation?: ConversationSidebar;
 }
 
 export interface Conversation extends ConversationSidebar {
@@ -243,6 +260,30 @@ function unwrapApiData<T>(payload: ApiResponse<T> | T): T {
     return payload as T;
 }
 
+export function isMaxPinLimitError(error: unknown): boolean {
+    const responseData =
+        error &&
+        typeof error === "object" &&
+        "response" in error
+            ? (error as { response?: { data?: unknown } }).response?.data
+            : undefined;
+
+    if (!responseData || typeof responseData !== "object") return false;
+
+    const payload = responseData as {
+        errors?: unknown;
+        data?: unknown;
+        message?: unknown;
+    };
+    const errors = payload.errors;
+    const nestedCode =
+        errors && typeof errors === "object" && "code" in errors
+            ? (errors as { code?: unknown }).code
+            : undefined;
+
+    return nestedCode === "MAX_PIN_LIMIT";
+}
+
 const chatService = {
     async getConversations(
         userId: number,
@@ -321,6 +362,24 @@ const chatService = {
             `/conversations/${conversationId}`,
         );
         return response.data;
+    },
+
+    async fetchPinnedConversations(): Promise<ConversationPin[]> {
+        const response = await axiosClient.get("/pins");
+        return unwrapApiData(
+            response.data as ApiResponse<ConversationPin[]> | ConversationPin[],
+        );
+    },
+
+    async pinConversation(conversationId: number): Promise<ConversationPin> {
+        const response = await axiosClient.post("/pins", { conversationId });
+        return unwrapApiData(
+            response.data as ApiResponse<ConversationPin> | ConversationPin,
+        );
+    },
+
+    async unpinConversation(conversationId: number): Promise<void> {
+        await axiosClient.delete(`/pins/${conversationId}`);
     },
 
     async markAsRead(
@@ -535,6 +594,14 @@ const chatService = {
 
     async unpinMessage(messageId: string, userId: number): Promise<void> {
         await axiosClient.delete(`/messages/${messageId}/pin`);
+    },
+
+    async addReaction(messageId: string, emoji: string): Promise<Message> {
+        const response = await axiosClient.post(
+            `/messages/${messageId}/reactions`,
+            { emoji },
+        );
+        return unwrapApiData(response.data as ApiResponse<Message> | Message);
     },
 
     // Bước 1: Xin presigned URL từ BE để upload file lên S3

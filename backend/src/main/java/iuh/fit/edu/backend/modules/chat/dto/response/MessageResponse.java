@@ -38,6 +38,7 @@ public class MessageResponse {
     @JsonProperty("isRecalled")
     private boolean isRecalled = false;
     private List<MediaAttachmentResponse> attachments;
+    private List<IconNameResponse> iconName;
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private Set<Long> deletedFor = new HashSet<>();
@@ -61,6 +62,24 @@ public class MessageResponse {
         private String type;
         private String fileName;
         private Long fileSize;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class IconNameResponse {
+        private String name;
+        private List<IconUserResponse> user;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class IconUserResponse {
+        private Long userId;
+        private int quantity;
     }
 
 }
