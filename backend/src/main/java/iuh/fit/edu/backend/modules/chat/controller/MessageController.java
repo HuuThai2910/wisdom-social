@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import iuh.fit.edu.backend.modules.chat.dto.request.AddReactionRequest;
+import iuh.fit.edu.backend.modules.chat.dto.request.ForwardMessageRequest;
 import iuh.fit.edu.backend.modules.chat.dto.request.SendCallMessageRequest;
 import iuh.fit.edu.backend.modules.chat.dto.request.SendMessageRequest;
 import iuh.fit.edu.backend.modules.chat.dto.response.MessageRecalledResponse;
@@ -24,6 +25,8 @@ import iuh.fit.edu.backend.modules.chat.service.MessageService;
 import iuh.fit.edu.backend.modules.user.service.UserService;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
+
+import java.util.List;
 
 /*
  * @description
@@ -52,6 +55,15 @@ public class MessageController {
         return ResponseEntity
                 .status(HttpStatus.CREATED)
                 .body(this.messageService.sendMessage(sendMessageRequest, userId));
+    }
+
+    @PostMapping("/forward")
+    public ResponseEntity<List<MessageResponse>> forwardMessage(
+            @Valid @RequestBody ForwardMessageRequest forwardMessageRequest) {
+        Long userId = this.userService.getCurrentUser().getId();
+        return ResponseEntity
+                .status(HttpStatus.CREATED)
+                .body(this.messageService.forwardMessage(forwardMessageRequest, userId));
     }
 
     @PostMapping("/call")

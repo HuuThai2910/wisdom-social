@@ -10,6 +10,7 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 
 import iuh.fit.edu.backend.common.dto.response.CursorResponse;
+import iuh.fit.edu.backend.modules.chat.dto.request.ForwardMessageRequest;
 import iuh.fit.edu.backend.modules.chat.dto.request.SendCallMessageRequest;
 import iuh.fit.edu.backend.modules.chat.dto.request.SendMessageRequest;
 import iuh.fit.edu.backend.modules.chat.dto.response.MessageRecalledResponse;
@@ -35,6 +36,11 @@ public class MessageServiceImpl implements MessageService{
     @Override
     public MessageResponse sendMessage(SendMessageRequest sendMessageRequest, Long userId) {
         return commandService.sendMessage(sendMessageRequest, userId);
+    }
+
+    @Override
+    public List<MessageResponse> forwardMessage(ForwardMessageRequest forwardMessageRequest, Long userId) {
+        return commandService.forwardMessage(forwardMessageRequest, userId);
     }
 
     @Override

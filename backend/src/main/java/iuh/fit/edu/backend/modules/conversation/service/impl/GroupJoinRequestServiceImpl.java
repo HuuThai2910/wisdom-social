@@ -78,6 +78,34 @@ public class GroupJoinRequestServiceImpl implements GroupJoinRequestService {
 
     }
 
+    @Transactional
+    @Override
+    public void cancelMyPendingRequest(Long conversationId, Long userId) {
+        GroupJoinRequest request = requestRepository
+                .findByConversationIdAndUserIdAndStatus(
+                        conversationId,
+                        userId,
+                        JoinRequestStatus.PENDING
+                )
+                .orElse(null);
+
+        if (request == null) return;
+
+        request.setStatus(JoinRequestStatus.CANCELLED);
+        request.setProcessedAt(Instant.now());
+        request.setProcessorId(userId);
+        requestRepository.save(request);
+
+        Set<Long> adminIds = memberRepository.findAdminIdsByConversationId(conversationId);
+        if (!adminIds.isEmpty()) {
+            eventPublisher.publishEvent(new JoinRequestProcessedEvent(
+                    conversationId,
+                    request.getId(),
+                    adminIds
+            ));
+        }
+    }
+
     private void persistLinkJoinRequestSystemMessage(GroupJoinRequest request, Set<Long> adminIds) {
         Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
         Conversation conversation = request.getConversation();
@@ -118,6 +146,10 @@ public class GroupJoinRequestServiceImpl implements GroupJoinRequestService {
     public void processRequest(Long requestId, Long adminId, boolean isApproved) {
         GroupJoinRequest request = requestRepository.findById(requestId)
                 .orElseThrow(() -> new RuntimeException("Yêu cầu không tồn tại"));
+
+        if (request.getStatus() != JoinRequestStatus.PENDING) {
+            throw new RuntimeException("Yeu cau tham gia da duoc xu ly.");
+        }
 
         ConversationMember admin = memberRepository.findByConversation_IdAndUser_IdAndStatus(request.getConversation().getId(), adminId, ConversationMemberStatus.ACTIVE)
                 .orElseThrow(() -> new ConversationAccessDeniedException("Bạn không ở trong nhóm này"));

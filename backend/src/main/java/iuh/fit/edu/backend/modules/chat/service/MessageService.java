@@ -16,12 +16,15 @@ import org.springframework.transaction.annotation.Transactional;
 
 import iuh.fit.edu.backend.common.dto.response.CursorResponse;
 import iuh.fit.edu.backend.modules.chat.dto.request.SendCallMessageRequest;
+import iuh.fit.edu.backend.modules.chat.dto.request.ForwardMessageRequest;
 import iuh.fit.edu.backend.modules.chat.dto.request.SendMessageRequest;
 import iuh.fit.edu.backend.modules.chat.dto.response.MessageRecalledResponse;
 import iuh.fit.edu.backend.modules.chat.dto.response.MessageResponse;
 
 public interface MessageService {
     MessageResponse sendMessage(SendMessageRequest sendMessageRequest, Long userId);
+
+    List<MessageResponse> forwardMessage(ForwardMessageRequest forwardMessageRequest, Long userId);
 
     MessageResponse sendCallMessage(SendCallMessageRequest sendCallMessageRequest, Long userId);
 

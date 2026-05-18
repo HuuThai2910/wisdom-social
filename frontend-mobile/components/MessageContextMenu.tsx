@@ -37,7 +37,7 @@ const REACTION_BAR_HEIGHT = 48;
 const REACTION_TO_PREVIEW_GAP = 8;
 const PREVIEW_TO_MENU_GAP = 3;
 const TEXT_PREVIEW_HEIGHT = 62;
-const MEDIA_PREVIEW_HEIGHT = 136;
+const MEDIA_PREVIEW_HEIGHT = 148;
 
 type Props = {
     contextMenu: ContextMenuState | null;
@@ -63,7 +63,9 @@ export function MessageContextMenu({
     const hasMediaPreview =
         selectedMessage &&
         (selectedMessage.type === "IMAGE" ||
-            selectedMessage.type === "VIDEO") &&
+            selectedMessage.type === "VIDEO" ||
+            selectedMessage.type === "FILE" ||
+            selectedMessage.type === "AUDIO") &&
         resolveAttachmentUrls(selectedMessage).length > 0;
     const previewHeight = hasMediaPreview
         ? MEDIA_PREVIEW_HEIGHT
@@ -95,9 +97,16 @@ export function MessageContextMenu({
                 ) {
                     return false;
                 }
+                if (
+                    action.key === "forward" &&
+                    (selectedMessage?.isRecalled ||
+                        selectedMessage?.type?.startsWith("SYSTEM_"))
+                ) {
+                    return false;
+                }
                 return true;
             }),
-        [canRecallOwnMessages, contextMenu],
+        [canRecallOwnMessages, contextMenu, selectedMessage],
     );
 
     useEffect(() => {
@@ -352,9 +361,18 @@ function SelectedMessagePreview({
 
     const attachmentUrls = resolveAttachmentUrls(message);
     const firstAttachmentUrl = attachmentUrls[0];
+    const isImagePreview =
+        message.type === "IMAGE" && attachmentUrls.length > 0;
+    const isVideoPreview =
+        message.type === "VIDEO" && Boolean(firstAttachmentUrl);
     const isMediaPreview =
         (message.type === "IMAGE" || message.type === "VIDEO") &&
         firstAttachmentUrl;
+    const isAttachmentPreview =
+        !message.isRecalled &&
+        (isMediaPreview ||
+            message.type === "FILE" ||
+            message.type === "AUDIO");
     const label = message.isRecalled
         ? "Tin nhan da duoc thu hoi"
         : buildReplyPreview(message);
@@ -364,25 +382,79 @@ function SelectedMessagePreview({
             style={[
                 styles.previewBubble,
                 mine ? styles.previewBubbleMine : styles.previewBubbleOther,
-                isMediaPreview && styles.previewBubbleMedia,
+                isAttachmentPreview && styles.previewBubbleMedia,
             ]}
         >
-            {isMediaPreview ? (
+            {isImagePreview ? (
+                <View
+                    style={[
+                        styles.previewMediaFrame,
+                        attachmentUrls.length > 1 &&
+                            styles.previewMediaGrid,
+                    ]}
+                >
+                    {attachmentUrls.slice(0, 4).map((url, index) => {
+                        const remaining = attachmentUrls.length - 4;
+                        const showMoreBadge =
+                            index === 3 && remaining > 0;
+                        return (
+                            <View
+                                key={`${message.id}-preview-image-${index}`}
+                                style={[
+                                    styles.previewImageCell,
+                                    attachmentUrls.length === 1 &&
+                                        styles.previewImageCellSingle,
+                                    attachmentUrls.length === 2 &&
+                                        styles.previewImageCellTwo,
+                                ]}
+                            >
+                                <Image
+                                    source={{ uri: url }}
+                                    style={styles.previewImage}
+                                    resizeMode="cover"
+                                />
+                                {showMoreBadge ? (
+                                    <View style={styles.previewMoreOverlay}>
+                                        <Text style={styles.previewMoreText}>
+                                            +{remaining}
+                                        </Text>
+                                    </View>
+                                ) : null}
+                            </View>
+                        );
+                    })}
+                </View>
+            ) : isVideoPreview ? (
                 <View style={styles.previewMediaFrame}>
                     <Image
                         source={{ uri: firstAttachmentUrl }}
                         style={styles.previewImage}
                         resizeMode="cover"
                     />
-                    {message.type === "VIDEO" ? (
-                        <View style={styles.previewVideoBadge}>
-                            <Ionicons
-                                name="play"
-                                size={14}
-                                color={colors.white}
-                            />
-                        </View>
-                    ) : null}
+                    <View style={styles.previewVideoBadge}>
+                        <Ionicons
+                            name="play"
+                            size={14}
+                            color={colors.white}
+                        />
+                    </View>
+                </View>
+            ) : isAttachmentPreview ? (
+                <View style={styles.previewAttachmentCard}>
+                    <View style={styles.previewAttachmentIcon}>
+                        <Ionicons
+                            name={
+                                message.type === "AUDIO"
+                                    ? "mic-outline"
+                                    : "document-attach-outline"
+                            }
+                            size={20}
+                            color="#2563EB"
+                        />
+                    </View>
+                    <Text style={styles.previewAttachmentText} numberOfLines={2}>
+                        {label}
+                    </Text>
                 </View>
             ) : (
                 <Text
@@ -395,14 +467,33 @@ function SelectedMessagePreview({
                     {label}
                 </Text>
             )}
-            <Text
-                style={[
-                    styles.previewTime,
-                    mine ? styles.previewTimeMine : styles.previewTimeOther,
-                ]}
-            >
-                {formatMessageTime(message.createdAt)}
-            </Text>
+            {!isAttachmentPreview ? (
+                <Text
+                    style={[
+                        styles.previewTime,
+                        mine ? styles.previewTimeMine : styles.previewTimeOther,
+                    ]}
+                >
+                    {formatMessageTime(message.createdAt)}
+                </Text>
+            ) : isMediaPreview ? (
+                <View style={styles.previewMediaHint}>
+                    <Ionicons
+                        name={
+                            isImagePreview && attachmentUrls.length > 1
+                                ? "images-outline"
+                                : "expand-outline"
+                        }
+                        size={13}
+                        color={colors.white}
+                    />
+                    <Text style={styles.previewMediaHintText}>
+                        {isImagePreview && attachmentUrls.length > 1
+                            ? `${attachmentUrls.length} anh`
+                            : formatMessageTime(message.createdAt)}
+                    </Text>
+                </View>
+            ) : null}
         </View>
     );
 }
@@ -443,8 +534,11 @@ const styles = StyleSheet.create({
         borderTopLeftRadius: 8,
     },
     previewBubbleMedia: {
-        padding: 3,
+        padding: 0,
         overflow: "hidden",
+        backgroundColor: "transparent",
+        shadowOpacity: 0,
+        elevation: 0,
     },
     previewText: {
         fontSize: 16,
@@ -468,15 +562,93 @@ const styles = StyleSheet.create({
         color: colors.textMuted,
     },
     previewMediaFrame: {
-        height: 110,
-        width: 156,
+        height: 124,
+        width: 198,
         borderRadius: 17,
         overflow: "hidden",
         backgroundColor: "#E5E7EB",
     },
+    previewMediaGrid: {
+        flexDirection: "row",
+        flexWrap: "wrap",
+        gap: 3,
+        padding: 3,
+        backgroundColor: "rgba(15, 23, 42, 0.08)",
+    },
+    previewImageCell: {
+        width: 94,
+        height: 58,
+        borderRadius: 13,
+        overflow: "hidden",
+        backgroundColor: "#E5E7EB",
+    },
+    previewImageCellSingle: {
+        width: "100%",
+        height: "100%",
+        borderRadius: 17,
+    },
+    previewImageCellTwo: {
+        width: 94,
+        height: 118,
+    },
     previewImage: {
         height: "100%",
         width: "100%",
+    },
+    previewMoreOverlay: {
+        ...StyleSheet.absoluteFillObject,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "rgba(0, 0, 0, 0.48)",
+    },
+    previewMoreText: {
+        color: colors.white,
+        fontSize: 18,
+        fontWeight: "800",
+    },
+    previewMediaHint: {
+        position: "absolute",
+        right: 8,
+        bottom: 8,
+        minHeight: 24,
+        borderRadius: 999,
+        paddingHorizontal: 8,
+        flexDirection: "row",
+        alignItems: "center",
+        backgroundColor: "rgba(15, 23, 42, 0.72)",
+    },
+    previewMediaHintText: {
+        marginLeft: 4,
+        color: colors.white,
+        fontSize: 11,
+        fontWeight: "700",
+    },
+    previewAttachmentCard: {
+        width: 198,
+        minHeight: 64,
+        borderRadius: 16,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        flexDirection: "row",
+        alignItems: "center",
+        backgroundColor: colors.white,
+        borderWidth: 1,
+        borderColor: "#E5E7EB",
+    },
+    previewAttachmentIcon: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#EFF6FF",
+    },
+    previewAttachmentText: {
+        marginLeft: 10,
+        flex: 1,
+        color: colors.text,
+        fontSize: 14,
+        fontWeight: "700",
     },
     previewVideoBadge: {
         position: "absolute",

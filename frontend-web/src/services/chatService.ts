@@ -107,6 +107,7 @@ export interface ConversationSidebar {
     updatedAt: string;
     lastMessage?: LastMessage;
     unreadCount?: number;
+    members?: ConversationMember[];
 }
 
 export interface ConversationPin {
@@ -135,7 +136,7 @@ export interface ConversationPreview {
     userStatus: InviteUserStatus;
 }
 
-export type JoinRequestStatus = "PENDING" | "APPROVED" | "REJECTED";
+export type JoinRequestStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
 
 export interface JoinRequest {
     id: number;
@@ -180,6 +181,11 @@ export interface SendMessageRequest {
         fileName: string;
         fileSize: number;
     }>;
+}
+
+export interface ForwardMessageRequest {
+    sourceMessageId: string;
+    targetConversationIds: number[];
 }
 
 export interface SendCallMessageRequest {
@@ -296,6 +302,11 @@ const chatService = {
         return response.data;
     },
 
+    async getForwardableConversations(): Promise<ApiResponse<ConversationSidebar[]>> {
+        const response = await axiosClient.get("/conversations/forward-targets");
+        return response.data;
+    },
+
     async getMessages(
         conversationId: number,
         userId: number,
@@ -348,6 +359,12 @@ const chatService = {
     ): Promise<Message> {
         const response = await axiosClient.post("/messages/send", request);
         return response.data;
+    },
+
+    async forwardMessage(request: ForwardMessageRequest): Promise<Message[]> {
+        const response = await axiosClient.post("/messages/forward", request);
+        const payload = response.data as ApiResponse<Message[]> | Message[];
+        return unwrapApiData(payload);
     },
 
     async sendCallMessage(
@@ -612,6 +629,12 @@ const chatService = {
         );
         return unwrapApiData(
             response.data as ApiResponse<JoinRequest[]> | JoinRequest[],
+        );
+    },
+
+    async cancelMyJoinRequest(conversationId: number): Promise<void> {
+        await axiosClient.delete(
+            `/conversations/${conversationId}/join-requests/me`,
         );
     },
 

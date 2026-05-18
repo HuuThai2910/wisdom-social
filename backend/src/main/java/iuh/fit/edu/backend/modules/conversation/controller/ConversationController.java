@@ -48,6 +48,12 @@ public class ConversationController {
         return ResponseEntity.ok(conversationService.getConversationsByUser(userId));
     }
 
+    @GetMapping("/forward-targets")
+    public ResponseEntity<List<ConversationSidebarResponse>> getForwardableConversationsByUser(){
+        Long userId = this.userService.getCurrentUser().getId();
+        return ResponseEntity.ok(conversationService.getForwardableConversationsByUser(userId));
+    }
+
     @GetMapping("/{conversationId}")
     public ResponseEntity<ConversationResponse> getConversationById(@PathVariable Long conversationId){
         Long userId = this.userService.getCurrentUser().getId();

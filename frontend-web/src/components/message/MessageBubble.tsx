@@ -162,6 +162,7 @@ export interface MessageBubbleProps {
     onPin: (messageId: string) => void;
     onUnpin: (messageId: string) => void;
     onReply: (message: Message) => void;
+    onForward?: (message: Message) => void;
     onJumpToMessage?: (messageId: string) => void;
     onRecall: (messageId: string) => void;
     canRecallOwnMessages?: boolean;
@@ -189,6 +190,7 @@ export function MessageBubble({
     onPin,
     onUnpin,
     onReply,
+    onForward,
     onJumpToMessage,
     onRecall,
     canRecallOwnMessages = true,
@@ -211,6 +213,7 @@ export function MessageBubble({
     const [inviteModalOpen, setInviteModalOpen] = useState(false);
     const [inviteLoading, setInviteLoading] = useState(false);
     const [inviteJoining, setInviteJoining] = useState(false);
+    const [inviteCancelling, setInviteCancelling] = useState(false);
     const [inviteError, setInviteError] = useState("");
     const [invitePreview, setInvitePreview] =
         useState<ConversationPreview | null>(null);
@@ -306,6 +309,7 @@ export function MessageBubble({
         setInviteModalOpen(true);
         setInviteLoading(true);
         setInviteError("");
+        setInviteCancelling(false);
         setInvitePreview(null);
         setInviteUserStatus(null);
 
@@ -353,6 +357,22 @@ export function MessageBubble({
         }
     }, [groupInviteToken, inviteUserStatus, navigate]);
 
+    const handleCancelInviteRequest = useCallback(async () => {
+        if (!invitePreview || inviteUserStatus !== "PENDING") return;
+
+        try {
+            setInviteCancelling(true);
+            await chatService.cancelMyJoinRequest(invitePreview.conversationId);
+            setInviteUserStatus("NOT_MEMBER");
+            toast.success("Đã hủy yêu cầu tham gia nhóm.");
+        } catch (error) {
+            const message = extractApiErrorMessage(error);
+            toast.error(message || "Không thể hủy yêu cầu tham gia.");
+        } finally {
+            setInviteCancelling(false);
+        }
+    }, [invitePreview, inviteUserStatus]);
+
     const handleRecallClick = useCallback(() => {
         onRecall(message.id);
         setMenuOpen(false);
@@ -371,6 +391,11 @@ export function MessageBubble({
         onReply(message);
         setMenuOpen(false);
     }, [message, onReply]);
+
+    const handleForwardClick = useCallback(() => {
+        onForward?.(message);
+        setMenuOpen(false);
+    }, [message, onForward]);
 
     const handleDeleteForMeClick = useCallback(() => {
         onDeleteForMe?.(message.id);
@@ -965,7 +990,7 @@ export function MessageBubble({
                                         </span>
                                     </button>
                                     <button
-                                        onClick={() => setMenuOpen(false)}
+                                        onClick={handleForwardClick}
                                         className={menuItemBase}
                                     >
                                         <CornerUpRight
@@ -1760,7 +1785,7 @@ export function MessageBubble({
                                 <div className="mt-7 grid grid-cols-2 gap-3">
                                     <button
                                         type="button"
-                                        disabled={inviteJoining}
+                                        disabled={inviteJoining || inviteCancelling}
                                         onClick={() =>
                                             setInviteModalOpen(false)
                                         }
@@ -1770,19 +1795,22 @@ export function MessageBubble({
                                     </button>
                                     <button
                                         type="button"
-                                        disabled={
-                                            inviteJoining ||
+                                        disabled={inviteJoining || inviteCancelling}
+                                        onClick={
                                             inviteUserStatus === "PENDING"
+                                                ? handleCancelInviteRequest
+                                                : handleJoinInvite
                                         }
-                                        onClick={handleJoinInvite}
                                         className={`h-10 rounded-md text-sm font-semibold disabled:cursor-not-allowed ${
                                             inviteUserStatus === "PENDING"
-                                                ? "bg-gray-200 text-gray-500 dark:bg-[#262626] dark:text-gray-400"
+                                                ? "bg-gray-200 text-gray-700 hover:bg-gray-300 disabled:opacity-70 dark:bg-[#262626] dark:text-gray-200 dark:hover:bg-[#333333]"
                                                 : "bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-70"
                                         }`}
                                     >
                                         {inviteUserStatus === "PENDING"
-                                            ? "Đang chờ duyệt"
+                                            ? inviteCancelling
+                                                ? "Đang hủy..."
+                                                : "Hủy yêu cầu"
                                             : inviteJoining
                                               ? "Đang tham gia..."
                                               : "Tham gia nhóm"}

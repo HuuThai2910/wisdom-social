@@ -46,6 +46,14 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
             "ORDER BY c.lastMessageAt DESC")
     List<ConversationMember> findActiveSidebarByUserId(@Param("userId") Long userId);
 
+    @Query("SELECT cm FROM ConversationMember cm " +
+            "JOIN FETCH cm.conversation c " +
+            "JOIN FETCH c.members " +
+            "WHERE cm.user.id = :userId AND cm.isHidden = false " +
+            "AND cm.status = iuh.fit.edu.backend.modules.conversation.constant.ConversationMemberStatus.ACTIVE " +
+            "ORDER BY c.lastMessageAt DESC")
+    List<ConversationMember> findForwardableSidebarByUserId(@Param("userId") Long userId);
+
     @Query("""
     SELECT DISTINCT cm
     FROM ConversationMember cm
@@ -97,7 +105,8 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
     // KHÔNG reset clearedAt - giữ nguyên để filter messages cũ
     @Modifying
     @Query("UPDATE ConversationMember cm SET cm.isHidden = false " +
-            "WHERE cm.conversation.id = :conversationId AND cm.isHidden = true")
+            "WHERE cm.conversation.id = :conversationId AND cm.isHidden = true " +
+            "AND cm.status = iuh.fit.edu.backend.modules.conversation.constant.ConversationMemberStatus.ACTIVE")
     void unhideConversationForAllMembers(@Param("conversationId") Long conversationId);
 
     @Query("""

@@ -77,6 +77,13 @@ public class ConversationServiceImpl implements ConversationService {
     }
 
     @Override
+    public List<ConversationSidebarResponse> getForwardableConversationsByUser(Long userId) {
+        List<ConversationMember> members = conversationMemberRepository.findForwardableSidebarByUserId(userId);
+        if (members.isEmpty()) return Collections.emptyList();
+        return this.conversationMapper.toListSidebarFromMembers(members);
+    }
+
+    @Override
     public ConversationResponse getConversationById(Long conversationId, Long userId) {
         log.info("Get conversation {} for user {}", conversationId, userId);
 

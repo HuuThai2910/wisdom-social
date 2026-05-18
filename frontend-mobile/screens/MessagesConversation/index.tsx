@@ -12,7 +12,8 @@ import SelectGroupMembersModal from "@/components/SelectGroupMembersModal";
 import { colors, spacing } from "@/constants";
 import { useChatWindowController } from "@/hooks/useChatWindowController";
 import { useGroupManagement } from "@/hooks/useGroupManagement";
-import type { LocalUploadFile, Message } from "@/types/chat";
+import chatService from "@/services/chatService";
+import type { ConversationSidebar, LocalUploadFile, Message } from "@/types/chat";
 import { formatRelativeTime } from "@/utils/format";
 import { focusComposerInput } from "@/utils/focusComposerInput";
 import { buildConversationDisplayInfo } from "@/utils/conversationDisplayInfo";
@@ -90,6 +91,30 @@ import { PinnedBanner } from "@/components/PinnedBanner";
 import { buildPinnedBannerItemsFromSnapshot } from "@/utils/pinnedMessageSnapshot";
 import { useOneToOneCall } from "@/hooks/useOneToOneCall";
 import { consumeInviteReturnSync } from "@/utils/inviteReturnSync";
+
+const FORWARD_BLOCKED_MEMBER_STATUSES = new Set([
+    "LEFT",
+    "KICKED",
+    "BLOCKED",
+    "GROUP_DISBANDED",
+]);
+
+function canForwardToConversation(
+    conversation: ConversationSidebar,
+    currentUserId: number,
+): boolean {
+    if (conversation.lastMessage?.lastMessageType === "SYSTEM_DISBAND_GROUP") {
+        return false;
+    }
+
+    const currentMember = conversation.members?.find(
+        (member) => Number(member.userId) === Number(currentUserId),
+    );
+
+    if (!currentMember) return true;
+    return !FORWARD_BLOCKED_MEMBER_STATUSES.has(String(currentMember.status));
+}
+
 export default function MessagesConversationScreen() {
     const {
         conversationId: conversationIdParam,
@@ -198,6 +223,17 @@ export default function MessagesConversationScreen() {
         start: 0,
         end: 0,
     });
+    const [forwardSourceMessage, setForwardSourceMessage] =
+        useState<Message | null>(null);
+    const [forwardConversations, setForwardConversations] = useState<
+        ConversationSidebar[]
+    >([]);
+    const [forwardSelectedIds, setForwardSelectedIds] = useState<Set<number>>(
+        () => new Set(),
+    );
+    const [forwardLoading, setForwardLoading] = useState(false);
+    const [forwardSubmitting, setForwardSubmitting] = useState(false);
+    const [forwardError, setForwardError] = useState<string | null>(null);
 
     useEffect(() => {
         if (!refreshAt) return;
@@ -1225,6 +1261,72 @@ export default function MessagesConversationScreen() {
         });
     };
 
+    const openForwardModal = useCallback(
+        async (messageId: string) => {
+            const source = messages.find((message) => message.id === messageId);
+            if (!source) return;
+
+            setForwardSourceMessage(source);
+            setForwardSelectedIds(new Set());
+            setForwardError(null);
+            setForwardLoading(true);
+
+            try {
+                const response = await chatService.getForwardableConversations();
+                setForwardConversations(
+                    (response.data ?? []).filter((item) =>
+                        canForwardToConversation(item, currentUserId),
+                    ),
+                );
+            } catch {
+                setForwardError("Khong the tai danh sach hoi thoai");
+            } finally {
+                setForwardLoading(false);
+            }
+        },
+        [currentUserId, messages],
+    );
+
+    const closeForwardModal = useCallback(() => {
+        if (forwardSubmitting) return;
+        setForwardSourceMessage(null);
+        setForwardSelectedIds(new Set());
+        setForwardError(null);
+    }, [forwardSubmitting]);
+
+    const toggleForwardTarget = useCallback((targetId: number) => {
+        setForwardSelectedIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(targetId)) next.delete(targetId);
+            else next.add(targetId);
+            return next;
+        });
+    }, []);
+
+    const submitForwardMessage = useCallback(async () => {
+        if (!forwardSourceMessage || forwardSelectedIds.size === 0) return;
+
+        try {
+            setForwardSubmitting(true);
+            setForwardError(null);
+            await chatService.forwardMessage({
+                sourceMessageId: forwardSourceMessage.id,
+                targetConversationIds: Array.from(forwardSelectedIds),
+            });
+            setForwardSourceMessage(null);
+            setForwardSelectedIds(new Set());
+            Alert.alert("Thong bao", "Da chuyen tiep tin nhan");
+        } catch (error) {
+            const message =
+                (error as { response?: { data?: { message?: string } } })
+                    ?.response?.data?.message ||
+                "Khong the chuyen tiep tin nhan";
+            setForwardError(message);
+        } finally {
+            setForwardSubmitting(false);
+        }
+    }, [forwardSelectedIds, forwardSourceMessage]);
+
     const handleContextAction = (actionKey: string) => {
         if (!contextMenu) return;
         if (actionKey === "copy") {
@@ -1256,6 +1358,10 @@ export default function MessagesConversationScreen() {
                 replyToTargetMessage(targetMessage);
                 return;
             }
+        }
+
+        if (actionKey === "forward") {
+            void openForwardModal(contextMenu.messageId);
         }
 
         closeContextMenu();
@@ -1897,6 +2003,164 @@ export default function MessagesConversationScreen() {
                 />
             </KeyboardAvoidingView>
 
+            <Modal
+                visible={Boolean(forwardSourceMessage)}
+                transparent
+                animationType="fade"
+                onRequestClose={closeForwardModal}
+            >
+                <View style={forwardStyles.overlay}>
+                    <View style={forwardStyles.card}>
+                        <View style={forwardStyles.header}>
+                            <View style={forwardStyles.headerTextWrap}>
+                                <Text style={forwardStyles.title}>
+                                    Chuyen tiep tin nhan
+                                </Text>
+                                <Text style={forwardStyles.subtitle} numberOfLines={1}>
+                                    {forwardSourceMessage
+                                        ? buildReplyPreview(forwardSourceMessage)
+                                        : ""}
+                                </Text>
+                            </View>
+                            <Pressable
+                                style={forwardStyles.closeBtn}
+                                onPress={closeForwardModal}
+                            >
+                                <Ionicons
+                                    name="close"
+                                    size={20}
+                                    color={colors.textMuted}
+                                />
+                            </Pressable>
+                        </View>
+
+                        {forwardLoading ? (
+                            <View style={forwardStyles.loadingWrap}>
+                                <ActivityIndicator color="#2563EB" />
+                            </View>
+                        ) : (
+                            <FlatList
+                                data={forwardConversations}
+                                keyExtractor={(item) => String(item.id)}
+                                style={forwardStyles.list}
+                                contentContainerStyle={
+                                    forwardConversations.length === 0
+                                        ? forwardStyles.emptyList
+                                        : undefined
+                                }
+                                ListEmptyComponent={
+                                    <Text style={forwardStyles.emptyText}>
+                                        Khong co hoi thoai phu hop
+                                    </Text>
+                                }
+                                renderItem={({ item }) => {
+                                    const selected = forwardSelectedIds.has(item.id);
+                                    const displayInfo =
+                                        buildConversationDisplayInfo({
+                                            conversation: item,
+                                            currentUserId,
+                                        });
+                                    return (
+                                        <Pressable
+                                            style={({ pressed }) => [
+                                                forwardStyles.row,
+                                                pressed && forwardStyles.rowPressed,
+                                            ]}
+                                            onPress={() =>
+                                                toggleForwardTarget(item.id)
+                                            }
+                                        >
+                                            {displayInfo.avatarUrl || item.imageUrl ? (
+                                                <Image
+                                                    source={{
+                                                        uri:
+                                                            displayInfo.avatarUrl ||
+                                                            item.imageUrl,
+                                                    }}
+                                                    style={forwardStyles.avatar}
+                                                />
+                                            ) : (
+                                                <View style={forwardStyles.avatarFallback}>
+                                                    <Ionicons
+                                                        name={
+                                                            item.type === "GROUP"
+                                                                ? "people"
+                                                                : "person"
+                                                        }
+                                                        size={20}
+                                                        color="#64748B"
+                                                    />
+                                                </View>
+                                            )}
+                                            <View style={forwardStyles.rowTextWrap}>
+                                                <Text
+                                                    style={forwardStyles.rowTitle}
+                                                    numberOfLines={1}
+                                                >
+                                                    {displayInfo.name}
+                                                </Text>
+                                            </View>
+                                            <View
+                                                style={[
+                                                    forwardStyles.checkCircle,
+                                                    selected &&
+                                                        forwardStyles.checkCircleSelected,
+                                                ]}
+                                            >
+                                                {selected ? (
+                                                    <Ionicons
+                                                        name="checkmark"
+                                                        size={14}
+                                                        color={colors.white}
+                                                    />
+                                                ) : null}
+                                            </View>
+                                        </Pressable>
+                                    );
+                                }}
+                            />
+                        )}
+
+                        {forwardError ? (
+                            <Text style={forwardStyles.errorText}>
+                                {forwardError}
+                            </Text>
+                        ) : null}
+
+                        <View style={forwardStyles.footer}>
+                            <Pressable
+                                style={forwardStyles.cancelBtn}
+                                onPress={closeForwardModal}
+                                disabled={forwardSubmitting}
+                            >
+                                <Text style={forwardStyles.cancelText}>Huy</Text>
+                            </Pressable>
+                            <Pressable
+                                style={[
+                                    forwardStyles.submitBtn,
+                                    (forwardSelectedIds.size === 0 ||
+                                        forwardSubmitting) &&
+                                        forwardStyles.submitBtnDisabled,
+                                ]}
+                                onPress={() => void submitForwardMessage()}
+                                disabled={
+                                    forwardSelectedIds.size === 0 ||
+                                    forwardSubmitting
+                                }
+                            >
+                                {forwardSubmitting ? (
+                                    <ActivityIndicator color={colors.white} />
+                                ) : (
+                                    <Text style={forwardStyles.submitText}>
+                                        Chuyen tiep
+                                    </Text>
+                                )}
+                            </Pressable>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+
             <MessageContextMenu
                 contextMenu={contextMenu}
                 selectedMessage={
@@ -1987,5 +2251,168 @@ const disbandedStyles = StyleSheet.create({
         color: "#6B7280",
         textAlign: "center",
         lineHeight: 20,
+    },
+});
+
+const forwardStyles = StyleSheet.create({
+    overlay: {
+        flex: 1,
+        backgroundColor: "rgba(0,0,0,0.42)",
+        justifyContent: "center",
+        paddingHorizontal: 18,
+    },
+    card: {
+        maxHeight: "78%",
+        borderRadius: 20,
+        overflow: "hidden",
+        backgroundColor: colors.white,
+    },
+    header: {
+        minHeight: 64,
+        paddingHorizontal: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: "#EEF0F3",
+        flexDirection: "row",
+        alignItems: "center",
+    },
+    headerTextWrap: {
+        flex: 1,
+        minWidth: 0,
+    },
+    title: {
+        fontSize: 16,
+        fontWeight: "800",
+        color: colors.text,
+    },
+    subtitle: {
+        marginTop: 3,
+        fontSize: 12,
+        color: colors.textMuted,
+    },
+    closeBtn: {
+        width: 34,
+        height: 34,
+        borderRadius: 17,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#F3F4F6",
+        marginLeft: 10,
+    },
+    loadingWrap: {
+        height: 220,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    list: {
+        maxHeight: 360,
+    },
+    emptyList: {
+        minHeight: 160,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    emptyText: {
+        color: colors.textMuted,
+        fontSize: 13,
+    },
+    row: {
+        minHeight: 62,
+        flexDirection: "row",
+        alignItems: "center",
+        paddingHorizontal: 16,
+    },
+    rowPressed: {
+        backgroundColor: "#F8FAFC",
+    },
+    avatar: {
+        width: 42,
+        height: 42,
+        borderRadius: 21,
+        backgroundColor: "#E5E7EB",
+    },
+    avatarFallback: {
+        width: 42,
+        height: 42,
+        borderRadius: 21,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#E5E7EB",
+    },
+    rowTextWrap: {
+        flex: 1,
+        minWidth: 0,
+        marginLeft: 11,
+    },
+    rowTitle: {
+        fontSize: 14,
+        fontWeight: "700",
+        color: colors.text,
+    },
+    rowSubtitle: {
+        marginTop: 2,
+        fontSize: 12,
+        color: colors.textMuted,
+    },
+    checkCircle: {
+        width: 22,
+        height: 22,
+        borderRadius: 11,
+        borderWidth: 1,
+        borderColor: "#CBD5E1",
+        alignItems: "center",
+        justifyContent: "center",
+        marginLeft: 10,
+    },
+    checkCircleSelected: {
+        borderColor: "#2563EB",
+        backgroundColor: "#2563EB",
+    },
+    errorText: {
+        paddingHorizontal: 16,
+        paddingVertical: 9,
+        borderTopWidth: 1,
+        borderTopColor: "#EEF0F3",
+        color: "#EF4444",
+        fontSize: 13,
+    },
+    footer: {
+        flexDirection: "row",
+        justifyContent: "flex-end",
+        alignItems: "center",
+        gap: 10,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        borderTopWidth: 1,
+        borderTopColor: "#EEF0F3",
+    },
+    cancelBtn: {
+        height: 40,
+        paddingHorizontal: 16,
+        borderRadius: 12,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#F3F4F6",
+    },
+    cancelText: {
+        fontSize: 14,
+        fontWeight: "700",
+        color: "#374151",
+    },
+    submitBtn: {
+        minWidth: 112,
+        height: 40,
+        paddingHorizontal: 16,
+        borderRadius: 12,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#2563EB",
+    },
+    submitBtnDisabled: {
+        opacity: 0.55,
+    },
+    submitText: {
+        fontSize: 14,
+        fontWeight: "800",
+        color: colors.white,
     },
 });

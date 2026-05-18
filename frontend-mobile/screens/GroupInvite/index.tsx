@@ -71,6 +71,7 @@ export function GroupInviteScreen() {
     const currentUserId = Number(currentUser?.id ?? 0);
     const [loading, setLoading] = useState(true);
     const [joining, setJoining] = useState(false);
+    const [cancelling, setCancelling] = useState(false);
     const [error, setError] = useState("");
     const [preview, setPreview] = useState<ConversationPreview | null>(null);
     const [userStatus, setUserStatus] = useState<InviteUserStatus | null>(null);
@@ -268,6 +269,28 @@ export function GroupInviteScreen() {
         }
     };
 
+    const handleCancelRequest = async () => {
+        if (!preview || userStatus !== "PENDING") return;
+
+        try {
+            setCancelling(true);
+            await chatService.cancelMyJoinRequest(preview.conversationId);
+            setUserStatus("NOT_MEMBER");
+            Alert.alert(
+                "Đã hủy yêu cầu",
+                "Yêu cầu tham gia nhóm của bạn đã được hủy.",
+            );
+        } catch (err) {
+            const message = extractApiErrorMessage(err);
+            Alert.alert(
+                "Không thể hủy yêu cầu",
+                message || "Vui lòng thử lại sau.",
+            );
+        } finally {
+            setCancelling(false);
+        }
+    };
+
     return (
         <SafeAreaView style={styles.root}>
             <View style={styles.header}>
@@ -311,14 +334,18 @@ export function GroupInviteScreen() {
                         </Text>
                     )}
                     <Pressable
-                        disabled={joining || userStatus === "PENDING"}
-                        onPress={handleJoin}
+                        disabled={joining || cancelling}
+                        onPress={
+                            userStatus === "PENDING"
+                                ? handleCancelRequest
+                                : handleJoin
+                        }
                         style={[
                             styles.joinButton,
                             userStatus === "PENDING" && styles.pendingButton,
                         ]}
                     >
-                        {joining ? (
+                        {joining || cancelling ? (
                             <ActivityIndicator color="#fff" />
                         ) : (
                             <Text
@@ -328,7 +355,7 @@ export function GroupInviteScreen() {
                                 ]}
                             >
                                 {userStatus === "PENDING"
-                                    ? "Đang chờ duyệt"
+                                    ? "Hủy yêu cầu"
                                     : "Tham gia nhóm"}
                             </Text>
                         )}

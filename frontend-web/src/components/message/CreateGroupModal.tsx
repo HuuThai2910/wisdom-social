@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Search, Users, X } from "lucide-react";
+import { ImagePlus, Loader2, Search, Users, X } from "lucide-react";
 import type { User } from "../../types";
 import { DEFAULT_AVATAR_URL } from "../../constants/ui";
+import chatService from "../../services/chatService";
 
 interface CreateGroupSubmitPayload {
     name: string;
@@ -35,18 +36,25 @@ export default function CreateGroupModal({
     onSubmit,
 }: CreateGroupModalProps) {
     const [groupName, setGroupName] = useState("");
-    const [groupImageUrl, setGroupImageUrl] = useState("");
+    const [groupImageFile, setGroupImageFile] = useState<File | null>(null);
+    const [imageUploadError, setImageUploadError] = useState<string | null>(null);
+    const [imageUploading, setImageUploading] = useState(false);
     const [searchKeyword, setSearchKeyword] = useState("");
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
 
-    useEffect(() => {
-        if (!open) {
-            setGroupName("");
-            setGroupImageUrl("");
-            setSearchKeyword("");
-            setSelectedIds([]);
-        }
-    }, [open]);
+    const resetForm = () => {
+        setGroupName("");
+        setGroupImageFile(null);
+        setImageUploadError(null);
+        setImageUploading(false);
+        setSearchKeyword("");
+        setSelectedIds([]);
+    };
+
+    const handleClose = () => {
+        resetForm();
+        onClose();
+    };
 
     const filteredFriends = useMemo(() => {
         const keyword = searchKeyword.trim().toLowerCase();
@@ -63,7 +71,19 @@ export default function CreateGroupModal({
         });
     }, [friends, searchKeyword]);
 
-    const canSubmit = selectedIds.length >= 2 && !submitting;
+    const groupImagePreviewUrl = useMemo(() => {
+        return groupImageFile ? URL.createObjectURL(groupImageFile) : "";
+    }, [groupImageFile]);
+
+    useEffect(() => {
+        return () => {
+            if (groupImagePreviewUrl) {
+                URL.revokeObjectURL(groupImagePreviewUrl);
+            }
+        };
+    }, [groupImagePreviewUrl]);
+
+    const canSubmit = selectedIds.length >= 2 && !submitting && !imageUploading;
 
     const toggleSelectedId = (userId: number) => {
         setSelectedIds((prev) =>
@@ -89,11 +109,38 @@ export default function CreateGroupModal({
                 .join(", ");
         }
 
-        await onSubmit({
+        let uploadedImageKey: string | undefined;
+
+        setImageUploadError(null);
+        if (groupImageFile) {
+            try {
+                setImageUploading(true);
+                const { presignedUrl, objectKey } =
+                    await chatService.getPresignedUrl(
+                        "CONVERSATION",
+                        "group-avatars",
+                        "IMAGE",
+                        groupImageFile.name,
+                        groupImageFile.type || "image/jpeg",
+                    );
+                await chatService.uploadToS3(presignedUrl, groupImageFile);
+                uploadedImageKey = objectKey;
+            } catch {
+                setImageUploadError("Khong the tai anh nhom len. Vui long thu lai.");
+                return;
+            } finally {
+                setImageUploading(false);
+            }
+        }
+
+        const created = await onSubmit({
             name: finalName,
-            imageUrl: groupImageUrl,
+            imageUrl: uploadedImageKey,
             memberIds: selectedIds,
         });
+        if (created) {
+            resetForm();
+        }
     };
     if (!open) {
         return null;
@@ -114,7 +161,7 @@ export default function CreateGroupModal({
                     </div>
                     <button
                         type="button"
-                        onClick={onClose}
+                        onClick={handleClose}
                         className="inline-flex h-8 w-8 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-[#232323] dark:hover:text-gray-100"
                     >
                         <X size={16} />
@@ -135,15 +182,42 @@ export default function CreateGroupModal({
                             />
                         </label>
                         <label className="flex flex-col gap-1.5 text-sm text-gray-700 dark:text-gray-200">
-                            <span className="font-medium">Ảnh nhóm (URL)</span>
-                            <input
-                                value={groupImageUrl}
-                                onChange={(event) =>
-                                    setGroupImageUrl(event.target.value)
-                                }
-                                placeholder="https://..."
-                                className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-400 focus:bg-white dark:border-[#2f2f2f] dark:bg-[#171717] dark:text-white"
-                            />
+                            <span className="font-medium">Anh nhom</span>
+                            <span className="flex h-[38px] items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 dark:border-[#2f2f2f] dark:bg-[#171717]">
+                                {groupImagePreviewUrl ? (
+                                    <img
+                                        src={groupImagePreviewUrl}
+                                        alt="Anh nhom"
+                                        className="h-7 w-7 rounded-full object-cover"
+                                    />
+                                ) : (
+                                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gray-200 text-gray-500 dark:bg-[#242424]">
+                                        <ImagePlus size={15} />
+                                    </span>
+                                )}
+                                <span className="min-w-0 flex-1 truncate text-sm text-gray-600 dark:text-gray-300">
+                                    {groupImageFile?.name || "Chon anh tu may"}
+                                </span>
+                                <span className="shrink-0 rounded-md bg-white px-2.5 py-1 text-xs font-medium text-gray-700 ring-1 ring-gray-200 dark:bg-[#202020] dark:text-gray-200 dark:ring-[#333]">
+                                    Chon anh
+                                </span>
+                                <input
+                                    type="file"
+                                    accept="image/*"
+                                    className="hidden"
+                                    onChange={(event) => {
+                                        const file = event.target.files?.[0];
+                                        if (!file) return;
+                                        if (!file.type.startsWith("image/")) {
+                                            setImageUploadError("Vui long chon file anh.");
+                                            return;
+                                        }
+                                        setImageUploadError(null);
+                                        setGroupImageFile(file);
+                                        event.target.value = "";
+                                    }}
+                                />
+                            </span>
                         </label>
                     </div>
 
@@ -227,9 +301,9 @@ export default function CreateGroupModal({
                 </div>
 
                 <div className="space-y-3 px-5 py-4">
-                    {error && (
+                    {(error || imageUploadError) && (
                         <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-900/20 dark:text-red-300">
-                            {error}
+                            {error || imageUploadError}
                         </p>
                     )}
 
@@ -240,7 +314,7 @@ export default function CreateGroupModal({
                         <div className="flex items-center gap-2">
                             <button
                                 type="button"
-                                onClick={onClose}
+                                onClick={handleClose}
                                 className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50 dark:border-[#2f2f2f] dark:text-gray-200 dark:hover:bg-[#1b1b1b]"
                             >
                                 Hủy
@@ -251,13 +325,13 @@ export default function CreateGroupModal({
                                 disabled={!canSubmit}
                                 className="inline-flex items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400"
                             >
-                                {submitting && (
+                                {(submitting || imageUploading) && (
                                     <Loader2
                                         size={15}
                                         className="mr-2 animate-spin"
                                     />
                                 )}
-                                Tạo nhóm
+                                {imageUploading ? "Dang tai anh..." : "Tạo nhóm"}
                             </button>
                         </div>
                     </div>

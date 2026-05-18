@@ -11,7 +11,8 @@ package iuh.fit.edu.backend.modules.conversation.constant;
  * @version: 1.0
  */
 public enum JoinRequestStatus {
-    PENDING,    // Đang chờ duyệt
-    APPROVED,   // Đã đồng ý
-    REJECTED    // Đã từ chối
+    PENDING,
+    APPROVED,
+    REJECTED,
+    CANCELLED
 }
