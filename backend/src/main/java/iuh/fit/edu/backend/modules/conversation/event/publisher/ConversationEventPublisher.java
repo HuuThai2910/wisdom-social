@@ -81,6 +81,18 @@ public class ConversationEventPublisher {
     }
 
     // Hàm xử lý gửi sự kiện thêm thành viên cho redis pub/sub
+    @Async
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void handleBlockedMembersUpdated(BlockedMembersUpdatedEvent event){
+        log.info("Publishing blocked members update to redis pub/sub for {} admins", event.getNotifyAdminIds());
+        RedisEnvelope envelope = new RedisEnvelope(
+                event.getNotifyAdminIds(),
+                event.getDomainEventType(),
+                event
+        );
+        redisTemplate.convertAndSend(RedisPubSubConfig.CHAT_CHANNEL, envelope);
+    }
+
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void handleMemberAdded(MemberAddedEvent event){
         log.info("Publishing add member to redis pub/sub for {} member", event.getMemberIds());

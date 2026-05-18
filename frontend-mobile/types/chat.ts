@@ -20,15 +20,17 @@ export type MessageType =
     | "SYSTEM_ADD_MEMBER"
     | "SYSTEM_LEAVE_GROUP"
     | "SYSTEM_KICK_MEMBER"
+    | "SYSTEM_BLOCK_MEMBER"
     | "SYSTEM_UPDATE_ROLE"
     | "SYSTEM_DISBAND_GROUP"
     | "SYSTEM_UPDATE_SETTING"
     | "SYSTEM_REQUIRE_APPROVAL"
-    | "SYSTEM_JOIN_VIA_LINK";
+    | "SYSTEM_JOIN_VIA_LINK"
+    | "SYSTEM_MEMBER_BLOCKED_FROM_JOIN";
 
 export type MemberRole = "OWNER" | "DEPUTY" | "MEMBER";
 
-export type MemberStatus = "ACTIVE" | "LEFT" | "KICKED" | "GROUP_DISBANDED";
+export type MemberStatus = "ACTIVE" | "LEFT" | "KICKED" | "BLOCKED" | "GROUP_DISBANDED";
 
 export interface ReplyInfo {
     messageId: string;
@@ -116,6 +118,8 @@ export interface ConversationMember {
     status?: MemberStatus;
     joinedAt?: string;
     leftAt?: string;
+    blockedAt?: string;
+    blockedById?: number;
 }
 
 export interface ConversationSidebar {
@@ -298,7 +302,8 @@ export interface ConversationMembershipEvent {
         | "MEMBER_ADDED"
         | "MEMBER_ROLE_UPDATED"
         | "MEMBER_LEFT"
-        | "MEMBER_KICKED";
+        | "MEMBER_KICKED"
+        | "CONVERSATION_BLOCKED_MEMBERS_UPDATED";
     conversationResponse?: Conversation | ConversationSidebar;
 }
 

@@ -58,6 +58,13 @@ public class ConversationMember {
     @Column(name = "left_at")
     private Instant leftAt;
 
+    @Column(name = "blocked_at")
+    private Instant blockedAt;
+
+    @ManyToOne
+    @JoinColumn(name = "blocked_by")
+    private User blockedBy;
+
     // Lưu ID của tin nhắn mới nhất mà người này vừa xem
     private String lastReadMessageId;
     // Số lượng tin nhắn chưa đọc

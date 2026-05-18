@@ -110,6 +110,13 @@ public class ConversationController {
         return ResponseEntity.ok().build();
     }
 
+    @PatchMapping("/{conversationId}/hide-for-me")
+    public ResponseEntity<Void> hideConversationForMe(@PathVariable Long conversationId){
+        Long userId = this.userService.getCurrentUser().getId();
+        this.conversationService.hideConversationForMe(conversationId, userId);
+        return ResponseEntity.ok().build();
+    }
+
     @GetMapping("/{conversationId}/members")
     public ResponseEntity<Map<Long, ConversationMemberResponse>> getConversationMembers(
             @PathVariable Long conversationId) {
@@ -141,10 +148,33 @@ public class ConversationController {
     @DeleteMapping("/{conversationId}/members/{targetId}")
     public ResponseEntity<ConversationResponse> kickMember(
             @PathVariable Long conversationId,
+            @PathVariable Long targetId,
+            @RequestParam(defaultValue = "false") boolean blockFromGroup) {
+        Long requesterId = this.userService.getCurrentUser().getId();
+        ConversationResponse response = memberService.kickMember(conversationId, targetId, requesterId, blockFromGroup);
+        return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/{conversationId}/blocked-members")
+    public ResponseEntity<List<ConversationMemberResponse>> getBlockedMembers(@PathVariable Long conversationId) {
+        Long requesterId = this.userService.getCurrentUser().getId();
+        return ResponseEntity.ok(memberService.getBlockedMembers(conversationId, requesterId));
+    }
+
+    @PostMapping("/{conversationId}/blocked-members/{targetId}")
+    public ResponseEntity<ConversationResponse> blockMember(
+            @PathVariable Long conversationId,
             @PathVariable Long targetId) {
         Long requesterId = this.userService.getCurrentUser().getId();
-        ConversationResponse response = memberService.kickMember(conversationId, targetId, requesterId);
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(memberService.blockMember(conversationId, targetId, requesterId));
+    }
+
+    @DeleteMapping("/{conversationId}/blocked-members/{targetId}")
+    public ResponseEntity<ConversationResponse> unblockMember(
+            @PathVariable Long conversationId,
+            @PathVariable Long targetId) {
+        Long requesterId = this.userService.getCurrentUser().getId();
+        return ResponseEntity.ok(memberService.unblockMember(conversationId, targetId, requesterId));
     }
 
     @PatchMapping("/{conversationId}/members/{targetId}/role")

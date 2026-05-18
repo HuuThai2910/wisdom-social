@@ -1,4 +1,5 @@
 import { Loader2, X } from "lucide-react";
+import type React from "react";
 
 interface ConfirmModalProps {
     open: boolean;
@@ -10,6 +11,7 @@ interface ConfirmModalProps {
     isDanger?: boolean;
     onClose: () => void;
     onConfirm: () => void;
+    children?: React.ReactNode;
 }
 
 export default function ConfirmModal({
@@ -22,6 +24,7 @@ export default function ConfirmModal({
     isDanger = false,
     onClose,
     onConfirm,
+    children,
 }: ConfirmModalProps) {
     if (!open) return null;
 
@@ -46,6 +49,7 @@ export default function ConfirmModal({
                     <p className="text-sm text-gray-600 dark:text-gray-300">
                         {description}
                     </p>
+                    {children}
                 </div>
 
                 <div className="flex items-center justify-end gap-3 border-t border-gray-100 px-5 py-4 dark:border-[#2a2a2a]">

@@ -96,6 +96,7 @@ export default function MessagesListScreen() {
         replacePinnedConversation,
         fetchPinnedConversations,
         deleteConversationForMe,
+        hideConversationForMe,
         reload,
         registerPinLimitCallback,
         maxPinnedConversations,
@@ -276,8 +277,18 @@ export default function MessagesListScreen() {
     const handleMenuAction = (actionKey: MenuActionKey) => {
         if (!menuState) return;
 
+        const conversationId = Number(menuState.conversationId);
+
+        if (actionKey === "hidden") {
+            if (Number.isFinite(conversationId)) {
+                void hideConversationForMe(conversationId);
+            }
+
+            closeMenu();
+            return;
+        }
+
         if (actionKey === "delete") {
-            const conversationId = Number(menuState.conversationId);
             if (Number.isFinite(conversationId)) {
                 Alert.alert(
                     "Xóa đoạn chat",

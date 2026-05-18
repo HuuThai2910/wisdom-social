@@ -101,9 +101,7 @@ function renderTextWithLinks(content: string, isOwn: boolean): ReactNode {
                     textUnderlineOffset: "2px",
                 }}
                 className={`font-medium hover:opacity-80 ${
-                    isOwn
-                        ? "text-white"
-                        : "text-blue-600 dark:text-blue-300"
+                    isOwn ? "text-white" : "text-blue-600 dark:text-blue-300"
                 }`}
                 onClick={(event) => event.stopPropagation()}
             >
@@ -295,7 +293,9 @@ export function MessageBubble({
             setInvitePreview(preview);
             setInviteUserStatus(preview.userStatus);
         } catch {
-            setInviteError("Link tham gia không hợp lệ hoặc đã bị vô hiệu hóa.");
+            setInviteError(
+                "Link tham gia không hợp lệ hoặc đã bị vô hiệu hóa.",
+            );
         } finally {
             setInviteLoading(false);
         }
@@ -318,6 +318,7 @@ export function MessageBubble({
             toast.success("Đã gửi yêu cầu tham gia nhóm.");
             setInviteModalOpen(false);
         } catch (error) {
+            console.log(error);
             const message =
                 error &&
                 typeof error === "object" &&
@@ -328,7 +329,7 @@ export function MessageBubble({
                           }
                       ).response?.data?.message
                     : null;
-            toast.error(message || "Không thể tham gia nhóm.");
+            toast.error(message || "Bạn đã bị chặn khỏi nhóm.");
         } finally {
             setInviteJoining(false);
         }
@@ -758,6 +759,8 @@ export function MessageBubble({
                 | "SYSTEM_ADD_MEMBER"
                 | "SYSTEM_UPDATE_ROLE"
                 | "SYSTEM_KICK_MEMBER"
+                | "SYSTEM_BLOCK_MEMBER"
+                | "SYSTEM_MEMBER_BLOCKED_FROM_JOIN"
                 | "SYSTEM_LEAVE_GROUP"
                 | "SYSTEM_DISBAND_GROUP"
                 | "SYSTEM_UPDATE_SETTING"
@@ -825,11 +828,20 @@ export function MessageBubble({
                         className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 mb-4"
                         title="Thả cảm xúc"
                     >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <circle cx="12" cy="12" r="10"/>
-                            <path d="M8 14s1.5 2 4 2 4-2 4-2"/>
-                            <line x1="9" y1="9" x2="9.01" y2="9"/>
-                            <line x1="15" y1="9" x2="15.01" y2="9"/>
+                        <svg
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                        >
+                            <circle cx="12" cy="12" r="10" />
+                            <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+                            <line x1="9" y1="9" x2="9.01" y2="9" />
+                            <line x1="15" y1="9" x2="15.01" y2="9" />
                         </svg>
                     </button>
                     {reactionOpen && (
@@ -838,173 +850,50 @@ export function MessageBubble({
                                 isOwn ? "right-0" : "left-0"
                             }`}
                         >
-                            {["👍","❤️","😂","😅","😭","😡"].map((emoji) => (
-                                <button
-                                    key={emoji}
-                                    type="button"
-                                    onClick={() => {
-                                        setReactionOpen(false);
-                                        onReaction?.(message.id, emoji);
-                                    }}
-                                    className="text-xl leading-none p-0.5 rounded-full hover:scale-125 hover:bg-gray-100 dark:hover:bg-gray-700 transition-transform duration-150"
-                                    title={emoji}
-                                >
-                                    {emoji}
-                                </button>
-                            ))}
+                            {["👍", "❤️", "😂", "😅", "😭", "😡"].map(
+                                (emoji) => (
+                                    <button
+                                        key={emoji}
+                                        type="button"
+                                        onClick={() => {
+                                            setReactionOpen(false);
+                                            onReaction?.(message.id, emoji);
+                                        }}
+                                        className="text-xl leading-none p-0.5 rounded-full hover:scale-125 hover:bg-gray-100 dark:hover:bg-gray-700 transition-transform duration-150"
+                                        title={emoji}
+                                    >
+                                        {emoji}
+                                    </button>
+                                ),
+                            )}
                         </div>
                     )}
                 </div>
 
                 {/* "..." menu button */}
                 <div ref={menuRef} className="relative">
-                <button
-                    ref={menuButtonRef}
-                    onClick={() => {
-                        updateMenuPosition();
-                        setMenuOpen((v) => !v);
-                    }}
-                    className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 mb-4"
-                    title="Tùy chọn"
-                >
-                    <MoreVertical size={16} />
-                </button>
-
-                {menuOpen && (
-                    <div
-                        style={{
-                            top: menuPosition?.top,
-                            left: menuPosition?.left,
-                            right: menuPosition?.right,
+                    <button
+                        ref={menuButtonRef}
+                        onClick={() => {
+                            updateMenuPosition();
+                            setMenuOpen((v) => !v);
                         }}
-                        className={`fixed ${menuPosition?.placement === "above" ? "-translate-y-full" : ""} max-h-[min(22rem,calc(100vh-4rem))] overflow-y-auto bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-lg shadow-xl py-1.5 z-[9999] w-56`}
+                        className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 mb-4"
+                        title="Tùy chọn"
                     >
-                        {message.isRecalled ? (
-                            <button
-                                onClick={handleDeleteForMeClick}
-                                className={menuItemBase}
-                            >
-                                <Trash2
-                                    size={16}
-                                    className="text-red-500 shrink-0"
-                                />
-                                <span className="text-red-500">
-                                    Xóa chỉ ở phía tôi
-                                </span>
-                            </button>
-                        ) : (
-                            <>
-                                <button
-                                    onClick={handleCopy}
-                                    className={menuItemBase}
-                                >
-                                    <Copy
-                                        size={16}
-                                        className="text-gray-500 dark:text-gray-400 shrink-0"
-                                    />
-                                    <span className="text-gray-800 dark:text-gray-100">
-                                        Copy tin nhắn
-                                    </span>
-                                </button>
-                                <button
-                                    onClick={handlePinClick}
-                                    className={menuItemBase}
-                                >
-                                    <Pin
-                                        size={16}
-                                        className="text-gray-500 dark:text-gray-400 shrink-0"
-                                    />
-                                    <span className="text-gray-800 dark:text-gray-100">
-                                        {isPinned ? "Bỏ ghim" : "Ghim tin nhắn"}
-                                    </span>
-                                </button>
-                                <button
-                                    onClick={handleReplyClick}
-                                    className={menuItemBase}
-                                >
-                                    <Reply
-                                        size={16}
-                                        className="text-gray-500 dark:text-gray-400 shrink-0"
-                                    />
-                                    <span className="text-gray-800 dark:text-gray-100">
-                                        Trả lời
-                                    </span>
-                                </button>
-                                <button
-                                    onClick={() => setMenuOpen(false)}
-                                    className={menuItemBase}
-                                >
-                                    <Star
-                                        size={16}
-                                        className="text-gray-500 dark:text-gray-400 shrink-0"
-                                    />
-                                    <span className="text-gray-800 dark:text-gray-100">
-                                        Đánh dấu tin nhắn
-                                    </span>
-                                </button>
-                                <button
-                                    onClick={() => setMenuOpen(false)}
-                                    className={menuItemBase}
-                                >
-                                    <ListChecks
-                                        size={16}
-                                        className="text-gray-500 dark:text-gray-400 shrink-0"
-                                    />
-                                    <span className="text-gray-800 dark:text-gray-100">
-                                        Chọn nhiều tin nhắn
-                                    </span>
-                                </button>
-                                <button
-                                    onClick={() => setMenuOpen(false)}
-                                    className={menuItemBase}
-                                >
-                                    <Info
-                                        size={16}
-                                        className="text-gray-500 dark:text-gray-400 shrink-0"
-                                    />
-                                    <span className="text-gray-800 dark:text-gray-100">
-                                        Xem chi tiết
-                                    </span>
-                                </button>
-                                <button
-                                    onClick={() => setMenuOpen(false)}
-                                    className={`${menuItemBase} justify-between`}
-                                >
-                                    <span className="flex items-center gap-3">
-                                        <ChevronRight
-                                            size={16}
-                                            className="text-gray-500 dark:text-gray-400 shrink-0"
-                                        />
-                                        <span className="text-gray-800 dark:text-gray-100">
-                                            Tuỳ chọn khác
-                                        </span>
-                                    </span>
-                                    <ChevronRight
-                                        size={14}
-                                        className="text-gray-400"
-                                    />
-                                </button>
+                        <MoreVertical size={16} />
+                    </button>
 
-                                {/* Separator + Danger zone */}
-                                <div className="my-1.5 border-t border-gray-100 dark:border-gray-700" />
-
-                                {/* Thu hồi - chỉ hiện cho tin nhắn của mình */}
-                                {isOwn && canRecallOwnMessages && (
-                                    <button
-                                        onClick={handleRecallClick}
-                                        className={menuItemBase}
-                                    >
-                                        <Undo2
-                                            size={16}
-                                            className="text-red-500 shrink-0"
-                                        />
-                                        <span className="text-red-500">
-                                            Thu hồi
-                                        </span>
-                                    </button>
-                                )}
-
-                                {/* Xóa ở phía tôi - hiện cho TẤT CẢ tin nhắn */}
+                    {menuOpen && (
+                        <div
+                            style={{
+                                top: menuPosition?.top,
+                                left: menuPosition?.left,
+                                right: menuPosition?.right,
+                            }}
+                            className={`fixed ${menuPosition?.placement === "above" ? "-translate-y-full" : ""} max-h-[min(22rem,calc(100vh-4rem))] overflow-y-auto bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-lg shadow-xl py-1.5 z-[9999] w-56`}
+                        >
+                            {message.isRecalled ? (
                                 <button
                                     onClick={handleDeleteForMeClick}
                                     className={menuItemBase}
@@ -1017,11 +906,138 @@ export function MessageBubble({
                                         Xóa chỉ ở phía tôi
                                     </span>
                                 </button>
-                            </>
-                        )}
-                    </div>
-                )}
-            </div>
+                            ) : (
+                                <>
+                                    <button
+                                        onClick={handleCopy}
+                                        className={menuItemBase}
+                                    >
+                                        <Copy
+                                            size={16}
+                                            className="text-gray-500 dark:text-gray-400 shrink-0"
+                                        />
+                                        <span className="text-gray-800 dark:text-gray-100">
+                                            Copy tin nhắn
+                                        </span>
+                                    </button>
+                                    <button
+                                        onClick={handlePinClick}
+                                        className={menuItemBase}
+                                    >
+                                        <Pin
+                                            size={16}
+                                            className="text-gray-500 dark:text-gray-400 shrink-0"
+                                        />
+                                        <span className="text-gray-800 dark:text-gray-100">
+                                            {isPinned
+                                                ? "Bỏ ghim"
+                                                : "Ghim tin nhắn"}
+                                        </span>
+                                    </button>
+                                    <button
+                                        onClick={handleReplyClick}
+                                        className={menuItemBase}
+                                    >
+                                        <Reply
+                                            size={16}
+                                            className="text-gray-500 dark:text-gray-400 shrink-0"
+                                        />
+                                        <span className="text-gray-800 dark:text-gray-100">
+                                            Trả lời
+                                        </span>
+                                    </button>
+                                    <button
+                                        onClick={() => setMenuOpen(false)}
+                                        className={menuItemBase}
+                                    >
+                                        <Star
+                                            size={16}
+                                            className="text-gray-500 dark:text-gray-400 shrink-0"
+                                        />
+                                        <span className="text-gray-800 dark:text-gray-100">
+                                            Đánh dấu tin nhắn
+                                        </span>
+                                    </button>
+                                    <button
+                                        onClick={() => setMenuOpen(false)}
+                                        className={menuItemBase}
+                                    >
+                                        <ListChecks
+                                            size={16}
+                                            className="text-gray-500 dark:text-gray-400 shrink-0"
+                                        />
+                                        <span className="text-gray-800 dark:text-gray-100">
+                                            Chọn nhiều tin nhắn
+                                        </span>
+                                    </button>
+                                    <button
+                                        onClick={() => setMenuOpen(false)}
+                                        className={menuItemBase}
+                                    >
+                                        <Info
+                                            size={16}
+                                            className="text-gray-500 dark:text-gray-400 shrink-0"
+                                        />
+                                        <span className="text-gray-800 dark:text-gray-100">
+                                            Xem chi tiết
+                                        </span>
+                                    </button>
+                                    <button
+                                        onClick={() => setMenuOpen(false)}
+                                        className={`${menuItemBase} justify-between`}
+                                    >
+                                        <span className="flex items-center gap-3">
+                                            <ChevronRight
+                                                size={16}
+                                                className="text-gray-500 dark:text-gray-400 shrink-0"
+                                            />
+                                            <span className="text-gray-800 dark:text-gray-100">
+                                                Tuỳ chọn khác
+                                            </span>
+                                        </span>
+                                        <ChevronRight
+                                            size={14}
+                                            className="text-gray-400"
+                                        />
+                                    </button>
+
+                                    {/* Separator + Danger zone */}
+                                    <div className="my-1.5 border-t border-gray-100 dark:border-gray-700" />
+
+                                    {/* Thu hồi - chỉ hiện cho tin nhắn của mình */}
+                                    {isOwn && canRecallOwnMessages && (
+                                        <button
+                                            onClick={handleRecallClick}
+                                            className={menuItemBase}
+                                        >
+                                            <Undo2
+                                                size={16}
+                                                className="text-red-500 shrink-0"
+                                            />
+                                            <span className="text-red-500">
+                                                Thu hồi
+                                            </span>
+                                        </button>
+                                    )}
+
+                                    {/* Xóa ở phía tôi - hiện cho TẤT CẢ tin nhắn */}
+                                    <button
+                                        onClick={handleDeleteForMeClick}
+                                        className={menuItemBase}
+                                    >
+                                        <Trash2
+                                            size={16}
+                                            className="text-red-500 shrink-0"
+                                        />
+                                        <span className="text-red-500">
+                                            Xóa chỉ ở phía tôi
+                                        </span>
+                                    </button>
+                                </>
+                            )}
+                        </div>
+                    )}
+                </div>
             </div>
 
             {/* Cột: bubble + metadata dưới (với tin người gửi) */}
@@ -1184,14 +1200,14 @@ export function MessageBubble({
                                         : message.type === "IMAGE"
                                           ? "bg-transparent text-black dark:text-white"
                                           : message.type === "VIDEO"
-                                          ? "bg-transparent text-black dark:text-white"
-                                          : message.type === "FILE"
                                             ? "bg-transparent text-black dark:text-white"
-                                            : groupInviteUrl
+                                            : message.type === "FILE"
                                               ? "bg-transparent text-black dark:text-white"
-                                            : isOwn
-                                              ? "bg-blue-500 text-white"
-                                              : "bg-gray-200 dark:bg-gray-700 text-black dark:text-white"
+                                              : groupInviteUrl
+                                                ? "bg-transparent text-black dark:text-white"
+                                                : isOwn
+                                                  ? "bg-blue-500 text-white"
+                                                  : "bg-gray-200 dark:bg-gray-700 text-black dark:text-white"
                                 } transition-all duration-300 ${highlightedBubbleClass}`}
                             >
                                 {message.isRecalled ? (
@@ -1583,7 +1599,8 @@ export function MessageBubble({
                                                         Mời tham gia nhóm
                                                     </span>
                                                     <span className="mt-0.5 block text-xs text-gray-500 dark:text-gray-400">
-                                                        Bấm để xem thông tin nhóm
+                                                        Bấm để xem thông tin
+                                                        nhóm
                                                     </span>
                                                 </span>
                                                 <ExternalLink
@@ -1626,8 +1643,10 @@ export function MessageBubble({
 
                 {/* Reactions indicator */}
                 {message.iconName && message.iconName.length > 0 && (
-                    <div className={`flex items-center gap-1 mt-0.5 px-1 relative z-10 ${isOwn ? "self-end" : "self-start"}`}>
-                        <div 
+                    <div
+                        className={`flex items-center gap-1 mt-0.5 px-1 relative z-10 ${isOwn ? "self-end" : "self-start"}`}
+                    >
+                        <div
                             className="flex items-center bg-white dark:bg-gray-800 shadow-[0_2px_8px_rgba(0,0,0,0.08)] dark:shadow-[0_2px_8px_rgba(0,0,0,0.5)] rounded-full px-1.5 py-0.5 border border-gray-100 dark:border-gray-700 cursor-pointer hover:scale-105 transition-transform active:scale-95"
                             onClick={(e) => {
                                 e.stopPropagation();
@@ -1635,13 +1654,32 @@ export function MessageBubble({
                             }}
                         >
                             {message.iconName.slice(0, 3).map((reaction, i) => (
-                                <span key={i} className="text-[13px] leading-tight flex-shrink-0 -mr-0.5 last:mr-0">
+                                <span
+                                    key={i}
+                                    className="text-[13px] leading-tight flex-shrink-0 -mr-0.5 last:mr-0"
+                                >
                                     {reaction.name}
                                 </span>
                             ))}
-                            {message.iconName.reduce((sum, r) => sum + r.user.reduce((acc, u) => acc + u.quantity, 0), 0) > 1 && (
+                            {message.iconName.reduce(
+                                (sum, r) =>
+                                    sum +
+                                    r.user.reduce(
+                                        (acc, u) => acc + u.quantity,
+                                        0,
+                                    ),
+                                0,
+                            ) > 1 && (
                                 <span className="text-[11px] font-medium text-gray-600 dark:text-gray-300 ml-1.5 leading-tight">
-                                    {message.iconName.reduce((sum, r) => sum + r.user.reduce((acc, u) => acc + u.quantity, 0), 0)}
+                                    {message.iconName.reduce(
+                                        (sum, r) =>
+                                            sum +
+                                            r.user.reduce(
+                                                (acc, u) => acc + u.quantity,
+                                                0,
+                                            ),
+                                        0,
+                                    )}
                                 </span>
                             )}
                         </div>
@@ -1735,7 +1773,9 @@ export function MessageBubble({
                                     <button
                                         type="button"
                                         disabled={inviteJoining}
-                                        onClick={() => setInviteModalOpen(false)}
+                                        onClick={() =>
+                                            setInviteModalOpen(false)
+                                        }
                                         className="h-10 rounded-md bg-gray-100 text-sm font-semibold text-gray-800 hover:bg-gray-200 disabled:opacity-60 dark:bg-[#262626] dark:text-gray-100 dark:hover:bg-[#333333]"
                                     >
                                         Đóng

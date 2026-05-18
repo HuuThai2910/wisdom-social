@@ -238,7 +238,7 @@ export function GroupInviteScreen() {
                           }
                       ).response?.data?.message
                     : null;
-            Alert.alert("Không thể tham gia", message || "Bạn không thể tham gia nhóm này.");
+            Alert.alert("Không thể tham gia", message || "Bạn đã bị chặn khỏi nhóm này");
         } finally {
             setJoining(false);
         }

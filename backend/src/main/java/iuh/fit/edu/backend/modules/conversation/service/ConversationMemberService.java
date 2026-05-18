@@ -10,6 +10,7 @@ package iuh.fit.edu.backend.modules.conversation.service;/*
  */
 
 import java.util.Map;
+import java.util.List;
 import java.util.Set;
 
 import iuh.fit.edu.backend.modules.conversation.constant.MemberRole;
@@ -34,6 +35,15 @@ public interface ConversationMemberService {
 
     @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
     ConversationResponse kickMember(Long conversationId, Long targetId, Long requesterId);
+
+    @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
+    ConversationResponse kickMember(Long conversationId, Long targetId, Long requesterId, boolean blockFromGroup);
+
+    List<ConversationMemberResponse> getBlockedMembers(Long conversationId, Long requesterId);
+
+    ConversationResponse blockMember(Long conversationId, Long targetId, Long requesterId);
+
+    ConversationResponse unblockMember(Long conversationId, Long targetId, Long requesterId);
 
     void updateMemberStateInCache(Long conversationId, Long userId, ConversationMember memberEntity);
 

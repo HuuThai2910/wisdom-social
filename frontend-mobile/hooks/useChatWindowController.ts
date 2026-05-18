@@ -42,6 +42,8 @@ const GROUP_SYSTEM_MEMBER_SYNC_TYPES = new Set<Message["type"]>([
     "SYSTEM_ADD_MEMBER",
     "SYSTEM_UPDATE_ROLE",
     "SYSTEM_KICK_MEMBER",
+    "SYSTEM_BLOCK_MEMBER",
+    "SYSTEM_MEMBER_BLOCKED_FROM_JOIN",
     "SYSTEM_LEAVE_GROUP",
     "SYSTEM_DISBAND_GROUP",
     "SYSTEM_UPDATE_SETTING",
@@ -245,6 +247,11 @@ function resolveReadOnlyReasonFromApiMessage(message: string): string | null {
     ) {
         return "Bạn đã bị xóa khỏi nhóm.";
     }
+    if (
+        normalized.includes("chan khoi nhom") 
+    ) {
+        return "Bạn đã bị chặn khỏi nhóm";
+    }
 
     if (
         normalized.includes("roi nhom") ||
@@ -364,6 +371,12 @@ function resolveReadOnlyReasonFromSystemMessage(
             return "Ban da bi xoa khoi nhom.";
         }
     }
+     if (message.type === "SYSTEM_BLOCK_MEMBER") {
+        const targetIds = safeParseMemberIds(message.content);
+        if (targetIds.some((id) => Number(id) === Number(currentUserId))) {
+            return "Ban da bi chan khoi nhom.";
+        }
+    }
 
     if (message.type === "SYSTEM_UPDATE_SETTING") {
         if (message.content.includes("isMessageRestricted:true")) {
@@ -413,7 +426,7 @@ function resolveReadOnlyReasonFromCachedConversation(
         return "Ban da roi khoi nhom.";
     }
 
-    if (lastMessage.lastMessageType === "SYSTEM_KICK_MEMBER") {
+    if (lastMessage.lastMessageType === "SYSTEM_KICK_MEMBER" || lastMessage.lastMessageType === "SYSTEM_BLOCK_MEMBER") {
         const targetIds = safeParseMemberIds(
             lastMessage.lastMessageContent ?? "",
         );

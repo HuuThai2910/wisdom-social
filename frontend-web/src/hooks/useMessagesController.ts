@@ -26,6 +26,8 @@ import {
 const PRESERVE_EMPTY_PENDING_REQUEST_TYPES = new Set<MessageType>([
     "SYSTEM_ADD_MEMBER",
     "SYSTEM_KICK_MEMBER",
+    "SYSTEM_BLOCK_MEMBER",
+    "SYSTEM_MEMBER_BLOCKED_FROM_JOIN",
     "SYSTEM_UPDATE_ROLE",
     "SYSTEM_UPDATE_SETTING",
     "SYSTEM_REQUIRE_APPROVAL",
@@ -967,6 +969,33 @@ export function useMessagesController() {
         [currentUserId, navigate, selectedConversationId],
     );
 
+    const handleHideConversationForMe = useCallback(
+        async (conversationId: number) => {
+            try {
+                await chatService.hideConversationForMe(
+                    conversationId,
+                    currentUserId,
+                );
+                setConversations((prev) =>
+                    prev.filter((conv) => conv.id !== conversationId),
+                );
+                setConversationReadOnlyNotices((prev) => {
+                    if (!(conversationId in prev)) return prev;
+                    const next = { ...prev };
+                    delete next[conversationId];
+                    return next;
+                });
+
+                if (selectedConversationId === conversationId) {
+                    navigate(`/messages`);
+                }
+            } catch {
+                console.error("Không thể ẩn cuộc trò chuyện");
+            }
+        },
+        [currentUserId, navigate, selectedConversationId],
+    );
+
     const selectedConversationReadOnlyNotice =
         selectedConversationId != null
             ? (conversationReadOnlyNotices[selectedConversationId] ?? null)
@@ -989,6 +1018,7 @@ export function useMessagesController() {
         handleSelectConversation,
         clearSelectedConversation,
         handleDeleteConversationForMe,
+        handleHideConversationForMe,
         getDisplayInfo,
         formatTime,
         clearUnreadCount,

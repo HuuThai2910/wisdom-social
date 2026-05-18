@@ -194,6 +194,11 @@ public class MessageQueryService {
         ConversationMemberResponse member = conversationMemberService.getMemberInfo(conversationId, userId);
         Message targetMsg = messageRepository.findById(targetMessageId)
                 .orElseThrow(() -> new RuntimeException("Tin nhắn không tồn tại"));
+        Instant clearedAt = member.getClearedAt();
+        if (clearedAt != null &&
+                targetMsg.getCreatedAt().toEpochMilli() <= clearedAt.toEpochMilli()) {
+            throw new RuntimeException("Không thể tìm thấy tin nhắn");
+        }
         if (targetMsg.getDeletedFor() != null &&
                 targetMsg.getDeletedFor().contains(userId)) {
             throw new RuntimeException("Không thể tìm thấy tin nhắn");
@@ -243,6 +248,11 @@ public class MessageQueryService {
             resultList.addAll(newer.stream().map(messageMapper::toMessageResponse).toList());
         }
 
+
+        resultList = resultList.stream()
+                .filter(msg -> clearedAt == null || msg.getCreatedAt().toEpochMilli() > clearedAt.toEpochMilli())
+                .filter(msg -> msg.getDeletedFor() == null || !msg.getDeletedFor().contains(userId))
+                .collect(Collectors.toCollection(ArrayList::new));
 
         // Xóa cờ deletedFor trước khi trả về
         resultList.forEach(msg -> msg.setDeletedFor(null));

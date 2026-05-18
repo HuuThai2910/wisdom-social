@@ -25,6 +25,8 @@ const GROUP_SYSTEM_SYNC_TYPES = new Set<Message["type"]>([
     "SYSTEM_ADD_MEMBER",
     "SYSTEM_UPDATE_ROLE",
     "SYSTEM_KICK_MEMBER",
+    "SYSTEM_BLOCK_MEMBER",
+    "SYSTEM_MEMBER_BLOCKED_FROM_JOIN",
     "SYSTEM_LEAVE_GROUP",
     "SYSTEM_DISBAND_GROUP",
     "SYSTEM_UPDATE_SETTING",
@@ -35,6 +37,8 @@ const GROUP_SYSTEM_SYNC_TYPES = new Set<Message["type"]>([
 const PRESERVE_EMPTY_PENDING_REQUEST_TYPES = new Set<Message["type"]>([
     "SYSTEM_ADD_MEMBER",
     "SYSTEM_KICK_MEMBER",
+    "SYSTEM_BLOCK_MEMBER",
+    "SYSTEM_MEMBER_BLOCKED_FROM_JOIN",
     "SYSTEM_UPDATE_ROLE",
     "SYSTEM_UPDATE_SETTING",
     "SYSTEM_REQUIRE_APPROVAL",
@@ -972,6 +976,24 @@ export function useMessagesController() {
         [currentUserId],
     );
 
+    const hideConversationForMe = useCallback(
+        async (conversationId: number) => {
+            try {
+                await chatService.hideConversationForMe(
+                    conversationId,
+                    currentUserId,
+                );
+
+                setConversations((prev) =>
+                    prev.filter((conv) => conv.id !== conversationId),
+                );
+            } catch {
+                setError("Không thể ẩn cuộc trò chuyện");
+            }
+        },
+        [currentUserId],
+    );
+
     return {
         searchQuery,
         setSearchQuery,
@@ -989,6 +1011,7 @@ export function useMessagesController() {
         replacePinnedConversation,
         fetchPinnedConversations,
         deleteConversationForMe,
+        hideConversationForMe,
         reload: loadConversations,
         registerPinLimitCallback,
         maxPinnedConversations: MAX_PINNED_CONVERSATIONS,

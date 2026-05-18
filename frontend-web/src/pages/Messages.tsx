@@ -1,24 +1,26 @@
 import {
     Archive,
-    Ban,
     Bell,
+    Edit,
+    MailOpen,
     BellOff,
+    Ban,
+    Trash2,
+    Flag,
+    MoreHorizontal,
     ChevronDown,
     ChevronUp,
     CircleUserRound,
     EyeOff,
     FileText,
-    Flag,
     Images,
     Link2,
     Lock,
     LogOut,
     LucideUserPlus2,
     Pin,
-    MoreHorizontal,
     Search,
     Settings,
-    Trash2,
     User,
     X,
 } from "lucide-react";
@@ -41,6 +43,7 @@ type DetailSectionKey = "chatInfo" | "customize" | "media" | "privacy";
 
 export default function Messages() {
     const INFO_PANEL_WIDTH = 352;
+    const [blockFromGroupOnKick, setBlockFromGroupOnKick] = useState(false);
     const { sidebarWidth } = useSidebarLayout();
     const {
         searchQuery,
@@ -59,6 +62,7 @@ export default function Messages() {
         pinConversation,
         unpinConversation,
         replacePinnedConversation,
+        handleHideConversationForMe,
         getDisplayInfo,
         formatTime,
         clearUnreadCount,
@@ -131,6 +135,9 @@ export default function Messages() {
         addMembersToGroup,
         updateMemberRole,
         kickMember,
+        getBlockedMembers,
+        blockMember,
+        unblockMember,
         leaveGroup,
         transferOwnershipAndLeave,
         executeLeaveGroup,
@@ -335,6 +342,14 @@ export default function Messages() {
         selectedUnpinConversationId,
     ]);
 
+    const handleHideConversation = useCallback(
+        (convId: number) => {
+            setOpenMenuConvId(null);
+            void handleHideConversationForMe(convId);
+        },
+        [handleHideConversationForMe],
+    );
+
     const handleToggleInfoPanel = useCallback(() => {
         if (!selectedConversationId) {
             return;
@@ -464,7 +479,9 @@ export default function Messages() {
                             onTransferOwnershipAndLeave={
                                 transferOwnershipAndLeave
                             }
-                            onKickMember={kickMember}
+                            onGetBlockedMembers={getBlockedMembers}
+                            onBlockMember={blockMember}
+                            onUnblockMember={unblockMember}
                             onUpdateMemberRole={updateMemberRole}
                             onProcessJoinRequest={processJoinRequest}
                             isConfirmLeaveModalOpen={isConfirmLeaveModalOpen}
@@ -934,18 +951,18 @@ export default function Messages() {
                                                     </button>
                                                     <button
                                                         onClick={() =>
-                                                            setOpenMenuConvId(
-                                                                null,
+                                                            handleHideConversation(
+                                                                conv.id,
                                                             )
                                                         }
                                                         className={menuItemBase}
                                                     >
-                                                        <Archive
+                                                        <EyeOff
                                                             size={20}
                                                             className="text-gray-700 dark:text-gray-300"
                                                         />
                                                         <span className="dark:text-white">
-                                                            Lưu trữ đoạn chat
+                                                            Ẩn đoạn chat
                                                         </span>
                                                     </button>
                                                     <button
@@ -1280,15 +1297,31 @@ export default function Messages() {
                 } khỏi nhóm?`}
                 confirmLabel="Đuổi khỏi nhóm"
                 isDanger={true}
-                onClose={closeConfirmKick}
+                onClose={() => {
+                    setBlockFromGroupOnKick(false);
+                    closeConfirmKick();
+                }}
                 onConfirm={() => {
                     if (kickTargetUserId) {
-                        void kickMember(kickTargetUserId).then((success) => {
-                            if (success) closeConfirmKick();
+                        void kickMember(kickTargetUserId, blockFromGroupOnKick).then((success) => {
+                            if (success) {
+                                setBlockFromGroupOnKick(false);
+                                closeConfirmKick();
+                            }
                         });
                     }
                 }}
-            />
+            >
+                <label className="mt-4 flex items-center gap-3 rounded-lg bg-gray-50 px-3 py-2 text-sm font-medium text-gray-700 dark:bg-[#1a1a1a] dark:text-gray-200">
+                    <input
+                        type="checkbox"
+                        checked={blockFromGroupOnKick}
+                        onChange={(event) => setBlockFromGroupOnKick(event.target.checked)}
+                        className="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
+                    />
+                    Chặn khỏi nhóm
+                </label>
+            </ConfirmModal>
         </>
     );
 }

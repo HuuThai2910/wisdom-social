@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import chatService, {
     type Conversation,
+    type ConversationMember,
     type MemberRole,
 } from "../services/chatService";
 import friendService from "../services/friendService";
@@ -334,7 +335,7 @@ export function useGroupManagement({
     );
 
     const kickMember = useCallback(
-        async (targetUserId: number) => {
+        async (targetUserId: number, blockFromGroup: boolean = false) => {
             if (!selectedConversationId || !canKickMembers) {
                 return false;
             }
@@ -345,6 +346,7 @@ export function useGroupManagement({
                 await chatService.kickGroupMember(
                     selectedConversationId,
                     targetUserId,
+                    blockFromGroup,
                 );
                 await reloadConversations();
                 return true;
@@ -358,6 +360,48 @@ export function useGroupManagement({
             }
         },
         [canKickMembers, reloadConversations, selectedConversationId],
+    );
+
+    const getBlockedMembers = useCallback(async (): Promise<ConversationMember[]> => {
+        if (!selectedConversationId || !canManageSettings) return [];
+        return chatService.getBlockedGroupMembers(selectedConversationId);
+    }, [canManageSettings, selectedConversationId]);
+
+    const blockMember = useCallback(
+        async (targetUserId: number) => {
+            if (!selectedConversationId || !canManageSettings) return false;
+            try {
+                setPendingKickUserId(targetUserId);
+                setActionError(null);
+                await chatService.blockGroupMember(selectedConversationId, targetUserId);
+                await reloadConversations();
+                return true;
+            } catch (error) {
+                setActionError(normalizeErrorMessage(error, "Không thể chặn thành viên."));
+                return false;
+            } finally {
+                setPendingKickUserId(null);
+            }
+        },
+        [canManageSettings, reloadConversations, selectedConversationId],
+    );
+
+    const unblockMember = useCallback(
+        async (targetUserId: number) => {
+            if (!selectedConversationId || !canManageSettings) return false;
+            try {
+                setPendingKickUserId(targetUserId);
+                setActionError(null);
+                await chatService.unblockGroupMember(selectedConversationId, targetUserId);
+                return true;
+            } catch (error) {
+                setActionError(normalizeErrorMessage(error, "Không thể bỏ chặn thành viên."));
+                return false;
+            } finally {
+                setPendingKickUserId(null);
+            }
+        },
+        [canManageSettings, selectedConversationId],
     );
 
     const executeLeaveGroup = useCallback(async () => {
@@ -638,6 +682,9 @@ export function useGroupManagement({
         addMembersToGroup,
         updateMemberRole,
         kickMember,
+        getBlockedMembers,
+        blockMember,
+        unblockMember,
         leaveGroup,
         transferOwnershipAndLeave,
         executeLeaveGroup,
