@@ -87,7 +87,15 @@ export default function PagesScreen() {
           setPages(prev => prev.filter(p => p.id !== event.pageId));
         } else if (event.eventType === "PAGE_UPDATED" && event.page) {
           const updated = event.page as unknown as PageData;
-          setPages(prev => prev.map(p => p.id === updated.id ? updated : p));
+          console.log("🔄 [Mobile] Page UPDATED in list:", { id: updated.id, avatarUrl: updated.avatarUrl });
+          setPages(prev => prev.map(p => {
+            if (p.id === updated.id) {
+              console.log("🔄 [Mobile] Merging updated page:", { old: p.avatarUrl, new: updated.avatarUrl });
+              // Merge to ensure we keep all existing fields
+              return { ...p, ...updated };
+            }
+            return p;
+          }));
         }
       });
     };
@@ -138,7 +146,8 @@ export default function PagesScreen() {
         <View style={styles.avatarWrap}>
           {item.avatarUrl ? (
             <Image
-              source={{ uri: buildS3Url(item.avatarUrl) }}
+              key={`${item.id}-${item.updatedAt}`}
+              source={{ uri: buildS3Url(item.avatarUrl) ? `${buildS3Url(item.avatarUrl)}?t=${item.updatedAt}` : undefined }}
               style={styles.avatarImg}
             />
           ) : (

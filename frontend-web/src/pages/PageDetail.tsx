@@ -15,6 +15,7 @@ import { buildS3Url } from "../utils/s3";
 import websocketService from "../services/websocket";
 import type { User } from "../types";
 import { useRealtimePagePosts } from "../hooks/useRealtimePagePosts";
+import { useRealtimePageList } from "../hooks/useRealtimePageList";
 
 type MemberStatus = "loading" | "none" | "pending" | "member" | "admin" | "owner" | "blocked";
 type PageRole = "ADMIN" | "EDITOR" | "MODERATOR" | "ANALYST" | "USER";
@@ -319,6 +320,17 @@ export default function PageDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [numericPageId, currentUserId]);
 
+    // Real-time: lắng nghe page updates (avatar/cover changes từ mobile)
+    useRealtimePageList({
+        onPageUpdated: (pageId, _page) => {
+            console.log('🔄 [Web PageDetail] Page updated event received for pageId:', pageId, 'Current numericPageId:', numericPageId);
+            if (numericPageId && pageId === numericPageId) {
+                console.log('✅ [Web PageDetail] Reloading page data due to update');
+                void loadPageData();
+            }
+        },
+    });
+
     // Real-time: lắng nghe posts của page
     useRealtimePagePosts({
         pageId: numericPageId,
@@ -520,7 +532,8 @@ export default function PageDetail() {
                     <div className="relative h-[300px] md:h-[400px] rounded-b-lg overflow-hidden bg-gradient-to-br from-blue-400 via-blue-500 to-blue-700">
                         {page.coverUrl && (
                             <img
-                                src={buildS3Url(page.coverUrl)|| "https://via.placeholder.com/1200x400"}
+                                key={`cover-${page.id}-${page.updatedAt}`}
+                                src={buildS3Url(page.coverUrl) ? `${buildS3Url(page.coverUrl)}?t=${page.updatedAt}` : "https://via.placeholder.com/1200x400"}
                                 alt="Cover"
                                 className="w-full h-full object-cover"
                             />
@@ -553,7 +566,8 @@ export default function PageDetail() {
                             {/* Avatar */}
                             <div className="relative flex-shrink-0">
                                 <img
-                                    src={buildS3Url(page.avatarUrl) || "https://via.placeholder.com/168"}
+                                    key={`avatar-${page.id}-${page.updatedAt}`}
+                                    src={buildS3Url(page.avatarUrl) ? `${buildS3Url(page.avatarUrl)}?t=${page.updatedAt}` : "https://via.placeholder.com/168"}
                                     alt={page.name}
                                     className="w-40 h-40 md:w-44 md:h-44 rounded-full object-cover border-4 border-white dark:border-[#242526] shadow-md bg-white dark:bg-[#3a3b3c]"
                                 />
