@@ -52,7 +52,7 @@ public class GroupJoinRequestServiceImpl implements GroupJoinRequestService {
         ConversationMember existingMember = memberRepository.findByConversation_IdAndUser_Id(conversationId, userId)
                 .orElse(null);
         if (existingMember != null && existingMember.getStatus() == ConversationMemberStatus.BLOCKED) {
-            throw new RuntimeException("Ban da bi chan khoi nhom");
+            throw new ConversationAccessDeniedException("Bạn đã bị chặn khỏi nhóm.");
         }
         if (requestRepository.existsByConversationIdAndUserIdAndStatus(conversationId, userId, JoinRequestStatus.PENDING)) {
             throw new RuntimeException("Yêu cầu tham gia của bạn đang chờ được xử lý.");

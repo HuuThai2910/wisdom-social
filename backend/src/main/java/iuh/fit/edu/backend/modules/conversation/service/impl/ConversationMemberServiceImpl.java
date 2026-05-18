@@ -4,6 +4,7 @@
  */
 package iuh.fit.edu.backend.modules.conversation.service.impl;
 
+import iuh.fit.edu.backend.common.exception.ConversationAccessDeniedException;
 import iuh.fit.edu.backend.modules.conversation.dto.response.JoinRequestResponse;
 import iuh.fit.edu.backend.modules.conversation.entity.Conversation;
 import iuh.fit.edu.backend.modules.conversation.entity.ConversationMember;
@@ -216,7 +217,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
         }
 
         if (member != null && member.getStatus() == ConversationMemberStatus.BLOCKED) {
-            throw new RuntimeException("Ban da bi chan khoi nhom");
+            throw new ConversationAccessDeniedException("Bạn đã bị chặn khỏi nhóm.");
         }
 
 //        if (member != null && member.getStatus() == ConversationMemberStatus.KICKED) {

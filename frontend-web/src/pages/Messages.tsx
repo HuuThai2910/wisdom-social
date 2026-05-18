@@ -41,6 +41,74 @@ import { buildConversationLastMessagePreview } from "../utils/conversationLastMe
 
 type DetailSectionKey = "chatInfo" | "customize" | "media" | "privacy";
 
+function safeParseMemberIds(content?: string | null): number[] {
+    if (!content) return [];
+
+    try {
+        const parsed = JSON.parse(content);
+        if (!Array.isArray(parsed)) return [];
+        return parsed
+            .map((value) => {
+                if (typeof value === "object" && value !== null && "id" in value) {
+                    return Number(value.id);
+                }
+                return Number(value);
+            })
+            .filter((value) => Number.isFinite(value));
+    } catch {
+        return [];
+    }
+}
+
+function isCurrentUserRemovedFromConversation(
+    conversation: {
+        members?: Array<{ userId: number; status?: string }>;
+        lastMessage?: {
+            lastMessageType?: string;
+            lastMessageContent?: string | null;
+            lastSenderId?: number;
+        } | null;
+    },
+    currentUserId: number,
+): boolean {
+    const currentMember = conversation.members?.find(
+        (member) => Number(member.userId) === Number(currentUserId),
+    );
+    if (
+        currentMember?.status === "LEFT" ||
+        currentMember?.status === "KICKED" ||
+        currentMember?.status === "BLOCKED" ||
+        currentMember?.status === "GROUP_DISBANDED"
+    ) {
+        return true;
+    }
+
+    const lastMessage = conversation.lastMessage;
+    if (!lastMessage) return false;
+
+    if (lastMessage.lastMessageType === "SYSTEM_DISBAND_GROUP") {
+        return true;
+    }
+
+    if (
+        lastMessage.lastMessageType === "SYSTEM_LEAVE_GROUP" &&
+        Number(lastMessage.lastSenderId) === Number(currentUserId)
+    ) {
+        return true;
+    }
+
+    if (
+        lastMessage.lastMessageType === "SYSTEM_KICK_MEMBER" ||
+        lastMessage.lastMessageType === "SYSTEM_BLOCK_MEMBER"
+    ) {
+        return safeParseMemberIds(lastMessage.lastMessageContent).some(
+            (id) => Number(id) === Number(currentUserId),
+        );
+    }
+
+    return false;
+}
+
 export default function Messages() {
     const INFO_PANEL_WIDTH = 352;
     const { sidebarWidth } = useSidebarLayout();
@@ -739,6 +807,11 @@ export default function Messages() {
                                         (pin) =>
                                             pin.conversationId === conv.id,
                                     );
+                                const isRemovedConversation =
+                                    isCurrentUserRemovedFromConversation(
+                                        conv,
+                                        currentUserId,
+                                    );
                                 const messagePreview =
                                     buildConversationLastMessagePreview({
                                         conversation: conv,
@@ -872,6 +945,25 @@ export default function Messages() {
                                                     {/* Mũi tên chỉ lên */}
                                                     <div className="absolute -top-2 right-2 h-4 w-4 rotate-45 border-l border-t border-gray-200 bg-white dark:border-[#363636] dark:bg-[#262626]" />
 
+                                                    {isRemovedConversation ? (
+                                                        <button
+                                                            onClick={() =>
+                                                                handleHideConversation(
+                                                                    conv.id,
+                                                                )
+                                                            }
+                                                            className={menuItemBase}
+                                                        >
+                                                            <Trash2
+                                                                size={20}
+                                                                className="text-red-500"
+                                                            />
+                                                            <span className="text-red-500">
+                                                                Xóa
+                                                            </span>
+                                                        </button>
+                                                    ) : (
+                                                        <>
                                                     <button
                                                         onClick={() =>
                                                             handleToggleConversationPin(
@@ -1000,6 +1092,8 @@ export default function Messages() {
                                                             Báo cáo
                                                         </span>
                                                     </button>
+                                                        </>
+                                                    )}
                                                 </div>
                                             )}
                                         </div>
