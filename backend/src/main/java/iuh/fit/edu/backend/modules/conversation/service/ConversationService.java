@@ -25,6 +25,8 @@ public interface ConversationService {
 
     List<ConversationSidebarResponse> getConversationsByUser(Long userId);
 
+    List<ConversationSidebarResponse> getForwardableConversationsByUser(Long userId);
+
     ConversationResponse getConversationById(Long conversationId, Long userId);
 
     void deleteConversationForMe(Long conversationId, Long userId);

@@ -8,6 +8,7 @@ import {
 } from "react";
 import {
   Send,
+  CheckCircle2,
   Phone,
   Video,
   Info,
@@ -32,6 +33,11 @@ import EmojiPicker, {
 } from "emoji-picker-react";
 import { useChatWindowController } from "../../hooks/useChatWindowController";
 import { MessageBubble } from "./MessageBubble";
+import chatService, {
+  type ConversationSidebar,
+  type Message,
+} from "../../services/chatService";
+import { buildConversationDisplayInfo } from "../../utils/conversationDisplayInfo";
 import { useCall } from "../../hooks/useCall";
 import IncomingCallModal from "./IncomingCallModal";
 import CallScreen from "./CallScreen";
@@ -72,6 +78,29 @@ function isAccessBlockedNotice(value?: string | null): boolean {
     normalized.includes("nhóm đã bị giải tán") ||
     normalized.includes("không có quyền truy cập")
   );
+}
+
+const FORWARD_BLOCKED_MEMBER_STATUSES = new Set([
+  "LEFT",
+  "KICKED",
+  "BLOCKED",
+  "GROUP_DISBANDED",
+]);
+
+function canForwardToConversation(
+  conversation: ConversationSidebar,
+  currentUserId: number
+): boolean {
+  if (conversation.lastMessage?.lastMessageType === "SYSTEM_DISBAND_GROUP") {
+    return false;
+  }
+
+  const currentMember = conversation.members?.find(
+    (member) => Number(member.userId) === Number(currentUserId)
+  );
+
+  if (!currentMember) return true;
+  return !FORWARD_BLOCKED_MEMBER_STATUSES.has(String(currentMember.status));
 }
 
 function AccessBlockedState({ message }: { message: string }) {
@@ -241,7 +270,7 @@ export default function ChatWindow({
       .filter((member) => callMemberIds.has(member.userId))
       .map((member) => ({
         userId: member.userId,
-        name: member.nickname || member.username,
+        name: member.nickname || member.username || "NgÆ°á»i dÃ¹ng",
         avatar: member.avatar,
       }));
   }, [activeCall, conversation?.type, membersById, userId]);
@@ -348,6 +377,12 @@ export default function ChatWindow({
     Record<string, string>
   >({});
   const selectedImagePreviewUrlsRef = useRef<Record<string, string>>({});
+  const [forwardSourceMessage, setForwardSourceMessage] = useState<Message | null>(null);
+  const [forwardConversations, setForwardConversations] = useState<ConversationSidebar[]>([]);
+  const [forwardSelectedIds, setForwardSelectedIds] = useState<Set<number>>(new Set());
+  const [forwardLoading, setForwardLoading] = useState(false);
+  const [forwardSubmitting, setForwardSubmitting] = useState(false);
+  const [forwardError, setForwardError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!plusMenuOpen) return;
@@ -500,6 +535,67 @@ export default function ChatWindow({
     },
     [getMessagePreviewText, membersById]
   );
+
+  const openForwardModal = useCallback(
+    async (message: Message) => {
+      setForwardSourceMessage(message);
+      setForwardSelectedIds(new Set());
+      setForwardError(null);
+      setForwardLoading(true);
+
+      try {
+        const response = await chatService.getForwardableConversations();
+        setForwardConversations(
+          (response.data ?? []).filter((item) =>
+            canForwardToConversation(item, userId)
+          )
+        );
+      } catch {
+        setForwardError("Khong the tai danh sach hoi thoai");
+      } finally {
+        setForwardLoading(false);
+      }
+    },
+    [userId]
+  );
+
+  const closeForwardModal = useCallback(() => {
+    if (forwardSubmitting) return;
+    setForwardSourceMessage(null);
+    setForwardSelectedIds(new Set());
+    setForwardError(null);
+  }, [forwardSubmitting]);
+
+  const toggleForwardTarget = useCallback((targetId: number) => {
+    setForwardSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(targetId)) next.delete(targetId);
+      else next.add(targetId);
+      return next;
+    });
+  }, []);
+
+  const submitForwardMessage = useCallback(async () => {
+    if (!forwardSourceMessage || forwardSelectedIds.size === 0) return;
+
+    try {
+      setForwardSubmitting(true);
+      setForwardError(null);
+      await chatService.forwardMessage({
+        sourceMessageId: forwardSourceMessage.id,
+        targetConversationIds: Array.from(forwardSelectedIds),
+      });
+      setForwardSourceMessage(null);
+      setForwardSelectedIds(new Set());
+    } catch (error) {
+      const message =
+        (error as { response?: { data?: { message?: string } } })?.response
+          ?.data?.message || "Khong the chuyen tiep tin nhan";
+      setForwardError(message);
+    } finally {
+      setForwardSubmitting(false);
+    }
+  }, [forwardSelectedIds, forwardSourceMessage]);
 
   const focusAndHighlightMessage = useCallback((messageId: string): boolean => {
     const tryHighlight = (attempt: number) => {
@@ -812,6 +908,7 @@ export default function ChatWindow({
             onPin={(messageId) => void handlePinMessage(messageId)}
             onUnpin={(messageId) => void handleUnpinMessage(messageId)}
             onReply={handleReplyMessage}
+            onForward={openForwardModal}
             onJumpToMessage={requestJumpToMessage}
             onRecall={handleRecall}
             canRecallOwnMessages={canRecallOwnMessages}
@@ -869,6 +966,7 @@ export default function ChatWindow({
     handlePinMessage,
     handleDeleteMessageForMe,
     handleReplyMessage,
+    openForwardModal,
     handleRecall,
     highlightedMessageId,
     isInitialLoad,
@@ -1696,6 +1794,103 @@ export default function ChatWindow({
           </div>
         )}
       </div>
+
+      {forwardSourceMessage && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/45 px-4 py-6">
+          <div className="w-full max-w-md overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-gray-200 dark:bg-gray-900 dark:ring-gray-700">
+            <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3 dark:border-gray-800">
+              <div className="min-w-0">
+                <h3 className="text-base font-semibold text-gray-950 dark:text-white">
+                  Chuyen tiep tin nhan
+                </h3>
+                <p className="mt-0.5 truncate text-xs text-gray-500 dark:text-gray-400">
+                  {getMessagePreviewText(forwardSourceMessage)}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeForwardModal}
+                className="rounded-full p-1.5 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="max-h-[55vh] overflow-y-auto px-2 py-2">
+              {forwardLoading ? (
+                <div className="flex h-36 items-center justify-center">
+                  <span className="h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-gray-800 dark:border-gray-700 dark:border-t-white" />
+                </div>
+              ) : forwardConversations.length === 0 ? (
+                <p className="px-3 py-8 text-center text-sm text-gray-500">
+                  Khong co hoi thoai phu hop
+                </p>
+              ) : (
+                forwardConversations.map((item) => {
+                  const selected = forwardSelectedIds.has(item.id);
+                  const displayInfo = buildConversationDisplayInfo({
+                    conversation: item,
+                    currentUserId: userId,
+                  });
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => toggleForwardTarget(item.id)}
+                      className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-gray-800"
+                    >
+                      <img
+                        src={displayInfo.avatarUrl || defaultAvatarSmallUrl}
+                        alt={displayInfo.name}
+                        className="h-10 w-10 rounded-full object-cover"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
+                          {displayInfo.name}
+                        </span>
+                      </span>
+                      <span
+                        className={`flex h-5 w-5 items-center justify-center rounded-full border ${
+                          selected
+                            ? "border-blue-600 bg-blue-600 text-white"
+                            : "border-gray-300 dark:border-gray-600"
+                        }`}
+                      >
+                        {selected ? <CheckCircle2 size={14} /> : null}
+                      </span>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+
+            {forwardError && (
+              <p className="border-t border-gray-100 px-4 py-2 text-sm text-red-500 dark:border-gray-800">
+                {forwardError}
+              </p>
+            )}
+
+            <div className="flex items-center justify-end gap-2 border-t border-gray-100 px-4 py-3 dark:border-gray-800">
+              <button
+                type="button"
+                onClick={closeForwardModal}
+                disabled={forwardSubmitting}
+                className="rounded-md px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-60 dark:text-gray-200 dark:hover:bg-gray-800"
+              >
+                Huy
+              </button>
+              <button
+                type="button"
+                onClick={() => void submitForwardMessage()}
+                disabled={forwardSelectedIds.size === 0 || forwardSubmitting}
+                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {forwardSubmitting ? "Dang gui..." : "Chuyen tiep"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <IncomingCallModal
         open={Boolean(incomingCall)}

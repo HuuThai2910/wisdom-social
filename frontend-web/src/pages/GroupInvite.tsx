@@ -20,6 +20,7 @@ export default function GroupInvite() {
     const { token } = useParams();
     const navigate = useNavigate();
     const [joining, setJoining] = useState(false);
+    const [cancelling, setCancelling] = useState(false);
     const [error, setError] = useState("");
     const [preview, setPreview] = useState<ConversationPreview | null>(null);
     const [userStatus, setUserStatus] = useState<InviteUserStatus | null>(null);
@@ -87,6 +88,30 @@ export default function GroupInvite() {
         }
     }, [navigate, token, userStatus]);
 
+    const handleCancelRequest = useCallback(async () => {
+        if (!preview || userStatus !== "PENDING") return;
+        try {
+            setCancelling(true);
+            await chatService.cancelMyJoinRequest(preview.conversationId);
+            setUserStatus("NOT_MEMBER");
+            toast.success("Đã hủy yêu cầu tham gia nhóm.");
+        } catch (err) {
+            const message =
+                err &&
+                typeof err === "object" &&
+                "response" in (err as Record<string, unknown>)
+                    ? (
+                          err as {
+                              response?: { data?: { message?: string } };
+                          }
+                      ).response?.data?.message
+                    : null;
+            toast.error(message || "Không thể hủy yêu cầu tham gia.");
+        } finally {
+            setCancelling(false);
+        }
+    }, [preview, userStatus]);
+
     if (loading) {
         return (
             <div className="fixed inset-0 z-[100] flex items-center justify-center bg-white dark:bg-black">
@@ -148,16 +173,18 @@ export default function GroupInvite() {
                 )}
                 <button
                     type="button"
-                    disabled={isPending || joining}
-                    onClick={handleJoin}
+                    disabled={joining || cancelling}
+                    onClick={isPending ? handleCancelRequest : handleJoin}
                     className={`mt-7 h-11 w-full rounded-md text-sm font-semibold transition-colors disabled:cursor-not-allowed ${
                         isPending
-                            ? "bg-gray-200 text-gray-500 dark:bg-[#262626] dark:text-gray-400"
+                            ? "bg-gray-200 text-gray-700 hover:bg-gray-300 disabled:opacity-70 dark:bg-[#262626] dark:text-gray-200 dark:hover:bg-[#333333]"
                             : "bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-70"
                     }`}
                 >
                     {isPending
-                        ? "Đang chờ duyệt"
+                        ? cancelling
+                            ? "Đang hủy..."
+                            : "Hủy yêu cầu"
                         : joining
                           ? "Đang tham gia..."
                           : "Tham gia nhóm"}

@@ -941,8 +941,17 @@ export const MessageBubble = React.memo(
 
                                             {imageUrls.length > 0 ? (
                                                 <View style={styles.imageGrid}>
-                                                    {imageUrls.map(
-                                                        (url, imageIndex) => (
+                                                    {imageUrls.slice(0, 4).map(
+                                                        (url, imageIndex) => {
+                                                            const remainingImages =
+                                                                imageUrls.length -
+                                                                4;
+                                                            const showMoreBadge =
+                                                                imageIndex ===
+                                                                    3 &&
+                                                                remainingImages >
+                                                                    0;
+                                                            return (
                                                             <Pressable
                                                                 key={`${item.id}-image-${imageIndex}`}
                                                                 delayLongPress={
@@ -979,8 +988,25 @@ export const MessageBubble = React.memo(
                                                                             styles.cardShadow,
                                                                     ]}
                                                                 />
+                                                                {showMoreBadge ? (
+                                                                    <View
+                                                                        pointerEvents="none"
+                                                                        style={
+                                                                            styles.imageMoreOverlay
+                                                                        }
+                                                                    >
+                                                                        <Text
+                                                                            style={
+                                                                                styles.imageMoreText
+                                                                            }
+                                                                        >
+                                                                            +{remainingImages}
+                                                                        </Text>
+                                                                    </View>
+                                                                ) : null}
                                                             </Pressable>
-                                                        ),
+                                                            );
+                                                        },
                                                     )}
                                                 </View>
                                             ) : null}
@@ -2317,6 +2343,22 @@ const styles = StyleSheet.create({
     imageAttachmentLarge: {
         width: 248,
         height: 286,
+    },
+    imageMoreOverlay: {
+        position: "absolute",
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+        borderRadius: 16,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "rgba(0, 0, 0, 0.48)",
+    },
+    imageMoreText: {
+        color: colors.white,
+        fontSize: 22,
+        fontWeight: "800",
     },
     mediaCardMine: {
         borderColor: "rgba(255,255,255,0.35)",

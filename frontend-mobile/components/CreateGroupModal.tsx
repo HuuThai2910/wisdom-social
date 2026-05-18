@@ -1,8 +1,11 @@
 import { colors, spacing } from "@/constants";
+import chatService from "@/services/chatService";
 import type { FriendUser } from "@/services/friendService";
 import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import React, { useEffect, useMemo, useState } from "react";
 import {
+    Image,
     Modal,
     Pressable,
     ScrollView,
@@ -13,6 +16,13 @@ import {
 } from "react-native";
 import UserAvatar from "@/components/UserAvatar";
 import { buildS3Url } from "@/utils/s3";
+
+type GroupImageFile = {
+    uri: string;
+    fileName: string;
+    mimeType: string;
+    fileSize: number;
+};
 
 interface CreateGroupSubmitPayload {
     name: string;
@@ -46,14 +56,22 @@ export default function CreateGroupModal({
     onSubmit,
 }: CreateGroupModalProps) {
     const [groupName, setGroupName] = useState("");
-    const [groupImageUrl, setGroupImageUrl] = useState("");
+    const [groupImageFile, setGroupImageFile] = useState<GroupImageFile | null>(
+        null,
+    );
+    const [imageUploadError, setImageUploadError] = useState<string | null>(
+        null,
+    );
+    const [imageUploading, setImageUploading] = useState(false);
     const [searchKeyword, setSearchKeyword] = useState("");
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
 
     useEffect(() => {
         if (!open) {
             setGroupName("");
-            setGroupImageUrl("");
+            setGroupImageFile(null);
+            setImageUploadError(null);
+            setImageUploading(false);
             setSearchKeyword("");
             setSelectedIds([]);
         }
@@ -72,7 +90,7 @@ export default function CreateGroupModal({
         });
     }, [friends, searchKeyword]);
 
-    const canSubmit = selectedIds.length >= 2 && !submitting;
+    const canSubmit = selectedIds.length >= 2 && !submitting && !imageUploading;
 
     const toggleSelectedId = (userId: number) => {
         setSelectedIds((prev) =>
@@ -82,12 +100,63 @@ export default function CreateGroupModal({
         );
     };
 
+    const pickGroupImage = async () => {
+        const permission =
+            await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permission.granted) {
+            setImageUploadError("Can cap quyen truy cap thu vien anh.");
+            return;
+        }
+
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            aspect: [1, 1],
+            quality: 0.85,
+        });
+
+        if (result.canceled || !result.assets[0]) return;
+
+        const asset = result.assets[0];
+        setImageUploadError(null);
+        setGroupImageFile({
+            uri: asset.uri,
+            fileName: asset.fileName || "group-avatar.jpg",
+            mimeType: asset.mimeType || "image/jpeg",
+            fileSize: asset.fileSize || 0,
+        });
+    };
+
     const handleSubmit = async () => {
         if (!canSubmit) return;
 
+        let uploadedImageKey: string | undefined;
+
+        setImageUploadError(null);
+        if (groupImageFile) {
+            try {
+                setImageUploading(true);
+                const { presignedUrl, objectKey } =
+                    await chatService.getPresignedUrl(
+                        "CONVERSATION",
+                        "group-avatars",
+                        "IMAGE",
+                        groupImageFile.fileName,
+                        groupImageFile.mimeType,
+                    );
+                await chatService.uploadToS3(presignedUrl, groupImageFile);
+                uploadedImageKey = objectKey;
+            } catch {
+                setImageUploadError("Khong the tai anh nhom len. Vui long thu lai.");
+                return;
+            } finally {
+                setImageUploading(false);
+            }
+        }
+
         await onSubmit({
             name: groupName,
-            imageUrl: groupImageUrl,
+            imageUrl: uploadedImageKey,
             memberIds: selectedIds,
         });
     };
@@ -127,13 +196,42 @@ export default function CreateGroupModal({
                             placeholderTextColor={colors.textMuted}
                             style={styles.input}
                         />
-                        <TextInput
-                            value={groupImageUrl}
-                            onChangeText={setGroupImageUrl}
-                            placeholder="Anh nhom (URL)"
-                            placeholderTextColor={colors.textMuted}
-                            style={styles.input}
-                        />
+                        <Pressable
+                            style={styles.imagePickerRow}
+                            onPress={() => void pickGroupImage()}
+                        >
+                            {groupImageFile ? (
+                                <Image
+                                    source={{ uri: groupImageFile.uri }}
+                                    style={styles.groupImagePreview}
+                                />
+                            ) : (
+                                <View style={styles.groupImagePlaceholder}>
+                                    <Ionicons
+                                        name="image-outline"
+                                        size={22}
+                                        color={colors.textMuted}
+                                    />
+                                </View>
+                            )}
+                            <View style={styles.imagePickerTextWrap}>
+                                <Text
+                                    style={styles.imagePickerTitle}
+                                    numberOfLines={1}
+                                >
+                                    {groupImageFile?.fileName ||
+                                        "Chon anh nhom tu may"}
+                                </Text>
+                                <Text style={styles.imagePickerSub}>
+                                    JPG, PNG hoac anh tu thu vien
+                                </Text>
+                            </View>
+                            <Ionicons
+                                name="chevron-forward"
+                                size={18}
+                                color={colors.textMuted}
+                            />
+                        </Pressable>
                     </View>
 
                     <View style={styles.searchWrap}>
@@ -212,8 +310,10 @@ export default function CreateGroupModal({
                         )}
                     </ScrollView>
 
-                    {error ? (
-                        <Text style={styles.errorText}>{error}</Text>
+                    {error || imageUploadError ? (
+                        <Text style={styles.errorText}>
+                            {error || imageUploadError}
+                        </Text>
                     ) : null}
 
                     <View style={styles.footer}>
@@ -236,7 +336,11 @@ export default function CreateGroupModal({
                                 disabled={!canSubmit}
                             >
                                 <Text style={styles.confirmBtnText}>
-                                    {submitting ? "Dang tao..." : "Tao nhom"}
+                                    {imageUploading
+                                        ? "Dang tai anh..."
+                                        : submitting
+                                          ? "Dang tao..."
+                                          : "Tao nhom"}
                                 </Text>
                             </Pressable>
                         </View>
@@ -300,6 +404,45 @@ const styles = StyleSheet.create({
         minHeight: 40,
         color: colors.text,
         paddingHorizontal: spacing.sm,
+    },
+    imagePickerRow: {
+        minHeight: 56,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: spacing.sm,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: 10,
+        paddingHorizontal: spacing.sm,
+        paddingVertical: spacing.xs,
+    },
+    groupImagePreview: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: "#E5E7EB",
+    },
+    groupImagePlaceholder: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#F3F4F6",
+    },
+    imagePickerTextWrap: {
+        flex: 1,
+        minWidth: 0,
+    },
+    imagePickerTitle: {
+        fontSize: 14,
+        fontWeight: "600",
+        color: colors.text,
+    },
+    imagePickerSub: {
+        marginTop: 2,
+        fontSize: 12,
+        color: colors.textMuted,
     },
     searchWrap: {
         flexDirection: "row",

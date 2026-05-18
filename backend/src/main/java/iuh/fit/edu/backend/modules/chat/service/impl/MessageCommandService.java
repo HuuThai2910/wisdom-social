@@ -12,9 +12,11 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 import org.springframework.context.ApplicationEventPublisher;
@@ -31,6 +33,7 @@ import iuh.fit.edu.backend.common.service.s3.S3Service;
 import iuh.fit.edu.backend.common.util.TransactionUtil;
 import iuh.fit.edu.backend.common.util.heplper.ChatSnapshotHelper;
 import iuh.fit.edu.backend.modules.chat.constant.MessageType;
+import iuh.fit.edu.backend.modules.chat.dto.request.ForwardMessageRequest;
 import iuh.fit.edu.backend.modules.chat.dto.request.SendCallMessageRequest;
 import iuh.fit.edu.backend.modules.chat.dto.request.SendMessageRequest;
 import iuh.fit.edu.backend.modules.chat.dto.response.LastMessageResponse;
@@ -121,6 +124,78 @@ public class MessageCommandService {
         publishMessageEvents(conversation.getId(), messageResponse, lastMessageResponse);
 
         return messageResponse;
+    }
+
+    @Transactional
+    public List<MessageResponse> forwardMessage(ForwardMessageRequest request, Long userId) {
+        List<Long> targetConversationIds = Optional.ofNullable(request.getTargetConversationIds())
+                .orElse(Collections.emptyList())
+                .stream()
+                .filter(id -> id != null && id > 0)
+                .collect(Collectors.toCollection(ArrayList::new));
+
+        targetConversationIds = new ArrayList<>(new LinkedHashSet<>(targetConversationIds));
+        if (targetConversationIds.isEmpty()) {
+            throw new IllegalArgumentException("Danh sách cuộc trò chuyện nhận không được để trống");
+        }
+
+        Message sourceMessage = messageRepository.findById(request.getSourceMessageId())
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy tin nhắn cần chuyển tiếp"));
+
+        validateForwardSourceMessage(sourceMessage, userId);
+
+        List<ForwardTargetContext> targetContexts = targetConversationIds.stream()
+                .map(targetConversationId -> {
+                    Conversation targetConversation = conversationRepository.findById(targetConversationId)
+                            .orElseThrow(() -> new RuntimeException("Không tìm thấy cuộc trò chuyện nhận"));
+                    ConversationMemberResponse senderInfo = conversationMemberService
+                            .getMemberInfo(targetConversationId, userId);
+                    validateCanSendToConversation(targetConversation, senderInfo);
+                    return new ForwardTargetContext(targetConversation, senderInfo);
+                })
+                .toList();
+
+        List<String> copiedAttachmentKeys = new ArrayList<>();
+        try {
+            List<Message> preparedMessages = targetContexts.stream()
+                    .map(targetContext -> buildForwardMessage(
+                            sourceMessage,
+                            targetContext.conversation().getId(),
+                            targetContext.senderInfo().getUserId(),
+                            copiedAttachmentKeys
+                    ))
+                    .toList();
+
+            List<MessageResponse> forwardedMessages = new ArrayList<>();
+            List<ForwardPublishPayload> publishPayloads = new ArrayList<>();
+
+            for (int i = 0; i < preparedMessages.size(); i++) {
+                ForwardTargetContext targetContext = targetContexts.get(i);
+                Message savedMessage = messageRepository.save(preparedMessages.get(i));
+                MessageResponse messageResponse = messageMapper.toMessageResponse(savedMessage);
+                LastMessageResponse lastMessageResponse = processPostMessageSideEffects(
+                        targetContext.conversation(), savedMessage, targetContext.senderInfo(), messageResponse
+                );
+
+                forwardedMessages.add(messageResponse);
+                publishPayloads.add(new ForwardPublishPayload(
+                        targetContext.conversation().getId(),
+                        messageResponse,
+                        lastMessageResponse
+                ));
+            }
+
+            publishPayloads.forEach(payload -> publishMessageEvents(
+                    payload.conversationId(),
+                    payload.messageResponse(),
+                    payload.lastMessageResponse()
+            ));
+
+            return forwardedMessages;
+        } catch (RuntimeException e) {
+            deleteCopiedForwardAttachments(copiedAttachmentKeys);
+            throw e;
+        }
     }
 
     /**
@@ -329,6 +404,183 @@ public class MessageCommandService {
 
 
     //  HÀM TẠO TIN NHẮN HỆ THỐNG VÀ CẬP NHẬT SIDEBAR
+    private void validateForwardSourceMessage(Message sourceMessage, Long userId) {
+        conversationMemberService.getMemberInfo(sourceMessage.getConversationId(), userId);
+
+        if (sourceMessage.isRecalled()) {
+            throw new IllegalArgumentException("Không thể chuyển tiếp tin nhắn đã thu hồi");
+        }
+        if (sourceMessage.getDeletedFor() != null && sourceMessage.getDeletedFor().contains(userId)) {
+            throw new IllegalArgumentException("Không thể chuyển tiếp tin nhắn đã xóa ở phía bạn");
+        }
+        if (sourceMessage.getMessageType() != null
+                && sourceMessage.getMessageType().name().startsWith("SYSTEM_")) {
+            throw new IllegalArgumentException("Không thể chuyển tiếp tin nhắn hệ thống");
+        }
+    }
+
+    private void validateCanSendToConversation(
+            Conversation conversation,
+            ConversationMemberResponse senderInfo) {
+        if (conversation.isMessageRestricted()
+                && senderInfo.getRole() != MemberRole.OWNER
+                && senderInfo.getRole() != MemberRole.DEPUTY) {
+            throw new AccessDeniedException("Nhóm đang bật chế độ chỉ Trưởng/Phó nhóm mới được gửi tin nhắn.");
+        }
+    }
+
+    private Message buildForwardMessage(
+            Message sourceMessage,
+            Long targetConversationId,
+            Long senderId,
+            List<String> copiedAttachmentKeys) {
+        Message newMessage = new Message();
+        newMessage.setContent(sourceMessage.getContent());
+        newMessage.setMessageType(sourceMessage.getMessageType());
+        newMessage.setSenderId(senderId);
+        newMessage.setConversationId(targetConversationId);
+        newMessage.setCreatedAt(Instant.now().truncatedTo(ChronoUnit.MILLIS));
+        newMessage.setAttachments(cloneForwardAttachments(
+                sourceMessage.getAttachments(),
+                targetConversationId,
+                sourceMessage.getMessageType(),
+                copiedAttachmentKeys
+        ));
+
+        if (isMediaMessage(sourceMessage.getMessageType())
+                && (sourceMessage.getAttachments() == null || sourceMessage.getAttachments().isEmpty())
+                && sourceMessage.getContent() != null
+                && !sourceMessage.getContent().isBlank()) {
+            newMessage.setContent(copyForwardMediaKey(
+                    sourceMessage.getContent(),
+                    targetConversationId,
+                    null,
+                    sourceMessage.getMessageType(),
+                    copiedAttachmentKeys
+            ));
+        }
+
+        return newMessage;
+    }
+
+    private List<Message.MediaAttachment> cloneForwardAttachments(
+            List<Message.MediaAttachment> sourceAttachments,
+            Long targetConversationId,
+            MessageType messageType,
+            List<String> copiedAttachmentKeys) {
+        if (sourceAttachments == null || sourceAttachments.isEmpty()) {
+            return null;
+        }
+
+        return sourceAttachments.stream()
+                .map(attachment -> Message.MediaAttachment.builder()
+                        .url(copyForwardMediaKey(
+                                attachment.getUrl(),
+                                targetConversationId,
+                                attachment.getFileName(),
+                                messageType,
+                                copiedAttachmentKeys
+                        ))
+                        .fileName(attachment.getFileName())
+                        .fileSize(attachment.getFileSize())
+                        .build())
+                .collect(Collectors.toList());
+    }
+
+    private String copyForwardMediaKey(
+            String sourceKey,
+            Long targetConversationId,
+            String fileName,
+            MessageType messageType,
+            List<String> copiedAttachmentKeys) {
+        String destinationKey = buildForwardObjectKey(targetConversationId, sourceKey, fileName, messageType);
+        String copiedKey = s3Service.copyObject(UploadModule.CONVERSATION, sourceKey, destinationKey);
+        copiedAttachmentKeys.add(copiedKey);
+        return copiedKey;
+    }
+
+    private String buildForwardObjectKey(
+            Long targetConversationId,
+            String sourceKey,
+            String fileName,
+            MessageType messageType) {
+        String extension = resolveExtension(fileName);
+        if (extension.isBlank()) {
+            extension = resolveExtension(sourceKey);
+        }
+
+        String subFolder = switch (Optional.ofNullable(messageType).orElse(MessageType.FILE)) {
+            case IMAGE -> "images";
+            case VIDEO -> "videos";
+            case AUDIO -> "audios";
+            default -> "files";
+        };
+
+        if (messageType == null && sourceKey != null) {
+            String normalized = sourceKey.toLowerCase();
+            if (normalized.contains("/images/")) subFolder = "images";
+            else if (normalized.contains("/videos/")) subFolder = "videos";
+            else if (normalized.contains("/audios/")) subFolder = "audios";
+        }
+
+        return String.format(
+                "conversations/%s/%s/%s%s",
+                targetConversationId,
+                subFolder,
+                UUID.randomUUID(),
+                extension
+        );
+    }
+
+    private String resolveExtension(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        String normalized = value.trim();
+        int queryIndex = normalized.indexOf('?');
+        if (queryIndex >= 0) {
+            normalized = normalized.substring(0, queryIndex);
+        }
+        int fragmentIndex = normalized.indexOf('#');
+        if (fragmentIndex >= 0) {
+            normalized = normalized.substring(0, fragmentIndex);
+        }
+        int dotIndex = normalized.lastIndexOf('.');
+        int slashIndex = normalized.lastIndexOf('/');
+        if (dotIndex <= slashIndex || dotIndex < 0 || dotIndex == normalized.length() - 1) {
+            return "";
+        }
+        return normalized.substring(dotIndex).toLowerCase();
+    }
+
+    private boolean isMediaMessage(MessageType type) {
+        return type == MessageType.IMAGE
+                || type == MessageType.VIDEO
+                || type == MessageType.FILE
+                || type == MessageType.AUDIO;
+    }
+
+    private void deleteCopiedForwardAttachments(List<String> copiedAttachmentKeys) {
+        for (String copiedKey : copiedAttachmentKeys) {
+            try {
+                s3Service.deleteByKey(UploadModule.CONVERSATION, copiedKey);
+            } catch (Exception ex) {
+                log.warn("Không thể dọn file S3 đã copy khi forward lỗi: {}", copiedKey, ex);
+            }
+        }
+    }
+
+    private record ForwardTargetContext(
+            Conversation conversation,
+            ConversationMemberResponse senderInfo) {
+    }
+
+    private record ForwardPublishPayload(
+            Long conversationId,
+            MessageResponse messageResponse,
+            LastMessageResponse lastMessageResponse) {
+    }
+
     private void createAndPublishSystemMessage(String targetMsgId, Long senderId, Long convId, MessageType type, String content) {
         Conversation conversation = conversationRepository.findById(convId).get();
         ConversationMemberResponse senderInfo = conversationMemberService.getMemberInfo(convId, senderId);

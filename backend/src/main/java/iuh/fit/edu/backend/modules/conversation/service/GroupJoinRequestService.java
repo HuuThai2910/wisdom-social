@@ -19,6 +19,8 @@ public interface GroupJoinRequestService {
 
     void createRequest(Long conversationId, Long userId, Long inviterId);
 
+    void cancelMyPendingRequest(Long conversationId, Long userId);
+
     @Transactional
     void processRequest(Long requestId, Long adminId, boolean isApproved);
 

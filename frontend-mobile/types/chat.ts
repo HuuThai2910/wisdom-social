@@ -130,6 +130,7 @@ export interface ConversationSidebar {
     updatedAt: string;
     lastMessage?: LastMessage;
     unreadCount?: number;
+    members?: ConversationMember[];
     isMessageRestricted?: boolean;
     isJoinApprovalRequired?: boolean;
     pendingRequests?: JoinRequest[] | null;
@@ -147,7 +148,7 @@ export interface Conversation extends ConversationSidebar {
     pinnedMessages?: PinnedMessageDetail[];
 }
 
-export type JoinRequestStatus = "PENDING" | "APPROVED" | "REJECTED";
+export type JoinRequestStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
 
 export interface JoinRequest {
     id: number;
@@ -191,6 +192,12 @@ export interface SendMessageRequest {
         fileSize: number;
     }>;
 }
+
+export interface ForwardMessageRequest {
+    sourceMessageId: string;
+    targetConversationIds: number[];
+}
+
 export interface SendCallMessageRequest {
     conversationId: number;
     callType: "audio" | "video";

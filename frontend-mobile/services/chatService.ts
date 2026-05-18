@@ -11,6 +11,7 @@ import type {
     CreateGroupRequest,
     CursorResponse,
     LocalUploadFile,
+    ForwardMessageRequest,
     JoinRequest,
     MemberRole,
     Message,
@@ -93,6 +94,11 @@ const chatService = {
         userId: number,
     ): Promise<ApiResponse<ConversationSidebar[]>> {
         const response = await apiClient.get(`/conversations`);
+        return response.data;
+    },
+
+    async getForwardableConversations(): Promise<ApiResponse<ConversationSidebar[]>> {
+        const response = await apiClient.get(`/conversations/forward-targets`);
         return response.data;
     },
 
@@ -192,6 +198,13 @@ const chatService = {
     ): Promise<Message> {
         const response = await apiClient.post(`/messages/send`, request);
         return normalizeMessagePayload(response.data);
+    },
+
+    async forwardMessage(request: ForwardMessageRequest): Promise<Message[]> {
+        const response = await apiClient.post(`/messages/forward`, request);
+        return unwrapApiData(
+            response.data as ApiResponse<Message[]> | Message[],
+        );
     },
 
     async sendCallMessage(
@@ -431,6 +444,12 @@ const chatService = {
         );
         return unwrapApiData(
             response.data as ApiResponse<JoinRequest[]> | JoinRequest[],
+        );
+    },
+
+    async cancelMyJoinRequest(conversationId: number): Promise<void> {
+        await apiClient.delete(
+            `/conversations/${conversationId}/join-requests/me`,
         );
     },
 

@@ -20,5 +20,7 @@ public interface S3Service {
 
     PresignedUrlResponse generatePresignedUrl(UploadModule module, String targetId, String type, String originalFilename, String contentType);
 
+    String copyObject(UploadModule module, String sourceKey, String destinationKey);
+
     void deleteByKey(UploadModule module, String s3ObjectKey);
 }
