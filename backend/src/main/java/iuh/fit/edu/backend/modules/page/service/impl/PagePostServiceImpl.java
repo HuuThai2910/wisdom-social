@@ -111,12 +111,19 @@ public class PagePostServiceImpl implements PagePostService {
     @Override
     public boolean removePostPage(long userId, long pageId, ObjectId postId) {
 
-        if (isPageAdminOrMorderator(userId, pageId)) return false;
-
         PagePost pagePost = pagePostRepository
                 .findByPostIdAndPage_Id(postId.toHexString(), pageId);
 
         if (pagePost == null) return false;
+
+        boolean isAdminOrMod = !isPageAdminOrMorderator(userId, pageId);
+
+        if (!isAdminOrMod) {
+            // Not admin/mod — only allow if the post is PENDING and authored by this user
+            if (pagePost.getStatus() != PostStatus.PENDING) return false;
+            Post post = postRepository.findById(postId.toString()).orElse(null);
+            if (post == null || !String.valueOf(userId).equals(post.getAuthorId())) return false;
+        }
 
         pagePostRepository.delete(pagePost);
         postRepository.deleteById(postId.toString());
@@ -150,6 +157,18 @@ public class PagePostServiceImpl implements PagePostService {
 
         return pagePostList.stream()
                 .map(pagePost -> postRepository.findById(pagePost.getPostId()).orElse(null))
+                .toList();
+    }
+
+    @Override
+    public List<Post> getMyPendingPostsOfPage(long userId, long pageId) {
+        List<PagePost> pagePostList = pagePostRepository
+                .findByPage_IdAndStatus(pageId, PostStatus.PENDING);
+
+        String authorIdStr = String.valueOf(userId);
+        return pagePostList.stream()
+                .map(pagePost -> postRepository.findById(pagePost.getPostId()).orElse(null))
+                .filter(post -> post != null && authorIdStr.equals(post.getAuthorId()))
                 .toList();
     }
 

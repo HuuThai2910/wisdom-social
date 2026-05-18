@@ -466,6 +466,18 @@ class PageService {
     }
   }
 
+  async getMyPendingPosts(pageId: number): Promise<PagePostItem[]> {
+    try {
+      const response = await apiClient.get(
+        `/page/post/my-pending/${pageId}`,
+      );
+      const data = response.data?.data ?? response.data;
+      return Array.isArray(data) ? data : [];
+    } catch {
+      return [];
+    }
+  }
+
   async approvePost(
     userId: number,
     pageId: number,

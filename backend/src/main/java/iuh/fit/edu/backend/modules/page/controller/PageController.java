@@ -311,6 +311,16 @@ public class PageController {
         return ResponseEntity.ok(ApiResponse.success(200, "Get all posts waiting for approve successfully", posts));
     }
 
+    @GetMapping("/post/my-pending/{pageId}")
+    @ApiMessage("Get my pending posts successfully")
+    public ResponseEntity<ApiResponse<List<Post>>> getMyPendingPosts(@PathVariable long pageId) {
+        User currentUser = userService.getCurrentUser();
+        if (currentUser == null)
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error(401, "Unauthorized", null));
+        List<Post> posts = pagePostService.getMyPendingPostsOfPage(currentUser.getId(), pageId);
+        return ResponseEntity.ok(ApiResponse.success(200, "Get my pending posts successfully", posts));
+    }
+
     @PostMapping("/post/approve-all")
     @ApiMessage("Approve all posts successfully")
     public ResponseEntity<String> approveAllPosts(@RequestBody UserRequestPage request) {

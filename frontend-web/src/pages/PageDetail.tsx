@@ -6,7 +6,7 @@ import {
     Clock, CheckCircle, XCircle, Lock, FileText,
     Trash2, Edit, Search, X, MessageCircle, Share2,
     ThumbsUp, Bell, MoreHorizontal, Camera, Flag,
-    ChevronDown, UserCheck, UserMinus
+    ChevronDown, UserCheck, UserMinus, PenSquare, ImageIcon, Plus
 } from "lucide-react";
 import pageService, { type Page, type PageMember } from "../services/pageService";
 import userService from "../services/userService";
@@ -71,11 +71,14 @@ export default function PageDetail() {
     const [isLiked, setIsLiked] = useState(false);
     const [isFollowing, setIsFollowing] = useState(false);
     const [actionLoading, setActionLoading] = useState(false);
-    const [activeTab, setActiveTab] = useState<"posts" | "about" | "members" | "pending">("posts");
+    const [activeTab, setActiveTab] = useState<"posts" | "about" | "members" | "pending" | "my-pending">("posts");
 
     const [posts, setPosts] = useState<Post[]>([]);
     const [pendingPosts, setPendingPosts] = useState<Post[]>([]);
+    const [myPendingPosts, setMyPendingPosts] = useState<Post[]>([]);
     const [loadingPosts, setLoadingPosts] = useState(false);
+    const [loadingMyPending, setLoadingMyPending] = useState(false);
+    const [withdrawingPost, setWithdrawingPost] = useState<string | null>(null);
 
     const [pendingRequests, setPendingRequests] = useState<PendingMember[]>([]);
     const [loadingPendingRequests, setLoadingPendingRequests] = useState(false);
@@ -92,6 +95,14 @@ export default function PageDetail() {
     const [postActionLoading, setPostActionLoading] = useState<string | null>(null);
     const [requestActionLoading, setRequestActionLoading] = useState<number | null>(null);
     const [showMoreMenu, setShowMoreMenu] = useState(false);
+
+    // Create post state
+    const [showCreatePostModal, setShowCreatePostModal] = useState(false);
+    const [createPostContent, setCreatePostContent] = useState("");
+    const [createPostImages, setCreatePostImages] = useState<string[]>([]);
+    const [createPostImageInput, setCreatePostImageInput] = useState("");
+    const [isCreatingPost, setIsCreatingPost] = useState(false);
+    const [createPostSuccess, setCreatePostSuccess] = useState<string | null>(null);
 
     const loadPageData = useCallback(async () => {
         if (!numericPageId) return;
@@ -235,6 +246,19 @@ export default function PageDetail() {
         }
     }, [numericPageId, currentUser?.id]);
 
+    const loadMyPendingPosts = useCallback(async () => {
+        if (!numericPageId || !currentUser?.id) return;
+        setLoadingMyPending(true);
+        try {
+            const myPending = await pageService.getMyPendingPosts(numericPageId);
+            setMyPendingPosts(myPending || []);
+        } catch (error) {
+            console.error("Error loading my pending posts:", error);
+        } finally {
+            setLoadingMyPending(false);
+        }
+    }, [numericPageId, currentUser?.id]);
+
     const loadPendingRequests = useCallback(async () => {
         if (!numericPageId) return;
         setLoadingPendingRequests(true);
@@ -265,7 +289,10 @@ export default function PageDetail() {
             loadPendingRequests();
             loadMembers();
         }
-    }, [memberStatus, loadPendingPosts, loadPendingRequests, loadMembers]);
+        if (memberStatus === "member") {
+            loadMyPendingPosts();
+        }
+    }, [memberStatus, loadPendingPosts, loadPendingRequests, loadMembers, loadMyPendingPosts]);
 
     // Real-time page events via WebSocket
     const currentUserId = currentUser?.id ? Number(currentUser.id) : null;
@@ -289,10 +316,16 @@ export default function PageDetail() {
                     void loadPageData();
                 }
             }
-            // If current user's request was approved/rejected, reload full data
-            if (type === "PAGE_JOIN_APPROVED" || type === "PAGE_JOIN_REJECTED") {
+            // If current user's request was approved/rejected, only update memberStatus
+            if (type === "PAGE_JOIN_APPROVED") {
                 if (event.userId && Number(event.userId) === currentUserId) {
-                    void loadPageData();
+                    setMemberStatus("member");
+                    setMemberCount(c => c + 1);
+                }
+            }
+            if (type === "PAGE_JOIN_REJECTED") {
+                if (event.userId && Number(event.userId) === currentUserId) {
+                    setMemberStatus("none");
                 }
             }
         };
@@ -350,6 +383,18 @@ export default function PageDetail() {
                     return [newPost, ...prev];
                 });
             }
+            // Nếu chính mình vừa post → thêm vào myPendingPosts
+            if (post && memberStatus === "member") {
+                const postAuthorId = (post as any).authorId;
+                const myId = currentUser?.id ? String(currentUser.id) : null;
+                if (myId && postAuthorId === myId) {
+                    setMyPendingPosts(prev => {
+                        const newPost = { ...post, _id: (post as any)._id || (post as any).id || _postId } as unknown as Post;
+                        if (prev.some(p => p._id === newPost._id)) return prev;
+                        return [newPost, ...prev];
+                    });
+                }
+            }
         },
         onPostApproved: (postId, post) => {
             // Bài viết được duyệt → chuyển từ pending → approved
@@ -367,14 +412,20 @@ export default function PageDetail() {
                 }
                 return prev.filter(p => p._id !== postId);
             });
+            // Xóa khỏi my-pending nếu bài được duyệt
+            setMyPendingPosts(prev => prev.filter(p => p._id !== postId));
         },
         onPostRejected: (postId) => {
             // Bài viết bị từ chối → xóa khỏi pending
             setPendingPosts(prev => prev.filter(p => p._id !== postId));
+            // Xóa khỏi my-pending nếu bài bị từ chối
+            setMyPendingPosts(prev => prev.filter(p => p._id !== postId));
         },
         onPostRemoved: (postId) => {
             // Bài viết bị xóa → xóa khỏi approved
             setPosts(prev => prev.filter(p => p._id !== postId));
+            setMyPendingPosts(prev => prev.filter(p => p._id !== postId));
+            setPendingPosts(prev => prev.filter(p => p._id !== postId));
         },
     });
 
@@ -459,6 +510,17 @@ export default function PageDetail() {
         finally { setRequestActionLoading(null); }
     };
 
+    const handleLeavePage = async () => {
+        if (!numericPageId || !currentUser?.id) return;
+        if (!confirm("Bạn có chắc muốn rời page này?")) return;
+        try {
+            await pageService.deleteMember(numericPageId, currentUser.id);
+            setMemberStatus("none");
+            setMemberCount(c => Math.max(0, c - 1));
+            alert("Đã rời page thành công");
+        } catch { alert("Không thể rời page"); }
+    };
+
     const handleDeletePage = async () => {
         if (!numericPageId || memberStatus !== "owner") return;
         if (!confirm("Bạn có chắc muốn XÓA page này? Hành động này không thể hoàn tác!")) return;
@@ -494,6 +556,41 @@ export default function PageDetail() {
         setSelectedUsers(prev => isSelected ? prev.filter(u => u.id !== user.id) : [...prev, user]);
     };
 
+    const handleCreatePost = async () => {
+        if (!numericPageId || !currentUser?.id) return;
+        if (!createPostContent.trim() && createPostImages.length === 0) return;
+        setIsCreatingPost(true);
+        try {
+            const postData = { content: createPostContent.trim() };
+            await pageService.addPostToPage(numericPageId, postData, createPostImages.length > 0 ? createPostImages : undefined);
+            setCreatePostContent("");
+            setCreatePostImages([]);
+            setCreatePostImageInput("");
+            setShowCreatePostModal(false);
+            if (isOwnerOrAdmin) {
+                // owner/admin posts are auto-approved → reload posts
+                void loadPosts();
+                setCreatePostSuccess("Bài viết đã được đăng thành công!");
+            } else {
+                setCreatePostSuccess("Bài viết đã được gửi và đang chờ duyệt!");
+            }
+            setTimeout(() => setCreatePostSuccess(null), 4000);
+        } catch (error) {
+            console.error("Error creating post:", error);
+            alert("Không thể tạo bài viết. Vui lòng thử lại.");
+        } finally {
+            setIsCreatingPost(false);
+        }
+    };
+
+    const handleAddImageUrl = () => {
+        const url = createPostImageInput.trim();
+        if (url && !createPostImages.includes(url)) {
+            setCreatePostImages(prev => [...prev, url]);
+        }
+        setCreatePostImageInput("");
+    };
+
     if (loading) {
         return (
             <div className="flex items-center justify-center min-h-screen bg-gray-100 dark:bg-[#18191a]">
@@ -520,6 +617,7 @@ export default function PageDetail() {
     }
 
     const isOwnerOrAdmin = memberStatus === "owner" || memberStatus === "admin";
+    const canPost = memberStatus === "owner" || memberStatus === "admin" || memberStatus === "member";
     const pendingCount = pendingRequests.length + pendingPosts.length;
     const tabs = [
         { id: "posts", label: "Bài viết" },
@@ -527,6 +625,9 @@ export default function PageDetail() {
         ...(isOwnerOrAdmin ? [
             { id: "members", label: "Thành viên" },
             { id: "pending", label: "Chờ duyệt", badge: pendingCount },
+        ] : []),
+        ...(memberStatus === "member" ? [
+            { id: "my-pending", label: "Bài của tôi", badge: myPendingPosts.length > 0 ? myPendingPosts.length : undefined },
         ] : []),
     ] as { id: string; label: string; badge?: number }[];
 
@@ -719,6 +820,18 @@ export default function PageDetail() {
                                                     </button>
                                                 </>
                                             )}
+                                            {memberStatus === "member" && (
+                                                <>
+                                                    <div className="border-t border-gray-200 dark:border-[#4e4f50] my-1" />
+                                                    <button
+                                                        onClick={handleLeavePage}
+                                                        className="w-full flex items-center gap-3 px-4 py-3 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 text-[15px]"
+                                                    >
+                                                        <UserMinus size={18} />
+                                                        Rời page
+                                                    </button>
+                                                </>
+                                            )}
                                             {!isOwnerOrAdmin && (
                                                 <button className="w-full flex items-center gap-3 px-4 py-3 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-[#4e4f50] text-[15px]">
                                                     <Flag size={18} />
@@ -885,6 +998,50 @@ export default function PageDetail() {
 
                         {/* Main feed */}
                         <div className="flex-1 min-w-0 space-y-3">
+
+                            {/* Success toast */}
+                            {createPostSuccess && (
+                                <div className="flex items-center gap-3 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl text-green-700 dark:text-green-400 text-[15px] font-medium animate-pulse">
+                                    <CheckCircle size={20} />
+                                    {createPostSuccess}
+                                </div>
+                            )}
+
+                            {/* Create Post Box — only visible to members/admin/owner */}
+                            {canPost && (
+                                <div className="bg-white dark:bg-[#242526] rounded-xl shadow-sm p-4">
+                                    <div className="flex items-center gap-3">
+                                        <img
+                                            src={buildS3Url(currentUser?.avatarUrl) || "https://via.placeholder.com/40"}
+                                            alt="avatar"
+                                            className="w-10 h-10 rounded-full object-cover flex-shrink-0"
+                                        />
+                                        <button
+                                            onClick={() => setShowCreatePostModal(true)}
+                                            className="flex-1 text-left px-4 py-2.5 bg-gray-100 dark:bg-[#3a3b3c] hover:bg-gray-200 dark:hover:bg-[#4e4f50] rounded-full text-gray-500 dark:text-gray-400 text-[15px] transition-colors cursor-pointer"
+                                        >
+                                            Bạn đang nghĩ gì?
+                                        </button>
+                                    </div>
+                                    <div className="flex items-center gap-1 mt-3 pt-3 border-t border-gray-100 dark:border-[#3a3b3c]">
+                                        <button
+                                            onClick={() => setShowCreatePostModal(true)}
+                                            className="flex-1 flex items-center justify-center gap-2 py-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#3a3b3c] rounded-lg text-[15px] font-semibold transition-colors"
+                                        >
+                                            <ImageIcon size={20} className="text-green-500" />
+                                            Ảnh/Video
+                                        </button>
+                                        <button
+                                            onClick={() => setShowCreatePostModal(true)}
+                                            className="flex-1 flex items-center justify-center gap-2 py-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#3a3b3c] rounded-lg text-[15px] font-semibold transition-colors"
+                                        >
+                                            <PenSquare size={20} className="text-yellow-500" />
+                                            Cảm xúc
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
                             {loadingPosts ? (
                                 <div className="flex justify-center py-12">
                                     <Loader2 className="animate-spin text-blue-500" size={32} />
@@ -898,8 +1055,17 @@ export default function PageDetail() {
                                         Chưa có bài viết nào
                                     </p>
                                     <p className="text-gray-400 dark:text-gray-500 text-[15px]">
-                                        Các bài viết của page sẽ xuất hiện ở đây
+                                        {canPost ? "Hãy là người đầu tiên đăng bài!" : "Các bài viết của page sẽ xuất hiện ở đây"}
                                     </p>
+                                    {canPost && (
+                                        <button
+                                            onClick={() => setShowCreatePostModal(true)}
+                                            className="mt-4 flex items-center gap-2 px-6 py-2.5 bg-blue-500 text-white rounded-xl text-[15px] font-semibold hover:bg-blue-600 transition-colors mx-auto"
+                                        >
+                                            <PenSquare size={18} />
+                                            Tạo bài viết
+                                        </button>
+                                    )}
                                 </div>
                             ) : (
                                 posts.map((post) => (
@@ -1158,6 +1324,129 @@ export default function PageDetail() {
                 )}
             </div>
 
+            {/* MY PENDING TAB — chỉ member thường thấy */}
+            {activeTab === "my-pending" && memberStatus === "member" && (
+                <div className="max-w-[1095px] mx-auto px-4 md:px-6 py-4">
+                    <div className="max-w-2xl space-y-4">
+                        {/* Header card */}
+                        <div className="bg-white dark:bg-[#242526] rounded-xl shadow-sm p-5">
+                            <div className="flex items-center gap-3 mb-1">
+                                <div className="w-10 h-10 bg-yellow-100 dark:bg-yellow-900/30 rounded-full flex items-center justify-center">
+                                    <Clock size={20} className="text-yellow-600 dark:text-yellow-400" />
+                                </div>
+                                <div>
+                                    <h2 className="text-xl font-bold dark:text-white">Bài viết của tôi đang chờ duyệt</h2>
+                                    <p className="text-gray-500 dark:text-gray-400 text-sm">
+                                        Các bài bạn đã đăng đang chờ admin xem xét
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {loadingMyPending ? (
+                            <div className="flex justify-center py-12">
+                                <Loader2 className="animate-spin text-yellow-500" size={32} />
+                            </div>
+                        ) : myPendingPosts.length === 0 ? (
+                            <div className="bg-white dark:bg-[#242526] rounded-xl shadow-sm p-12 text-center">
+                                <div className="w-20 h-20 bg-gray-100 dark:bg-[#3a3b3c] rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <CheckCircle size={36} className="text-gray-400" />
+                                </div>
+                                <p className="text-xl font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                                    Không có bài nào chờ duyệt
+                                </p>
+                                <p className="text-gray-400 dark:text-gray-500 text-[15px]">
+                                    Tất cả bài viết của bạn đã được duyệt hoặc bạn chưa đăng bài nào
+                                </p>
+                                <button
+                                    onClick={() => setShowCreatePostModal(true)}
+                                    className="mt-4 flex items-center gap-2 px-6 py-2.5 bg-blue-500 text-white rounded-xl text-[15px] font-semibold hover:bg-blue-600 transition-colors mx-auto"
+                                >
+                                    <PenSquare size={18} />
+                                    Đăng bài mới
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="space-y-3">
+                                {myPendingPosts.map((post) => (
+                                    <div key={post._id} className="bg-white dark:bg-[#242526] rounded-xl shadow-sm overflow-hidden">
+                                        {/* Status banner */}
+                                        <div className="flex items-center gap-2 px-4 py-2.5 bg-yellow-50 dark:bg-yellow-900/20 border-b border-yellow-100 dark:border-yellow-900/30">
+                                            <Clock size={15} className="text-yellow-600 dark:text-yellow-400 flex-shrink-0" />
+                                            <span className="text-yellow-700 dark:text-yellow-400 text-sm font-medium">
+                                                Đang chờ admin duyệt
+                                            </span>
+                                            <span className="ml-auto text-xs text-gray-400 dark:text-gray-500">
+                                                {timeAgo(post.createdAt)}
+                                            </span>
+                                        </div>
+
+                                        <div className="p-4">
+                                            {/* Post content */}
+                                            {post.content && (
+                                                <p className="text-gray-800 dark:text-gray-200 text-[15px] leading-relaxed mb-3">
+                                                    {post.content}
+                                                </p>
+                                            )}
+
+                                            {/* Images */}
+                                            {post.images && post.images.length > 0 && (
+                                                <div className={`grid gap-1.5 mb-4 rounded-xl overflow-hidden ${
+                                                    post.images.length === 1 ? 'grid-cols-1' :
+                                                    post.images.length === 2 ? 'grid-cols-2' : 'grid-cols-3'
+                                                }`}>
+                                                    {post.images.slice(0, 4).map((img, idx) => (
+                                                        <img key={idx}
+                                                            src={buildS3Url(img) || img}
+                                                            alt=""
+                                                            className="w-full h-40 object-cover"
+                                                        />
+                                                    ))}
+                                                </div>
+                                            )}
+
+                                            {/* Actions */}
+                                            <div className="flex items-center gap-2 pt-3 border-t border-gray-100 dark:border-[#3a3b3c]">
+                                                <div className="flex-1 flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+                                                    <FileText size={15} />
+                                                    <span>Bài viết chưa được hiển thị công khai</span>
+                                                </div>
+                                                {withdrawingPost === post._id ? (
+                                                    <div className="flex items-center gap-2 px-4 py-1.5 text-sm text-gray-400">
+                                                        <Loader2 size={15} className="animate-spin" />
+                                                        Đang rút...
+                                                    </div>
+                                                ) : (
+                                                    <button
+                                                        onClick={async () => {
+                                                            if (!currentUser?.id || !numericPageId) return;
+                                                            if (!confirm("Bạn có chắc muốn rút bài viết này? Bài sẽ bị xóa hoàn toàn.")) return;
+                                                            setWithdrawingPost(post._id);
+                                                            try {
+                                                                await pageService.removePostFromPage(currentUser.id, numericPageId, post._id);
+                                                                setMyPendingPosts(prev => prev.filter(p => p._id !== post._id));
+                                                            } catch {
+                                                                alert("Không thể rút bài viết. Vui lòng thử lại.");
+                                                            } finally {
+                                                                setWithdrawingPost(null);
+                                                            }
+                                                        }}
+                                                        className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                                                    >
+                                                        <X size={15} />
+                                                        Rút bài
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
             {/* Add Member Modal */}
             {showAddMemberModal && (
                 <div className="fixed inset-0 z-[9999] flex items-center justify-center">
@@ -1330,6 +1619,149 @@ export default function PageDetail() {
             {/* Click outside to close more menu */}
             {showMoreMenu && (
                 <div className="fixed inset-0 z-40" onClick={() => setShowMoreMenu(false)} />
+            )}
+
+            {/* Create Post Modal */}
+            {showCreatePostModal && (
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center">
+                    <div
+                        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+                        onClick={() => {
+                            if (!isCreatingPost) {
+                                setShowCreatePostModal(false);
+                                setCreatePostContent("");
+                                setCreatePostImages([]);
+                                setCreatePostImageInput("");
+                            }
+                        }}
+                    />
+                    <div className="relative w-full max-w-lg mx-4 bg-white dark:bg-[#242526] rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
+                        {/* Modal Header */}
+                        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-[#3a3b3c]">
+                            <div>
+                                <h2 className="text-xl font-bold dark:text-white text-center flex-1">Tạo bài viết</h2>
+                                <p className="text-gray-500 dark:text-gray-400 text-sm mt-0.5">
+                                    Đăng lên · <span className="font-semibold text-gray-700 dark:text-gray-300">{page.name}</span>
+                                    {!isOwnerOrAdmin && (
+                                        <span className="ml-1 text-yellow-600 dark:text-yellow-400">(cần duyệt)</span>
+                                    )}
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => {
+                                    if (!isCreatingPost) {
+                                        setShowCreatePostModal(false);
+                                        setCreatePostContent("");
+                                        setCreatePostImages([]);
+                                        setCreatePostImageInput("");
+                                    }
+                                }}
+                                className="w-9 h-9 flex items-center justify-center bg-gray-100 dark:bg-[#3a3b3c] rounded-full hover:bg-gray-200 dark:hover:bg-[#4e4f50] transition-colors"
+                            >
+                                <X size={18} className="dark:text-white" />
+                            </button>
+                        </div>
+
+                        {/* Author row */}
+                        <div className="flex items-center gap-3 px-5 pt-4">
+                            <img
+                                src={buildS3Url(currentUser?.avatarUrl) || "https://via.placeholder.com/40"}
+                                alt="avatar"
+                                className="w-10 h-10 rounded-full object-cover"
+                            />
+                            <div>
+                                <p className="font-semibold dark:text-white text-[15px]">
+                                    {(currentUser as any)?.name || (currentUser as any)?.username || "Bạn"}
+                                </p>
+                                <div className="flex items-center gap-1 text-xs bg-gray-100 dark:bg-[#3a3b3c] text-gray-600 dark:text-gray-400 px-2 py-0.5 rounded-full w-fit">
+                                    {isOwnerOrAdmin ? <Globe size={11} /> : <Clock size={11} />}
+                                    <span>{isOwnerOrAdmin ? "Công khai" : "Chờ duyệt"}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Scrollable body */}
+                        <div className="flex-1 overflow-y-auto px-5 py-3 space-y-4">
+                            {/* Content textarea */}
+                            <textarea
+                                autoFocus
+                                value={createPostContent}
+                                onChange={(e) => setCreatePostContent(e.target.value)}
+                                placeholder={`Bạn đang nghĩ gì, ${(currentUser as any)?.name || (currentUser as any)?.username || "bạn"}?`}
+                                className="w-full min-h-[120px] resize-none bg-transparent text-gray-900 dark:text-white text-[17px] placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none leading-relaxed"
+                                disabled={isCreatingPost}
+                            />
+
+                            {/* Image URLs section */}
+                            <div className="border border-gray-200 dark:border-[#3a3b3c] rounded-xl overflow-hidden">
+                                <div className="flex items-center gap-2 px-3 py-2.5 bg-gray-50 dark:bg-[#3a3b3c]">
+                                    <ImageIcon size={18} className="text-green-500 flex-shrink-0" />
+                                    <span className="text-[14px] font-semibold text-gray-700 dark:text-gray-300">Thêm ảnh qua URL</span>
+                                </div>
+                                <div className="p-3 space-y-2">
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            value={createPostImageInput}
+                                            onChange={(e) => setCreatePostImageInput(e.target.value)}
+                                            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddImageUrl(); } }}
+                                            placeholder="Dán URL ảnh vào đây..."
+                                            className="flex-1 px-3 py-2 bg-gray-100 dark:bg-[#242526] border-0 rounded-lg text-gray-900 dark:text-white placeholder-gray-400 text-[14px] focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            disabled={isCreatingPost}
+                                        />
+                                        <button
+                                            onClick={handleAddImageUrl}
+                                            disabled={!createPostImageInput.trim() || isCreatingPost}
+                                            className="flex items-center justify-center w-9 h-9 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+                                        >
+                                            <Plus size={18} />
+                                        </button>
+                                    </div>
+
+                                    {createPostImages.length > 0 && (
+                                        <div className="grid grid-cols-3 gap-2 mt-2">
+                                            {createPostImages.map((url, idx) => (
+                                                <div key={idx} className="relative group rounded-lg overflow-hidden bg-gray-100 dark:bg-[#3a3b3c] aspect-square">
+                                                    <img
+                                                        src={buildS3Url(url) || url}
+                                                        alt={`img-${idx}`}
+                                                        className="w-full h-full object-cover"
+                                                        onError={(e) => { (e.target as HTMLImageElement).src = "https://via.placeholder.com/100?text=!"; }}
+                                                    />
+                                                    <button
+                                                        onClick={() => setCreatePostImages(prev => prev.filter((_, i) => i !== idx))}
+                                                        className="absolute top-1 right-1 w-6 h-6 bg-black/60 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    >
+                                                        <X size={12} />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Footer / Submit */}
+                        <div className="px-5 py-4 border-t border-gray-200 dark:border-[#3a3b3c]">
+                            <button
+                                onClick={handleCreatePost}
+                                disabled={(!createPostContent.trim() && createPostImages.length === 0) || isCreatingPost}
+                                className={`w-full py-3 rounded-xl text-[15px] font-bold transition-all ${
+                                    (!createPostContent.trim() && createPostImages.length === 0) || isCreatingPost
+                                        ? "bg-gray-100 dark:bg-[#3a3b3c] text-gray-400 cursor-not-allowed"
+                                        : "bg-blue-500 text-white hover:bg-blue-600 active:scale-[0.98]"
+                                }`}
+                            >
+                                {isCreatingPost ? (
+                                    <Loader2 className="animate-spin mx-auto" size={20} />
+                                ) : (
+                                    isOwnerOrAdmin ? "Đăng bài" : "Gửi bài (chờ duyệt)"
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     );

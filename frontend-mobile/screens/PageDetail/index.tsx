@@ -108,6 +108,9 @@ export default function PageDetailScreen() {
   const [loadingPosts, setLoadingPosts] = useState(false);
   const [postsWaiting, setPostsWaiting] = useState<PagePostItem[]>([]);
   const [loadingWaiting, setLoadingWaiting] = useState(false);
+  const [myPendingPosts, setMyPendingPosts] = useState<PagePostItem[]>([]);
+  const [loadingMyPending, setLoadingMyPending] = useState(false);
+  const [withdrawingPostId, setWithdrawingPostId] = useState<string | null>(null);
 
   // ── Pending requests state ─────────────────────────────────────────────
 
@@ -212,6 +215,17 @@ export default function PageDetailScreen() {
     }
   }, [numericPageId]);
 
+  const loadMyPending = useCallback(async () => {
+    if (!numericPageId) return;
+    setLoadingMyPending(true);
+    try {
+      const data = await pageService.getMyPendingPosts(numericPageId);
+      setMyPendingPosts(data);
+    } finally {
+      setLoadingMyPending(false);
+    }
+  }, [numericPageId]);
+
   useEffect(() => {
     void load();
   }, [load]);
@@ -230,6 +244,13 @@ export default function PageDetailScreen() {
     if (isAdmin || isOwner) void loadPending();
   }, [page?.id, canManage, isAdmin, isOwner]);
 
+  // Load my pending posts when member status is ACTIVE (regular member)
+  useEffect(() => {
+    if (memberStatus === "ACTIVE" && !canManage) {
+      void loadMyPending();
+    }
+  }, [memberStatus, canManage, loadMyPending]);
+
   // Load posts when posts tab is selected
   useEffect(() => {
     if (activeSection === "posts") void loadPosts();
@@ -245,11 +266,12 @@ export default function PageDetailScreen() {
         void load();
         void loadPending();
         void loadWaiting();
+        if (memberStatus === "ACTIVE" && !canManage) void loadMyPending();
         if (activeSection === "posts") void loadPosts();
       }, 500);
       return () => clearTimeout(timer);
     }
-  }, [wsRefresh, load, loadPending, loadWaiting, loadPosts, activeSection]);
+  }, [wsRefresh, load, loadPending, loadWaiting, loadPosts, loadMyPending, activeSection, memberStatus, canManage]);
 
   // Real-time: lắng nghe sự kiện bài viết của page
   usePagePostEvents({
@@ -263,10 +285,24 @@ export default function PageDetailScreen() {
           return [newPost, ...prev];
         });
       }
+      // Nếu chính mình vừa post → thêm vào myPendingPosts
+      if (post && memberStatus === "ACTIVE" && !canManage) {
+        const postAuthorId = (post as any).authorId;
+        const myId = numericUserId ? String(numericUserId) : null;
+        if (myId && postAuthorId === myId) {
+          const newPost = post as unknown as PagePostItem;
+          setMyPendingPosts(prev => {
+            if (prev.some(p => p.id === newPost.id)) return prev;
+            return [newPost, ...prev];
+          });
+        }
+      }
     },
     onPostApproved: (postId, post) => {
       // Bài viết được duyệt → xóa khỏi waiting, thêm vào posts
       setPostsWaiting(prev => prev.filter(p => p.id !== postId));
+      // Xóa khỏi my-pending
+      setMyPendingPosts(prev => prev.filter(p => p.id !== postId));
       if (post) {
         const approvedPost = post as unknown as PostItem;
         setPosts(prev => {
@@ -276,12 +312,15 @@ export default function PageDetailScreen() {
       }
     },
     onPostRejected: (postId) => {
-      // Bài viết bị từ chối → xóa khỏi waiting
+      // Bài viết bị từ chối → xóa khỏi waiting và my-pending
       setPostsWaiting(prev => prev.filter(p => p.id !== postId));
+      setMyPendingPosts(prev => prev.filter(p => p.id !== postId));
     },
     onPostRemoved: (postId) => {
-      // Bài viết bị xóa → xóa khỏi posts
+      // Bài viết bị xóa → xóa khỏi posts, my-pending và waiting
       setPosts(prev => prev.filter(p => p.id !== postId));
+      setMyPendingPosts(prev => prev.filter(p => p.id !== postId));
+      setPostsWaiting(prev => prev.filter(p => p.id !== postId));
     },
   });
 
@@ -313,8 +352,43 @@ export default function PageDetailScreen() {
     void load();
     void loadPending();
     void loadWaiting();
+    if (memberStatus === "ACTIVE" && !canManage) void loadMyPending();
     if (activeSection === "posts") void loadPosts();
-  }, [load, loadPending, loadWaiting, loadPosts, activeSection]);
+  }, [load, loadPending, loadWaiting, loadPosts, loadMyPending, activeSection, memberStatus, canManage]);
+
+  const handleWithdrawPost = (postId: string) => {
+    if (!numericUserId) return;
+    Alert.alert(
+      "Rút bài viết",
+      "Bài viết sẽ bị xóa hoàn toàn. Bạn có chắc muốn rút bài này?",
+      [
+        { text: "Hủy", style: "cancel" },
+        {
+          text: "Rút bài",
+          style: "destructive",
+          onPress: async () => {
+            setWithdrawingPostId(postId);
+            try {
+              const ok = await pageService.removePostFromPage(
+                numericUserId,
+                numericPageId,
+                postId,
+              );
+              if (ok) {
+                setMyPendingPosts((prev) => prev.filter((p) => p.id !== postId));
+              } else {
+                Alert.alert("Ợi", "Không thể rút bài. Vui lòng thử lại.");
+              }
+            } catch {
+              Alert.alert("Ợi", "Không thể rút bài.");
+            } finally {
+              setWithdrawingPostId(null);
+            }
+          },
+        },
+      ],
+    );
+  };
 
   // ── User search for add member ─────────────────────────────────────────
 
@@ -1390,6 +1464,99 @@ export default function PageDetailScreen() {
                             Hủy
                           </Text>
                         </TouchableOpacity>
+                      </View>
+                    </View>
+                  ))
+                )}
+              </View>
+            )}
+
+            {/* My pending posts — chỉ hiển thị cho member thường */}
+            {memberStatus === "ACTIVE" && !canManage && (
+              <View style={styles.card}>
+                <View style={styles.cardHeaderRow}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    <Ionicons name="time-outline" size={18} color="#F59E0B" />
+                    <Text style={styles.cardTitle}>
+                      Bài của tôi đang chờ duyệt
+                    </Text>
+                  </View>
+                  {myPendingPosts.length > 0 && (
+                    <View style={{
+                      backgroundColor: "#F59E0B",
+                      borderRadius: 10,
+                      paddingHorizontal: 7,
+                      paddingVertical: 2,
+                    }}>
+                      <Text style={{ color: "#fff", fontSize: 12, fontWeight: "700" }}>
+                        {myPendingPosts.length}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+
+                {loadingMyPending ? (
+                  <ActivityIndicator size="small" color="#F59E0B" style={{ marginVertical: 12 }} />
+                ) : myPendingPosts.length === 0 ? (
+                  <View style={styles.emptyBlock}>
+                    <Ionicons name="checkmark-circle-outline" size={36} color={colors.border} />
+                    <Text style={styles.emptyText}>
+                      Không có bài nào đang chờ duyệt
+                    </Text>
+                  </View>
+                ) : (
+                  myPendingPosts.map((post) => (
+                    <View
+                      key={post.id}
+                      style={[styles.postCard, { backgroundColor: "#FFFBEB", borderColor: "#FDE68A", borderWidth: 1 }]}
+                    >
+                      {/* Status banner */}
+                      <View style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 6,
+                        backgroundColor: "#FEF3C7",
+                        paddingHorizontal: 10,
+                        paddingVertical: 6,
+                        marginBottom: 8,
+                        borderRadius: 6,
+                      }}>
+                        <Ionicons name="time-outline" size={14} color="#D97706" />
+                        <Text style={{ fontSize: 12, color: "#D97706", fontWeight: "600", flex: 1 }}>
+                          Đang chờ admin duyệt
+                        </Text>
+                        {post.createdAt && (
+                          <Text style={{ fontSize: 11, color: "#9CA3AF" }}>
+                            {new Date(post.createdAt).toLocaleDateString("vi-VN")}
+                          </Text>
+                        )}
+                      </View>
+
+                      {!!post.content && (
+                        <Text style={styles.postContent}>{post.content}</Text>
+                      )}
+                      {post.images && post.images.length > 0 && (
+                        <Image
+                          source={{ uri: buildS3Url(post.images[0]) }}
+                          style={styles.postImagePreview}
+                          resizeMode="cover"
+                        />
+                      )}
+
+                      <View style={{ flexDirection: "row", justifyContent: "flex-end", marginTop: 10 }}>
+                        {withdrawingPostId === post.id ? (
+                          <ActivityIndicator size="small" color={colors.danger} />
+                        ) : (
+                          <TouchableOpacity
+                            style={[styles.smallBtn, { backgroundColor: "#FEE2E2" }]}
+                            onPress={() => handleWithdrawPost(post.id)}
+                          >
+                            <Ionicons name="close-circle-outline" size={15} color={colors.danger} />
+                            <Text style={[styles.smallBtnText, { color: colors.danger }]}>
+                              Rút bài
+                            </Text>
+                          </TouchableOpacity>
+                        )}
                       </View>
                     </View>
                   ))
