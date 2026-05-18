@@ -12,6 +12,7 @@ public interface PagePostService {
     boolean removePostPage(long userId, long pageId, ObjectId postId);
     List<Post> getAllPostOfPage(long pageId);
     List<Post> getAllPostWaitingForApproveOfPage(long userId, long pageId);
+    List<Post> getMyPendingPostsOfPage(long userId, long pageId);
     boolean approveAllPostPage(long userId, long pageId);
     boolean cancelAllPostPage(long userId, long pageId);
     PagePost getPagePostByIdandPostId(long pageId, ObjectId postId);

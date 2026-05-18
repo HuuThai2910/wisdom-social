@@ -83,6 +83,18 @@ public class PageController {
     @PostMapping("/update/{pageId}")
     @ApiMessage("Update page successfully")
     public ResponseEntity<String> updatePage(@RequestBody UserRequestUpdatePage updatePage,@PathVariable long pageId){
+        User currentUser = userService.getCurrentUser();
+        if (currentUser == null)
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("User not authenticated");
+        
+        Page page = pageService.findPageById(pageId);
+        if (page == null)
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Page not found");
+        
+        // Check if current user is the page owner
+        if (!page.getCreatedBy().getId().equals(currentUser.getId()))
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Only page owner can update this page");
+        
         boolean success= pageService.updatePage(pageId,updatePage);
         if (success)
             return ResponseEntity.ok("Update page successfully");
@@ -92,6 +104,18 @@ public class PageController {
     @DeleteMapping("/delete/{id}")
     @ApiMessage("Delete page successfully")
     public ResponseEntity<String> deletePage(@PathVariable long id){
+        User currentUser = userService.getCurrentUser();
+        if (currentUser == null)
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("User not authenticated");
+        
+        Page page = pageService.findPageById(id);
+        if (page == null)
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Page not found");
+        
+        // Check if current user is the page owner
+        if (!page.getCreatedBy().getId().equals(currentUser.getId()))
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Only page owner can delete this page");
+        
         boolean success= pageService.deletePage(id);
         if (success)
             return ResponseEntity.ok("Delete page successfully");
@@ -285,6 +309,16 @@ public class PageController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error(401, "Unauthorized", null));
         List<Post> posts = pagePostService.getAllPostWaitingForApproveOfPage(currentUser.getId(), pageId);
         return ResponseEntity.ok(ApiResponse.success(200, "Get all posts waiting for approve successfully", posts));
+    }
+
+    @GetMapping("/post/my-pending/{pageId}")
+    @ApiMessage("Get my pending posts successfully")
+    public ResponseEntity<ApiResponse<List<Post>>> getMyPendingPosts(@PathVariable long pageId) {
+        User currentUser = userService.getCurrentUser();
+        if (currentUser == null)
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error(401, "Unauthorized", null));
+        List<Post> posts = pagePostService.getMyPendingPostsOfPage(currentUser.getId(), pageId);
+        return ResponseEntity.ok(ApiResponse.success(200, "Get my pending posts successfully", posts));
     }
 
     @PostMapping("/post/approve-all")
