@@ -259,6 +259,15 @@ export default function PageDetailScreen() {
   const wsRefresh = usePageEvents({
     pageId: numericPageId || undefined,
     userId: numericUserId ?? undefined,
+    onEvent: (event) => {
+      const type = event.eventType;
+      if (type === "PAGE_MEMBER_JOINED" || type === "PAGE_MEMBER_LEFT") {
+        setMemberCount(c => type === "PAGE_MEMBER_JOINED" ? c + 1 : Math.max(0, c - 1));
+        if (type === "PAGE_MEMBER_LEFT" && event.userId) {
+          setMembers(prev => prev.filter(m => m.user?.id !== event.userId));
+        }
+      }
+    }
   });
   useEffect(() => {
     if (wsRefresh > 0) {
@@ -703,7 +712,9 @@ export default function PageDetailScreen() {
         onPress: async () => {
           try {
             await pageService.removeMember(numericPageId, userId);
-            void load();
+            setMembers(prev => prev.filter(m => m.user?.id !== userId));
+            setMemberCount(prev => Math.max(0, prev - 1));
+            // Không cần void load() vì đã filter state trực tiếp
           } catch {
             Alert.alert("Lỗi", "Không thể xóa thành viên.");
           }

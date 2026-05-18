@@ -305,6 +305,11 @@ export default function PageDetail() {
 
             if (type === "PAGE_MEMBER_JOINED" || type === "PAGE_MEMBER_LEFT") {
                 setMemberCount(c => type === "PAGE_MEMBER_JOINED" ? c + 1 : Math.max(0, c - 1));
+                void loadMembers();
+                if (type === "PAGE_MEMBER_LEFT" && event.userId && Number(event.userId) === currentUserId) {
+                    setMemberStatus("none");
+                    void loadPageData();
+                }
             }
             if (type === "PAGE_JOIN_REQUESTED" || type === "PAGE_JOIN_APPROVED" || type === "PAGE_JOIN_REJECTED" || type === "PAGE_JOIN_CANCELLED") {
                 void loadPendingRequests();
@@ -549,6 +554,17 @@ export default function PageDetail() {
             loadMembers();
         } catch { alert("Không thể thêm thành viên"); }
         finally { setIsAddingMembers(false); }
+    };
+
+    const handleRemoveMember = async (userId: number, name: string) => {
+        if (!numericPageId) return;
+        if (!confirm(`Bạn có chắc muốn xóa ${name} khỏi page này?`)) return;
+        try {
+            await pageService.deleteMember(numericPageId, userId);
+            setMembers(prev => prev.filter(m => Number(m.user?.id) !== userId));
+            setMemberCount(prev => Math.max(0, prev - 1));
+            // alert("Đã xóa thành viên"); // Optional
+        } catch { alert("Không thể xóa thành viên"); }
     };
 
     const toggleUserSelection = (user: User) => {
@@ -1193,6 +1209,15 @@ export default function PageDetail() {
                                             }`}>
                                                 {member.role}
                                             </span>
+                                            {isOwnerOrAdmin && Number(member.user?.id) !== currentUserId && (memberStatus === "owner" || member.role !== "ADMIN") && (
+                                                <button
+                                                    onClick={() => handleRemoveMember(Number(member.user?.id), member.user?.name || member.user?.username || "Thành viên")}
+                                                    className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors ml-2"
+                                                    title="Xóa thành viên"
+                                                >
+                                                    <X size={18} />
+                                                </button>
+                                            )}
                                         </div>
                                     ))
                                 )}
