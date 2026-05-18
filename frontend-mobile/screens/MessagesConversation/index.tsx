@@ -26,6 +26,7 @@ import {
     Alert,
     Animated,
     ActivityIndicator,
+    BackHandler,
     Dimensions,
     Easing,
     FlatList,
@@ -110,6 +111,20 @@ export default function MessagesConversationScreen() {
             return;
         }
         router.back();
+    }, [backToMessages, router]);
+
+    useEffect(() => {
+        if (backToMessages !== "1") return;
+
+        const subscription = BackHandler.addEventListener(
+            "hardwareBackPress",
+            () => {
+                router.replace("/(tabs)/activity");
+                return true;
+            },
+        );
+
+        return () => subscription.remove();
     }, [backToMessages, router]);
     const handleAccessBlocked = useCallback(() => {
         router.replace("/(tabs)/activity");
@@ -1398,6 +1413,7 @@ export default function MessagesConversationScreen() {
     // Chỉ hiện màn hình lỗi (error view) khi bị mất quyền truy cập hoàn toàn.
     // Nếu chỉ bị chặn gửi tin nhắn (readOnlyNotice chứa "Chỉ trưởng/phó nhóm") thì vẫn cho xem hội thoại.
     const isAccessBlocked = readOnlyNotice && (
+        readOnlyNotice.includes("chặn") ||
         readOnlyNotice.includes("xóa") || 
         readOnlyNotice.includes("rời") || 
         readOnlyNotice.includes("giải tán") ||
@@ -1405,6 +1421,7 @@ export default function MessagesConversationScreen() {
     );
     const normalizedReadOnlyNotice = readOnlyNotice?.toLowerCase() ?? "";
     const isPlainTextAccessBlocked =
+        normalizedReadOnlyNotice.includes("chan") ||
         normalizedReadOnlyNotice.includes("xoa") ||
         normalizedReadOnlyNotice.includes("roi") ||
         normalizedReadOnlyNotice.includes("giai tan") ||

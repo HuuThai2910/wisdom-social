@@ -31,6 +31,35 @@ function resolveJoinedConversationId(
     return Number.isFinite(id) ? id : null;
 }
 
+function pickMessage(value: unknown): string | null {
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (!value || typeof value !== "object") return null;
+
+    const record = value as Record<string, unknown>;
+    return (
+        pickMessage(record.message) ||
+        pickMessage(record.error) ||
+        pickMessage(record.data) ||
+        pickMessage(record.errors)
+    );
+}
+
+function extractApiErrorMessage(error: unknown): string | null {
+    if (error && typeof error === "object") {
+        const responseData = (
+            error as { response?: { data?: unknown } }
+        ).response?.data;
+        const fromResponse = pickMessage(responseData);
+        if (fromResponse) return fromResponse;
+    }
+
+    if (error instanceof Error && error.message.trim()) {
+        return error.message.trim();
+    }
+
+    return null;
+}
+
 export function GroupInviteScreen() {
     const { token, returnConversationId, returnTo } = useLocalSearchParams<{
         token: string;
@@ -60,7 +89,11 @@ export function GroupInviteScreen() {
             if (data.userStatus === "ACTIVE") {
                 router.replace({
                     pathname: "/(stack)/messages/[conversationId]",
-                    params: { conversationId: String(data.conversationId) },
+                    params: {
+                        conversationId: String(data.conversationId),
+                        refreshAt: String(Date.now()),
+                        backToMessages: "1",
+                    },
                 });
                 return;
             }
@@ -228,16 +261,7 @@ export function GroupInviteScreen() {
             });
             return;
         } catch (err) {
-            const message =
-                err &&
-                typeof err === "object" &&
-                "response" in (err as Record<string, unknown>)
-                    ? (
-                          err as {
-                              response?: { data?: { message?: string } };
-                          }
-                      ).response?.data?.message
-                    : null;
+            const message = extractApiErrorMessage(err);
             Alert.alert("Không thể tham gia", message || "Bạn đã bị chặn khỏi nhóm này");
         } finally {
             setJoining(false);

@@ -71,7 +71,87 @@ const menuActions = [
     { key: "report", label: "Báo cáo", icon: "flag-outline" },
 ] as const;
 
+const removedConversationMenuActions = [
+    {
+        key: "delete",
+        label: "Xóa",
+        icon: "trash-outline",
+        destructive: true,
+    },
+] as const;
+
 type MenuActionKey = (typeof menuActions)[number]["key"];
+
+function safeParseMemberIds(content?: string | null): number[] {
+    if (!content) return [];
+
+    try {
+        const parsed = JSON.parse(content);
+        if (!Array.isArray(parsed)) return [];
+        return parsed
+            .map((value: unknown) => {
+                if (typeof value === "object" && value !== null && "id" in value) {
+                    return Number((value as { id?: unknown }).id);
+                }
+                return Number(value);
+            })
+            .filter((value) => Number.isFinite(value));
+    } catch {
+        return [];
+    }
+}
+
+function isCurrentUserRemovedFromConversation(
+    conversation:
+        | {
+              members?: Array<{ userId: number; status?: string }>;
+              lastMessage?: {
+                  lastMessageType?: string;
+                  lastMessageContent?: string | null;
+                  lastSenderId?: number;
+              } | null;
+          }
+        | null
+        | undefined,
+    currentUserId: number,
+): boolean {
+    const currentMember = conversation?.members?.find(
+        (member) => Number(member.userId) === Number(currentUserId),
+    );
+    if (
+        currentMember?.status === "LEFT" ||
+        currentMember?.status === "KICKED" ||
+        currentMember?.status === "BLOCKED" ||
+        currentMember?.status === "GROUP_DISBANDED"
+    ) {
+        return true;
+    }
+
+    const lastMessage = conversation?.lastMessage;
+    if (!lastMessage) return false;
+
+    if (lastMessage.lastMessageType === "SYSTEM_DISBAND_GROUP") {
+        return true;
+    }
+
+    if (
+        lastMessage.lastMessageType === "SYSTEM_LEAVE_GROUP" &&
+        Number(lastMessage.lastSenderId) === Number(currentUserId)
+    ) {
+        return true;
+    }
+
+    if (
+        lastMessage.lastMessageType === "SYSTEM_KICK_MEMBER" ||
+        lastMessage.lastMessageType === "SYSTEM_BLOCK_MEMBER"
+    ) {
+        return safeParseMemberIds(lastMessage.lastMessageContent).some(
+            (id) => Number(id) === Number(currentUserId),
+        );
+    }
+
+    return false;
+}
 
 export default function MessagesListScreen() {
     const router = useRouter();
@@ -194,6 +274,13 @@ export default function MessagesListScreen() {
               (pin) => pin.conversationId === selectedConversation.id,
           )
         : false;
+    const selectedConversationRemoved = isCurrentUserRemovedFromConversation(
+        selectedConversation,
+        currentUserId,
+    );
+    const effectiveMenuActions = selectedConversationRemoved
+        ? removedConversationMenuActions
+        : menuActions;
 
     useEffect(() => {
         if (!menuState) return;
@@ -259,13 +346,22 @@ export default function MessagesListScreen() {
         suppressNextPressRef.current = true;
         const { width, height } = Dimensions.get("window");
         const y = event.nativeEvent.pageY;
+        const pressedConversation = filteredConversations.find(
+            (conversation) => String(conversation.id) === conversationId,
+        );
+        const menuHeight = isCurrentUserRemovedFromConversation(
+            pressedConversation,
+            currentUserId,
+        )
+            ? 56
+            : MENU_HEIGHT;
         const menuWidth = Math.min(MAX_MENU_WIDTH, width - MENU_MARGIN * 2);
         const left = Math.max(MENU_MARGIN, width - menuWidth - MENU_MARGIN);
         const top = Math.min(
             Math.max(insets.top + MENU_MARGIN, y - PREVIEW_HEIGHT - PREVIEW_GAP),
             height -
                 insets.bottom -
-                MENU_HEIGHT -
+                menuHeight -
                 PREVIEW_HEIGHT -
                 PREVIEW_GAP -
                 MENU_MARGIN,
@@ -290,6 +386,12 @@ export default function MessagesListScreen() {
 
         if (actionKey === "delete") {
             if (Number.isFinite(conversationId)) {
+                if (selectedConversationRemoved) {
+                    void hideConversationForMe(conversationId);
+                    closeMenu();
+                    return;
+                }
+
                 Alert.alert(
                     "Xóa đoạn chat",
                     "Bạn có chắc muốn xóa đoạn chat này chỉ ở phía bạn?",
@@ -685,7 +787,7 @@ export default function MessagesListScreen() {
                                     },
                                 ]}
                             >
-                                {menuActions.map((action) => {
+                                {effectiveMenuActions.map((action) => {
                                     if ("divider" in action) {
                                         return (
                                             <View

@@ -1,39 +1,37 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
 import {
-    MoreVertical,
-    Undo2,
+    CheckCircle2,
     Copy,
-    Pin,
-    Reply,
-    Star,
+    CornerUpLeft,
+    CornerUpRight,
+    Download,
+    ExternalLink,
+    File,
+    FileSpreadsheet,
+    FileText,
+    FileVideoCamera,
+    FolderOpen,
+    Image as ImageIcon,
     ListChecks,
-    Info,
-    ChevronRight,
-    Trash2,
+    Loader2,
+    Mic,
+    MoreVertical,
     Paperclip,
-    Play,
     Phone,
     PhoneOff,
-    Video,
-    VideoOff,
-    Mic,
-    FolderOpen,
-    Download,
-    File,
-    FileText,
-    FileSpreadsheet,
-    FileVideoCamera,
+    Pin,
+    Play,
     Presentation,
-    CheckCircle2,
-    Image as ImageIcon,
-    Users,
-    ExternalLink,
-    Loader2,
     ShieldCheck,
+    Trash2,
+    Undo2,
+    Users,
+    Video,
+    VideoOff
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import type { ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
+import { useNavigate } from "react-router-dom";
 import type {
     Conversation,
     ConversationMember,
@@ -43,17 +41,14 @@ import type {
     MessageType,
 } from "../../services/chatService";
 import chatService from "../../services/chatService";
-import { buildSystemGroupMessage } from "../../utils/systemCreateGroupMessage";
-import AudioPlayer from "./AudioPlayer";
-import ReactionDetailModal from "./ReactionDetailModal";
 import {
     formatBytes,
     getFileNameFromUrl,
     getFileTypeBadge,
     getFileTypePalette,
     getReplyMediaType,
-    isDocumentCategory,
     isAudioFile,
+    isDocumentCategory,
     isEmojiOnly,
     isGroupSystemType,
     isImageFile,
@@ -63,6 +58,9 @@ import {
     resolveLocalAvailabilityLabel,
     resolveVideoPosterUrl,
 } from "../../utils/messageBubbleUtils";
+import { buildSystemGroupMessage } from "../../utils/systemCreateGroupMessage";
+import AudioPlayer from "./AudioPlayer";
+import ReactionDetailModal from "./ReactionDetailModal";
 
 function extractGroupInviteUrl(content: string): string | null {
     const match = content.match(/https?:\/\/[^\s]+\/g\/[A-Za-z0-9_-]+/);
@@ -81,6 +79,35 @@ function resolveJoinedConversationId(
     const record = payload as Record<string, unknown>;
     const id = Number(record.conversationId ?? record.id);
     return Number.isFinite(id) ? id : null;
+}
+
+function pickApiMessage(value: unknown): string | null {
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (!value || typeof value !== "object") return null;
+
+    const record = value as Record<string, unknown>;
+    return (
+        pickApiMessage(record.message) ||
+        pickApiMessage(record.error) ||
+        pickApiMessage(record.data) ||
+        pickApiMessage(record.errors)
+    );
+}
+
+function extractApiErrorMessage(error: unknown): string | null {
+    if (error && typeof error === "object") {
+        const responseData = (
+            error as { response?: { data?: unknown } }
+        ).response?.data;
+        const fromResponse = pickApiMessage(responseData);
+        if (fromResponse) return fromResponse;
+    }
+
+    if (error instanceof Error && error.message.trim()) {
+        return error.message.trim();
+    }
+
+    return null;
 }
 
 function renderTextWithLinks(content: string, isOwn: boolean): ReactNode {
@@ -319,16 +346,7 @@ export function MessageBubble({
             setInviteModalOpen(false);
         } catch (error) {
             console.log(error);
-            const message =
-                error &&
-                typeof error === "object" &&
-                "response" in (error as Record<string, unknown>)
-                    ? (
-                          error as {
-                              response?: { data?: { message?: string } };
-                          }
-                      ).response?.data?.message
-                    : null;
+            const message = extractApiErrorMessage(error);
             toast.error(message || "Bạn đã bị chặn khỏi nhóm.");
         } finally {
             setInviteJoining(false);
@@ -355,7 +373,7 @@ export function MessageBubble({
     }, [message, onReply]);
 
     const handleDeleteForMeClick = useCallback(() => {
-        onDeleteForMe(message.id);
+        onDeleteForMe?.(message.id);
         setMenuOpen(false);
     }, [message.id, onDeleteForMe]);
 
@@ -938,7 +956,7 @@ export function MessageBubble({
                                         onClick={handleReplyClick}
                                         className={menuItemBase}
                                     >
-                                        <Reply
+                                        <CornerUpLeft
                                             size={16}
                                             className="text-gray-500 dark:text-gray-400 shrink-0"
                                         />
@@ -950,12 +968,12 @@ export function MessageBubble({
                                         onClick={() => setMenuOpen(false)}
                                         className={menuItemBase}
                                     >
-                                        <Star
+                                        <CornerUpRight
                                             size={16}
                                             className="text-gray-500 dark:text-gray-400 shrink-0"
                                         />
                                         <span className="text-gray-800 dark:text-gray-100">
-                                            Đánh dấu tin nhắn
+                                            Chuyển Tiếp
                                         </span>
                                     </button>
                                     <button
@@ -969,36 +987,6 @@ export function MessageBubble({
                                         <span className="text-gray-800 dark:text-gray-100">
                                             Chọn nhiều tin nhắn
                                         </span>
-                                    </button>
-                                    <button
-                                        onClick={() => setMenuOpen(false)}
-                                        className={menuItemBase}
-                                    >
-                                        <Info
-                                            size={16}
-                                            className="text-gray-500 dark:text-gray-400 shrink-0"
-                                        />
-                                        <span className="text-gray-800 dark:text-gray-100">
-                                            Xem chi tiết
-                                        </span>
-                                    </button>
-                                    <button
-                                        onClick={() => setMenuOpen(false)}
-                                        className={`${menuItemBase} justify-between`}
-                                    >
-                                        <span className="flex items-center gap-3">
-                                            <ChevronRight
-                                                size={16}
-                                                className="text-gray-500 dark:text-gray-400 shrink-0"
-                                            />
-                                            <span className="text-gray-800 dark:text-gray-100">
-                                                Tuỳ chọn khác
-                                            </span>
-                                        </span>
-                                        <ChevronRight
-                                            size={14}
-                                            className="text-gray-400"
-                                        />
                                     </button>
 
                                     {/* Separator + Danger zone */}

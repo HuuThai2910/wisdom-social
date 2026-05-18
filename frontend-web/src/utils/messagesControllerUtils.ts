@@ -74,7 +74,10 @@ export function resolveReadOnlyNoticeFromConversation(
     );
     if (!currentMember) return null;
 
-    if (currentMember.status === "KICKED" || currentMember.status === "BLOCKED") {
+    if (currentMember.status === "BLOCKED") {
+        return "Bạn đã bị chặn khỏi nhóm.";
+    }
+    if (currentMember.status === "KICKED") {
         return "Bạn đã bị xóa khỏi nhóm.";
     }
     if (currentMember.status === "LEFT") {
@@ -109,6 +112,9 @@ export function resolveReadOnlyNoticeFromLastMessage(
     if (lastMessage.lastMessageType === "SYSTEM_KICK_MEMBER" || lastMessage.lastMessageType === "SYSTEM_BLOCK_MEMBER") {
         const targetIds = safeParseMemberIds(lastMessage.lastMessageContent);
         if (targetIds.some((id) => Number(id) === Number(currentUserId))) {
+            if (lastMessage.lastMessageType === "SYSTEM_BLOCK_MEMBER") {
+                return "Bạn đã bị chặn khỏi nhóm.";
+            }
             return "Bạn đã bị xóa khỏi nhóm.";
         }
     }

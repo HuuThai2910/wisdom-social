@@ -331,6 +331,9 @@ function resolveReadOnlyReasonFromConversation(
     );
     if (!currentMember) return null;
 
+    if (currentMember.status === "BLOCKED") {
+        return "Bạn đã bị chặn khỏi nhóm.";
+    }
     if (currentMember.status === "KICKED") {
         return "Bạn đã bị xóa khỏi nhóm.";
     }
@@ -431,6 +434,9 @@ function resolveReadOnlyReasonFromCachedConversation(
             lastMessage.lastMessageContent ?? "",
         );
         if (targetIds.some((id) => Number(id) === Number(currentUserId))) {
+            if (lastMessage.lastMessageType === "SYSTEM_BLOCK_MEMBER") {
+                return "Ban da bi chan khoi nhom.";
+            }
             return "Ban da bi xoa khoi nhom.";
         }
     }

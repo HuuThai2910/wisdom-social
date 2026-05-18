@@ -65,6 +65,8 @@ function isAccessBlockedNotice(value?: string | null): boolean {
   if (!value) return false;
   const normalized = value.toLowerCase();
   return (
+    normalized.includes("chặn khỏi nhóm") ||
+    normalized.includes("chan khoi nhom") ||
     normalized.includes("bị xóa khỏi nhóm") ||
     normalized.includes("đã rời khỏi nhóm") ||
     normalized.includes("nhóm đã bị giải tán") ||

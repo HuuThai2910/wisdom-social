@@ -84,9 +84,11 @@ public class ConversationServiceImpl implements ConversationService {
                 .findByConversation_IdAndUser_Id(conversationId, userId)
                 .orElseThrow(() -> new ConversationAccessDeniedException("Bạn không phải thành viên của cuộc trò chuyện này"));
 
-        if (conversationMember.getStatus() == ConversationMemberStatus.KICKED
-                || conversationMember.getStatus() == ConversationMemberStatus.BLOCKED) {
+        if (conversationMember.getStatus() == ConversationMemberStatus.KICKED) {
             throw new ConversationMemberKickedException("Bạn đã bị xóa khỏi nhóm");
+        }
+        if (conversationMember.getStatus() == ConversationMemberStatus.BLOCKED) {
+            throw new ConversationMemberKickedException("Bạn đã bị chặn khỏi nhóm");
         }
 
         if (conversationMember.getStatus() == ConversationMemberStatus.LEFT) {
@@ -183,7 +185,7 @@ public class ConversationServiceImpl implements ConversationService {
     @Transactional
     @Override
     public void hideConversationForMe(Long conversationId, Long userId) {
-        ConversationMember member = conversationMemberRepository.findByConversation_IdAndUser_IdAndStatus(conversationId, userId, ConversationMemberStatus.ACTIVE)
+        ConversationMember member = conversationMemberRepository.findByConversation_IdAndUser_Id(conversationId, userId)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy thành viên trong cuộc trò chuyện"));
 
         member.setHidden(true);
