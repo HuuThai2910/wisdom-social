@@ -1,5 +1,4 @@
 import apiClient from "@/api/apiClient";
-import { mockFeaturePages, mockPageInteractions } from "@/constants";
 
 export type PageStatus = "PUBLIC" | "PRIVATE" | "BANNED";
 
@@ -84,8 +83,7 @@ export type PageInteractionStatus = {
 };
 
 class PageService {
-  private localPages: PageData[] = [...mockFeaturePages];
-  private localInteractions = { ...mockPageInteractions };
+
 
   // ── Page CRUD ──────────────────────────────────────────────────────────
 
@@ -94,9 +92,9 @@ class PageService {
       const response = await apiClient.get("/page/all");
       const data = response.data?.data ?? response.data;
       if (Array.isArray(data) && data.length > 0) return data;
-      return this.localPages;
+      return [];
     } catch {
-      return this.localPages;
+      return [];
     }
   }
 
@@ -105,9 +103,9 @@ class PageService {
       const response = await apiClient.get("/page/my-pages");
       const data = response.data?.data ?? response.data;
       if (Array.isArray(data) && data.length > 0) return data;
-      return this.localPages.slice(0, 2);
+      return [];
     } catch {
-      return this.localPages.slice(0, 2);
+      return [];
     }
   }
 
@@ -126,13 +124,7 @@ class PageService {
         status: data.status ?? "PUBLIC",
         createdBy: { id: 0, name: "Local User" },
       };
-      this.localPages = [localPage, ...this.localPages];
-      this.localInteractions[id] = {
-        isLiked: false,
-        isFollowing: false,
-        likeCount: 0,
-        followCount: 0,
-      };
+    
       return "local-created";
     }
   }
@@ -160,7 +152,7 @@ class PageService {
       const response = await apiClient.get(`/page/${pageId}`);
       return response.data?.data ?? null;
     } catch {
-      return this.localPages.find((p) => p.id === pageId) ?? null;
+      return null;
     }
   }
 
@@ -171,17 +163,7 @@ class PageService {
       const response = await apiClient.post("/page/like", { userId, pageId });
       return response.data?.data ?? "";
     } catch {
-      const current = this.localInteractions[pageId] ?? {
-        isLiked: false,
-        isFollowing: false,
-        likeCount: 0,
-        followCount: 0,
-      };
-      this.localInteractions[pageId] = {
-        ...current,
-        isLiked: true,
-        likeCount: current.isLiked ? current.likeCount : current.likeCount + 1,
-      };
+      
       return "local-liked";
     }
   }
@@ -191,19 +173,7 @@ class PageService {
       const response = await apiClient.post("/page/follow", { userId, pageId });
       return response.data?.data ?? "";
     } catch {
-      const current = this.localInteractions[pageId] ?? {
-        isLiked: false,
-        isFollowing: false,
-        likeCount: 0,
-        followCount: 0,
-      };
-      this.localInteractions[pageId] = {
-        ...current,
-        isFollowing: true,
-        followCount: current.isFollowing
-          ? current.followCount
-          : current.followCount + 1,
-      };
+      
       return "local-followed";
     }
   }
@@ -216,17 +186,7 @@ class PageService {
       });
       return response.data?.data ?? "";
     } catch {
-      const current = this.localInteractions[pageId] ?? {
-        isLiked: false,
-        isFollowing: false,
-        likeCount: 0,
-        followCount: 0,
-      };
-      this.localInteractions[pageId] = {
-        ...current,
-        isLiked: false,
-        likeCount: Math.max(0, current.likeCount - 1),
-      };
+      
       return "local-unliked";
     }
   }
@@ -239,17 +199,7 @@ class PageService {
       });
       return response.data?.data ?? "";
     } catch {
-      const current = this.localInteractions[pageId] ?? {
-        isLiked: false,
-        isFollowing: false,
-        likeCount: 0,
-        followCount: 0,
-      };
-      this.localInteractions[pageId] = {
-        ...current,
-        isFollowing: false,
-        followCount: Math.max(0, current.followCount - 1),
-      };
+      
       return "local-unfollowed";
     }
   }
@@ -269,14 +219,7 @@ class PageService {
         followCount: Number(d?.followCount) || 0,
       };
     } catch {
-      return (
-        this.localInteractions[pageId] ?? {
-          isLiked: false,
-          isFollowing: false,
-          likeCount: 0,
-          followCount: 0,
-        }
-      );
+      return {} as PageInteractionStatus;
     }
   }
 

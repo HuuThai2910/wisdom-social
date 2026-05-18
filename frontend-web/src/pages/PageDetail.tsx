@@ -329,6 +329,13 @@ export default function PageDetail() {
                 void loadPageData();
             }
         },
+        onPageDeleted: (pageId) => {
+            console.log('🗑️ [Web PageDetail] Page deleted event received for pageId:', pageId, 'Current numericPageId:', numericPageId);
+            if (numericPageId && pageId === numericPageId) {
+                alert("Trang đã bị xóa");
+                navigate("/pages");
+            }
+        },
     });
 
     // Real-time: lắng nghe posts của page

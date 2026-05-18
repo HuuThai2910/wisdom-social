@@ -292,6 +292,20 @@ export default function PageDetailScreen() {
       console.log("🔄 [Mobile] Page updated event received, reloading page data...", event);
       void load();
     },
+    onPageDeleted: (event) => {
+      console.log("🗑️ [Mobile] Page deleted event received:", event);
+      Alert.alert(
+        "Trang đã bị xóa",
+        "",
+        [
+          {
+            text: "Quay lại",
+            onPress: () => router.back(),
+          },
+        ],
+        { cancelable: false }
+      );
+    },
   });
 
   const onRefresh = useCallback(() => {

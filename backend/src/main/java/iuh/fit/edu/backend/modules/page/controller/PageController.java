@@ -83,6 +83,18 @@ public class PageController {
     @PostMapping("/update/{pageId}")
     @ApiMessage("Update page successfully")
     public ResponseEntity<String> updatePage(@RequestBody UserRequestUpdatePage updatePage,@PathVariable long pageId){
+        User currentUser = userService.getCurrentUser();
+        if (currentUser == null)
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("User not authenticated");
+        
+        Page page = pageService.findPageById(pageId);
+        if (page == null)
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Page not found");
+        
+        // Check if current user is the page owner
+        if (!page.getCreatedBy().getId().equals(currentUser.getId()))
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Only page owner can update this page");
+        
         boolean success= pageService.updatePage(pageId,updatePage);
         if (success)
             return ResponseEntity.ok("Update page successfully");
@@ -92,6 +104,18 @@ public class PageController {
     @DeleteMapping("/delete/{id}")
     @ApiMessage("Delete page successfully")
     public ResponseEntity<String> deletePage(@PathVariable long id){
+        User currentUser = userService.getCurrentUser();
+        if (currentUser == null)
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("User not authenticated");
+        
+        Page page = pageService.findPageById(id);
+        if (page == null)
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Page not found");
+        
+        // Check if current user is the page owner
+        if (!page.getCreatedBy().getId().equals(currentUser.getId()))
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Only page owner can delete this page");
+        
         boolean success= pageService.deletePage(id);
         if (success)
             return ResponseEntity.ok("Delete page successfully");

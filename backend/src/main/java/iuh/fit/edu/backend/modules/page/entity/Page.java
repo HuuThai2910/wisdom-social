@@ -63,6 +63,10 @@ public class Page {
     @OneToMany(mappedBy = "page", cascade = CascadeType.ALL)
     private List<PageLike> pageLikes;
 
+    @JsonIgnore
+    @OneToMany(mappedBy = "page", cascade = CascadeType.ALL)
+    private List<PagePost> pagePosts;
+
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
 }

@@ -3,14 +3,17 @@ package iuh.fit.edu.backend.modules.page.service.impl;
 import iuh.fit.edu.backend.modules.page.entity.Page;
 import iuh.fit.edu.backend.modules.page.entity.PageFollow;
 import iuh.fit.edu.backend.modules.page.entity.PageLike;
+import iuh.fit.edu.backend.modules.page.entity.PagePost;
 import iuh.fit.edu.backend.modules.user.entity.User;
 import iuh.fit.edu.backend.modules.page.dto.request.UserRequestCreatePage;
 import iuh.fit.edu.backend.modules.page.dto.request.UserRequestUpdatePage;
 import iuh.fit.edu.backend.modules.page.mapper.PageMapper;
 import iuh.fit.edu.backend.modules.page.repository.PageFollowRepository;
 import iuh.fit.edu.backend.modules.page.repository.PageLikeRepository;
+import iuh.fit.edu.backend.modules.page.repository.PagePostRepository;
 import iuh.fit.edu.backend.modules.page.repository.PageRepository;
 import iuh.fit.edu.backend.modules.page.service.PageService;
+import iuh.fit.edu.backend.modules.post.repository.PostRepository;
 import iuh.fit.edu.backend.modules.user.service.UserService;
 import iuh.fit.edu.backend.common.service.s3.S3Service;
 import iuh.fit.edu.backend.modules.page.event.publisher.PageEventPublisher;
@@ -26,6 +29,8 @@ public class PageServiceImpl implements PageService {
     PageRepository pageRepository;
     PageFollowRepository pageFollowRepository;
     PageLikeRepository pageLikeRepository;
+    PagePostRepository pagePostRepository;
+    PostRepository postRepository;
     PageMapper pageMapper;
     UserService userService;
     S3Service s3Service;
@@ -33,6 +38,8 @@ public class PageServiceImpl implements PageService {
 
     public PageServiceImpl(PageFollowRepository pageFollowRepositoryl,
                            PageLikeRepository pageLikeRepository,
+                           PagePostRepository pagePostRepository,
+                           PostRepository postRepository,
                            PageMapper pageMapper,
                            PageRepository pageRepository,
                            UserService userService,
@@ -40,6 +47,8 @@ public class PageServiceImpl implements PageService {
                            PageEventPublisher pageEventPublisher) {
         this.pageFollowRepository = pageFollowRepositoryl;
         this.pageLikeRepository = pageLikeRepository;
+        this.pagePostRepository = pagePostRepository;
+        this.postRepository = postRepository;
         this.pageMapper = pageMapper;
         this.pageRepository = pageRepository;
         this.userService = userService;
@@ -66,7 +75,20 @@ public class PageServiceImpl implements PageService {
     @Override
     public boolean deletePage(long id) {
         if (id > 0) {
+            // Get the page first
+            Page page = pageRepository.findById(id).orElse(null);
+            if (page != null && page.getPagePosts() != null) {
+                // Delete the actual Post documents from MongoDB before deleting PagePost records
+                for (PagePost pagePost : page.getPagePosts()) {
+                    if (pagePost.getPostId() != null) {
+                        postRepository.deleteById(pagePost.getPostId());
+                    }
+                }
+            }
+            
+            // Delete the page (which will cascade delete page_posts, page_members, page_follows, page_likes due to CascadeType.ALL)
             pageRepository.deleteById(id);
+            
             // Publish PAGE_DELETED
             pageEventPublisher.publishPageDeleted(id);
             return true;
