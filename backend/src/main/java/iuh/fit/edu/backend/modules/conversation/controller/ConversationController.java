@@ -148,10 +148,9 @@ public class ConversationController {
     @DeleteMapping("/{conversationId}/members/{targetId}")
     public ResponseEntity<ConversationResponse> kickMember(
             @PathVariable Long conversationId,
-            @PathVariable Long targetId,
-            @RequestParam(defaultValue = "false") boolean blockFromGroup) {
+            @PathVariable Long targetId) {
         Long requesterId = this.userService.getCurrentUser().getId();
-        ConversationResponse response = memberService.kickMember(conversationId, targetId, requesterId, blockFromGroup);
+        ConversationResponse response = memberService.kickMember(conversationId, targetId, requesterId);
         return ResponseEntity.ok(response);
     }
 

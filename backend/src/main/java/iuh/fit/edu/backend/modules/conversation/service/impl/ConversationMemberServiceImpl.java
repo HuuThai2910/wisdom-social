@@ -273,22 +273,15 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
     @Transactional(rollbackFor = Exception.class)
     @Override
     public ConversationResponse kickMember(Long conversationId, Long targetId, Long requesterId) {
-        return kickMember(conversationId, targetId, requesterId, false);
-    }
-
-    @Transactional(rollbackFor = Exception.class)
-    @Override
-    public ConversationResponse kickMember(Long conversationId, Long targetId, Long requesterId, boolean blockFromGroup) {
         // Chỉ validate logic Kick
         Conversation conv = validateKickPermission(conversationId, targetId, requesterId);
 
         // Gọi hàm lõi dùng chung
         return processMemberRemoval(conv, targetId, requesterId,
-            blockFromGroup ? ConversationMemberStatus.BLOCKED : ConversationMemberStatus.KICKED,
-            blockFromGroup ? MessageType.SYSTEM_BLOCK_MEMBER : MessageType.SYSTEM_KICK_MEMBER,
-            chatSnapshotHelper.buildKickSnapshotContent(targetId),
-            DomainEventType.MEMBER_KICKED);
+                ConversationMemberStatus.KICKED, MessageType.SYSTEM_KICK_MEMBER, chatSnapshotHelper.buildKickSnapshotContent(targetId), DomainEventType.MEMBER_KICKED);
     }
+
+
 
     /**
      * Hàm dùng để đồng bộ dữ liệu vào Redis ngay sau khi DB vừa cập nhật.

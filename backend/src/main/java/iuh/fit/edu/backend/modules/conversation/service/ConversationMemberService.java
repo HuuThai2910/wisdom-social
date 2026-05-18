@@ -36,9 +36,6 @@ public interface ConversationMemberService {
     @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
     ConversationResponse kickMember(Long conversationId, Long targetId, Long requesterId);
 
-    @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
-    ConversationResponse kickMember(Long conversationId, Long targetId, Long requesterId, boolean blockFromGroup);
-
     List<ConversationMemberResponse> getBlockedMembers(Long conversationId, Long requesterId);
 
     ConversationResponse blockMember(Long conversationId, Long targetId, Long requesterId);

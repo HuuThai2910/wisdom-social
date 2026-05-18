@@ -43,7 +43,6 @@ type DetailSectionKey = "chatInfo" | "customize" | "media" | "privacy";
 
 export default function Messages() {
     const INFO_PANEL_WIDTH = 352;
-    const [blockFromGroupOnKick, setBlockFromGroupOnKick] = useState(false);
     const { sidebarWidth } = useSidebarLayout();
     const {
         searchQuery,
@@ -1298,30 +1297,18 @@ export default function Messages() {
                 confirmLabel="Đuổi khỏi nhóm"
                 isDanger={true}
                 onClose={() => {
-                    setBlockFromGroupOnKick(false);
                     closeConfirmKick();
                 }}
                 onConfirm={() => {
                     if (kickTargetUserId) {
-                        void kickMember(kickTargetUserId, blockFromGroupOnKick).then((success) => {
+                        void kickMember(kickTargetUserId).then((success) => {
                             if (success) {
-                                setBlockFromGroupOnKick(false);
                                 closeConfirmKick();
                             }
                         });
                     }
                 }}
-            >
-                <label className="mt-4 flex items-center gap-3 rounded-lg bg-gray-50 px-3 py-2 text-sm font-medium text-gray-700 dark:bg-[#1a1a1a] dark:text-gray-200">
-                    <input
-                        type="checkbox"
-                        checked={blockFromGroupOnKick}
-                        onChange={(event) => setBlockFromGroupOnKick(event.target.checked)}
-                        className="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
-                    />
-                    Chặn khỏi nhóm
-                </label>
-            </ConfirmModal>
+            />
         </>
     );
 }

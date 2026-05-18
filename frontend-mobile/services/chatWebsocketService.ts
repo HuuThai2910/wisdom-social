@@ -1,5 +1,6 @@
 import { Client, type IMessage } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
+import { DeviceEventEmitter } from "react-native";
 import type {
     Conversation,
     ConversationCreatedEvent,
@@ -849,6 +850,23 @@ class ChatWebsocketService {
                             .get(userId)
                             ?.values() ?? [],
                     );
+
+                    const blockedMembersPayload = payload as {
+                        domainEventType?: string;
+                        conversationId?: number;
+                    };
+                    if (
+                        blockedMembersPayload.domainEventType ===
+                            "CONVERSATION_BLOCKED_MEMBERS_UPDATED" &&
+                        typeof blockedMembersPayload.conversationId === "number"
+                    ) {
+                        DeviceEventEmitter.emit(
+                            "conversation-blocked-members-updated",
+                            blockedMembersPayload,
+                        );
+                        return;
+                    }
+
                     if (listeners.length === 0) return;
 
                     const createdConversation = (

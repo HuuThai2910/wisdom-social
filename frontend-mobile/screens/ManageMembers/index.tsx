@@ -8,6 +8,7 @@ import {
     Alert,
     SafeAreaView,
     ActivityIndicator,
+    DeviceEventEmitter,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -80,6 +81,21 @@ export function ManageMembersScreen() {
     useEffect(() => {
         if (showBlockedList) void loadBlockedMembers();
     }, [loadBlockedMembers, showBlockedList]);
+
+    useEffect(() => {
+        if (!showBlockedList) return;
+
+        const subscription = DeviceEventEmitter.addListener(
+            "conversation-blocked-members-updated",
+            (event: { conversationId?: number }) => {
+                if (Number(event?.conversationId) === id) {
+                    void loadBlockedMembers();
+                }
+            },
+        );
+
+        return () => subscription.remove();
+    }, [id, loadBlockedMembers, showBlockedList]);
 
     if (!selectedConversation) return null;
 
@@ -155,11 +171,6 @@ export function ManageMembersScreen() {
                                 text: "Xóa",
                                 style: "destructive",
                                 onPress: () => groupManagement.kickMember(member.userId),
-                            },
-                            {
-                                text: "Xóa và chặn",
-                                style: "destructive",
-                                onPress: () => groupManagement.kickMember(member.userId, true),
                             },
                         ]
                     );
