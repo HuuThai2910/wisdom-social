@@ -117,6 +117,8 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
 
    Optional<ConversationMember> findByConversation_IdAndUser_Id(Long conversationId, Long userId);
 
+    List<ConversationMember> findByConversationIdAndStatusOrderByBlockedAtDesc(Long conversationId, ConversationMemberStatus status);
+
     @Query("SELECT cm.user.id FROM ConversationMember cm WHERE cm.conversation.id = :conversationId AND cm.status = 'ACTIVE' AND cm.role IN ('OWNER', 'DEPUTY')")
     Set<Long> findAdminIdsByConversationId(@Param("conversationId") Long conversationId);
 

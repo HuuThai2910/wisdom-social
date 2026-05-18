@@ -49,6 +49,11 @@ public class GroupJoinRequestServiceImpl implements GroupJoinRequestService {
     public void createRequest(Long conversationId, Long userId, Long inviterId) {
         // Kiểm tra xem đã là thành viên chưa hoặc đã có yêu cầu PENDING chưa
         if (memberRepository.findByConversation_IdAndUser_IdAndStatus(conversationId, userId, ConversationMemberStatus.ACTIVE).isPresent()) return;
+        ConversationMember existingMember = memberRepository.findByConversation_IdAndUser_Id(conversationId, userId)
+                .orElse(null);
+        if (existingMember != null && existingMember.getStatus() == ConversationMemberStatus.BLOCKED) {
+            throw new RuntimeException("Ban da bi chan khoi nhom");
+        }
         if (requestRepository.existsByConversationIdAndUserIdAndStatus(conversationId, userId, JoinRequestStatus.PENDING)) {
             throw new RuntimeException("Yêu cầu tham gia của bạn đang chờ được xử lý.");
         }

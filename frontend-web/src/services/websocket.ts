@@ -60,6 +60,7 @@ export type DomainEventType =
     | "MEMBER_ROLE_UPDATED"
     | "MEMBER_LEFT"
     | "MEMBER_KICKED"
+    | "CONVERSATION_BLOCKED_MEMBERS_UPDATED"
     | "GROUP_DISBANDED"
     | "PIN_MESSAGE"
     | "UPIN_MESSAGE"
@@ -256,6 +257,13 @@ export interface JoinRequestProcessedEvent {
     domainEventType: "JOIN_REQUEST_PROCESSED";
     conversationId: number;
     requestId: number;
+}
+
+export interface BlockedMembersUpdatedEvent {
+    domainEventType: "CONVERSATION_BLOCKED_MEMBERS_UPDATED";
+    conversationId: number;
+    targetUserId: number;
+    blocked: boolean;
 }
 
 /**
@@ -841,7 +849,8 @@ class WebSocketService {
                         | ConversationMembershipEvent
                         | GroupDisbandedEvent
                         | NewJoinRequestEvent
-                        | JoinRequestProcessedEvent;
+                        | JoinRequestProcessedEvent
+                        | BlockedMembersUpdatedEvent;
 
                     const createdConversation = (
                         payload as {
@@ -956,6 +965,21 @@ class WebSocketService {
                                 processedJoinRequestId:
                                     processedJoinRequestId,
                             } as ConversationSnapshot,
+                        );
+                        return;
+                    }
+
+                    const blockedMembersPayload =
+                        payload as BlockedMembersUpdatedEvent;
+                    if (
+                        blockedMembersPayload.domainEventType ===
+                            "CONVERSATION_BLOCKED_MEMBERS_UPDATED" &&
+                        typeof blockedMembersPayload.conversationId === "number"
+                    ) {
+                        window.dispatchEvent(
+                            new CustomEvent("conversation-blocked-members-updated", {
+                                detail: blockedMembersPayload,
+                            }),
                         );
                         return;
                     }

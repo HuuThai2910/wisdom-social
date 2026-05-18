@@ -254,6 +254,13 @@ const chatService = {
         );
     },
 
+    async hideConversationForMe(
+        conversationId: number,
+        _userId: number,
+    ): Promise<void> {
+        await apiClient.patch(`/conversations/${conversationId}/hide-for-me`);
+    },
+
     async createGroupConversation(
         request: CreateGroupRequest,
     ): Promise<Conversation> {
@@ -291,11 +298,52 @@ const chatService = {
     async kickGroupMember(
         conversationId: number,
         targetUserId: number,
+        blockFromGroup = false,
     ): Promise<Conversation> {
         const response = await apiClient.delete(
             `/conversations/${conversationId}/members/${targetUserId}`,
+            {
+                params: {
+                    blockFromGroup,
+                },
+            },
         );
 
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async getBlockedGroupMembers(
+        conversationId: number,
+    ): Promise<ConversationMember[]> {
+        const response = await apiClient.get(
+            `/conversations/${conversationId}/blocked-members`,
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<ConversationMember[]> | ConversationMember[],
+        );
+    },
+
+    async blockGroupMember(
+        conversationId: number,
+        targetUserId: number,
+    ): Promise<Conversation> {
+        const response = await apiClient.post(
+            `/conversations/${conversationId}/blocked-members/${targetUserId}`,
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async unblockGroupMember(
+        conversationId: number,
+        targetUserId: number,
+    ): Promise<Conversation> {
+        const response = await apiClient.delete(
+            `/conversations/${conversationId}/blocked-members/${targetUserId}`,
+        );
         return unwrapApiData(
             response.data as ApiResponse<Conversation> | Conversation,
         );

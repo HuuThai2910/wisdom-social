@@ -1,24 +1,26 @@
 import {
     Archive,
-    Ban,
     Bell,
+    Edit,
+    MailOpen,
     BellOff,
+    Ban,
+    Trash2,
+    Flag,
+    MoreHorizontal,
     ChevronDown,
     ChevronUp,
     CircleUserRound,
     EyeOff,
     FileText,
-    Flag,
     Images,
     Link2,
     Lock,
     LogOut,
     LucideUserPlus2,
     Pin,
-    MoreHorizontal,
     Search,
     Settings,
-    Trash2,
     User,
     X,
 } from "lucide-react";
@@ -59,6 +61,7 @@ export default function Messages() {
         pinConversation,
         unpinConversation,
         replacePinnedConversation,
+        handleHideConversationForMe,
         getDisplayInfo,
         formatTime,
         clearUnreadCount,
@@ -131,6 +134,9 @@ export default function Messages() {
         addMembersToGroup,
         updateMemberRole,
         kickMember,
+        getBlockedMembers,
+        blockMember,
+        unblockMember,
         leaveGroup,
         transferOwnershipAndLeave,
         executeLeaveGroup,
@@ -335,6 +341,14 @@ export default function Messages() {
         selectedUnpinConversationId,
     ]);
 
+    const handleHideConversation = useCallback(
+        (convId: number) => {
+            setOpenMenuConvId(null);
+            void handleHideConversationForMe(convId);
+        },
+        [handleHideConversationForMe],
+    );
+
     const handleToggleInfoPanel = useCallback(() => {
         if (!selectedConversationId) {
             return;
@@ -464,7 +478,9 @@ export default function Messages() {
                             onTransferOwnershipAndLeave={
                                 transferOwnershipAndLeave
                             }
-                            onKickMember={kickMember}
+                            onGetBlockedMembers={getBlockedMembers}
+                            onBlockMember={blockMember}
+                            onUnblockMember={unblockMember}
                             onUpdateMemberRole={updateMemberRole}
                             onProcessJoinRequest={processJoinRequest}
                             isConfirmLeaveModalOpen={isConfirmLeaveModalOpen}
@@ -934,18 +950,18 @@ export default function Messages() {
                                                     </button>
                                                     <button
                                                         onClick={() =>
-                                                            setOpenMenuConvId(
-                                                                null,
+                                                            handleHideConversation(
+                                                                conv.id,
                                                             )
                                                         }
                                                         className={menuItemBase}
                                                     >
-                                                        <Archive
+                                                        <EyeOff
                                                             size={20}
                                                             className="text-gray-700 dark:text-gray-300"
                                                         />
                                                         <span className="dark:text-white">
-                                                            Lưu trữ đoạn chat
+                                                            Ẩn đoạn chat
                                                         </span>
                                                     </button>
                                                     <button
@@ -1280,11 +1296,15 @@ export default function Messages() {
                 } khỏi nhóm?`}
                 confirmLabel="Đuổi khỏi nhóm"
                 isDanger={true}
-                onClose={closeConfirmKick}
+                onClose={() => {
+                    closeConfirmKick();
+                }}
                 onConfirm={() => {
                     if (kickTargetUserId) {
                         void kickMember(kickTargetUserId).then((success) => {
-                            if (success) closeConfirmKick();
+                            if (success) {
+                                closeConfirmKick();
+                            }
                         });
                     }
                 }}

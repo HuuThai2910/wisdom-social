@@ -79,6 +79,8 @@ const GROUP_SYSTEM_MESSAGE_TYPES = new Set<Message["type"]>([
     "SYSTEM_ADD_MEMBER",
     "SYSTEM_UPDATE_ROLE",
     "SYSTEM_KICK_MEMBER",
+    "SYSTEM_BLOCK_MEMBER",
+    "SYSTEM_MEMBER_BLOCKED_FROM_JOIN",
     "SYSTEM_LEAVE_GROUP",
     "SYSTEM_DISBAND_GROUP",
     "SYSTEM_UPDATE_SETTING",
@@ -519,6 +521,8 @@ export const MessageBubble = React.memo(
                     | "SYSTEM_ADD_MEMBER"
                     | "SYSTEM_UPDATE_ROLE"
                     | "SYSTEM_KICK_MEMBER"
+                    | "SYSTEM_BLOCK_MEMBER"
+                    | "SYSTEM_MEMBER_BLOCKED_FROM_JOIN"
                     | "SYSTEM_LEAVE_GROUP"
                     | "SYSTEM_DISBAND_GROUP"
                     | "SYSTEM_UPDATE_SETTING"

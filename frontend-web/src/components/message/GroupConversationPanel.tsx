@@ -43,7 +43,9 @@ interface GroupConversationPanelProps {
     onLeaveGroup: () => Promise<boolean>;
     onCloseTransferOwnerModal: () => void;
     onTransferOwnershipAndLeave: (newOwnerUserId: number) => Promise<boolean>;
-    onKickMember: (targetUserId: number) => Promise<boolean>;
+    onGetBlockedMembers: () => Promise<ConversationMember[]>;
+    onBlockMember: (targetUserId: number) => Promise<boolean>;
+    onUnblockMember: (targetUserId: number) => Promise<boolean>;
     onUpdateMemberRole: (
         targetUserId: number,
         nextRole: MemberRole,
@@ -113,10 +115,13 @@ export default function GroupConversationPanel({
     ownerTransferCandidates,
     actionError,
     onOpenAddMembersModal,
+    onOpenConfirmKick,
     onLeaveGroup,
     onCloseTransferOwnerModal,
     onTransferOwnershipAndLeave,
-    onKickMember,
+    onGetBlockedMembers,
+    onBlockMember,
+    onUnblockMember,
     onUpdateMemberRole,
     onProcessJoinRequest,
 }: GroupConversationPanelProps) {
@@ -133,6 +138,9 @@ export default function GroupConversationPanel({
     const [isMemberListOpen, setIsMemberListOpen] = useState(false);
     const [isJoinRequestModalOpen, setIsJoinRequestModalOpen] =
         useState(false);
+    const [isBlockedListOpen, setIsBlockedListOpen] = useState(false);
+    const [blockedMembers, setBlockedMembers] = useState<ConversationMember[]>([]);
+    const [blockedMembersLoading, setBlockedMembersLoading] = useState(false);
     const [hoveredMemberId, setHoveredMemberId] = useState<number | null>(null);
     const [activeMenuMemberId, setActiveMenuMemberId] = useState<number | null>(
         null,
@@ -166,6 +174,29 @@ export default function GroupConversationPanel({
         [canReviewJoinRequests, conversation.pendingRequests],
     );
     const pendingRequestCount = pendingRequests.length;
+
+    const loadBlockedMembers = async () => {
+        if (!canReviewJoinRequests) return;
+        setBlockedMembersLoading(true);
+        try {
+            setBlockedMembers(await onGetBlockedMembers());
+        } finally {
+            setBlockedMembersLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        if (!isBlockedListOpen) return;
+        void loadBlockedMembers();
+        const handler = (event: Event) => {
+            const detail = (event as CustomEvent<{ conversationId?: number }>).detail;
+            if (Number(detail?.conversationId) === Number(conversation.id)) {
+                void loadBlockedMembers();
+            }
+        };
+        window.addEventListener("conversation-blocked-members-updated", handler);
+        return () => window.removeEventListener("conversation-blocked-members-updated", handler);
+    }, [conversation.id, isBlockedListOpen]);
 
     const renderJoinRequestItem = (request: JoinRequest) => {
         const isProcessing = pendingJoinRequestId === request.id;
@@ -319,6 +350,16 @@ export default function GroupConversationPanel({
                                     >
                                         <UserPlus size={18} />
                                         Thêm thành viên
+                                    </button>
+                                )}
+                                {canReviewJoinRequests && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsBlockedListOpen(true)}
+                                        className="flex w-full items-center justify-center gap-2 rounded-lg bg-red-50 py-2.5 text-sm font-semibold text-red-600 transition-colors hover:bg-red-100 dark:bg-red-900/20 dark:text-red-300 dark:hover:bg-red-900/30"
+                                    >
+                                        <UserPlus size={18} />
+                                        Danh sách chặn
                                     </button>
                                 )}
                             </div>
@@ -504,15 +545,23 @@ export default function GroupConversationPanel({
                                                                                     setActiveMenuMemberId(
                                                                                         null,
                                                                                     );
-                                                                                    void onKickMember(
-                                                                                        member.userId,
-                                                                                    );
+                                                                                    onOpenConfirmKick(member.userId);
                                                                                 }}
                                                                                 className="flex w-full items-center rounded-lg px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
                                                                             >
                                                                                 Xóa
                                                                                 khỏi
                                                                                 nhóm
+                                                                            </button>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => {
+                                                                                    setActiveMenuMemberId(null);
+                                                                                    void onBlockMember(member.userId);
+                                                                                }}
+                                                                                className="flex w-full items-center rounded-lg px-3 py-2 text-sm text-red-700 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-900/20"
+                                                                            >
+                                                                                Chặn khỏi nhóm
                                                                             </button>
                                                                         </div>
                                                                     ) : null}
@@ -525,6 +574,66 @@ export default function GroupConversationPanel({
                                     })}
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {isBlockedListOpen && (
+                <div className="fixed inset-0 z-[70] flex items-start justify-center bg-black/55 px-4 pt-16">
+                    <div className="flex h-[430px] w-full max-w-md flex-col rounded-md bg-white shadow-2xl dark:bg-[#111111]">
+                        <div className="flex h-12 items-center justify-between border-b border-gray-200 px-4 dark:border-[#262626]">
+                            <h2 className="text-sm font-bold text-gray-900 dark:text-white">
+                                Danh sách chặn
+                            </h2>
+                            <button
+                                type="button"
+                                onClick={() => setIsBlockedListOpen(false)}
+                                className="rounded-full p-1.5 text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-[#262626]"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto px-4 py-3">
+                            {blockedMembersLoading ? (
+                                <p className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                                    Đang tải...
+                                </p>
+                            ) : blockedMembers.length === 0 ? (
+                                <p className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                                    Chưa có ai bị chặn khỏi nhóm.
+                                </p>
+                            ) : (
+                                blockedMembers.map((member) => (
+                                    <div key={member.userId} className="flex items-center gap-3 py-2">
+                                        <img
+                                            src={member.avatar || DEFAULT_AVATAR_URL}
+                                            alt={member.nickname || "Thành viên"}
+                                            className="h-10 w-10 rounded-full object-cover"
+                                        />
+                                        <div className="min-w-0 flex-1">
+                                            <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">
+                                                {member.nickname || member.username || "Thành viên"}
+                                            </p>
+                                            {member.blockedAt && (
+                                                <p className="text-xs text-gray-500 dark:text-gray-400">
+                                                    {formatRelativeTime(member.blockedAt)}
+                                                </p>
+                                            )}
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={async () => {
+                                                const success = await onUnblockMember(member.userId);
+                                                if (success) void loadBlockedMembers();
+                                            }}
+                                            className="rounded-md bg-gray-100 px-3 py-1.5 text-sm font-semibold text-gray-800 hover:bg-gray-200 dark:bg-[#262626] dark:text-gray-100 dark:hover:bg-[#333333]"
+                                        >
+                                            Bỏ chặn
+                                        </button>
+                                    </div>
+                                ))
+                            )}
                         </div>
                     </div>
                 </div>

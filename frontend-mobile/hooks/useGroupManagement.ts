@@ -3,7 +3,7 @@ import { Alert } from "react-native";
 import chatService from "@/services/chatService";
 import friendService, { type FriendUser } from "@/services/friendService";
 import chatRuntimeStore from "@/stores/chatRuntimeStore";
-import type { Conversation, MemberRole } from "@/types/chat";
+import type { Conversation, ConversationMember, MemberRole } from "@/types/chat";
 
 interface CreateGroupPayload {
     name: string;
@@ -370,7 +370,7 @@ export function useGroupManagement({
     );
 
     const kickMember = useCallback(
-        async (targetUserId: number) => {
+        async (targetUserId: number, blockFromGroup = false) => {
             if (!selectedConversationId || !canManageMembers) {
                 return false;
             }
@@ -386,6 +386,7 @@ export function useGroupManagement({
                 await chatService.kickGroupMember(
                     selectedConversationId,
                     targetUserId,
+                    blockFromGroup,
                 );
                 chatRuntimeStore.removePendingRequests(selectedConversationId, {
                     userIds: [targetUserId],
@@ -595,6 +596,49 @@ export function useGroupManagement({
         [canManageSettings, reloadSelectedGroupConversation, selectedConversationId],
     );
 
+    const getBlockedMembers = useCallback(async (): Promise<ConversationMember[]> => {
+        if (!selectedConversationId || !canManageSettings) return [];
+        return chatService.getBlockedGroupMembers(selectedConversationId);
+    }, [canManageSettings, selectedConversationId]);
+
+    const blockMember = useCallback(
+        async (targetUserId: number) => {
+            if (!selectedConversationId || !canManageSettings) return false;
+            try {
+                setPendingKickUserId(targetUserId);
+                setActionError(null);
+                const memberSnapshotVersion = chatRuntimeStore.markMembersChanging(selectedConversationId);
+                await chatService.blockGroupMember(selectedConversationId, targetUserId);
+                await reloadSelectedGroupConversation(memberSnapshotVersion);
+                return true;
+            } catch (error) {
+                setActionError(normalizeErrorMessage(error, "Không thể chặn thành viên."));
+                return false;
+            } finally {
+                setPendingKickUserId(null);
+            }
+        },
+        [canManageSettings, reloadSelectedGroupConversation, selectedConversationId],
+    );
+
+    const unblockMember = useCallback(
+        async (targetUserId: number) => {
+            if (!selectedConversationId || !canManageSettings) return false;
+            try {
+                setPendingKickUserId(targetUserId);
+                setActionError(null);
+                await chatService.unblockGroupMember(selectedConversationId, targetUserId);
+                return true;
+            } catch (error) {
+                setActionError(normalizeErrorMessage(error, "Không thể bỏ chặn thành viên."));
+                return false;
+            } finally {
+                setPendingKickUserId(null);
+            }
+        },
+        [canManageSettings, selectedConversationId],
+    );
+
     const getPendingJoinRequestCount = useCallback(async () => {
         if (!selectedConversationId || !canManageSettings) {
             return 0;
@@ -698,6 +742,9 @@ export function useGroupManagement({
         addMembersToGroup,
         updateMemberRole,
         kickMember,
+        getBlockedMembers,
+        blockMember,
+        unblockMember,
         leaveGroup,
         transferOwnershipAndLeave,
         disbandGroup,

@@ -35,6 +35,8 @@ export const GROUP_SYSTEM_MEMBER_SYNC_TYPES = new Set<MessageType>([
     "SYSTEM_ADD_MEMBER",
     "SYSTEM_UPDATE_ROLE",
     "SYSTEM_KICK_MEMBER",
+    "SYSTEM_BLOCK_MEMBER",
+    "SYSTEM_MEMBER_BLOCKED_FROM_JOIN",
     "SYSTEM_LEAVE_GROUP",
     "SYSTEM_DISBAND_GROUP",
     "SYSTEM_UPDATE_SETTING",
@@ -178,7 +180,7 @@ export function resolveReadOnlyReasonFromSystemMessage(
         return null;
     }
 
-    if (message.type === "SYSTEM_KICK_MEMBER") {
+    if (message.type === "SYSTEM_KICK_MEMBER" || message.type === "SYSTEM_BLOCK_MEMBER") {
         const targetIds = safeParseMemberIds(message.content);
         if (targetIds.some((id) => Number(id) === Number(currentUserId))) {
             return "Bạn đã bị xóa khỏi nhóm.";

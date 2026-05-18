@@ -14,15 +14,17 @@ export type MessageType =
     | "SYSTEM_ADD_MEMBER"
     | "SYSTEM_LEAVE_GROUP"
     | "SYSTEM_KICK_MEMBER"
+    | "SYSTEM_BLOCK_MEMBER"
     | "SYSTEM_UPDATE_ROLE"
     | "SYSTEM_DISBAND_GROUP"
     | "SYSTEM_UPDATE_SETTING"
     | "SYSTEM_REQUIRE_APPROVAL"
-    | "SYSTEM_JOIN_VIA_LINK";
+    | "SYSTEM_JOIN_VIA_LINK"
+    | "SYSTEM_MEMBER_BLOCKED_FROM_JOIN";
 
 export type MemberRole = "OWNER" | "DEPUTY" | "MEMBER";
 
-export type MemberStatus = "ACTIVE" | "LEFT" | "KICKED" | "GROUP_DISBANDED";
+export type MemberStatus = "ACTIVE" | "LEFT" | "KICKED" | "BLOCKED" | "GROUP_DISBANDED";
 
 export interface ReplyInfo {
     messageId: string;
@@ -163,6 +165,8 @@ export interface ConversationMember {
     status?: MemberStatus;
     joinedAt?: string;
     leftAt?: string;
+    blockedAt?: string;
+    blockedById?: number;
 }
 
 export interface SendMessageRequest {
@@ -440,9 +444,50 @@ const chatService = {
     async kickGroupMember(
         conversationId: number,
         targetUserId: number,
+        blockFromGroup: boolean = false,
     ): Promise<Conversation> {
         const response = await axiosClient.delete(
             `/conversations/${conversationId}/members/${targetUserId}`,
+            {
+                params: {
+                    blockFromGroup,
+                },
+            },
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async getBlockedGroupMembers(
+        conversationId: number,
+    ): Promise<ConversationMember[]> {
+        const response = await axiosClient.get(
+            `/conversations/${conversationId}/blocked-members`,
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<ConversationMember[]> | ConversationMember[],
+        );
+    },
+
+    async blockGroupMember(
+        conversationId: number,
+        targetUserId: number,
+    ): Promise<Conversation> {
+        const response = await axiosClient.post(
+            `/conversations/${conversationId}/blocked-members/${targetUserId}`,
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async unblockGroupMember(
+        conversationId: number,
+        targetUserId: number,
+    ): Promise<Conversation> {
+        const response = await axiosClient.delete(
+            `/conversations/${conversationId}/blocked-members/${targetUserId}`,
         );
         return unwrapApiData(
             response.data as ApiResponse<Conversation> | Conversation,
@@ -696,6 +741,13 @@ const chatService = {
         await axiosClient.delete(
             `/conversations/${conversationId}/delete-for-me`,
         );
+    },
+
+    async hideConversationForMe(
+        conversationId: number,
+        _userId: number,
+    ): Promise<void> {
+        await axiosClient.patch(`/conversations/${conversationId}/hide-for-me`);
     },
 };
 

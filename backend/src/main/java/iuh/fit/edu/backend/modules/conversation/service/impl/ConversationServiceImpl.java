@@ -84,7 +84,8 @@ public class ConversationServiceImpl implements ConversationService {
                 .findByConversation_IdAndUser_Id(conversationId, userId)
                 .orElseThrow(() -> new ConversationAccessDeniedException("Bạn không phải thành viên của cuộc trò chuyện này"));
 
-        if (conversationMember.getStatus() == ConversationMemberStatus.KICKED) {
+        if (conversationMember.getStatus() == ConversationMemberStatus.KICKED
+                || conversationMember.getStatus() == ConversationMemberStatus.BLOCKED) {
             throw new ConversationMemberKickedException("Bạn đã bị xóa khỏi nhóm");
         }
 
@@ -177,6 +178,20 @@ public class ConversationServiceImpl implements ConversationService {
             conversationMemberService.updateMemberStateInCache(conversationId, userId, savedMember);
         });
 
+    }
+
+    @Transactional
+    @Override
+    public void hideConversationForMe(Long conversationId, Long userId) {
+        ConversationMember member = conversationMemberRepository.findByConversation_IdAndUser_IdAndStatus(conversationId, userId, ConversationMemberStatus.ACTIVE)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy thành viên trong cuộc trò chuyện"));
+
+        member.setHidden(true);
+        ConversationMember savedMember = conversationMemberRepository.save(member);
+
+        TransactionUtil.executeAfterCommit(() -> {
+            conversationMemberService.updateMemberStateInCache(conversationId, userId, savedMember);
+        });
     }
 
     @Transactional
