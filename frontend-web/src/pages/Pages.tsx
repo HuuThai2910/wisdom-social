@@ -33,7 +33,7 @@ export default function Pages() {
 
     // Real-time: lắng nghe page mới được tạo / bị xóa / cập nhật
     useRealtimePageList({
-        onPageCreated: (pageId, page) => {
+        onPageCreated: (_pageId, page) => {
             if (page) {
                 setPages(prev => {
                     const newPage = page as unknown as Page;
@@ -47,10 +47,38 @@ export default function Pages() {
         onPageDeleted: (pageId) => {
             setPages(prev => prev.filter(p => p.id !== pageId));
         },
-        onPageUpdated: (_pageId, page) => {
+        onPageUpdated: (pageId, page) => {
+            console.log('🔄 [Pages] onPageUpdated - received event:', { pageId, page });
             if (page) {
                 const updatedPage = page as unknown as Page;
-                setPages(prev => prev.map(p => p.id === updatedPage.id ? updatedPage : p));
+                console.log('🔄 [Pages] Updated page avatarUrl:', updatedPage.avatarUrl);
+                setPages(prev => {
+                    const updated = prev.map(p => {
+                        if (p.id === updatedPage.id) {
+                            console.log('🔄 [Pages] Merging updated page:', { oldAvatar: p.avatarUrl, newAvatar: updatedPage.avatarUrl });
+                            return { ...p, ...updatedPage }; // Merge to preserve any missing fields
+                        }
+                        return p;
+                    });
+                    return updated;
+                });
+                
+                // Also fetch fresh data to ensure we have all fields (fallback for incomplete real-time data)
+                pageService.getPageById(updatedPage.id || pageId).then(freshPage => {
+                    console.log('✅ [Pages] Fetched fresh page data:', { id: freshPage.id, avatarUrl: freshPage.avatarUrl });
+                    setPages(prev => prev.map(p => p.id === freshPage.id ? freshPage : p));
+                }).catch(err => {
+                    console.error('Failed to fetch page data:', err);
+                });
+            } else {
+                // If no page data in event, refetch to be safe
+                console.log('⚠️ [Pages] No page data in update event, refetching...');
+                pageService.getPageById(pageId).then(freshPage => {
+                    console.log('✅ [Pages] Fetched fresh page data (from empty event):', { id: freshPage.id, avatarUrl: freshPage.avatarUrl });
+                    setPages(prev => prev.map(p => p.id === pageId ? freshPage : p));
+                }).catch(err => {
+                    console.error('Failed to fetch page data:', err);
+                });
             }
         },
     });
@@ -153,7 +181,7 @@ export default function Pages() {
                         >
                             {/* Avatar */}
                             <img
-                                src={buildS3Url(page.avatarUrl) || "https://via.placeholder.com/80"}
+                                src={buildS3Url(page.avatarUrl) ? `${buildS3Url(page.avatarUrl)}?t=${page.updatedAt}` : "https://via.placeholder.com/80"}
                                 alt={page.name}
                                 className="w-16 h-16 rounded-xl object-cover flex-shrink-0"
                             />
