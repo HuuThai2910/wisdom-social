@@ -30,6 +30,7 @@ import { buildS3Url } from "@/utils/s3";
 import userService from "@/services/userService";
 import { usePageEvents } from "@/hooks/usePageEvents";
 import { usePagePostEvents } from "@/hooks/usePagePostEvents";
+import { usePageListUpdates } from "@/hooks/usePageListUpdates";
 import AppHeader from "@/components/AppHeader";
 import type {
   PageData,
@@ -281,6 +282,15 @@ export default function PageDetailScreen() {
     onPostRemoved: (postId) => {
       // Bài viết bị xóa → xóa khỏi posts
       setPosts(prev => prev.filter(p => p.id !== postId));
+    },
+  });
+
+  // Real-time: lắng nghe cập nhật thông tin page (avatar, cover, name từ web)
+  usePageListUpdates({
+    pageId: numericPageId > 0 ? numericPageId : undefined,
+    onPageUpdated: (event) => {
+      console.log("🔄 [Mobile] Page updated event received, reloading page data...", event);
+      void load();
     },
   });
 
@@ -788,8 +798,8 @@ export default function PageDetailScreen() {
         {/* Cover */}
         {page.coverUrl ? (
           <Image
-            key={`cover-${page.coverUrl}`}
-            source={{ uri: buildS3Url(page.coverUrl)! }}
+            key={`cover-${page.coverUrl}-${page.updatedAt}`}
+            source={{ uri: buildS3Url(page.coverUrl) ? `${buildS3Url(page.coverUrl)}?t=${page.updatedAt}` : undefined }}
             style={styles.cover}
             resizeMode="cover"
           />
@@ -805,8 +815,8 @@ export default function PageDetailScreen() {
             <View style={styles.avatarWrap}>
               {page.avatarUrl ? (
                 <Image
-                  key={`avatar-${page.avatarUrl}`}
-                  source={{ uri: buildS3Url(page.avatarUrl)! }}
+                  key={`avatar-${page.avatarUrl}-${page.updatedAt}`}
+                  source={{ uri: buildS3Url(page.avatarUrl) ? `${buildS3Url(page.avatarUrl)}?t=${page.updatedAt}` : undefined }}
                   style={styles.avatar}
                 />
               ) : (

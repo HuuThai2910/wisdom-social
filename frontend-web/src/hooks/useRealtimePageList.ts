@@ -34,17 +34,29 @@ export function useRealtimePageList({
         let cancelled = false;
 
         const handleEvent = (event: PageListRealtimeEvent) => {
-            console.log('📡 [Web] Realtime Page List Event:', event);
+            console.log('📡 [Web] Realtime Event received:', event);
+            if (event.page) {
+                console.log('📡 [Web] Page object in event:', {
+                    id: (event.page as any)?.id,
+                    name: (event.page as any)?.name,
+                    avatarUrl: (event.page as any)?.avatarUrl,
+                    coverUrl: (event.page as any)?.coverUrl,
+                    updatedAt: (event.page as any)?.updatedAt,
+                });
+            }
             const { eventType, pageId, page } = event;
 
             switch (eventType) {
                 case 'PAGE_CREATED':
+                    console.log('📡 [Web] Dispatching PAGE_CREATED callback');
                     callbacksRef.current.onPageCreated?.(pageId, page);
                     break;
                 case 'PAGE_UPDATED':
+                    console.log('📡 [Web] Dispatching PAGE_UPDATED callback');
                     callbacksRef.current.onPageUpdated?.(pageId, page);
                     break;
                 case 'PAGE_DELETED':
+                    console.log('📡 [Web] Dispatching PAGE_DELETED callback');
                     callbacksRef.current.onPageDeleted?.(pageId);
                     break;
             }
