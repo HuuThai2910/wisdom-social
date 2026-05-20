@@ -6,7 +6,7 @@
  */
 import { Client, type IMessage } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
-import type { Conversation, JoinRequest, Message, MessageType } from "./chatService";
+import type { Conversation, JoinRequest, Message, MessageType, PollResponse } from "./chatService";
 
 const resolveSockJsUrl = (): string => {
     const envUrl = import.meta.env.VITE_WS_URL;
@@ -84,7 +84,12 @@ export interface PinUpdatedEvent {
         | "AUDIO"
         | "CALL"
         | "SYSTEM_PIN"
-        | "SYSTEM_UPIN";
+        | "SYSTEM_UPIN"
+        | "SYSTEM_POLL_CREATED"
+        | "SYSTEM_POLL_VOTED"
+        | "SYSTEM_POLL_CHANGED"
+        | "SYSTEM_POLL_CLOSED"
+        | "SYSTEM_POLL_PINNED";
         content?: string;
     }>;
 }
@@ -163,6 +168,11 @@ export interface MessageSeenEvent {
 export interface MessageReactionEvent {
     domainEventType: "MESSAGE_REACTION";
     messageResponse: Message;
+}
+
+export interface PollUpdatedEvent {
+    domainEventType: "POLL_UPDATED";
+    poll: PollResponse;
 }
 
 /**
@@ -600,6 +610,7 @@ class WebSocketService {
         onMessageSeen?: (event: MessageSeenEvent) => void,
         onTyping?: (event: TypingEvent) => void,
         onReaction?: (message: Message) => void,
+        onPollUpdated?: (poll: PollResponse) => void,
     ) {
         // BƯỚC 1: Kiểm tra client đã kết nối chưa
         // client.connected = true chỉ khi STOMP handshake hoàn tất
@@ -639,7 +650,8 @@ class WebSocketService {
                         | MessageRecalledEvent
                         | MessageSeenEvent
                         | TypingEvent
-                        | MessageReactionEvent;
+                        | MessageReactionEvent
+                        | PollUpdatedEvent;
 
                     console.log("Received conversation event:", event);
 
@@ -662,6 +674,9 @@ class WebSocketService {
                         const payload = (event as MessageReactionEvent)
                             .messageResponse;
                         if (payload) onReaction?.(payload);
+                    } else if (event.domainEventType === "POLL_UPDATED") {
+                        const payload = (event as PollUpdatedEvent).poll;
+                        if (payload) onPollUpdated?.(payload);
                     }
                 } catch (error) {
                     console.error("Error parsing message:", error);

@@ -36,15 +36,21 @@ import iuh.fit.edu.backend.modules.chat.constant.MessageType;
 import iuh.fit.edu.backend.modules.chat.dto.request.ForwardMessageRequest;
 import iuh.fit.edu.backend.modules.chat.dto.request.SendCallMessageRequest;
 import iuh.fit.edu.backend.modules.chat.dto.request.SendMessageRequest;
+import iuh.fit.edu.backend.modules.chat.dto.request.poll.CreatePollRequest;
 import iuh.fit.edu.backend.modules.chat.dto.response.LastMessageResponse;
 import iuh.fit.edu.backend.modules.chat.dto.response.MessageRecalledResponse;
 import iuh.fit.edu.backend.modules.chat.dto.response.MessageResponse;
+import iuh.fit.edu.backend.modules.chat.dto.response.poll.PollResponse;
 import iuh.fit.edu.backend.modules.chat.entity.Message;
+import iuh.fit.edu.backend.modules.chat.entity.Poll;
 import iuh.fit.edu.backend.modules.chat.event.payload.MessageCreatedEvent;
 import iuh.fit.edu.backend.modules.chat.event.payload.MessageRecalledEvent;
 import iuh.fit.edu.backend.modules.chat.mapper.MessageMapper;
+import iuh.fit.edu.backend.modules.chat.mapper.PollMapper;
 import iuh.fit.edu.backend.modules.chat.repository.MessageRepository;
+import iuh.fit.edu.backend.modules.chat.repository.PollRepository;
 import iuh.fit.edu.backend.modules.chat.service.MessageCacheService;
+import iuh.fit.edu.backend.modules.chat.service.PollCacheService;
 import iuh.fit.edu.backend.modules.conversation.constant.ConversationMemberStatus;
 import iuh.fit.edu.backend.modules.conversation.constant.MemberRole;
 import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationMemberResponse;
@@ -79,6 +85,9 @@ public class MessageCommandService {
     private final ConversationMapper conversationMapper;
     private final ConversationMemberRepository conversationMemberRepository;
     private final MessageCacheService messageCacheService;
+    private final PollRepository pollRepository;
+    private final PollMapper pollMapper;
+    private final PollCacheService pollCacheService;
     private final S3Service s3Service;
     private final ObjectMapper objectMapper;
     private final ChatSnapshotHelper chatSnapshotHelper;
@@ -122,6 +131,88 @@ public class MessageCommandService {
 
         // Ban su kien gui tin nhan di cho cac noi dang ky
         publishMessageEvents(conversation.getId(), messageResponse, lastMessageResponse);
+
+        return messageResponse;
+    }
+
+    @Transactional
+    public MessageResponse createPoll(CreatePollRequest request, Long userId) {
+        Conversation conversation = this.conversationRepository.findById(request.getConversationId())
+                .orElseThrow(() -> new RuntimeException("Khong tim thay cuoc tro chuyen"));
+
+        ConversationMemberResponse senderInfo = conversationMemberService
+                .getMemberInfo(request.getConversationId(), userId);
+        validateCanSendToConversation(conversation, senderInfo);
+
+        List<String> optionTexts = Optional.ofNullable(request.getOptions())
+                .orElse(Collections.emptyList())
+                .stream()
+                .map(String::trim)
+                .filter(value -> !value.isBlank())
+                .toList();
+
+        Set<String> normalizedOptionTexts = new HashSet<>();
+        boolean duplicatedOption = optionTexts.stream()
+                .map(value -> value.toLowerCase(java.util.Locale.ROOT))
+                .anyMatch(value -> !normalizedOptionTexts.add(value));
+        if (duplicatedOption) {
+            throw new IllegalArgumentException("Khong duoc trung lua chon");
+        }
+
+        if (optionTexts.size() < 2) {
+            throw new IllegalArgumentException("Binh chon can it nhat 2 phuong an");
+        }
+
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        Poll poll = Poll.builder()
+                .conversationId(conversation.getId())
+                .creatorId(senderInfo.getUserId())
+                .title(request.getTitle().trim())
+                .allowMultipleChoices(request.isAllowMultipleChoices())
+                .allowAddOption(request.isAllowAddOption())
+                .anonymous(request.isAnonymous())
+                .closed(false)
+                .recalled(false)
+                .expiresAt(request.getExpiresAt())
+                .createdAt(now)
+                .updatedAt(now)
+                .options(optionTexts.stream()
+                        .map(text -> Poll.Option.builder()
+                                .id(UUID.randomUUID().toString())
+                                .text(text)
+                                .voterIds(new LinkedHashSet<>())
+                                .build())
+                        .toList())
+                .build();
+
+        Poll savedPoll = pollRepository.save(poll);
+
+        Message pollMessage = new Message();
+        pollMessage.setContent(savedPoll.getTitle());
+        pollMessage.setMessageType(MessageType.POLL);
+        pollMessage.setSenderId(senderInfo.getUserId());
+        pollMessage.setConversationId(conversation.getId());
+        pollMessage.setPollId(savedPoll.getId());
+        pollMessage.setCreatedAt(now);
+
+        Message savedMessage = messageRepository.save(pollMessage);
+        savedPoll.setMessageId(savedMessage.getId());
+        Poll finalSavedPoll = pollRepository.save(savedPoll);
+
+        MessageResponse messageResponse = this.messageMapper.toMessageResponse(savedMessage);
+        PollResponse pollResponse = pollMapper.toResponse(finalSavedPoll, userId);
+        messageResponse.setPoll(pollResponse);
+
+        LastMessageResponse lastMessageResponse = processPostMessageSideEffects(
+                conversation, savedMessage, senderInfo, messageResponse
+        );
+
+        TransactionUtil.executeAfterCommit(() -> {
+            pollCacheService.cachePoll(pollMapper.toResponse(finalSavedPoll, null));
+        });
+
+        publishMessageEvents(conversation.getId(), messageResponse, lastMessageResponse);
+        createAndPublishSystemMessage(savedMessage.getId(), userId, conversation.getId(), MessageType.SYSTEM_POLL_CREATED, savedPoll.getTitle());
 
         return messageResponse;
     }
@@ -245,7 +336,7 @@ public class MessageCommandService {
         pinnedList.add(new PinnedMessageDetail(messageId,
                 userId, Instant.now().truncatedTo(ChronoUnit.MILLIS),
                 targetMessage.getSenderId(),
-                checkType ? targetMessage.getAttachments().get(0).getUrl() : targetMessage.getContent(),
+                getPinnedMessageContent(targetMessage, checkType),
                 targetMessage.getMessageType()));
 
         // Gán list mới để Hibernate detect dirty cho cột JSON pin list
@@ -256,7 +347,8 @@ public class MessageCommandService {
         // User sẽ thấy: "{user_name} đã ghim một tin nhắn"
         createAndPublishSystemMessage(
                 messageId, userId, conversationId,
-                MessageType.SYSTEM_PIN, "đã ghim một tin nhắn"
+                targetMessage.getMessageType() == MessageType.POLL ? MessageType.SYSTEM_POLL_PINNED : MessageType.SYSTEM_PIN,
+                targetMessage.getMessageType() == MessageType.POLL ? targetMessage.getContent() : "đã ghim một tin nhắn"
         );
 
         // Bắn event cập nhật danh sách ghim trên Header cho tất cả members
@@ -368,6 +460,7 @@ public class MessageCommandService {
         message.setContent("");
         message.setRecalled(true);
         this.messageRepository.save(message);
+        closePollOnRecall(message);
 
         // Cập nhật lại các tin nhắn reply lại tin nhắn đang thu hồi
         messageRepository.updateContentOfRepliedMessages(messageId);
@@ -416,6 +509,9 @@ public class MessageCommandService {
         if (sourceMessage.getMessageType() != null
                 && sourceMessage.getMessageType().name().startsWith("SYSTEM_")) {
             throw new IllegalArgumentException("Không thể chuyển tiếp tin nhắn hệ thống");
+        }
+        if (sourceMessage.getMessageType() == MessageType.POLL) {
+            throw new IllegalArgumentException("Khong the chuyen tiep binh chon");
         }
     }
 
@@ -592,7 +688,13 @@ public class MessageCommandService {
         systemMsg.setSenderId(senderId);
         systemMsg.setConversationId(convId);
         systemMsg.setCreatedAt(Instant.now().truncatedTo(ChronoUnit.MILLIS));
-        systemMsg.setReplyInfo(buildReplyInfo(targetMsgId));
+        Message.ReplyInfo replyInfo = buildReplyInfo(targetMsgId);
+        systemMsg.setReplyInfo(replyInfo);
+        if (replyInfo != null && replyInfo.getType() == MessageType.POLL) {
+            messageRepository.findById(replyInfo.getMessageId())
+                    .map(Message::getPollId)
+                    .ifPresent(systemMsg::setPollId);
+        }
         Message savedMsg = messageRepository.save(systemMsg);
 
         // Map sang Response
@@ -606,6 +708,16 @@ public class MessageCommandService {
     }
 
     // Hàm dùng để bắn sự kiện cho các kênh đăng ký
+    private String getPinnedMessageContent(Message message, boolean isMedia) {
+        if (message.getMessageType() == MessageType.POLL) {
+            return getSidebarPreview(MessageType.POLL, message.getContent());
+        }
+        if (isMedia && message.getAttachments() != null && !message.getAttachments().isEmpty()) {
+            return message.getAttachments().get(0).getUrl();
+        }
+        return message.getContent();
+    }
+
     private void publishMessageEvents(Long conversationId, MessageResponse msgResp, LastMessageResponse sidebarResp) {
         // Kênh trong phòng
         this.eventPublisher.publishEvent(new MessageCreatedEvent(msgResp));
@@ -696,6 +808,25 @@ public class MessageCommandService {
         }
     }
 
+    private void closePollOnRecall(Message message) {
+        if (message.getMessageType() != MessageType.POLL || message.getPollId() == null) {
+            return;
+        }
+        pollRepository.findById(message.getPollId()).ifPresent(poll -> {
+            poll.setClosed(true);
+            poll.setRecalled(true);
+            poll.setUpdatedAt(Instant.now().truncatedTo(ChronoUnit.MILLIS));
+            Poll savedPoll = pollRepository.save(poll);
+            TransactionUtil.executeAfterCommit(() -> {
+                PollResponse pollResponse = pollMapper.toResponse(savedPoll, null);
+                pollCacheService.cachePoll(pollResponse);
+            });
+            eventPublisher.publishEvent(new iuh.fit.edu.backend.modules.chat.event.payload.PollUpdatedEvent(
+                    pollMapper.toResponse(savedPoll, null)
+            ));
+        });
+    }
+
     private void deleteS3Attachments(List<Message.MediaAttachment> attachments) {
         if (attachments == null || attachments.isEmpty()) return;
         for (Message.MediaAttachment attachment : attachments) {
@@ -744,6 +875,12 @@ public class MessageCommandService {
             case FILE -> "[Tệp đính kèm]";
             case AUDIO -> "[Tin nhắn thoại]";
             case CALL -> getCallPreview(content);
+            case POLL -> "[Binh chon] " + Optional.ofNullable(content).orElse("");
+            case SYSTEM_POLL_CREATED -> "Da tao cuoc binh chon: " + Optional.ofNullable(content).orElse("");
+            case SYSTEM_POLL_VOTED -> "Da tham gia cuoc binh chon: " + Optional.ofNullable(content).orElse("");
+            case SYSTEM_POLL_CHANGED -> "Da doi lua chon trong cuoc binh chon: " + Optional.ofNullable(content).orElse("");
+            case SYSTEM_POLL_CLOSED -> "Da khoa binh chon: " + Optional.ofNullable(content).orElse("");
+            case SYSTEM_POLL_PINNED -> "Da ghim binh chon: " + Optional.ofNullable(content).orElse("");
             case SYSTEM_PIN -> "Đã ghim một tin nhắn";
             case SYSTEM_UPIN -> "Đã bỏ ghim một tin nhắn";
             case TEXT -> content; // Text thì in ra bình thường

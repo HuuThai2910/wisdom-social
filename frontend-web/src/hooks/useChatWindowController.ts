@@ -11,6 +11,7 @@ import chatService, {
     type Conversation,
     type Message,
     type MessageType,
+    type PollResponse,
     type SendMessageRequest,
 } from "../services/chatService";
 import websocketService, {
@@ -1704,6 +1705,39 @@ const list = Array.isArray(cursorData?.data)
         [conversationId],
     );
 
+    const handlePollUpdatedEvent = useCallback(
+        (poll: PollResponse) => {
+            setMessages((prev) => {
+                const nextMessages = prev.map((message) =>
+                    message.id === poll.messageId || message.pollId === poll.id
+                        ? {
+                              ...message,
+                              pollId: poll.id,
+                              poll: {
+                                  ...poll,
+                                  currentUserOptionIds:
+                                      message.poll?.currentUserOptionIds ??
+                                      poll.currentUserOptionIds ??
+                                      [],
+                                  options: poll.options.map((option) => ({
+                                      ...option,
+                                      selectedByCurrentUser:
+                                          message.poll?.currentUserOptionIds?.includes(
+                                              option.id,
+                                          ) ??
+                                          option.selectedByCurrentUser,
+                                  })),
+                              },
+                          }
+                        : message,
+                );
+                chatRuntimeStore.setMessages(conversationId, nextMessages);
+                return nextMessages;
+            });
+        },
+        [conversationId],
+    );
+
     /**
      * sendTypingSignal - Gửi signal "đang gõ" lên backend
      *
@@ -1993,6 +2027,7 @@ const list = Array.isArray(cursorData?.data)
                     handleMessageSeen, // Nhận MESSAGE_SEEN event từ topic conversation
                     handleTyping, // Nhận TYPING event từ topic conversation
                     handleMessageReactionEvent, // Nhận MESSAGE_REACTION event
+                    handlePollUpdatedEvent,
                 );
                 websocketService.subscribeToConversationMembers(
                     conversationId,
@@ -2069,6 +2104,7 @@ const list = Array.isArray(cursorData?.data)
         handleMessageSeen,
         handleTyping,
         handleMessageReactionEvent,
+        handlePollUpdatedEvent,
         loadInitialData,
         markAsRead,
     ]);

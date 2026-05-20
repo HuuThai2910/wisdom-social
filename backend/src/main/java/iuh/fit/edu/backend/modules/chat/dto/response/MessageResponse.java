@@ -7,6 +7,7 @@ package iuh.fit.edu.backend.modules.chat.dto.response;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import iuh.fit.edu.backend.modules.chat.constant.MessageType;
+import iuh.fit.edu.backend.modules.chat.dto.response.poll.PollResponse;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -33,6 +34,9 @@ public class MessageResponse {
     private MessageType type;
     private Instant createdAt;
     private Long senderId;
+    private String pollId;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private PollResponse poll;
     private ReplyInfo replyInfo;
     private boolean isActive;
     @JsonProperty("isRecalled")

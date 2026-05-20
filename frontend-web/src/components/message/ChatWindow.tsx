@@ -58,6 +58,9 @@ interface ChatWindowProps {
   name?: string;
   avatarUrl?: string;
   compositeAvatarUrls?: string[];
+  openPollMessageId?: string | null;
+  openPollModalToken?: number;
+  onPollModalClose?: () => void;
 }
 
 function createClientFileId(): string {
@@ -128,8 +131,13 @@ export default function ChatWindow({
   name,
   avatarUrl,
   compositeAvatarUrls,
+  openPollMessageId = null,
+  openPollModalToken = 0,
+  onPollModalClose,
 }: ChatWindowProps) {
   const [isAiPanelOpen, setIsAiPanelOpen] = useState(false);
+  const [internalOpenPollMessageId, setInternalOpenPollMessageId] = useState<string | null>(null);
+  const [internalOpenPollModalToken, setInternalOpenPollModalToken] = useState(0);
 
   const {
     conversation,
@@ -607,7 +615,7 @@ export default function ChatWindow({
         return;
       }
 
-      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      target.scrollIntoView({ behavior: "auto", block: "center" });
       setHighlightedMessageId(messageId);
 
       setTimeout(() => {
@@ -641,6 +649,28 @@ export default function ChatWindow({
     },
     [requestJumpToMessage]
   );
+
+  const requestOpenPollMessage = useCallback(
+    (messageId: string) => {
+      setInternalOpenPollMessageId(messageId);
+      setInternalOpenPollModalToken((token) => token + 1);
+      if (!messageElementRefs.current[messageId]) {
+        void requestJumpToMessage(messageId);
+      }
+    },
+    [requestJumpToMessage]
+  );
+
+  const activeOpenPollMessageId = openPollMessageId ?? internalOpenPollMessageId;
+  const activeOpenPollModalToken = openPollMessageId
+    ? openPollModalToken
+    : internalOpenPollModalToken;
+
+  useEffect(() => {
+    if (!activeOpenPollMessageId || !activeOpenPollModalToken) return;
+    if (messageElementRefs.current[activeOpenPollMessageId]) return;
+    void requestJumpToMessage(activeOpenPollMessageId);
+  }, [activeOpenPollMessageId, activeOpenPollModalToken, requestJumpToMessage]);
 
   // Focus vào input khi component mount hoặc chuyển conversation
   useEffect(() => {
@@ -916,6 +946,14 @@ export default function ChatWindow({
             onDeleteForMe={handleDeleteMessageForMe}
             onReaction={addReaction}
             onOpenRequireApprovalDetails={onToggleInfoPanel}
+            onOpenPollMessage={requestOpenPollMessage}
+            openPollModalToken={
+              activeOpenPollMessageId === message.id ? activeOpenPollModalToken : undefined
+            }
+            onPollModalClose={() => {
+              setInternalOpenPollMessageId(null);
+              onPollModalClose?.();
+            }}
             onMediaLoad={() => {
               stabilizeMediaLayoutOnMediaLoad();
               // Chỉ cuộn xuống cuối khi:

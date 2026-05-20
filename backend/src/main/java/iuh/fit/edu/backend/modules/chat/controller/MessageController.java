@@ -19,6 +19,7 @@ import iuh.fit.edu.backend.modules.chat.dto.request.AddReactionRequest;
 import iuh.fit.edu.backend.modules.chat.dto.request.ForwardMessageRequest;
 import iuh.fit.edu.backend.modules.chat.dto.request.SendCallMessageRequest;
 import iuh.fit.edu.backend.modules.chat.dto.request.SendMessageRequest;
+import iuh.fit.edu.backend.modules.chat.dto.request.poll.CreatePollRequest;
 import iuh.fit.edu.backend.modules.chat.dto.response.MessageRecalledResponse;
 import iuh.fit.edu.backend.modules.chat.dto.response.MessageResponse;
 import iuh.fit.edu.backend.modules.chat.service.MessageService;
@@ -55,6 +56,15 @@ public class MessageController {
         return ResponseEntity
                 .status(HttpStatus.CREATED)
                 .body(this.messageService.sendMessage(sendMessageRequest, userId));
+    }
+
+    @PostMapping("/polls")
+    public ResponseEntity<MessageResponse> createPoll(
+            @Valid @RequestBody CreatePollRequest createPollRequest) {
+        Long userId = this.userService.getCurrentUser().getId();
+        return ResponseEntity
+                .status(HttpStatus.CREATED)
+                .body(this.messageService.createPoll(createPollRequest, userId));
     }
 
     @PostMapping("/forward")

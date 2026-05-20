@@ -18,6 +18,7 @@ import type {
     MessageReactionEvent,
     MessageSeenEvent,
     PinnedMessageDetail,
+    PollResponse,
     TypingEvent,
 } from "@/types/chat";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -998,6 +999,31 @@ if (token !== loadTokenRef.current) return;
         [conversationId],
     );
 
+    const handlePollUpdatedEvent = useCallback(
+        (poll: PollResponse) => {
+            setMessages((prev) => {
+                const nextMessages = prev.map((message) =>
+                    message.id === poll.messageId || message.pollId === poll.id
+                        ? {
+                              ...message,
+                              pollId: poll.id,
+                              poll: {
+                                  ...poll,
+                                  currentUserOptionIds:
+                                      message.poll?.currentUserOptionIds ??
+                                      poll.currentUserOptionIds ??
+                                      [],
+                              },
+                          }
+                        : message,
+                );
+                chatRuntimeStore.setMessages(conversationId, nextMessages);
+                return nextMessages;
+            });
+        },
+        [conversationId],
+    );
+
     const handleNewMessage = useCallback(
         (incomingMessage: Message) => {
             const normalizedIncoming =
@@ -1284,6 +1310,7 @@ if (token !== loadTokenRef.current) return;
                     handleMessageSeen,
                     handleTyping,
                     handleMessageReactionEvent,
+                    handlePollUpdatedEvent,
                 );
 
                 chatWebsocketService.subscribeToConversationPins(
@@ -1416,6 +1443,7 @@ if (token !== loadTokenRef.current) return;
         executeMarkAsRead,
         handleMessageSeen,
         handleMessageReactionEvent,
+        handlePollUpdatedEvent,
         handleNewMessage,
         handleTyping,
         isScreenFocused,

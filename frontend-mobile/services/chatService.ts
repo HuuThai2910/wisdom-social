@@ -8,6 +8,7 @@ import type {
     ConversationPin,
     ConversationSidebar,
     ConversationMember,
+    CreatePollRequest,
     CreateGroupRequest,
     CursorResponse,
     LocalUploadFile,
@@ -15,6 +16,7 @@ import type {
     JoinRequest,
     MemberRole,
     Message,
+    PollResponse,
     PinnedMessageDetail,
     PresignedUrlResponse,
     SendCallMessageRequest,
@@ -198,6 +200,40 @@ const chatService = {
     ): Promise<Message> {
         const response = await apiClient.post(`/messages/send`, request);
         return normalizeMessagePayload(response.data);
+    },
+
+    async createPoll(request: CreatePollRequest): Promise<Message> {
+        const response = await apiClient.post(`/messages/polls`, request);
+        return normalizeMessagePayload(response.data);
+    },
+
+    async getPoll(pollId: string): Promise<PollResponse> {
+        const response = await apiClient.get(`/polls/${pollId}`);
+        return unwrapApiData(response.data as ApiResponse<PollResponse> | PollResponse);
+    },
+
+    async votePoll(pollId: string, optionIds: string[]): Promise<PollResponse> {
+        const response = await apiClient.post(`/polls/${pollId}/vote`, {
+            optionIds,
+        });
+        return unwrapApiData(response.data as ApiResponse<PollResponse> | PollResponse);
+    },
+
+    async removePollVote(pollId: string): Promise<PollResponse> {
+        const response = await apiClient.delete(`/polls/${pollId}/vote`);
+        return unwrapApiData(response.data as ApiResponse<PollResponse> | PollResponse);
+    },
+
+    async addPollOption(pollId: string, text: string): Promise<PollResponse> {
+        const response = await apiClient.post(`/polls/${pollId}/options`, {
+            text,
+        });
+        return unwrapApiData(response.data as ApiResponse<PollResponse> | PollResponse);
+    },
+
+    async closePoll(pollId: string): Promise<PollResponse> {
+        const response = await apiClient.patch(`/polls/${pollId}/close`);
+        return unwrapApiData(response.data as ApiResponse<PollResponse> | PollResponse);
     },
 
     async forwardMessage(request: ForwardMessageRequest): Promise<Message[]> {

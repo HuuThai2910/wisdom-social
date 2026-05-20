@@ -47,6 +47,8 @@ public class Message {
     private Instant modifiedAt;
     @Field(name = "conversation_id")
     private Long conversationId;
+    @Field(name = "poll_id")
+    private String pollId;
 
     private boolean isRecalled = false;
 
