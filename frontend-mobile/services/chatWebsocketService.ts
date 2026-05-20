@@ -18,6 +18,8 @@ import type {
     PinUpdatedEvent,
     TypingEvent,
     MessageReactionEvent,
+    PollResponse,
+    PollUpdatedEvent,
 } from "@/types/chat";
 import apiClient from "@/api/apiClient";
 
@@ -26,7 +28,8 @@ type ConversationEvent =
     | MessageRecalledEvent
     | MessageSeenEvent
     | TypingEvent
-    | MessageReactionEvent;
+    | MessageReactionEvent
+    | PollUpdatedEvent;
 
 type ConversationSnapshot = Conversation & {
     processedJoinRequestId?: number;
@@ -529,6 +532,7 @@ class ChatWebsocketService {
         onSeen?: (event: MessageSeenEvent) => void,
         onTyping?: (event: TypingEvent) => void,
         onReaction?: (message: Message) => void,
+        onPollUpdated?: (poll: PollResponse) => void,
     ): void {
         const destination = `/topic/conversation/${conversationId}`;
         console.log(`${WS_DEBUG_PREFIX} subscribeToConversation`, {
@@ -610,6 +614,14 @@ class ChatWebsocketService {
                         ).messageResponse;
                         if (payload) {
                             onReaction?.(payload);
+                        }
+                        return;
+                    }
+
+                    if (domainType === "POLL_UPDATED") {
+                        const payload = (container as { poll?: PollResponse }).poll;
+                        if (payload) {
+                            onPollUpdated?.(payload);
                         }
                         return;
                     }

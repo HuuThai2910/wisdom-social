@@ -121,11 +121,13 @@ export default function MessagesConversationScreen() {
         refreshAt,
         pendingJoinNotice,
         backToMessages,
+        openMessageId,
     } = useLocalSearchParams<{
         conversationId?: string;
         refreshAt?: string;
         pendingJoinNotice?: string;
         backToMessages?: string;
+        openMessageId?: string;
     }>();
     const conversationId = Number(conversationIdParam ?? 0);
     const router = useRouter();
@@ -527,14 +529,14 @@ export default function MessagesConversationScreen() {
                     try {
                         listRef.current?.scrollToIndex({
                             index,
-                            animated: true,
+                            animated: false,
                             viewPosition: 0.5,
                         });
                     } catch {
                         const fallbackOffset = Math.max(index * 92 - 140, 0);
                         listRef.current?.scrollToOffset({
                             offset: fallbackOffset,
-                            animated: true,
+                            animated: false,
                         });
 
                         if (attempt < 4) {
@@ -692,6 +694,11 @@ export default function MessagesConversationScreen() {
         },
         [requestJumpToMessage],
     );
+
+    useEffect(() => {
+        if (!openMessageId) return;
+        void requestJumpToMessage(String(openMessageId));
+    }, [openMessageId, requestJumpToMessage]);
 
     useEffect(() => {
         return () => {
@@ -1449,13 +1456,13 @@ export default function MessagesConversationScreen() {
 
         listRef.current?.scrollToOffset({
             offset: fallbackOffset,
-            animated: true,
+            animated: false,
         });
 
         setTimeout(() => {
             listRef.current?.scrollToIndex({
                 index: info.index,
-                animated: true,
+                animated: false,
                 viewPosition: 0.5,
             });
         }, 180);
@@ -1757,6 +1764,9 @@ export default function MessagesConversationScreen() {
                             onRecallCall={(callType) => {
                                 void tryStartCall(callType);
                             }}
+                            isPinned={pinnedMessages.some((pin) => pin.messageId === item.id)}
+                            onPinMessage={handlePinMessage}
+                            onUnpinMessage={handleUnpinMessage}
                             onSwipeReply={replyToTargetMessage}
                         />
                     )}

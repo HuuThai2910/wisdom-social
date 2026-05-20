@@ -13,6 +13,7 @@ import iuh.fit.edu.backend.common.dto.response.CursorResponse;
 import iuh.fit.edu.backend.modules.chat.dto.request.ForwardMessageRequest;
 import iuh.fit.edu.backend.modules.chat.dto.request.SendCallMessageRequest;
 import iuh.fit.edu.backend.modules.chat.dto.request.SendMessageRequest;
+import iuh.fit.edu.backend.modules.chat.dto.request.poll.CreatePollRequest;
 import iuh.fit.edu.backend.modules.chat.dto.response.MessageRecalledResponse;
 import iuh.fit.edu.backend.modules.chat.dto.response.MessageResponse;
 import iuh.fit.edu.backend.modules.chat.service.MessageService;
@@ -36,6 +37,11 @@ public class MessageServiceImpl implements MessageService{
     @Override
     public MessageResponse sendMessage(SendMessageRequest sendMessageRequest, Long userId) {
         return commandService.sendMessage(sendMessageRequest, userId);
+    }
+
+    @Override
+    public MessageResponse createPoll(CreatePollRequest createPollRequest, Long userId) {
+        return commandService.createPoll(createPollRequest, userId);
     }
 
     @Override

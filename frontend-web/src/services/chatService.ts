@@ -8,8 +8,14 @@ export type MessageType =
     | "FILE"
     | "AUDIO"
     | "CALL"
+    | "POLL"
     | "SYSTEM_PIN"
     | "SYSTEM_UPIN"
+    | "SYSTEM_POLL_CREATED"
+    | "SYSTEM_POLL_VOTED"
+    | "SYSTEM_POLL_CHANGED"
+    | "SYSTEM_POLL_CLOSED"
+    | "SYSTEM_POLL_PINNED"
     | "SYSTEM_CREATE_GROUP"
     | "SYSTEM_ADD_MEMBER"
     | "SYSTEM_LEAVE_GROUP"
@@ -42,6 +48,8 @@ export interface Message {
     senderId: number;
     senderName?: string;
     senderAvatar?: string;
+    pollId?: string;
+    poll?: PollResponse;
     replyInfo?: ReplyInfo;
     active?: boolean;
     isActive?: boolean;
@@ -49,6 +57,44 @@ export interface Message {
     attachments?: MessageAttachment[];
     deletedFor?: number[];
     iconName?: MessageReaction[];
+}
+
+export interface PollOptionResponse {
+    id: string;
+    text: string;
+    voteCount: number;
+    selectedByCurrentUser: boolean;
+    voterIds?: number[];
+}
+
+export interface PollResponse {
+    id: string;
+    messageId: string;
+    conversationId: number;
+    creatorId: number;
+    title: string;
+    allowMultipleChoices: boolean;
+    allowAddOption: boolean;
+    anonymous: boolean;
+    closed: boolean;
+    recalled: boolean;
+    expiresAt?: string | null;
+    createdAt: string;
+    updatedAt: string;
+    totalVoterCount?: number;
+    totalVoteCount: number;
+    currentUserOptionIds: string[];
+    options: PollOptionResponse[];
+}
+
+export interface CreatePollRequest {
+    conversationId: number;
+    title: string;
+    options: string[];
+    allowMultipleChoices?: boolean;
+    allowAddOption?: boolean;
+    anonymous?: boolean;
+    expiresAt?: string | null;
 }
 
 export interface MessageAttachment {
@@ -359,6 +405,35 @@ const chatService = {
     ): Promise<Message> {
         const response = await axiosClient.post("/messages/send", request);
         return response.data;
+    },
+
+    async createPoll(request: CreatePollRequest): Promise<Message> {
+        const response = await axiosClient.post("/messages/polls", request);
+        return unwrapApiData(response.data as ApiResponse<Message> | Message);
+    },
+
+    async votePoll(pollId: string, optionIds: string[]): Promise<PollResponse> {
+        const response = await axiosClient.post(`/polls/${pollId}/vote`, {
+            optionIds,
+        });
+        return unwrapApiData(response.data as ApiResponse<PollResponse> | PollResponse);
+    },
+
+    async removePollVote(pollId: string): Promise<PollResponse> {
+        const response = await axiosClient.delete(`/polls/${pollId}/vote`);
+        return unwrapApiData(response.data as ApiResponse<PollResponse> | PollResponse);
+    },
+
+    async addPollOption(pollId: string, text: string): Promise<PollResponse> {
+        const response = await axiosClient.post(`/polls/${pollId}/options`, {
+            text,
+        });
+        return unwrapApiData(response.data as ApiResponse<PollResponse> | PollResponse);
+    },
+
+    async closePoll(pollId: string): Promise<PollResponse> {
+        const response = await axiosClient.patch(`/polls/${pollId}/close`);
+        return unwrapApiData(response.data as ApiResponse<PollResponse> | PollResponse);
     },
 
     async forwardMessage(request: ForwardMessageRequest): Promise<Message[]> {
