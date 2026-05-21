@@ -1,7 +1,11 @@
-import { useRef, useCallback, useEffect } from "react";
+import { useRef, useCallback, useEffect, useState } from "react";
+import { Pen, X } from "lucide-react";
 import StoryTextLayer from "./StoryTextLayer";
 import StoryToolbar from "./StoryToolbar";
 import StoryMusicSticker from "./StoryMusicSticker";
+import DrawingCanvas from "./DrawingCanvas";
+import DrawingToolbar from "./DrawingToolbar";
+import { useStoryDrawing } from "../../hooks/useStoryDrawing";
 import type { StoryTextManager } from "../../hooks/useStoryTextManager";
 import type { StoryMusicManager } from "../../hooks/useStoryMusicSticker";
 
@@ -11,6 +15,11 @@ interface Props {
   backgroundUrl?: string;
   backgroundType?: "image" | "video";
   gradientClass?: string;
+  mediaOffsetX?: number;
+  mediaOffsetY?: number;
+  mediaScale?: number;
+  onMediaMouseDown?: (e: any) => void;
+  onMediaTouchStart?: (e: any) => void;
 }
 
 export default function StoryCanvas({
@@ -19,12 +28,24 @@ export default function StoryCanvas({
   backgroundUrl,
   backgroundType = "image",
   gradientClass,
+  mediaOffsetX = 0,
+  mediaOffsetY = 0,
+  mediaScale = 1,
+  onMediaMouseDown,
+  onMediaTouchStart,
 }: Props) {
   const canvasRef = useRef<HTMLDivElement>(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const drawing = useStoryDrawing();
 
-  // Click on canvas background => deselect all
+  // Click on canvas background => deselect all (but not while editing)
   const handleCanvasClick = useCallback(
     (e: React.MouseEvent) => {
+      // Don't deselect if currently editing text
+      if (manager.editingId) {
+        return;
+      }
+
       if (e.target === canvasRef.current || e.target === e.currentTarget) {
         manager.deselectAll();
         musicManager?.deselectSticker();
@@ -33,11 +54,14 @@ export default function StoryCanvas({
     [manager, musicManager]
   );
 
-  // ESC key to deselect or exit edit
+  // ESC key to deselect or exit edit / drawing
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        if (manager.editingId) {
+        if (isDrawing) {
+          setIsDrawing(false);
+          drawing.setTool("none");
+        } else if (manager.editingId) {
           manager.setEditingId(null);
         } else {
           manager.deselectAll();
@@ -45,10 +69,7 @@ export default function StoryCanvas({
         }
       }
       // Delete selected layer
-      if (
-        (e.key === "Delete" || e.key === "Backspace") &&
-        !manager.editingId
-      ) {
+      if ((e.key === "Delete" || e.key === "Backspace") && !manager.editingId) {
         if (manager.selectedId) {
           manager.removeLayer(manager.selectedId);
         } else if (musicManager?.isSelected && musicManager?.sticker) {
@@ -58,7 +79,7 @@ export default function StoryCanvas({
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [manager, musicManager]);
+  }, [manager, musicManager, isDrawing, drawing]);
 
   const hasBackground = backgroundUrl || gradientClass;
 
@@ -67,7 +88,7 @@ export default function StoryCanvas({
       {/* Canvas */}
       <div
         ref={canvasRef}
-        className="relative w-full max-w-[360px] aspect-[9/16] rounded-2xl overflow-hidden shadow-[0_8px_40px_rgba(0,0,0,0.5)] ring-1 ring-white/5"
+        className="relative w-full max-w-[360px] aspect-[9/16] rounded-2xl overflow-visible shadow-[0_8px_40px_rgba(0,0,0,0.5)] ring-1 ring-white/5"
         onClick={handleCanvasClick}
         style={{ cursor: "default" }}
       >
@@ -80,18 +101,30 @@ export default function StoryCanvas({
           <img
             src={backgroundUrl}
             alt="Story background"
-            className="absolute inset-0 w-full h-full object-cover"
+            className="absolute inset-0 w-full h-full object-cover cursor-grab active:cursor-grabbing"
+            style={{
+              transform: `translate(${mediaOffsetX}px, ${mediaOffsetY}px) scale(${mediaScale})`,
+              transformOrigin: "center",
+            }}
+            onMouseDown={(e) => onMediaMouseDown?.(e as any)}
+            onTouchStart={(e) => onMediaTouchStart?.(e as any)}
           />
         )}
 
         {backgroundUrl && backgroundType === "video" && (
           <video
             src={backgroundUrl}
-            className="absolute inset-0 w-full h-full object-cover"
+            className="absolute inset-0 w-full h-full object-cover cursor-grab active:cursor-grabbing"
+            style={{
+              transform: `translate(${mediaOffsetX}px, ${mediaOffsetY}px) scale(${mediaScale})`,
+              transformOrigin: "center",
+            }}
             autoPlay
             muted
             loop
             playsInline
+            onMouseDown={(e) => onMediaMouseDown?.(e as any)}
+            onTouchStart={(e) => onMediaTouchStart?.(e as any)}
           />
         )}
 
@@ -104,19 +137,22 @@ export default function StoryCanvas({
         )}
 
         {/* Empty state */}
-        {!hasBackground && manager.layers.length === 0 && !musicManager?.sticker && (
-          <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center">
-            <div className="text-center text-white/20">
-              <p className="text-sm font-medium">Bắt đầu tạo story</p>
-              <p className="text-[11px] mt-1">Nhấn "Aa" để thêm văn bản</p>
+        {!hasBackground &&
+          manager.layers.length === 0 &&
+          !musicManager?.sticker && (
+            <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center">
+              <div className="text-center text-white/20">
+                <p className="text-sm font-medium">Bắt đầu tạo story</p>
+                <p className="text-[11px] mt-1">Nhấn "Aa" để thêm văn bản</p>
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
         {/* Default dark bg when no gradient */}
-        {!hasBackground && (manager.layers.length > 0 || musicManager?.sticker) && (
-          <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900" />
-        )}
+        {!hasBackground &&
+          (manager.layers.length > 0 || musicManager?.sticker) && (
+            <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900" />
+          )}
 
         {/* Text Layers */}
         {manager.layers.map((layer) => (
@@ -136,6 +172,10 @@ export default function StoryCanvas({
             onStartEdit={(id) => {
               manager.setSelectedId(id);
               manager.setEditingId(id);
+              musicManager?.deselectSticker();
+            }}
+            onEndEdit={(_id) => {
+              manager.deselectAll();
               musicManager?.deselectSticker();
             }}
             onUpdate={manager.updateLayer}
@@ -162,10 +202,75 @@ export default function StoryCanvas({
         {manager.editingId && (
           <div className="absolute inset-0 ring-2 ring-blue-400/20 rounded-2xl pointer-events-none" />
         )}
+
+        {/* Drawing Canvas Overlay */}
+        {isDrawing && (
+          <DrawingCanvas
+            width={360}
+            height={640}
+            canvasRef={drawing.canvasRef}
+            isDrawingRef={drawing.isDrawingRef}
+            lastPointRef={drawing.lastPointRef}
+            tool={drawing.drawingState.tool}
+            brushSize={drawing.drawingState.brushSize}
+            brushOpacity={drawing.drawingState.brushOpacity}
+            brushColor={drawing.drawingState.brushColor}
+            onSaveToHistory={drawing.saveToHistory}
+          />
+        )}
       </div>
 
-      {/* Toolbar */}
-      <StoryToolbar manager={manager} />
+      {/* Toolbar - Text & Drawing Tools */}
+      <div className="flex items-center gap-2 w-full max-w-[360px]">
+        {/* Text Toolbar */}
+        {!isDrawing && <StoryToolbar manager={manager} />}
+
+        {/* Drawing Toggle Button */}
+        <button
+          onClick={() => {
+            setIsDrawing(!isDrawing);
+            if (!isDrawing) {
+              drawing.setTool("brush");
+            } else {
+              drawing.setTool("none");
+            }
+          }}
+          className={`ml-auto p-2 rounded-xl transition-all ${
+            isDrawing
+              ? "bg-blue-500/20 text-blue-400 border border-blue-400/30"
+              : "text-white/70 hover:text-white hover:bg-white/10"
+          }`}
+          title={isDrawing ? "Exit Drawing" : "Start Drawing"}
+        >
+          {isDrawing ? <X size={18} /> : <Pen size={18} />}
+        </button>
+      </div>
+
+      {/* Drawing Toolbar */}
+      {isDrawing && (
+        <DrawingToolbar
+          tool={drawing.drawingState.tool}
+          brushSize={drawing.drawingState.brushSize}
+          brushOpacity={drawing.drawingState.brushOpacity}
+          brushColor={drawing.drawingState.brushColor}
+          canUndo={drawing.drawingState.historyStep > 0}
+          canRedo={
+            drawing.drawingState.historyStep <
+            drawing.drawingState.history.length - 1
+          }
+          onToolChange={drawing.setTool}
+          onBrushSizeChange={drawing.setBrushSize}
+          onBrushOpacityChange={drawing.setBrushOpacity}
+          onBrushColorChange={drawing.setBrushColor}
+          onUndo={drawing.undo}
+          onRedo={drawing.redo}
+          onClear={drawing.clearCanvas}
+          onClose={() => {
+            setIsDrawing(false);
+            drawing.setTool("none");
+          }}
+        />
+      )}
     </div>
   );
 }

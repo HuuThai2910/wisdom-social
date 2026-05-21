@@ -13,7 +13,10 @@ import {
   CaseSensitive,
   Layers,
 } from "lucide-react";
-import type { TextLayer, StoryTextManager } from "../../hooks/useStoryTextManager";
+import type {
+  TextLayer,
+  StoryTextManager,
+} from "../../hooks/useStoryTextManager";
 import { useState } from "react";
 
 interface Props {
@@ -64,7 +67,10 @@ export default function StoryToolbar({ manager }: Props) {
   };
 
   return (
-    <div className="flex flex-col items-center gap-3">
+    <div
+      className="flex flex-col items-center gap-3"
+      onMouseDown={(e) => e.preventDefault()}
+    >
       {/* Main Toolbar */}
       <div className="flex items-center gap-1 px-3 py-2 rounded-2xl bg-black/60 backdrop-blur-xl border border-white/10 shadow-2xl">
         {/* Add Text */}
@@ -381,9 +387,7 @@ export default function StoryToolbar({ manager }: Props) {
                 {FONT_SIZES.map((size) => (
                   <button
                     key={size}
-                    onClick={() =>
-                      updateLayer(selectedId!, { fontSize: size })
-                    }
+                    onClick={() => updateLayer(selectedId!, { fontSize: size })}
                     className={`w-10 h-8 rounded-lg text-xs font-medium transition-all ${
                       selectedLayer.fontSize === size
                         ? "bg-white/20 text-white"

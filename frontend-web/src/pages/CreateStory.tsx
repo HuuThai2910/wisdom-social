@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useRef, useEffect } from "react";
 import {
   ImagePlus,
   X,
@@ -9,26 +9,23 @@ import {
   ArrowLeft,
   Music,
   Settings2,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { buildS3Url } from "../utils/s3";
 import FriendSelectorModal from "../components/post/FriendSelectorModal";
-import {
-  stopAudioPreview,
-  type MusicMetadata,
-} from "../services/musicService";
+import { stopAudioPreview } from "../services/musicService";
 import StoryCanvas from "../components/story/StoryCanvas";
 import StoryMusicPickerModal from "../components/story/StoryMusicPickerModal";
 import { useStoryTextManager } from "../hooks/useStoryTextManager";
 import { useStoryMusicSticker } from "../hooks/useStoryMusicSticker";
-
-type StoryPrivacy =
-  | "PUBLIC"
-  | "FRIENDS"
-  | "PRIVATE"
-  | "SPECIFIC"
-  | "FRIENDS_EXCEPT";
+import { useStoryMedia } from "../hooks/useStoryMedia";
+import { useStoryMediaDrag } from "../hooks/useStoryMediaDrag";
+import { useStoryPrivacy } from "../hooks/useStoryPrivacy";
+import { useStoryAdvancedSettings } from "../hooks/useStoryAdvancedSettings";
+import { useStorySubmit } from "../hooks/useStorySubmit";
 
 const BG_GRADIENTS = [
   "bg-gradient-to-br from-purple-600 via-pink-500 to-red-500",
@@ -48,86 +45,65 @@ export default function CreateStory() {
   const { currentUser } = useAuth();
   const textManager = useStoryTextManager();
   const musicManager = useStoryMusicSticker();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
 
-  // Media state
-  const [selectedMedia, setSelectedMedia] = useState<File | null>(null);
-  const [mediaPreviewUrl, setMediaPreviewUrl] = useState<string>("");
-  const [selectedBgIndex, setSelectedBgIndex] = useState(0);
-
-  // Privacy
-  const [privacy, setPrivacy] = useState<StoryPrivacy>("PUBLIC");
-  const [showPrivacyMenu, setShowPrivacyMenu] = useState(false);
-  const [specificViewers, setSpecificViewers] = useState<string[]>([]);
-  const [excludedUsers, setExcludedUsers] = useState<string[]>([]);
-  const [showSpecificModal, setShowSpecificModal] = useState(false);
-  const [showExcludedModal, setShowExcludedModal] = useState(false);
-
-  // Music
-  const [showMusicPicker, setShowMusicPicker] = useState(false);
-
-  // Advanced
-  const [allowReplies, setAllowReplies] = useState(true);
-  const [allowSharing, setAllowSharing] = useState(true);
-  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
-  const [showSidebar, setShowSidebar] = useState(true);
-
-  // Submitting
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  // Use custom hooks
+  const media = useStoryMedia();
+  const drag = useStoryMediaDrag(media.selectedMedia);
+  const privacy = useStoryPrivacy();
+  const settings = useStoryAdvancedSettings();
+  const submit = useStorySubmit();
 
   // Audio cleanup
   useEffect(() => {
     return () => stopAudioPreview();
   }, []);
 
-  const handleMediaSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.type.startsWith("image/") && file.size > 10 * 1024 * 1024) {
-      alert("Ảnh không được vượt quá 10MB.");
-      return;
-    }
-    if (file.type.startsWith("video/") && file.size > 100 * 1024 * 1024) {
-      alert("Video không được vượt quá 100MB.");
-      return;
-    }
-    setSelectedMedia(file);
-    setMediaPreviewUrl(URL.createObjectURL(file));
-    e.target.value = "";
-  };
+  // Attach wheel listener with passive: false for preventDefault
+  useEffect(() => {
+    const wheelHandler = (e: WheelEvent) => {
+      if (!media.selectedMedia) return;
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -0.05 : 0.05;
+      drag.setMediaScale((prev) => Math.max(0.5, Math.min(3, prev + delta)));
+    };
 
+    if (canvasRef.current) {
+      canvasRef.current.addEventListener("wheel", wheelHandler, {
+        passive: false,
+      });
+    }
+
+    return () => {
+      if (canvasRef.current) {
+        canvasRef.current.removeEventListener("wheel", wheelHandler);
+      }
+    };
+  }, [media.selectedMedia, drag]);
+
+  // Handle remove media - reset drag state
   const handleRemoveMedia = () => {
-    if (mediaPreviewUrl) URL.revokeObjectURL(mediaPreviewUrl);
-    setSelectedMedia(null);
-    setMediaPreviewUrl("");
+    media.handleRemoveMedia();
+    // Reset drag state
+    drag.handleResetMediaPosition();
   };
 
   const canSubmit =
-    !isSubmitting &&
-    (textManager.layers.some((l) => l.text.trim()) || selectedMedia !== null || musicManager.sticker !== null);
+    !submit.isSubmitting &&
+    (textManager.layers.some((l) => l.text.trim()) ||
+      media.selectedMedia !== null ||
+      musicManager.sticker !== null);
 
   const handlePost = async () => {
-    if (!canSubmit) return;
-    setIsSubmitting(true);
-    try {
-      console.log("Creating story...", {
-        layers: textManager.layers,
-        selectedMedia,
-        privacy,
-        music: musicManager.sticker?.music || null,
-        musicStyle: musicManager.sticker?.style || null,
-        allowReplies,
-        allowSharing,
-        bgGradient: !selectedMedia ? BG_GRADIENTS[selectedBgIndex] : null,
-      });
-      await new Promise((r) => setTimeout(r, 1000));
-      navigate(-1);
-    } catch (error) {
-      console.error("Error creating story:", error);
-      alert("Không thể tạo tin. Vui lòng thử lại.");
-    } finally {
-      setIsSubmitting(false);
-    }
+    await submit.handlePost({
+      textManager,
+      musicManager,
+      selectedMedia: media.selectedMedia,
+      privacy: privacy.privacy,
+      allowReplies: settings.allowReplies,
+      allowSharing: settings.allowSharing,
+      selectedBgIndex: media.selectedBgIndex,
+    });
   };
 
   return (
@@ -155,29 +131,93 @@ export default function CreateStory() {
               : "bg-white/10 text-white/30 cursor-not-allowed"
           }`}
         >
-          {isSubmitting ? "Đang chia sẻ..." : "Chia sẻ"}
+          {submit.isSubmitting ? "Đang chia sẻ..." : "Chia sẻ"}
         </button>
       </div>
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left: Canvas Area */}
-        <div className="flex-1 flex items-center justify-center p-4 md:p-8">
+        <div
+          ref={canvasRef}
+          className="flex-1 flex items-center justify-center p-4 md:p-8 relative overflow-hidden group"
+        >
           <StoryCanvas
             manager={textManager}
             musicManager={musicManager}
-            backgroundUrl={mediaPreviewUrl || undefined}
+            backgroundUrl={media.mediaPreviewUrl || undefined}
             backgroundType={
-              selectedMedia?.type.startsWith("video/") ? "video" : "image"
+              media.selectedMedia?.type.startsWith("video/") ? "video" : "image"
             }
-            gradientClass={!selectedMedia ? BG_GRADIENTS[selectedBgIndex] : undefined}
+            gradientClass={
+              !media.selectedMedia
+                ? BG_GRADIENTS[media.selectedBgIndex]
+                : undefined
+            }
+            mediaOffsetX={drag.mediaPositionX}
+            mediaOffsetY={drag.mediaPositionY}
+            mediaScale={drag.mediaScale}
+            onMediaMouseDown={drag.handleMediaMouseDown}
+            onMediaTouchStart={drag.handleMediaTouchStart}
           />
+
+          {/* Delete Media Button (Mobile Friendly) */}
+          {media.selectedMedia && (
+            <button
+              onClick={handleRemoveMedia}
+              className="absolute top-4 right-4 p-2.5 bg-red-500/80 hover:bg-red-600 text-white rounded-full shadow-lg transition-all z-10 lg:hidden flex items-center justify-center"
+              title="Xóa ảnh/video"
+            >
+              <X size={20} />
+            </button>
+          )}
+
+          {/* Zoom Controls */}
+          {media.selectedMedia && (
+            <div className="absolute bottom-4 left-4 lg:left-auto lg:right-4 flex gap-2 bg-black/50 backdrop-blur-sm p-3 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity z-10">
+              <button
+                onClick={drag.handleZoomOut}
+                className="p-1.5 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors"
+                title="Thu nhỏ (-)20%"
+              >
+                <ZoomOut size={16} />
+              </button>
+              <div className="flex items-center justify-center px-2 text-xs text-white/70 min-w-[40px]">
+                {Math.round(drag.mediaScale * 100)}%
+              </div>
+              <button
+                onClick={drag.handleZoomIn}
+                className="p-1.5 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors"
+                title="Phóng to (+)20%"
+              >
+                <ZoomIn size={16} />
+              </button>
+              <div className="w-px bg-white/10" />
+              <button
+                onClick={drag.handleResetMediaPosition}
+                className="px-2 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors text-xs font-medium"
+                title="Đặt lại vị trí"
+              >
+                Reset
+              </button>
+            </div>
+          )}
+
+          {/* Drag Hint */}
+          {media.selectedMedia && (
+            <div className="absolute top-4 left-4 lg:top-auto lg:bottom-4 lg:left-4 text-xs text-white/40 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
+              Nhấn và kéo để di chuyển • Cuộn để phóng to/thu nhỏ
+            </div>
+          )}
         </div>
 
         {/* Right: Settings Sidebar */}
-        {showSidebar && (
+        {settings.showSidebar && (
           <div className="w-[320px] bg-[#0d0d0d] border-l border-white/5 flex flex-col overflow-hidden shrink-0 hidden lg:flex">
-            <div className="flex-1 overflow-y-auto p-5 space-y-5" style={{ scrollbarGutter: "stable" }}>
+            <div
+              className="flex-1 overflow-y-auto p-5 space-y-5"
+              style={{ scrollbarGutter: "stable" }}
+            >
               {/* User Info */}
               <div className="flex items-center gap-3">
                 <img
@@ -199,7 +239,7 @@ export default function CreateStory() {
               </div>
 
               {/* Background */}
-              {!selectedMedia && (
+              {!media.selectedMedia && (
                 <div>
                   <p className="text-white/40 text-[10px] font-bold uppercase tracking-wider mb-2.5">
                     Nền
@@ -208,9 +248,9 @@ export default function CreateStory() {
                     {BG_GRADIENTS.map((gradient, index) => (
                       <button
                         key={index}
-                        onClick={() => setSelectedBgIndex(index)}
+                        onClick={() => media.setSelectedBgIndex(index)}
                         className={`w-8 h-8 rounded-full ${gradient} border-2 transition-all ${
-                          selectedBgIndex === index
+                          media.selectedBgIndex === index
                             ? "border-blue-400 scale-110 shadow-lg shadow-blue-500/20"
                             : "border-white/10 hover:border-white/30"
                         }`}
@@ -225,24 +265,24 @@ export default function CreateStory() {
                 <p className="text-white/40 text-[10px] font-bold uppercase tracking-wider mb-2.5">
                   Ảnh / Video
                 </p>
-                {selectedMedia ? (
+                {media.selectedMedia ? (
                   <div className="flex items-center gap-2">
-                    <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-white/5 rounded-lg border border-white/10">
-                      <ImagePlus size={14} className="text-white/40" />
-                      <span className="text-white/60 text-xs truncate">
-                        {selectedMedia.name}
+                    <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-white/5 rounded-lg border border-white/10 min-w-0">
+                      <ImagePlus size={14} className="shrink-0 text-white/40" />
+                      <span className="text-white/60 text-xs truncate w-0">
+                        {media.selectedMedia.name}
                       </span>
                     </div>
                     <button
                       onClick={handleRemoveMedia}
-                      className="p-2 text-white/40 hover:text-red-400 transition-colors"
+                      className="shrink-0 p-2 text-white/40 hover:text-red-400 transition-colors"
                     >
                       <X size={14} />
                     </button>
                   </div>
                 ) : (
                   <button
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={() => media.fileInputRef.current?.click()}
                     className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-dashed border-white/15 hover:border-white/25 rounded-xl text-white/50 hover:text-white/70 text-xs font-medium transition-all"
                   >
                     <ImagePlus size={14} />
@@ -268,7 +308,9 @@ export default function CreateStory() {
                             key={i}
                             className="w-[2px] bg-purple-400 rounded-full"
                             style={{
-                              animation: `musicBar${i} 0.${4 + i}s ease-in-out infinite alternate`,
+                              animation: `musicBar${i} 0.${
+                                4 + i
+                              }s ease-in-out infinite alternate`,
                             }}
                           />
                         ))}
@@ -294,7 +336,7 @@ export default function CreateStory() {
                   </div>
                 ) : (
                   <button
-                    onClick={() => setShowMusicPicker(true)}
+                    onClick={() => settings.setShowMusicPicker(true)}
                     className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gray-50 hover:bg-gray-100 border border-dashed border-gray-300 hover:border-purple-400 rounded-xl text-gray-500 hover:text-purple-600 text-xs font-medium transition-all"
                   >
                     <Music size={14} />
@@ -314,9 +356,9 @@ export default function CreateStory() {
                 <div className="space-y-1.5">
                   {/* PUBLIC */}
                   <button
-                    onClick={() => setPrivacy("PUBLIC")}
+                    onClick={() => privacy.setPrivacy("PUBLIC")}
                     className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border transition-all ${
-                      privacy === "PUBLIC"
+                      privacy.privacy === "PUBLIC"
                         ? "border-blue-500/50 bg-blue-500/10"
                         : "border-white/5 bg-white/[0.02] hover:bg-white/5"
                     }`}
@@ -325,14 +367,14 @@ export default function CreateStory() {
                       <Globe
                         size={15}
                         className={
-                          privacy === "PUBLIC"
+                          privacy.privacy === "PUBLIC"
                             ? "text-blue-400"
                             : "text-white/40"
                         }
                       />
                       <span
                         className={`text-xs font-medium ${
-                          privacy === "PUBLIC"
+                          privacy.privacy === "PUBLIC"
                             ? "text-blue-400"
                             : "text-white/70"
                         }`}
@@ -342,12 +384,12 @@ export default function CreateStory() {
                     </div>
                     <div
                       className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${
-                        privacy === "PUBLIC"
+                        privacy.privacy === "PUBLIC"
                           ? "border-blue-400"
                           : "border-white/20"
                       }`}
                     >
-                      {privacy === "PUBLIC" && (
+                      {privacy.privacy === "PUBLIC" && (
                         <div className="w-1.5 h-1.5 bg-blue-400 rounded-full" />
                       )}
                     </div>
@@ -355,9 +397,9 @@ export default function CreateStory() {
 
                   {/* FRIENDS */}
                   <button
-                    onClick={() => setPrivacy("FRIENDS")}
+                    onClick={() => privacy.setPrivacy("FRIENDS")}
                     className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border transition-all ${
-                      privacy === "FRIENDS"
+                      privacy.privacy === "FRIENDS"
                         ? "border-blue-500/50 bg-blue-500/10"
                         : "border-white/5 bg-white/[0.02] hover:bg-white/5"
                     }`}
@@ -366,14 +408,14 @@ export default function CreateStory() {
                       <UserCheck
                         size={15}
                         className={
-                          privacy === "FRIENDS"
+                          privacy.privacy === "FRIENDS"
                             ? "text-blue-400"
                             : "text-white/40"
                         }
                       />
                       <span
                         className={`text-xs font-medium ${
-                          privacy === "FRIENDS"
+                          privacy.privacy === "FRIENDS"
                             ? "text-blue-400"
                             : "text-white/70"
                         }`}
@@ -383,12 +425,12 @@ export default function CreateStory() {
                     </div>
                     <div
                       className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${
-                        privacy === "FRIENDS"
+                        privacy.privacy === "FRIENDS"
                           ? "border-blue-400"
                           : "border-white/20"
                       }`}
                     >
-                      {privacy === "FRIENDS" && (
+                      {privacy.privacy === "FRIENDS" && (
                         <div className="w-1.5 h-1.5 bg-blue-400 rounded-full" />
                       )}
                     </div>
@@ -396,18 +438,20 @@ export default function CreateStory() {
 
                   {/* More options */}
                   <button
-                    onClick={() => setShowPrivacyMenu(!showPrivacyMenu)}
+                    onClick={() =>
+                      privacy.setShowPrivacyMenu(!privacy.showPrivacyMenu)
+                    }
                     className="text-[10px] text-blue-400/70 hover:text-blue-400 px-1 py-1 font-medium transition-colors"
                   >
-                    {showPrivacyMenu ? "Thu gọn ▲" : "Tùy chọn khác ▼"}
+                    {privacy.showPrivacyMenu ? "Thu gọn ▲" : "Tùy chọn khác ▼"}
                   </button>
 
-                  {showPrivacyMenu && (
+                  {privacy.showPrivacyMenu && (
                     <div className="space-y-1 pt-0.5 pl-3 border-l border-white/5 ml-1">
                       <button
                         onClick={() => {
-                          setPrivacy("PRIVATE");
-                          setShowPrivacyMenu(false);
+                          privacy.setPrivacy("PRIVATE");
+                          privacy.setShowPrivacyMenu(false);
                         }}
                         className="flex items-center gap-2 text-[11px] text-white/50 py-1.5 hover:text-blue-400 transition-colors"
                       >
@@ -415,8 +459,8 @@ export default function CreateStory() {
                       </button>
                       <button
                         onClick={() => {
-                          setPrivacy("SPECIFIC");
-                          setShowSpecificModal(true);
+                          privacy.setPrivacy("SPECIFIC");
+                          privacy.setShowSpecificModal(true);
                         }}
                         className="flex items-center gap-2 text-[11px] text-white/50 py-1.5 hover:text-blue-400 transition-colors"
                       >
@@ -424,8 +468,8 @@ export default function CreateStory() {
                       </button>
                       <button
                         onClick={() => {
-                          setPrivacy("FRIENDS_EXCEPT");
-                          setShowExcludedModal(true);
+                          privacy.setPrivacy("FRIENDS_EXCEPT");
+                          privacy.setShowExcludedModal(true);
                         }}
                         className="flex items-center gap-2 text-[11px] text-white/50 py-1.5 hover:text-blue-400 transition-colors"
                       >
@@ -443,7 +487,9 @@ export default function CreateStory() {
               <div>
                 <button
                   onClick={() =>
-                    setShowAdvancedSettings(!showAdvancedSettings)
+                    settings.setShowAdvancedSettings(
+                      !settings.showAdvancedSettings
+                    )
                   }
                   className="w-full flex items-center justify-between py-2 transition-colors"
                 >
@@ -453,29 +499,29 @@ export default function CreateStory() {
                   </div>
                   <span
                     className={`text-white/30 text-[10px] transition-transform ${
-                      showAdvancedSettings ? "rotate-180" : ""
+                      settings.showAdvancedSettings ? "rotate-180" : ""
                     }`}
                   >
                     ▼
                   </span>
                 </button>
-                {showAdvancedSettings && (
+                {settings.showAdvancedSettings && (
                   <div className="pt-2 space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-white/60">
                         Cho phép reply story
                       </span>
                       <button
-                        onClick={() => setAllowReplies(!allowReplies)}
+                        onClick={() =>
+                          settings.setAllowReplies(!settings.allowReplies)
+                        }
                         className={`relative w-9 h-5 rounded-full transition-colors ${
-                          allowReplies
-                            ? "bg-blue-500"
-                            : "bg-white/10"
+                          settings.allowReplies ? "bg-blue-500" : "bg-white/10"
                         }`}
                       >
                         <span
                           className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform shadow-sm ${
-                            allowReplies
+                            settings.allowReplies
                               ? "translate-x-4"
                               : "translate-x-0"
                           }`}
@@ -487,16 +533,16 @@ export default function CreateStory() {
                         Cho phép chia sẻ
                       </span>
                       <button
-                        onClick={() => setAllowSharing(!allowSharing)}
+                        onClick={() =>
+                          settings.setAllowSharing(!settings.allowSharing)
+                        }
                         className={`relative w-9 h-5 rounded-full transition-colors ${
-                          allowSharing
-                            ? "bg-blue-500"
-                            : "bg-white/10"
+                          settings.allowSharing ? "bg-blue-500" : "bg-white/10"
                         }`}
                       >
                         <span
                           className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform shadow-sm ${
-                            allowSharing
+                            settings.allowSharing
                               ? "translate-x-4"
                               : "translate-x-0"
                           }`}
@@ -513,38 +559,38 @@ export default function CreateStory() {
 
       {/* Hidden file input */}
       <input
-        ref={fileInputRef}
+        ref={media.fileInputRef}
         type="file"
         accept="image/*,video/*"
         className="hidden"
-        onChange={handleMediaSelect}
+        onChange={media.handleMediaSelect}
       />
 
       {/* Friend Selector Modals */}
       <FriendSelectorModal
-        isOpen={showSpecificModal}
-        onClose={() => setShowSpecificModal(false)}
-        onConfirm={(selected) => setSpecificViewers(selected)}
+        isOpen={privacy.showSpecificModal}
+        onClose={() => privacy.setShowSpecificModal(false)}
+        onConfirm={(selected) => privacy.setSpecificViewers(selected)}
         title="Ai có thể xem tin này?"
         description="Chỉ những người bạn được chọn mới có thể xem"
-        initialSelected={specificViewers}
+        initialSelected={privacy.specificViewers}
       />
       <FriendSelectorModal
-        isOpen={showExcludedModal}
-        onClose={() => setShowExcludedModal(false)}
-        onConfirm={(selected) => setExcludedUsers(selected)}
+        isOpen={privacy.showExcludedModal}
+        onClose={() => privacy.setShowExcludedModal(false)}
+        onConfirm={(selected) => privacy.setExcludedUsers(selected)}
         title="Ẩn với"
         description="Những người bạn được chọn sẽ không thể xem"
-        initialSelected={excludedUsers}
+        initialSelected={privacy.excludedUsers}
       />
 
       {/* Music Picker Modal */}
       <StoryMusicPickerModal
-        isOpen={showMusicPicker}
-        onClose={() => setShowMusicPicker(false)}
+        isOpen={settings.showMusicPicker}
+        onClose={() => settings.setShowMusicPicker(false)}
         onSelect={(music) => {
           musicManager.addSticker(music);
-          setShowMusicPicker(false);
+          settings.setShowMusicPicker(false);
         }}
       />
     </div>

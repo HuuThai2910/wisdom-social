@@ -109,7 +109,11 @@ const PostActions: React.FC<PostActionsProps> = ({
                     {REACTION_EMOJI[currentReaction] || "👍"}
                   </span>
                 ) : (
-                  <Heart size={24} strokeWidth={1.8} className="dark:text-white" />
+                  <Heart
+                    size={24}
+                    strokeWidth={1.8}
+                    className="dark:text-white"
+                  />
                 )}
               </button>
 

@@ -1,16 +1,7 @@
 import { useRef, useCallback, useEffect, useState } from "react";
 import type { TextLayer } from "../../hooks/useStoryTextManager";
 
-type ResizeDirection =
-  | "nw"
-  | "n"
-  | "ne"
-  | "e"
-  | "se"
-  | "s"
-  | "sw"
-  | "w"
-  | null;
+type ResizeDirection = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | null;
 
 interface Props {
   layer: TextLayer;
@@ -19,6 +10,7 @@ interface Props {
   canvasRef: React.RefObject<HTMLDivElement | null>;
   onSelect: (id: string) => void;
   onStartEdit: (id: string) => void;
+  onEndEdit: (id: string) => void;
   onUpdate: (id: string, updates: Partial<TextLayer>) => void;
 }
 
@@ -40,6 +32,7 @@ export default function StoryTextLayer({
   canvasRef,
   onSelect,
   onStartEdit,
+  onEndEdit,
   onUpdate,
 }: Props) {
   const textRef = useRef<HTMLTextAreaElement>(null);
@@ -127,31 +120,35 @@ export default function StoryTextLayer({
         const dx = ev.clientX - resizeStart.current.x;
         const dy = ev.clientY - resizeStart.current.y;
 
-        // Use the dominant axis based on direction
         let delta = 0;
-        if (direction === "e" || direction === "ne" || direction === "se") {
+
+        // Corners: use the larger movement with proper sign
+        if (direction === "se") {
+          delta = Math.max(dx, dy);
+        } else if (direction === "sw") {
+          delta = Math.max(-dx, dy);
+        } else if (direction === "ne") {
+          delta = Math.max(dx, -dy);
+        } else if (direction === "nw") {
+          delta = Math.max(-dx, -dy);
+        }
+        // Horizontal edges: only horizontal movement
+        else if (direction === "e") {
           delta = dx;
-        } else if (
-          direction === "w" ||
-          direction === "nw" ||
-          direction === "sw"
-        ) {
+        } else if (direction === "w") {
           delta = -dx;
         }
-        if (direction === "s" || direction === "se" || direction === "sw") {
-          delta = Math.max(delta, dy);
-        } else if (
-          direction === "n" ||
-          direction === "ne" ||
-          direction === "nw"
-        ) {
-          delta = Math.max(delta, -dy);
+        // Vertical edges: only vertical movement
+        else if (direction === "s") {
+          delta = dy;
+        } else if (direction === "n") {
+          delta = -dy;
         }
 
         // Scale the font size based on drag distance
         const scaleFactor = 1 + delta / 200;
         const newFontSize = Math.round(
-          Math.max(12, Math.min(80, resizeStart.current.fontSize * scaleFactor))
+          Math.max(12, resizeStart.current.fontSize * scaleFactor)
         );
         onUpdate(layer.id, { fontSize: newFontSize });
       };
@@ -192,6 +189,10 @@ export default function StoryTextLayer({
     },
     [layer.id, onSelect]
   );
+
+  const handleTextBlur = useCallback(() => {
+    onEndEdit(layer.id);
+  }, [layer.id, onEndEdit]);
 
   const textStyle: React.CSSProperties = {
     color: layer.color,
@@ -273,11 +274,15 @@ export default function StoryTextLayer({
         top: `${layer.y}%`,
         transform: `translate(-50%, -50%) rotate(${layer.rotation}deg) scale(${layer.scale})`,
         zIndex: layer.zIndex + 10,
-        maxWidth: "85%",
         transition: isDragging || isResizing ? "none" : "box-shadow 0.2s ease",
       }}
       onMouseDown={handleMouseDown}
       onDoubleClick={handleDoubleClick}
+      onClick={(e) => {
+        if (isEditing) {
+          e.stopPropagation();
+        }
+      }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
@@ -337,6 +342,11 @@ export default function StoryTextLayer({
           value={layer.text}
           onChange={handleTextChange}
           onKeyDown={handleKeyDown}
+          onBlur={handleTextBlur}
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+          }}
           placeholder="Nhập văn bản..."
           className="bg-transparent outline-none resize-none w-full min-w-[120px] placeholder-white/30"
           style={{
