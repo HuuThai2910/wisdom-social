@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import {
   View,
@@ -9,8 +9,10 @@ import {
   RefreshControl,
   ActivityIndicator,
   Image,
+  TextInput,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/constants";
@@ -20,375 +22,592 @@ import { buildS3Url } from "@/utils/s3";
 import chatWebsocketService from "@/services/chatWebsocketService";
 import pageWebsocketService, { type PageListEvent } from "@/services/pageWebsocketService";
 
+const FB_BG = "#F0F2F5";
+const FB_BLUE = colors.primary;
+
+const ROLE_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
+  OWNER:     { label: "Chủ sở hữu", color: "#92400E", bg: "#FEF3C7" },
+  ADMIN:     { label: "Quản trị viên", color: "#1E40AF", bg: "#DBEAFE" },
+  MODERATOR: { label: "Kiểm duyệt viên", color: "#065F46", bg: "#D1FAE5" },
+};
+
+// ─── Card: Discover (full-width, cover + avatar overlap) ───────────────────
+
+function DiscoverCard({
+  item,
+  onPress,
+  onFollow,
+}: {
+  item: PageData & { memberCount?: number; followCount?: number };
+  onPress: () => void;
+  onFollow: () => void;
+}) {
+  const coverUri = item.coverUrl ? buildS3Url(item.coverUrl) : null;
+  const avatarUri = item.avatarUrl ? buildS3Url(item.avatarUrl) : null;
+
+  return (
+    <TouchableOpacity style={c.card} activeOpacity={0.93} onPress={onPress}>
+      {/* Cover photo */}
+      <View style={c.coverWrap}>
+        {coverUri ? (
+          <Image source={{ uri: `${coverUri}?t=${item.updatedAt}` }} style={c.cover} resizeMode="cover" />
+        ) : (
+          <LinearGradient
+            colors={["#1a73e8", "#0d47a1"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={c.cover}
+          />
+        )}
+
+        {/* Privacy badge */}
+        {item.status === "PRIVATE" && (
+          <View style={c.privacyBadge}>
+            <Ionicons name="lock-closed" size={10} color="#fff" />
+            <Text style={c.privacyBadgeText}>Riêng tư</Text>
+          </View>
+        )}
+      </View>
+
+      {/* Bottom info section */}
+      <View style={c.info}>
+        {/* Avatar overlap (positioned over the cover/info boundary) */}
+        <View style={c.avatarWrap}>
+          {avatarUri ? (
+            <Image source={{ uri: `${avatarUri}?t=${item.updatedAt}` }} style={c.avatar} />
+          ) : (
+            <View style={[c.avatar, c.avatarPlaceholder]}>
+              <Ionicons name="flag" size={22} color={FB_BLUE} />
+            </View>
+          )}
+        </View>
+
+        {/* Text info */}
+        <View style={c.textBlock}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            <Text style={c.pageName} numberOfLines={1}>{item.name}</Text>
+            {item.isVerified && (
+              <Ionicons name="checkmark-circle" size={14} color={FB_BLUE} />
+            )}
+          </View>
+
+          <View style={c.metaRow}>
+            {item.category ? (
+              <Text style={c.metaChip}>{item.category}</Text>
+            ) : null}
+            {item.memberCount !== undefined && item.memberCount > 0 ? (
+              <Text style={c.metaCount}>
+                {item.category ? " · " : ""}
+                {item.memberCount.toLocaleString()} thành viên
+              </Text>
+            ) : null}
+          </View>
+        </View>
+
+        {/* Follow button */}
+        <TouchableOpacity style={c.followBtn} onPress={onFollow} activeOpacity={0.75}>
+          <Ionicons name="add" size={16} color={FB_BLUE} />
+          <Text style={c.followBtnText}>Theo dõi</Text>
+        </TouchableOpacity>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+// ─── Card: My Pages (horizontal compact row) ───────────────────────────────
+
+function MyPageCard({
+  item,
+  onPress,
+}: {
+  item: PageData & { memberCount?: number; userRole?: string };
+  onPress: () => void;
+}) {
+  const avatarUri = item.avatarUrl ? buildS3Url(item.avatarUrl) : null;
+  const coverUri = item.coverUrl ? buildS3Url(item.coverUrl) : null;
+  const role = item.userRole ? ROLE_CONFIG[item.userRole] : null;
+
+  return (
+    <TouchableOpacity style={m.row} activeOpacity={0.9} onPress={onPress}>
+      {/* Avatar / Cover thumbnail */}
+      <View style={m.thumbWrap}>
+        {coverUri ? (
+          <Image source={{ uri: `${coverUri}?t=${item.updatedAt}` }} style={m.coverThumb} resizeMode="cover" />
+        ) : (
+          <LinearGradient colors={["#1a73e8", "#0d47a1"]} style={m.coverThumb} />
+        )}
+        {/* Avatar overlaying bottom-left of cover thumb */}
+        <View style={m.avatarOver}>
+          {avatarUri ? (
+            <Image source={{ uri: `${avatarUri}?t=${item.updatedAt}` }} style={m.avatar} />
+          ) : (
+            <View style={[m.avatar, m.avatarPlaceholder]}>
+              <Ionicons name="flag" size={14} color={FB_BLUE} />
+            </View>
+          )}
+        </View>
+      </View>
+
+      {/* Info */}
+      <View style={m.infoBlock}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+          <Text style={m.name} numberOfLines={1}>{item.name}</Text>
+          {item.isVerified && <Ionicons name="checkmark-circle" size={13} color={FB_BLUE} />}
+        </View>
+
+        {item.category ? (
+          <Text style={m.category} numberOfLines={1}>{item.category}</Text>
+        ) : null}
+
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 }}>
+          {role && (
+            <View style={[m.roleBadge, { backgroundColor: role.bg }]}>
+              <Text style={[m.roleText, { color: role.color }]}>{role.label}</Text>
+            </View>
+          )}
+          {item.status === "PRIVATE" && (
+            <View style={m.lockChip}>
+              <Ionicons name="lock-closed" size={10} color={colors.textMuted} />
+              <Text style={m.lockText}>Riêng tư</Text>
+            </View>
+          )}
+        </View>
+      </View>
+
+      <Ionicons name="chevron-forward" size={18} color={colors.border} />
+    </TouchableOpacity>
+  );
+}
+
+// ─── Main Screen ───────────────────────────────────────────────────────────
+
 export default function PagesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { currentUser } = useAppContext();
-  const [activeTab, setActiveTab] = useState<"discover" | "my-pages">(
-    "discover",
-  );
+
+  const [activeTab, setActiveTab] = useState<"discover" | "my-pages">("discover");
   const [pages, setPages] = useState<PageData[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const data =
-        activeTab === "discover"
-          ? await pageService.getAllPages()
-          : await pageService.getMyPages();
+      const data = activeTab === "discover"
+        ? await pageService.getAllPages()
+        : await pageService.getMyPages();
       setPages(data);
     } finally {
       setLoading(false);
     }
   }, [activeTab]);
 
-  useEffect(() => {
-    void loadData();
-  }, [loadData]);
+  useEffect(() => { void loadData(); }, [loadData]);
+  useFocusEffect(useCallback(() => { void loadData(); }, [loadData]));
 
-  // Reload page list when screen comes back into focus (e.g., after editing a page)
-  useFocusEffect(
-    useCallback(() => {
-      void loadData();
-    }, [loadData]),
-  );
-
-  // Real-time: lắng nghe page mới tạo / xóa / cập nhật
-  // Dùng ref cho loadData để tránh re-subscribe mỗi lần activeTab thay đổi
-  const loadDataRef = React.useRef(loadData);
+  const loadDataRef = useRef(loadData);
   loadDataRef.current = loadData;
 
   useEffect(() => {
     let cancelled = false;
-
     const setup = async () => {
-      try {
-        await chatWebsocketService.connect();
-      } catch { /* ignore — fallback to pull-to-refresh */ }
-
+      try { await chatWebsocketService.connect(); } catch {}
       if (cancelled) return;
-
       pageWebsocketService.subscribeToPageList((event: PageListEvent) => {
-        console.log("📡 [Mobile] Realtime Page List Event:", event);
-
         if (event.eventType === "PAGE_CREATED") {
           if (event.page) {
-            const newPage = event.page as unknown as PageData;
-            setPages(prev => {
-              if (prev.some(p => p.id === newPage.id)) return prev;
-              return [newPage, ...prev];
-            });
+            const np = event.page as unknown as PageData;
+            setPages(prev => prev.some(p => p.id === np.id) ? prev : [np, ...prev]);
           } else {
             void loadDataRef.current();
           }
         } else if (event.eventType === "PAGE_DELETED" && event.pageId) {
           setPages(prev => prev.filter(p => p.id !== event.pageId));
         } else if (event.eventType === "PAGE_UPDATED" && event.page) {
-          const updated = event.page as unknown as PageData;
-          console.log("🔄 [Mobile] Page UPDATED in list:", { id: updated.id, avatarUrl: updated.avatarUrl });
-          setPages(prev => prev.map(p => {
-            if (p.id === updated.id) {
-              console.log("🔄 [Mobile] Merging updated page:", { old: p.avatarUrl, new: updated.avatarUrl });
-              // Merge to ensure we keep all existing fields
-              return { ...p, ...updated };
-            }
-            return p;
-          }));
+          const up = event.page as unknown as PageData;
+          setPages(prev => prev.map(p => p.id === up.id ? { ...p, ...up } : p));
         }
       });
     };
-
     void setup();
-
-    return () => {
-      cancelled = true;
-      pageWebsocketService.unsubscribeFromPageList();
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => { cancelled = true; pageWebsocketService.unsubscribeFromPageList(); };
   }, []);
-
 
   const onRefresh = async () => {
     setRefreshing(true);
     try {
-      const data =
-        activeTab === "discover"
-          ? await pageService.getAllPages()
-          : await pageService.getMyPages();
+      const data = activeTab === "discover"
+        ? await pageService.getAllPages()
+        : await pageService.getMyPages();
       setPages(data);
     } finally {
       setRefreshing(false);
     }
   };
 
+  const filteredPages = useMemo(() => {
+    if (!searchQuery.trim()) return pages;
+    const q = searchQuery.toLowerCase();
+    return pages.filter(p =>
+      p.name?.toLowerCase().includes(q) || p.username?.toLowerCase().includes(q)
+    );
+  }, [pages, searchQuery]);
+
   const handleFollow = async (page: PageData) => {
     if (!currentUser?.id) return;
     await pageService.followPage(Number(currentUser.id), page.id);
   };
 
-  const renderItem = ({ item }: { item: PageData }) => {
-    const raw = item as PageData & {
-      memberCount?: number;
-      followCount?: number;
-    };
-    return (
-      <TouchableOpacity
-        style={styles.pageCard}
-        onPress={() =>
-          router.push({
-            pathname: "/(stack)/page-detail",
-            params: { pageId: String(item.id) },
-          })
-        }
-      >
-        <View style={styles.avatarWrap}>
-          {item.avatarUrl ? (
-            <Image
-              key={`${item.id}-${item.updatedAt}`}
-              source={{ uri: buildS3Url(item.avatarUrl) ? `${buildS3Url(item.avatarUrl)}?t=${item.updatedAt}` : undefined }}
-              style={styles.avatarImg}
-            />
-          ) : (
-            <Ionicons name="storefront" size={32} color={colors.primary} />
-          )}
-        </View>
+  const goToDetail = (item: PageData) =>
+    router.push({ pathname: "/(stack)/page-detail", params: { pageId: String(item.id) } });
 
-        <View style={styles.pageInfo}>
-          <Text style={styles.pageName} numberOfLines={1}>
-            {item.name}
-          </Text>
-          {item.username && (
-            <Text style={styles.pageUsername}>@{item.username}</Text>
-          )}
-          {item.description ? (
-            <Text style={styles.pageDesc} numberOfLines={1}>
-              {item.description}
-            </Text>
-          ) : null}
-          <View style={styles.statsRow}>
-            {raw.memberCount !== undefined && (
-              <Text style={styles.statText}>👥 {raw.memberCount}</Text>
-            )}
-            {raw.followCount !== undefined && (
-              <Text style={styles.statText}>🔔 {raw.followCount}</Text>
-            )}
-            {item.status === "PRIVATE" && (
-              <Text style={styles.statText}>🔒 Riêng tư</Text>
-            )}
-          </View>
-        </View>
+  const renderDiscover = ({ item }: { item: PageData }) => (
+    <DiscoverCard
+      item={item as any}
+      onPress={() => goToDetail(item)}
+      onFollow={() => handleFollow(item)}
+    />
+  );
 
-        <TouchableOpacity
-          style={styles.followBtn}
-          onPress={() => handleFollow(item)}
-        >
-          <Ionicons name="add-outline" size={20} color={colors.primary} />
-        </TouchableOpacity>
-      </TouchableOpacity>
-    );
-  };
+  const renderMyPage = ({ item }: { item: PageData }) => (
+    <MyPageCard item={item as any} onPress={() => goToDetail(item)} />
+  );
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={styles.backButton}
-        >
-          <Ionicons name="arrow-back" size={24} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Trang</Text>
-        <TouchableOpacity
-          onPress={() => router.push("/(stack)/create-page")}
-          style={styles.createButton}
-        >
-          <Ionicons
-            name="add-circle-outline"
-            size={24}
-            color={colors.primary}
-          />
-        </TouchableOpacity>
+    <View style={[s.container, { paddingTop: insets.top }]}>
+      {/* ── Header ── */}
+      <View style={s.header}>
+        <Text style={s.headerTitle}>Pages</Text>
       </View>
 
-      <View style={styles.tabs}>
+      {/* ── Search ── */}
+      <View style={s.searchWrap}>
+        <View style={s.searchBar}>
+          <Ionicons name="search-outline" size={16} color="#8E8E93" />
+          <TextInput
+            style={s.searchInput}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Tìm kiếm Pages..."
+            placeholderTextColor="#8E8E93"
+            returnKeyType="search"
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchQuery("")} hitSlop={8}>
+              <Ionicons name="close-circle" size={16} color="#8E8E93" />
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+
+      {/* ── Tabs ── */}
+      <View style={s.tabBar}>
         <TouchableOpacity
-          style={[styles.tab, activeTab === "discover" && styles.tabActive]}
+          style={[s.tab, activeTab === "discover" && s.tabActive]}
           onPress={() => setActiveTab("discover")}
         >
-          <Text
-            style={[
-              styles.tabText,
-              activeTab === "discover" && styles.tabTextActive,
-            ]}
-          >
+          <Text style={[s.tabText, activeTab === "discover" && s.tabTextActive]}>
             Khám phá
           </Text>
         </TouchableOpacity>
-
         <TouchableOpacity
-          style={[styles.tab, activeTab === "my-pages" && styles.tabActive]}
+          style={[s.tab, activeTab === "my-pages" && s.tabActive]}
           onPress={() => setActiveTab("my-pages")}
         >
-          <Text
-            style={[
-              styles.tabText,
-              activeTab === "my-pages" && styles.tabTextActive,
-            ]}
-          >
-            Trang của tôi
+          <Text style={[s.tabText, activeTab === "my-pages" && s.tabTextActive]}>
+            Pages của tôi
           </Text>
         </TouchableOpacity>
       </View>
 
+      {/* ── Content ── */}
       {loading && !refreshing ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
+        <View style={s.center}>
+          <ActivityIndicator size="large" color={FB_BLUE} />
         </View>
+      ) : activeTab === "discover" ? (
+        <FlatList
+          key="discover"
+          data={filteredPages}
+          keyExtractor={i => String(i.id)}
+          renderItem={renderDiscover}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={FB_BLUE} />}
+          contentContainerStyle={s.listContent}
+          showsVerticalScrollIndicator={false}
+          ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+          ListEmptyComponent={<EmptyState tab="discover" onCreate={() => router.push("/(stack)/create-page")} />}
+        />
       ) : (
         <FlatList
-          data={pages}
-          keyExtractor={(item) => String(item.id)}
-          renderItem={renderItem}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          key="my-pages"
+          data={filteredPages}
+          keyExtractor={i => String(i.id)}
+          renderItem={renderMyPage}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={FB_BLUE} />}
+          contentContainerStyle={s.listContentCompact}
+          showsVerticalScrollIndicator={false}
+          ListHeaderComponent={
+            filteredPages.length > 0 ? (
+              <TouchableOpacity
+                style={s.createPageRow}
+                onPress={() => router.push("/(stack)/create-page")}
+              >
+                <View style={s.createPageIcon}>
+                  <Ionicons name="add" size={22} color={FB_BLUE} />
+                </View>
+                <Text style={s.createPageText}>Tạo trang mới</Text>
+                <Ionicons name="chevron-forward" size={18} color={colors.border} />
+              </TouchableOpacity>
+            ) : null
           }
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Ionicons name="storefront-outline" size={60} color="#D1D5DB" />
-              <Text style={styles.emptyText}>
-                {activeTab === "discover"
-                  ? "Không có trang nào"
-                  : "Bạn chưa có trang nào"}
-              </Text>
-            </View>
-          }
+          ListEmptyComponent={<EmptyState tab="my-pages" onCreate={() => router.push("/(stack)/create-page")} />}
         />
       )}
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
+function EmptyState({ tab, onCreate }: { tab: "discover" | "my-pages"; onCreate: () => void }) {
+  return (
+    <View style={s.empty}>
+      <View style={s.emptyIconWrap}>
+        <Ionicons name="flag-outline" size={36} color={colors.textMuted} />
+      </View>
+      <Text style={s.emptyTitle}>
+        {tab === "discover" ? "Chưa có trang nào" : "Bạn chưa quản lý trang nào"}
+      </Text>
+      <Text style={s.emptySubtitle}>
+        {tab === "discover"
+          ? "Hãy quay lại sau hoặc tạo trang của bạn"
+          : "Tạo trang để kết nối cộng đồng của bạn"}
+      </Text>
+      {tab === "my-pages" && (
+        <TouchableOpacity style={s.emptyBtn} onPress={onCreate}>
+          <Ionicons name="add" size={16} color="#fff" />
+          <Text style={s.emptyBtnText}>Tạo trang mới</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
+
+// ─── Styles ────────────────────────────────────────────────────────────────
+
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: FB_BG },
+  center: { flex: 1, justifyContent: "center", alignItems: "center" },
+
+  // Header (matches Explore "Khám phá" header)
   header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: colors.background,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  backButton: {
-    padding: 8,
+    paddingVertical: 10,
+    backgroundColor: "#fff",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#E5E5EA",
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: "700",
-    color: colors.text,
+    color: "#1C1C1E",
+    letterSpacing: -0.4,
   },
-  createButton: {
-    padding: 8,
+
+  // Search (matches Explore search bar)
+  searchWrap: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: "#fff",
   },
-  tabs: {
+  searchBar: {
     flexDirection: "row",
-    backgroundColor: colors.background,
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#F2F2F7",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    height: 36,
+  },
+  searchInput: { flex: 1, fontSize: 15, color: "#1C1C1E", padding: 0 },
+
+  // Tab bar (underline style, same as profile)
+  tabBar: {
+    flexDirection: "row",
+    backgroundColor: colors.white,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+    marginBottom: 10,
   },
   tab: {
     flex: 1,
-    paddingVertical: 14,
     alignItems: "center",
-    borderBottomWidth: 2,
+    paddingVertical: 12,
+    borderBottomWidth: 3,
     borderBottomColor: "transparent",
   },
-  tabActive: {
-    borderBottomColor: colors.primary,
+  tabActive: { borderBottomColor: FB_BLUE },
+  tabText: { fontSize: 14, fontWeight: "600", color: colors.textMuted },
+  tabTextActive: { color: FB_BLUE, fontWeight: "700" },
+
+  listContent: { paddingHorizontal: 12, paddingBottom: 24 },
+  listContentCompact: { paddingBottom: 24 },
+
+  // Create page row (My Pages tab header)
+  createPageRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    backgroundColor: colors.white,
+    marginBottom: 1,
   },
-  tabText: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: colors.textMuted,
-  },
-  tabTextActive: {
-    color: colors.primary,
-    fontWeight: "600",
-  },
-  loadingContainer: {
-    flex: 1,
+  createPageIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.zalo50,
+    alignItems: "center",
     justifyContent: "center",
+  },
+  createPageText: { flex: 1, fontSize: 15, fontWeight: "600", color: FB_BLUE },
+
+  // Empty
+  empty: { alignItems: "center", paddingTop: 60, paddingHorizontal: 40 },
+  emptyIconWrap: {
+    width: 72, height: 72, borderRadius: 36,
+    backgroundColor: colors.white,
+    alignItems: "center", justifyContent: "center",
+    marginBottom: 16,
+    shadowColor: "#000", shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.07, shadowRadius: 8, elevation: 2,
+  },
+  emptyTitle: { fontSize: 16, fontWeight: "700", color: colors.text, textAlign: "center" },
+  emptySubtitle: { fontSize: 13, color: colors.textMuted, marginTop: 6, textAlign: "center", lineHeight: 18 },
+  emptyBtn: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    marginTop: 20, paddingHorizontal: 24, paddingVertical: 12,
+    borderRadius: 24, backgroundColor: FB_BLUE,
+  },
+  emptyBtnText: { fontSize: 14, fontWeight: "700", color: "#fff" },
+});
+
+// ─── Discover card styles ──────────────────────────────────────────────────
+
+const c = StyleSheet.create({
+  card: {
+    backgroundColor: colors.white,
+    borderRadius: 14,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+
+  coverWrap: { position: "relative" },
+  cover: { width: "100%", height: 150 },
+
+  privacyBadge: {
+    position: "absolute", bottom: 8, right: 10,
+    flexDirection: "row", alignItems: "center", gap: 4,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12,
+  },
+  privacyBadgeText: { fontSize: 11, color: "#fff", fontWeight: "600" },
+
+  info: {
+    flexDirection: "row",
     alignItems: "center",
+    paddingRight: 14,
+    paddingBottom: 14,
+    paddingTop: 6,
+    gap: 10,
   },
-  emptyContainer: {
-    flex: 1,
-    alignItems: "center",
-    paddingTop: 80,
+
+  avatarWrap: {
+    marginTop: -22,
+    marginLeft: 14,
+    flexShrink: 0,
   },
-  emptyText: {
-    marginTop: 16,
-    fontSize: 15,
-    color: colors.textMuted,
+  avatar: {
+    width: 52, height: 52, borderRadius: 26,
+    borderWidth: 3, borderColor: colors.white,
   },
-  pageCard: {
+  avatarPlaceholder: {
+    backgroundColor: colors.zalo50,
+    alignItems: "center", justifyContent: "center",
+  },
+
+  textBlock: { flex: 1, paddingTop: 10 },
+  pageName: { fontSize: 15, fontWeight: "700", color: colors.text },
+  metaRow: { flexDirection: "row", alignItems: "center", marginTop: 3, flexWrap: "wrap" },
+  metaChip: { fontSize: 12, color: colors.textMuted },
+  metaCount: { fontSize: 12, color: colors.textMuted },
+
+  followBtn: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    paddingHorizontal: 12, paddingVertical: 8,
+    borderRadius: 8, backgroundColor: colors.zalo50,
+    alignSelf: "flex-end", marginBottom: 0,
+    flexShrink: 0,
+  },
+  followBtnText: { fontSize: 13, fontWeight: "700", color: FB_BLUE },
+});
+
+// ─── My Pages card styles ──────────────────────────────────────────────────
+
+const m = StyleSheet.create({
+  row: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: colors.background,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.surface,
+    backgroundColor: colors.white,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+    gap: 12,
   },
-  avatarWrap: {
-    width: 60,
-    height: 60,
-    borderRadius: 12,
-    backgroundColor: colors.surface,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 12,
-    overflow: "hidden",
+
+  thumbWrap: {
+    position: "relative",
+    width: 72,
+    height: 52,
+    borderRadius: 10,
+    overflow: "visible",
+    flexShrink: 0,
   },
-  avatarImg: {
-    width: 60,
-    height: 60,
+  coverThumb: { width: 72, height: 52, borderRadius: 10 },
+  avatarOver: {
+    position: "absolute",
+    bottom: -8,
+    left: -4,
   },
-  pageInfo: {
-    flex: 1,
+  avatar: {
+    width: 28, height: 28, borderRadius: 14,
+    borderWidth: 2, borderColor: colors.white,
   },
-  pageName: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: colors.text,
+  avatarPlaceholder: {
+    backgroundColor: colors.zalo50,
+    alignItems: "center", justifyContent: "center",
   },
-  pageUsername: {
-    fontSize: 13,
-    color: colors.textMuted,
-    marginTop: 2,
+
+  infoBlock: { flex: 1 },
+  name: { fontSize: 15, fontWeight: "700", color: colors.text },
+  category: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
+
+  roleBadge: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 8, paddingVertical: 3,
+    borderRadius: 8, marginTop: 4,
   },
-  pageDesc: {
-    fontSize: 12,
-    color: colors.textMuted,
+  roleText: { fontSize: 11, fontWeight: "700" },
+
+  lockChip: {
+    flexDirection: "row", alignItems: "center", gap: 3,
     marginTop: 4,
   },
-  statsRow: {
-    flexDirection: "row",
-    gap: 8,
-    marginTop: 4,
-  },
-  statText: {
-    fontSize: 11,
-    color: colors.textMuted,
-  },
-  followBtn: {
-    padding: 8,
-    borderRadius: 8,
-    backgroundColor: colors.surface,
-  },
+  lockText: { fontSize: 11, color: colors.textMuted },
 });

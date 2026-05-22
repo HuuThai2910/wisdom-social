@@ -7,20 +7,13 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
-  Modal,
-  TextInput,
   Alert,
-  KeyboardAvoidingView,
-  Platform,
   Dimensions,
+  Modal,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import * as ImagePicker from "expo-image-picker";
 import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router";
-import {
-  useSafeAreaInsets,
-  SafeAreaView,
-} from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAppContext } from "@/context/AppContext";
 import { colors } from "@/constants";
 import userService from "@/services/userService";
@@ -31,26 +24,25 @@ import { useBlockNotifications } from "@/hooks/useBlockNotifications";
 import type { User } from "@/services/userService";
 import { buildS3Url } from "@/utils/s3";
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const GRID_GAP = 2;
-const GRID_ITEM_SIZE = (SCREEN_WIDTH - GRID_GAP * 4) / 3;
+const { width: SW } = Dimensions.get("window");
+const GRID_GAP = 1.5;
+const GRID_SIZE = (SW - GRID_GAP * 2) / 3;
 
-const GENDER_OPTIONS = [
-  { label: "Nam", value: "MALE" },
-  { label: "Nữ", value: "FEMALE" },
-  { label: "Ẩn", value: "HIDDEN" },
-];
+const GENDER_LABEL: Record<string, string> = {
+  MALE: "Nam",
+  FEMALE: "Nữ",
+  HIDDEN: "Ẩn",
+};
 
 type FriendStatus = "NONE" | "SENT" | "RECEIVED" | "FRIEND" | "BLOCKED";
+type OwnTab = "posts" | "saved" | "blocked";
 
 export default function InstagramProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { userId: paramUserId } = useLocalSearchParams<{ userId?: string }>();
-  const { currentUser, posts, savedPostIds, logout, refreshCurrentUser } =
-    useAppContext();
+  const { currentUser, posts, savedPostIds, logout } = useAppContext();
 
-  // Determine mode
   const isViewingOther = useMemo(
     () => !!paramUserId && String(paramUserId) !== String(currentUser?.id),
     [paramUserId, currentUser?.id],
@@ -58,75 +50,53 @@ export default function InstagramProfileScreen() {
   const myId = useMemo(() => Number(currentUser?.id), [currentUser?.id]);
   const targetId = useMemo(() => Number(paramUserId), [paramUserId]);
 
-  // ── State: other-user view ────────────────────────────────────────────────
-  const [profileUser, setProfileUser] = useState<User | null>(null);
-  const [profileLoading, setProfileLoading] = useState(false);
-  const [friendStatus, setFriendStatus] = useState<FriendStatus>("NONE");
-  const [statusLoading, setStatusLoading] = useState(false);
-  const [actionLoading, setActionLoading] = useState(false);
-  const [otherFriendsCount, setOtherFriendsCount] = useState<number | null>(
-    null,
-  );
+  // ── Other-user state ──────────────────────────────────────────────────────
+  const [profileUser,       setProfileUser]       = useState<User | null>(null);
+  const [profileLoading,    setProfileLoading]    = useState(false);
+  const [friendStatus,      setFriendStatus]      = useState<FriendStatus>("NONE");
+  const [statusLoading,     setStatusLoading]     = useState(false);
+  const [actionLoading,     setActionLoading]     = useState(false);
+  const [otherFriendsCount, setOtherFriendsCount] = useState<number | null>(null);
 
-  // ── State: own-profile view ───────────────────────────────────────────────
-  const [selectedTab, setSelectedTab] = useState<"posts" | "saved" | "blocked">(
-    "posts",
-  );
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
-  const [avatarLocalUri, setAvatarLocalUri] = useState("");
-  const [friendsCount, setFriendsCount] = useState<number>(0);
-  const [blockedUsers, setBlockedUsers] = useState<any[]>([]);
+  const [infoModalVisible, setInfoModalVisible] = useState(false);
+
+  // ── Own-profile state ─────────────────────────────────────────────────────
+  const [selectedTab,      setSelectedTab]      = useState<OwnTab>("posts");
+  const [friendsCount,     setFriendsCount]     = useState(0);
+  const [blockedUsers,     setBlockedUsers]     = useState<any[]>([]);
   const [isLoadingBlocked, setIsLoadingBlocked] = useState(false);
-  const [editForm, setEditForm] = useState({
-    name: "",
-    username: "",
-    bio: "",
-    birthday: "",
-    gender: "",
-  });
 
-  // ── Effects: other-user view ──────────────────────────────────────────────
+  const refreshTrigger = useFriendNotifications();
+  const blockTrigger   = useBlockNotifications();
+
+  // ── Load other-user data ──────────────────────────────────────────────────
   const loadProfile = useCallback(async () => {
     if (!paramUserId) return;
     setProfileLoading(true);
     try {
-      const user = await userService.getUserProfile(paramUserId);
-      setProfileUser(user);
+      setProfileUser(await userService.getUserProfile(paramUserId));
     } finally {
       setProfileLoading(false);
     }
   }, [paramUserId]);
 
   const loadFriendStatus = useCallback(async () => {
-    if (
-      !isViewingOther ||
-      !myId ||
-      !targetId ||
-      !Number.isFinite(myId) ||
-      !Number.isFinite(targetId)
-    )
-      return;
+    if (!isViewingOther || !myId || !targetId) return;
     setStatusLoading(true);
     try {
-      const status = await friendService.getFriendStatus(myId, targetId);
-      setFriendStatus(status);
+      setFriendStatus(await friendService.getFriendStatus(myId, targetId));
     } finally {
       setStatusLoading(false);
     }
   }, [isViewingOther, myId, targetId]);
 
   const loadOtherFriendsCount = useCallback(async () => {
-    if (!isViewingOther || !targetId || !Number.isFinite(targetId)) return;
+    if (!isViewingOther || !targetId) return;
     try {
-      const friends = await friendService.getFriends(targetId);
-      setOtherFriendsCount(friends.length);
+      const list = await friendService.getFriends(targetId);
+      setOtherFriendsCount(list.length);
     } catch {}
   }, [isViewingOther, targetId]);
-
-  const refreshTrigger = useFriendNotifications();
-  const blockTrigger = useBlockNotifications();
 
   useEffect(() => {
     if (isViewingOther) {
@@ -134,15 +104,9 @@ export default function InstagramProfileScreen() {
       void loadFriendStatus();
       void loadOtherFriendsCount();
     }
-  }, [
-    isViewingOther,
-    loadProfile,
-    loadFriendStatus,
-    loadOtherFriendsCount,
-    refreshTrigger,
-  ]);
+  }, [isViewingOther, loadProfile, loadFriendStatus, loadOtherFriendsCount, refreshTrigger]);
 
-  // ── Effects: own-profile view ─────────────────────────────────────────────
+  // ── Load own-profile data ─────────────────────────────────────────────────
   useFocusEffect(
     useCallback(() => {
       if (isViewingOther || !currentUser?.id) return;
@@ -153,18 +117,19 @@ export default function InstagramProfileScreen() {
     }, [isViewingOther, currentUser?.id]),
   );
 
-  useEffect(() => {
-    if (showEditModal && currentUser) {
-      setEditForm({
-        name: currentUser.name || "",
-        username: currentUser.username || "",
-        bio: currentUser.bio || "",
-        birthday: currentUser.birthday || "",
-        gender: currentUser.gender || "",
-      });
-      setAvatarLocalUri("");
+  const loadBlockedUsers = useCallback(async () => {
+    if (!currentUser?.id) return;
+    setIsLoadingBlocked(true);
+    try {
+      setBlockedUsers(await blockService.getBlockedUsers(Number(currentUser.id)));
+    } catch {} finally {
+      setIsLoadingBlocked(false);
     }
-  }, [showEditModal, currentUser]);
+  }, [currentUser?.id]);
+
+  useEffect(() => {
+    if (!isViewingOther && selectedTab === "blocked") void loadBlockedUsers();
+  }, [blockTrigger, isViewingOther, selectedTab, loadBlockedUsers]);
 
   // ── Friend action handlers ────────────────────────────────────────────────
   const handleSendRequest = async () => {
@@ -173,34 +138,29 @@ export default function InstagramProfileScreen() {
     setFriendStatus("SENT");
     setActionLoading(false);
   };
-
   const handleCancelRequest = async () => {
     setActionLoading(true);
     await friendService.cancelFriendRequest(myId, targetId);
     setFriendStatus("NONE");
     setActionLoading(false);
   };
-
   const handleAccept = async () => {
     setActionLoading(true);
     await friendService.acceptFriendRequest(targetId, myId);
     setFriendStatus("FRIEND");
     setActionLoading(false);
   };
-
   const handleReject = async () => {
     setActionLoading(true);
     await friendService.rejectFriendRequest(targetId, myId);
     setFriendStatus("NONE");
     setActionLoading(false);
   };
-
   const handleUnfriend = () => {
     Alert.alert("Hủy kết bạn", "Bạn có chắc muốn hủy kết bạn?", [
       { text: "Hủy", style: "cancel" },
       {
-        text: "Hủy kết bạn",
-        style: "destructive",
+        text: "Hủy kết bạn", style: "destructive",
         onPress: async () => {
           setActionLoading(true);
           await friendService.cancelFriendRequest(myId, targetId);
@@ -210,29 +170,29 @@ export default function InstagramProfileScreen() {
       },
     ]);
   };
-
   const handleBlock = () => {
-    Alert.alert("Chặn người dùng", "Bạn có chắc muốn chặn người này?", [
-      { text: "Hủy", style: "cancel" },
-      {
-        text: "Chặn",
-        style: "destructive",
-        onPress: async () => {
-          setActionLoading(true);
-          await blockService.blockUser(myId, targetId);
-          setFriendStatus("BLOCKED");
-          setActionLoading(false);
+    Alert.alert(
+      "Chặn người dùng",
+      `Chặn @${profileUser?.username || "người này"}? Họ sẽ không thể nhắn tin hoặc xem hồ sơ của bạn.`,
+      [
+        { text: "Hủy", style: "cancel" },
+        {
+          text: "Chặn", style: "destructive",
+          onPress: async () => {
+            setActionLoading(true);
+            await blockService.blockUser(myId, targetId);
+            setFriendStatus("BLOCKED");
+            setActionLoading(false);
+          },
         },
-      },
-    ]);
+      ],
+    );
   };
-
   const handleUnblockOther = () => {
     Alert.alert("Bỏ chặn", "Bạn có chắc muốn bỏ chặn người này?", [
       { text: "Hủy", style: "cancel" },
       {
-        text: "Bỏ chặn",
-        style: "destructive",
+        text: "Bỏ chặn", style: "destructive",
         onPress: async () => {
           setActionLoading(true);
           await blockService.unblockUser(myId, targetId);
@@ -242,7 +202,6 @@ export default function InstagramProfileScreen() {
       },
     ]);
   };
-
   const handleMoreOptions = () => {
     if (friendStatus === "BLOCKED") {
       handleUnblockOther();
@@ -251,280 +210,21 @@ export default function InstagramProfileScreen() {
         profileUser?.name || profileUser?.username || "Người dùng",
         undefined,
         [
-          {
-            text: "Chặn người dùng",
-            style: "destructive",
-            onPress: handleBlock,
-          },
+          { text: "Chặn người dùng", style: "destructive", onPress: handleBlock },
           { text: "Hủy", style: "cancel" },
         ],
       );
     }
   };
-
-  const renderFriendButton = () => {
-    if (statusLoading) {
-      return (
-        <View style={[os.friendBtn, os.friendBtnOutline]}>
-          <ActivityIndicator size="small" color={colors.primary} />
-        </View>
-      );
-    }
-    if (friendStatus === "NONE") {
-      return (
-        <TouchableOpacity
-          style={[os.friendBtn, os.friendBtnPrimary]}
-          onPress={handleSendRequest}
-          disabled={actionLoading}
-          activeOpacity={0.75}
-        >
-          {actionLoading ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : (
-            <>
-              <Ionicons name="person-add" size={16} color="#fff" />
-              <Text style={os.friendBtnTextWhite}>Kết bạn</Text>
-            </>
-          )}
-        </TouchableOpacity>
-      );
-    }
-    if (friendStatus === "SENT") {
-      return (
-        <TouchableOpacity
-          style={[os.friendBtn, os.friendBtnOutline]}
-          onPress={handleCancelRequest}
-          disabled={actionLoading}
-          activeOpacity={0.75}
-        >
-          {actionLoading ? (
-            <ActivityIndicator size="small" color={colors.primary} />
-          ) : (
-            <>
-              <Ionicons name="time-outline" size={16} color={colors.primary} />
-              <Text style={os.friendBtnTextPrimary}>Đã gửi lời mời</Text>
-            </>
-          )}
-        </TouchableOpacity>
-      );
-    }
-    if (friendStatus === "RECEIVED") {
-      return (
-        <View style={os.receivedRow}>
-          <TouchableOpacity
-            style={[os.friendBtn, os.friendBtnPrimary, { flex: 1 }]}
-            onPress={handleAccept}
-            disabled={actionLoading}
-            activeOpacity={0.75}
-          >
-            {actionLoading ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <>
-                <Ionicons name="checkmark" size={16} color="#fff" />
-                <Text style={os.friendBtnTextWhite}>Chấp nhận</Text>
-              </>
-            )}
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[os.friendBtn, os.friendBtnDanger, { flex: 1 }]}
-            onPress={handleReject}
-            disabled={actionLoading}
-            activeOpacity={0.75}
-          >
-            {actionLoading ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <>
-                <Ionicons name="close" size={16} color="#fff" />
-                <Text style={os.friendBtnTextWhite}>Từ chối</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        </View>
-      );
-    }
-    if (friendStatus === "FRIEND") {
-      return (
-        <TouchableOpacity
-          style={[os.friendBtn, os.friendBtnOutline]}
-          onPress={handleUnfriend}
-          disabled={actionLoading}
-          activeOpacity={0.75}
-        >
-          {actionLoading ? (
-            <ActivityIndicator size="small" color={colors.primary} />
-          ) : (
-            <>
-              <Ionicons name="people" size={16} color={colors.primary} />
-              <Text style={os.friendBtnTextPrimary}>Bạn bè</Text>
-            </>
-          )}
-        </TouchableOpacity>
-      );
-    }
-    if (friendStatus === "BLOCKED") {
-      return (
-        <TouchableOpacity
-          style={[os.friendBtn, os.friendBtnOutline]}
-          onPress={handleUnblockOther}
-          disabled={actionLoading}
-          activeOpacity={0.75}
-        >
-          {actionLoading ? (
-            <ActivityIndicator size="small" color={colors.textMuted} />
-          ) : (
-            <>
-              <Ionicons name="ban-outline" size={16} color={colors.danger} />
-              <Text style={[os.friendBtnTextMuted, { color: colors.danger }]}>
-                Bỏ chặn
-              </Text>
-            </>
-          )}
-        </TouchableOpacity>
-      );
-    }
-    return null;
-  };
-
-  // ── Own-profile callbacks ─────────────────────────────────────────────────
-  const handleEditProfile = () => {
-    router.push("/(stack)/profile/edit");
-  };
-
-  const pickAvatarImage = async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert(
-        "Quyền truy cập",
-        "Cần quyền truy cập thư viện ảnh để chọn ảnh.",
-      );
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      quality: 0.8,
-    });
-    if (result.canceled || !result.assets[0]) return;
-    setAvatarLocalUri(result.assets[0].uri);
-  };
-
-  const uploadAvatar = async (imageUri: string) => {
-    if (!currentUser) return null;
-
-    try {
-      setIsUploadingAvatar(true);
-
-      // Get the file extension
-      const uriParts = imageUri.split(".");
-      const extension = uriParts[uriParts.length - 1] || "jpg";
-
-      // Get upload URL from backend
-      const { imageUrl, uploadUrl } = await userService.getUploadAvatarUrl(
-        "avatar",
-        extension,
-      );
-
-      // Upload to S3
-      const response = await fetch(imageUri);
-      const blob = await response.blob();
-
-      const uploadResponse = await fetch(uploadUrl, {
-        method: "PUT",
-        body: blob,
-        headers: {
-          "Content-Type": `image/${extension}`,
-        },
-      });
-
-      if (!uploadResponse.ok) {
-        throw new Error("Upload failed");
-      }
-
-      return imageUrl;
-    } catch (error) {
-      console.error("Error uploading avatar:", error);
-      throw error;
-    }
-  };
-
-  const handleSaveProfile = async () => {
-    if (!currentUser) return;
-    setIsSaving(true);
-    try {
-      const updateData: any = {
-        name: editForm.name,
-        username: editForm.username,
-        bio: editForm.bio,
-        birthday: editForm.birthday,
-        gender: editForm.gender as "MALE" | "FEMALE" | "HIDDEN",
-      };
-
-      // Upload avatar if changed
-      if (avatarLocalUri) {
-        const avatarUrl = await uploadAvatar(avatarLocalUri);
-        updateData.avatarUrl = avatarUrl;
-      }
-
-      await userService.updateUser(currentUser.id, updateData);
-      if (refreshCurrentUser) await refreshCurrentUser();
-      setShowEditModal(false);
-      setAvatarLocalUri(""); // Reset avatar local URI
-      Alert.alert("Thành công", "Cập nhật hồ sơ thành công!");
-    } catch (error) {
-      console.error("Error saving profile:", error);
-      Alert.alert("Lỗi", "Không thể cập nhật hồ sơ. Vui lòng thử lại.");
-    } finally {
-      setIsSaving(false);
-      setIsUploadingAvatar(false);
-    }
-  };
-
-  const handleLogout = async () => {
-    Alert.alert("Đăng xuất", "Bạn có chắc muốn đăng xuất?", [
-      { text: "Hủy", style: "cancel" },
-      {
-        text: "Đăng xuất",
-        style: "destructive",
-        onPress: async () => {
-          logout();
-          router.replace("/(auth)/login");
-        },
-      },
-    ]);
-  };
-
-  const loadBlockedUsers = useCallback(async () => {
-    if (!currentUser?.id) return;
-    setIsLoadingBlocked(true);
-    try {
-      const list = await blockService.getBlockedUsers(Number(currentUser.id));
-      setBlockedUsers(list);
-    } catch {
-    } finally {
-      setIsLoadingBlocked(false);
-    }
-  }, [currentUser?.id]);
-
-  useEffect(() => {
-    if (!isViewingOther && selectedTab === "blocked") {
-      void loadBlockedUsers();
-    }
-  }, [blockTrigger, isViewingOther, selectedTab, loadBlockedUsers]);
-
-  const handleUnblock = async (userId: string) => {
+  const handleUnblockOwn = (userId: string) => {
     Alert.alert("Bỏ chặn", "Bạn có chắc muốn bỏ chặn người dùng này?", [
       { text: "Hủy", style: "cancel" },
       {
-        text: "Bỏ chặn",
-        style: "destructive",
+        text: "Bỏ chặn", style: "destructive",
         onPress: async () => {
           try {
-            await blockService.unblockUser(
-              Number(currentUser?.id),
-              Number(userId),
-            );
-            setBlockedUsers((prev) => prev.filter((u) => u.id !== userId));
+            await blockService.unblockUser(Number(currentUser?.id), Number(userId));
+            setBlockedUsers((prev) => prev.filter((u) => String(u.id) !== userId));
           } catch {
             Alert.alert("Lỗi", "Không thể bỏ chặn. Vui lòng thử lại.");
           }
@@ -532,1083 +232,775 @@ export default function InstagramProfileScreen() {
       },
     ]);
   };
+  const handleLogout = () => {
+    Alert.alert("Đăng xuất", "Bạn có chắc muốn đăng xuất?", [
+      { text: "Hủy", style: "cancel" },
+      {
+        text: "Đăng xuất", style: "destructive",
+        onPress: () => { logout(); router.replace("/(auth)/login"); },
+      },
+    ]);
+  };
 
-  // ── Render: other-user view ───────────────────────────────────────────────
-  if (isViewingOther) {
-    return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
-        <View style={[os.header, { paddingTop: insets.top > 0 ? 0 : 8 }]}>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={os.iconBtn}
-            hitSlop={12}
-          >
-            <Ionicons name="arrow-back" size={24} color={colors.text} />
-          </TouchableOpacity>
-          <Text style={os.headerTitle} numberOfLines={1}>
-            {profileUser?.username || profileUser?.name || "Hồ sơ"}
-          </Text>
-          <TouchableOpacity
-            style={os.iconBtn}
-            onPress={handleMoreOptions}
-            hitSlop={12}
-          >
-            <Ionicons
-              name="ellipsis-vertical"
-              size={22}
-              color={colors.textMuted}
-            />
-          </TouchableOpacity>
+  // ── Friend button (other user) ────────────────────────────────────────────
+  const renderFriendButton = () => {
+    if (statusLoading) {
+      return (
+        <View style={[s.btn, s.btnGray, { flex: 1 }]}>
+          <ActivityIndicator size="small" color="#000" />
         </View>
+      );
+    }
+    switch (friendStatus) {
+      case "NONE":
+        return (
+          <TouchableOpacity style={[s.btn, s.btnBlue, { flex: 1 }]} onPress={handleSendRequest} disabled={actionLoading} activeOpacity={0.75}>
+            {actionLoading
+              ? <ActivityIndicator size="small" color="#fff" />
+              : <Text style={s.btnBlueText}>Kết bạn</Text>}
+          </TouchableOpacity>
+        );
+      case "SENT":
+        return (
+          <TouchableOpacity style={[s.btn, s.btnGray, { flex: 1 }]} onPress={handleCancelRequest} disabled={actionLoading} activeOpacity={0.75}>
+            {actionLoading
+              ? <ActivityIndicator size="small" color="#000" />
+              : <Text style={s.btnGrayText}>Đã gửi lời mời</Text>}
+          </TouchableOpacity>
+        );
+      case "RECEIVED":
+        return (
+          <>
+            <TouchableOpacity style={[s.btn, s.btnBlue, { flex: 1 }]} onPress={handleAccept} disabled={actionLoading} activeOpacity={0.75}>
+              {actionLoading
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <Text style={s.btnBlueText}>Chấp nhận</Text>}
+            </TouchableOpacity>
+            <TouchableOpacity style={[s.btn, s.btnGray, { flex: 1 }]} onPress={handleReject} disabled={actionLoading} activeOpacity={0.75}>
+              <Text style={s.btnGrayText}>Từ chối</Text>
+            </TouchableOpacity>
+          </>
+        );
+      case "FRIEND":
+        return (
+          <TouchableOpacity style={[s.btn, s.btnGray, { flex: 1 }]} onPress={handleUnfriend} disabled={actionLoading} activeOpacity={0.75}>
+            {actionLoading
+              ? <ActivityIndicator size="small" color="#000" />
+              : <Text style={s.btnGrayText}>Bạn bè ▾</Text>}
+          </TouchableOpacity>
+        );
+      case "BLOCKED":
+        return (
+          <TouchableOpacity style={[s.btn, s.btnRed, { flex: 1 }]} onPress={handleUnblockOther} disabled={actionLoading} activeOpacity={0.75}>
+            {actionLoading
+              ? <ActivityIndicator size="small" color={colors.danger} />
+              : <Text style={s.btnRedText}>Đã chặn</Text>}
+          </TouchableOpacity>
+        );
+    }
+  };
 
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 40 }}
-        >
-          {profileLoading ? (
-            <View style={{ paddingVertical: 60, alignItems: "center" }}>
-              <ActivityIndicator size="large" color={colors.primary} />
-              <Text
-                style={{ marginTop: 12, fontSize: 14, color: colors.textMuted }}
-              >
-                Đang tải...
-              </Text>
-            </View>
-          ) : (
-            <View style={os.card}>
-              <View style={os.topRow}>
-                <View style={{ marginRight: 18 }}>
-                  {profileUser?.avatarUrl ? (
-                    <Image
-                      source={{ uri: buildS3Url(profileUser.avatarUrl) }}
-                      style={os.avatar}
-                    />
-                  ) : (
-                    <View style={os.avatarFallback}>
-                      <Ionicons
-                        name="person"
-                        size={42}
-                        color={colors.textMuted}
-                      />
-                    </View>
-                  )}
-                </View>
-
-                <View style={os.statsRow}>
-                  <View style={{ alignItems: "center" }}>
-                    <Text style={os.statNum}>
-                      {profileUser?.postsCount ?? "—"}
-                    </Text>
-                    <Text style={os.statLbl}>Bài viết</Text>
-                  </View>
-                  <TouchableOpacity
-                    style={{ alignItems: "center" }}
-                    onPress={() =>
-                      router.push({
-                        pathname: "/(stack)/friends-list",
-                        params: { userId: String(targetId), tab: "friends" },
-                      })
-                    }
-                  >
-                    <Text style={os.statNum}>
-                      {otherFriendsCount !== null
-                        ? String(otherFriendsCount)
-                        : "—"}
-                    </Text>
-                    <Text style={os.statLbl}>Bạn bè</Text>
-                  </TouchableOpacity>
-                  <View style={{ alignItems: "center" }}>
-                    <Text style={os.statNum}>
-                      {profileUser?.following ?? "—"}
-                    </Text>
-                    <Text style={os.statLbl}>Theo dõi</Text>
-                  </View>
-                </View>
-              </View>
-
-              <View style={{ marginTop: 16 }}>
-                <Text style={os.displayName}>
-                  {profileUser?.name ||
-                    profileUser?.fullName ||
-                    profileUser?.username ||
-                    "—"}
-                </Text>
-                {profileUser?.username && (
-                  <Text style={os.handle}>@{profileUser.username}</Text>
-                )}
-                {profileUser?.bio ? (
-                  <Text style={os.bio}>{profileUser.bio}</Text>
-                ) : null}
-              </View>
-
-              <View style={os.btnRow}>
-                {renderFriendButton()}
-                <TouchableOpacity style={os.msgBtn} activeOpacity={0.75}>
-                  <Ionicons
-                    name="chatbubble-outline"
-                    size={18}
-                    color={colors.primary}
-                  />
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
-
-          <View style={os.emptyWrap}>
-            <View style={os.emptyCircle}>
-              <Ionicons
-                name="images-outline"
-                size={40}
-                color={colors.textMuted}
-              />
-            </View>
-            <Text style={os.emptyTitle}>Chưa có bài viết</Text>
+  // ── Render: OTHER USER ────────────────────────────────────────────────────
+  if (isViewingOther) {
+    const u = profileUser;
+    return (
+      <View style={s.screen}>
+        {profileLoading ? (
+          <View style={s.fullCenter}>
+            <ActivityIndicator size="large" color={colors.primary} />
           </View>
-        </ScrollView>
-      </SafeAreaView>
+        ) : (
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingTop: insets.top + 12, paddingBottom: 40 }}
+          >
+            {/* Avatar (trái) + username / stats (phải) */}
+            <View style={s.profileTopRow}>
+              <View>
+                {u?.avatarUrl ? (
+                  <Image source={{ uri: buildS3Url(u.avatarUrl) }} style={s.avatar} />
+                ) : (
+                  <View style={[s.avatar, s.avatarFallback]}>
+                    <Ionicons name="person" size={38} color="#C7C7CC" />
+                  </View>
+                )}
+              </View>
+              <View style={s.profileRightCol}>
+                <Text style={s.profileUsername} numberOfLines={1}>
+                  {u?.username || u?.name || "Người dùng"}
+                </Text>
+                <View style={s.statsRow}>
+                  <StatItem value={String(u?.postsCount ?? 0)} label="Bài viết" />
+                  <StatItem
+                    value={otherFriendsCount !== null ? String(otherFriendsCount) : "—"}
+                    label="Bạn bè"
+                  />
+                </View>
+              </View>
+            </View>
+
+            {/* Info */}
+            <View style={s.infoBlock}>
+              {(u?.name || u?.fullName) ? (
+                <Text style={s.displayName}>{u?.name || u?.fullName}</Text>
+              ) : null}
+              {u?.gender && GENDER_LABEL[u.gender] ? (
+                <Text style={s.infoMeta}>{GENDER_LABEL[u.gender]}</Text>
+              ) : null}
+              {u?.birthday ? <Text style={s.infoMeta}>{u.birthday}</Text> : null}
+              {u?.bio ? <Text style={s.bio}>{u.bio}</Text> : null}
+            </View>
+
+            {/* Action buttons */}
+            <View style={s.actionRow}>
+              {renderFriendButton()}
+              <TouchableOpacity style={[s.btn, s.btnGray, { flex: 1 }]} activeOpacity={0.75}>
+                <Text style={s.btnGrayText}>Nhắn tin</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.btn, s.btnGray, s.btnIcon]}
+                onPress={() => setInfoModalVisible(true)}
+                activeOpacity={0.75}
+              >
+                <Ionicons name="information-circle-outline" size={20} color="#000" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.btn, s.btnGray, s.btnIcon]}
+                onPress={handleMoreOptions}
+                activeOpacity={0.75}
+              >
+                <Ionicons name="ellipsis-horizontal" size={18} color="#000" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Info modal */}
+            <Modal
+              visible={infoModalVisible}
+              animationType="slide"
+              presentationStyle="pageSheet"
+              onRequestClose={() => setInfoModalVisible(false)}
+            >
+              <View style={s.modalContainer}>
+                <View style={s.modalHandle} />
+                <View style={s.modalHeader}>
+                  <Text style={s.modalTitle}>Thông tin</Text>
+                  <TouchableOpacity onPress={() => setInfoModalVisible(false)} hitSlop={12}>
+                    <Ionicons name="close" size={24} color="#000" />
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView contentContainerStyle={s.modalBody} showsVerticalScrollIndicator={false}>
+                  {/* Avatar + name */}
+                  <View style={s.modalProfileRow}>
+                    {u?.avatarUrl ? (
+                      <Image source={{ uri: buildS3Url(u.avatarUrl) }} style={s.modalAvatar} />
+                    ) : (
+                      <View style={[s.modalAvatar, s.avatarFallback]}>
+                        <Ionicons name="person" size={28} color="#C7C7CC" />
+                      </View>
+                    )}
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.modalName}>{u?.name || u?.fullName || u?.username || "Người dùng"}</Text>
+                      {u?.username ? <Text style={s.modalSub}>@{u.username}</Text> : null}
+                    </View>
+                  </View>
+
+                  <View style={s.modalDivider} />
+
+                  {/* Info rows */}
+                  {u?.username ? (
+                    <InfoModalRow icon="at" label="Tên người dùng" value={`@${u.username}`} />
+                  ) : null}
+                  {(u?.name || u?.fullName) ? (
+                    <InfoModalRow icon="person-outline" label="Họ và tên" value={u.name || u.fullName || ""} />
+                  ) : null}
+                  {u?.birthday ? (
+                    <InfoModalRow icon="calendar-outline" label="Ngày sinh" value={u.birthday} />
+                  ) : null}
+                  {u?.gender && GENDER_LABEL[u.gender] ? (
+                    <InfoModalRow icon="people-outline" label="Giới tính" value={GENDER_LABEL[u.gender]} />
+                  ) : null}
+                  {u?.bio ? (
+                    <InfoModalRow icon="chatbubble-outline" label="Giới thiệu" value={u.bio} />
+                  ) : null}
+                  {otherFriendsCount !== null ? (
+                    <InfoModalRow icon="people" label="Bạn bè" value={`${otherFriendsCount} người`} />
+                  ) : null}
+                </ScrollView>
+              </View>
+            </Modal>
+
+            {/* Tab bar */}
+            <View style={s.tabBar}>
+              <View style={[s.tabItem, s.tabItemActive]}>
+                <Ionicons name="grid" size={22} color="#000" />
+              </View>
+            </View>
+
+            {/* Empty posts */}
+            <View style={s.emptyWrap}>
+              <View style={s.emptyCircle}>
+                <Ionicons name="camera-outline" size={38} color="#C7C7CC" />
+              </View>
+              <Text style={s.emptyTitle}>Chưa có bài viết</Text>
+              <Text style={s.emptySub}>Bài viết sẽ hiển thị ở đây</Text>
+            </View>
+          </ScrollView>
+        )}
+      </View>
     );
   }
 
-  // ── Render: own-profile view ──────────────────────────────────────────────
+  // ── Render: OWN PROFILE ───────────────────────────────────────────────────
   if (!currentUser) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
-        <View
-          style={{
-            flex: 1,
-            justifyContent: "center",
-            alignItems: "center",
-            gap: 10,
-          }}
-        >
-          <Ionicons
-            name="person-circle-outline"
-            size={64}
-            color={colors.textMuted}
-          />
-          <Text style={{ fontSize: 15, color: colors.textMuted, marginTop: 8 }}>
-            Không có dữ liệu người dùng
-          </Text>
-        </View>
-      </SafeAreaView>
+      <View style={s.fullCenter}>
+        <Ionicons name="person-circle-outline" size={64} color="#C7C7CC" />
+        <Text style={{ fontSize: 15, color: "#8E8E93", marginTop: 8 }}>Không có dữ liệu người dùng</Text>
+      </View>
     );
   }
 
-  const myPosts = posts.filter((post) => post.userId === currentUser?.id);
-  const savedPosts = posts.filter((post) => savedPostIds.includes(post.id));
-  const genderLabel = GENDER_OPTIONS.find(
-    (g) => g.value === currentUser.gender,
-  )?.label;
-  const displayPosts =
-    selectedTab === "posts"
-      ? myPosts
-      : selectedTab === "saved"
-        ? savedPosts
-        : [];
-  const ds = createDynamicStyles();
+  const myPosts      = posts.filter((p) => p.userId === currentUser?.id);
+  const savedPosts   = posts.filter((p) => savedPostIds.includes(p.id));
+  const displayPosts = selectedTab === "posts" ? myPosts : selectedTab === "saved" ? savedPosts : [];
+
+  const OWN_TABS: { key: OwnTab; icon: keyof typeof Ionicons.glyphMap; iconOutline: keyof typeof Ionicons.glyphMap }[] = [
+    { key: "posts",   icon: "grid",   iconOutline: "grid-outline"    },
+    { key: "saved",   icon: "bookmark", iconOutline: "bookmark-outline" },
+    { key: "blocked", icon: "shield",   iconOutline: "shield-outline"   },
+  ];
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
-      <>
-        <ScrollView
-          style={ds.screen}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 40 }}
-        >
-          <View style={ds.card}>
+    <View style={s.screen}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: insets.top, paddingBottom: 40 }}>
+        {/* Avatar (trái) + username / stats / settings (phải) — cùng một hàng */}
+        <View style={s.profileTopRow}>
+          <TouchableOpacity onPress={() => router.push("/(stack)/profile/edit")} activeOpacity={0.85}>
+            {currentUser.avatarUrl ? (
+              <Image source={{ uri: buildS3Url(currentUser.avatarUrl) }} style={s.avatar} />
+            ) : (
+              <View style={[s.avatar, s.avatarFallback]}>
+                <Ionicons name="person" size={38} color="#C7C7CC" />
+              </View>
+            )}
+          </TouchableOpacity>
+
+          <View style={s.profileRightCol}>
+            {/* Username + settings */}
+            <View style={s.profileUsernameRow}>
+              <Text style={s.profileUsername} numberOfLines={1}>
+                {currentUser.username || currentUser.name}
+              </Text>
+              <TouchableOpacity onPress={() => router.push("/(stack)/profile/menu")} hitSlop={12} style={s.topRowIcon}>
+                <Ionicons name="settings-outline" size={24} color="#000" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Stats */}
+            <View style={s.statsRow}>
+              <StatItem value={String(myPosts.length)} label="Bài viết" />
+              <StatItem value={String(friendsCount)} label="Bạn bè" />
+              <StatItem value={String(currentUser.following ?? 0)} label="Theo dõi" />
+            </View>
+          </View>
+        </View>
+
+        {/* Info */}
+        <View style={s.infoBlock}>
+          {(currentUser.name || currentUser.fullName) ? (
+            <Text style={s.displayName}>{currentUser.name || currentUser.fullName}</Text>
+          ) : null}
+          {currentUser.gender && GENDER_LABEL[currentUser.gender] ? (
+            <Text style={s.infoMeta}>{GENDER_LABEL[currentUser.gender]}</Text>
+          ) : null}
+          {currentUser.birthday ? <Text style={s.infoMeta}>{currentUser.birthday}</Text> : null}
+          {currentUser.bio ? <Text style={s.bio}>{currentUser.bio}</Text> : null}
+          {currentUser.phone ? <Text style={s.infoPhone}>{currentUser.phone}</Text> : null}
+        </View>
+
+        {/* Action buttons */}
+        <View style={s.actionRow}>
+          <TouchableOpacity
+            style={[s.btn, s.btnGray, { flex: 1 }]}
+            onPress={() => router.push("/(stack)/profile/edit")}
+            activeOpacity={0.75}
+          >
+            <Text style={s.btnGrayText}>Chỉnh sửa hồ sơ</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[s.btn, s.btnGray, s.btnIcon]} onPress={handleLogout} activeOpacity={0.75}>
+            <Ionicons name="log-out-outline" size={18} color={colors.danger} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Tab bar */}
+        <View style={s.tabBar}>
+          {OWN_TABS.map((t) => (
             <TouchableOpacity
-              style={ds.settingsBtn}
-              onPress={() => router.push("/(stack)/profile/menu")}
+              key={t.key}
+              style={[s.tabItem, selectedTab === t.key && s.tabItemActive]}
+              onPress={() => {
+                setSelectedTab(t.key);
+                if (t.key === "blocked") void loadBlockedUsers();
+              }}
               activeOpacity={0.7}
             >
               <Ionicons
-                name="settings-outline"
+                name={selectedTab === t.key ? t.icon : t.iconOutline}
                 size={22}
-                color={colors.textMuted}
+                color={selectedTab === t.key ? "#000" : "#8E8E93"}
               />
             </TouchableOpacity>
+          ))}
+        </View>
 
-            <View style={ds.topRow}>
-              <View style={ds.avatarWrap}>
-                <Image
-                  source={{ uri: buildS3Url(currentUser.avatarUrl) }}
-                  alt="Avatar"
-                  style={ds.avatar}
-                />
-                <View style={ds.onlineDot} />
-              </View>
-
-              <View style={ds.statsRow}>
-                <StatBlock label="Bài viết" value={myPosts.length} />
-                <TouchableOpacity
-                  onPress={() =>
-                    router.push({
-                      pathname: "/(stack)/friends-list",
-                      params: { tab: "friends" },
-                    })
-                  }
-                >
-                  <StatBlock label="Bạn bè" value={friendsCount} />
-                </TouchableOpacity>
-                <StatBlock
-                  label="Đang theo dõi"
-                  value={currentUser.following || 0}
-                />
-              </View>
+        {/* Tab content */}
+        {selectedTab === "blocked" ? (
+          isLoadingBlocked ? (
+            <View style={s.emptyWrap}>
+              <ActivityIndicator size="small" color={colors.primary} />
             </View>
-
-            <View style={ds.infoBlock}>
-              <Text style={ds.displayName}>
-                {currentUser.name || currentUser.username}
-              </Text>
-              {currentUser.username && (
-                <Text style={ds.handle}>@{currentUser.username}</Text>
-              )}
-              {currentUser.bio ? (
-                <Text style={ds.bio}>{currentUser.bio}</Text>
-              ) : null}
-              <View style={ds.metaRow}>
-                {currentUser.birthday ? (
-                  <MetaChip
-                    icon="calendar-outline"
-                    text={currentUser.birthday}
+          ) : blockedUsers.length > 0 ? (
+            blockedUsers.map((bu) => (
+              <View key={bu.id} style={s.blockedRow}>
+                {bu.avatar || bu.avatarUrl ? (
+                  <Image
+                    source={{ uri: bu.avatar || buildS3Url(bu.avatarUrl) }}
+                    style={s.blockedAvatar}
                   />
-                ) : null}
-                {genderLabel ? (
-                  <MetaChip icon="male-female-outline" text={genderLabel} />
-                ) : null}
-                {currentUser.phone ? (
-                  <MetaChip icon="call-outline" text={currentUser.phone} />
-                ) : null}
-              </View>
-            </View>
-
-            <View style={ds.btnRow}>
-              <TouchableOpacity
-                style={ds.primaryBtn}
-                onPress={handleEditProfile}
-                activeOpacity={0.75}
-              >
-                <Ionicons
-                  name="create-outline"
-                  size={17}
-                  color={colors.white}
-                />
-                <Text style={ds.primaryBtnText}>Chỉnh sửa hồ sơ </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={ds.dangerBtn}
-                onPress={handleLogout}
-                activeOpacity={0.75}
-              >
-                <Ionicons
-                  name="log-out-outline"
-                  size={20}
-                  color={colors.danger}
-                />
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          <View style={ds.tabBar}>
-            <TouchableOpacity
-              style={[ds.tab, selectedTab === "posts" && ds.tabActive]}
-              onPress={() => setSelectedTab("posts")}
-            >
-              <Ionicons
-                name="grid-outline"
-                size={20}
-                color={
-                  selectedTab === "posts" ? colors.primary : colors.textMuted
-                }
-              />
-              <Text
-                style={[
-                  ds.tabText,
-                  selectedTab === "posts" && ds.tabTextActive,
-                ]}
-              >
-                Bài viết
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[ds.tab, selectedTab === "saved" && ds.tabActive]}
-              onPress={() => setSelectedTab("saved")}
-            >
-              <Ionicons
-                name="bookmark-outline"
-                size={20}
-                color={
-                  selectedTab === "saved" ? colors.primary : colors.textMuted
-                }
-              />
-              <Text
-                style={[
-                  ds.tabText,
-                  selectedTab === "saved" && ds.tabTextActive,
-                ]}
-              >
-                Đã lưu
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[ds.tab, selectedTab === "blocked" && ds.tabActive]}
-              onPress={() => {
-                setSelectedTab("blocked");
-                loadBlockedUsers();
-              }}
-            >
-              <Ionicons
-                name="ban-outline"
-                size={20}
-                color={
-                  selectedTab === "blocked" ? colors.primary : colors.textMuted
-                }
-              />
-              <Text
-                style={[
-                  ds.tabText,
-                  selectedTab === "blocked" && ds.tabTextActive,
-                ]}
-              >
-                Đã chặn
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {selectedTab === "blocked" ? (
-            isLoadingBlocked ? (
-              <View style={ds.emptyWrap}>
-                <ActivityIndicator size="small" color={colors.text} />
-                <Text style={ds.emptySub}>Đang tải...</Text>
-              </View>
-            ) : blockedUsers.length > 0 ? (
-              <View style={{ paddingHorizontal: 14, paddingTop: 14 }}>
-                {blockedUsers.map((bu) => (
-                  <View key={bu.id} style={ds.blockedRow}>
-                    {bu.avatar ? (
-                      <Image
-                        source={{ uri: bu.avatar }}
-                        style={ds.blockedAvatar}
-                      />
-                    ) : (
-                      <View style={ds.blockedAvatarFallback}>
-                        <Ionicons
-                          name="person"
-                          size={22}
-                          color={colors.textMuted}
-                        />
-                      </View>
-                    )}
-                    <View style={{ flex: 1, marginLeft: 12 }}>
-                      <Text style={ds.blockedName} numberOfLines={1}>
-                        {bu.name || bu.username}
-                      </Text>
-                      {bu.username && (
-                        <Text style={ds.blockedUsername}>@{bu.username}</Text>
-                      )}
-                    </View>
-                    <TouchableOpacity
-                      style={ds.unblockBtn}
-                      onPress={() => handleUnblock(bu.id)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={ds.unblockBtnText}>Bỏ chặn</Text>
-                    </TouchableOpacity>
+                ) : (
+                  <View style={[s.blockedAvatar, s.avatarFallback]}>
+                    <Ionicons name="person" size={20} color="#C7C7CC" />
                   </View>
-                ))}
-              </View>
-            ) : (
-              <View style={ds.emptyWrap}>
-                <View style={ds.emptyCircle}>
-                  <Ionicons
-                    name="ban-outline"
-                    size={40}
-                    color={colors.textMuted}
-                  />
-                </View>
-                <Text style={ds.emptyTitle}>Chưa chặn ai</Text>
-                <Text style={ds.emptySub}>
-                  Những người bạn chặn sẽ hiển thị ở đây
-                </Text>
-              </View>
-            )
-          ) : displayPosts.length > 0 ? (
-            <View style={ds.grid}>
-              {displayPosts.map((post) => (
-                <TouchableOpacity
-                  key={post.id}
-                  style={ds.gridItem}
-                  activeOpacity={0.85}
-                  onPress={() => router.push(`/(stack)/post/${post.id}`)}
-                >
-                  {post.images && post.images[0] ? (
-                    <Image
-                      source={{ uri: post.images[0] }}
-                      style={ds.gridImage}
-                    />
-                  ) : (
-                    <View style={ds.gridImagePlaceholder}>
-                      <Ionicons
-                        name="image-outline"
-                        size={40}
-                        color={colors.textMuted}
-                      />
-                    </View>
+                )}
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text style={s.blockedName} numberOfLines={1}>{bu.name || bu.username}</Text>
+                  {bu.username && (
+                    <Text style={s.blockedSub} numberOfLines={1}>@{bu.username}</Text>
                   )}
-                </TouchableOpacity>
-              ))}
-            </View>
-          ) : (
-            <View style={ds.emptyWrap}>
-              <View style={ds.emptyCircle}>
-                <Ionicons
-                  name="camera-outline"
-                  size={40}
-                  color={colors.textMuted}
-                />
-              </View>
-              <Text style={ds.emptyTitle}>
-                {selectedTab === "posts"
-                  ? "Chưa có bài viết"
-                  : "Chưa lưu bài viết"}
-              </Text>
-              <Text style={ds.emptySub}>
-                {selectedTab === "posts"
-                  ? "Bài viết bạn tạo sẽ hiển thị ở đây"
-                  : "Bài viết bạn lưu sẽ hiển thị ở đây"}
-              </Text>
-            </View>
-          )}
-        </ScrollView>
-
-        <Modal
-          visible={showEditModal}
-          animationType="slide"
-          transparent
-          onRequestClose={() => setShowEditModal(false)}
-        >
-          <KeyboardAvoidingView
-            style={ds.overlay}
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-          >
-            <View style={[ds.sheet, { paddingBottom: insets.bottom + 16 }]}>
-              <View style={ds.dragBar} />
-              <View style={ds.sheetHeader}>
+                </View>
                 <TouchableOpacity
-                  onPress={() => setShowEditModal(false)}
-                  hitSlop={12}
-                >
-                  <Text style={ds.sheetCancel}>Hủy</Text>
-                </TouchableOpacity>
-                <Text style={ds.sheetTitle}>Chỉnh sửa hồ sơ</Text>
-                <TouchableOpacity
-                  onPress={handleSaveProfile}
-                  disabled={isSaving}
-                  hitSlop={12}
-                >
-                  <Text
-                    style={[
-                      ds.sheetSave,
-                      isSaving && { color: colors.textMuted },
-                    ]}
-                  >
-                    {isSaving ? "Đang lưu..." : "Lưu"}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-              <ScrollView
-                style={ds.sheetBody}
-                keyboardShouldPersistTaps="handled"
-                showsVerticalScrollIndicator={false}
-              >
-                <TouchableOpacity
-                  style={ds.avatarPreview}
-                  onPress={pickAvatarImage}
-                  disabled={isUploadingAvatar || isSaving}
+                  style={[s.btn, s.btnGray]}
+                  onPress={() => handleUnblockOwn(String(bu.id))}
                   activeOpacity={0.7}
                 >
-                  {isUploadingAvatar ? (
-                    <View
-                      style={[
-                        ds.previewImg,
-                        {
-                          alignItems: "center",
-                          justifyContent: "center",
-                          backgroundColor: colors.surface,
-                        },
-                      ]}
-                    >
-                      <ActivityIndicator size="small" color={colors.primary} />
-                    </View>
-                  ) : avatarLocalUri || currentUser.avatarUrl ? (
-                    <Image
-                      source={{
-                        uri:
-                          avatarLocalUri || buildS3Url(currentUser.avatarUrl),
-                      }}
-                      style={ds.previewImg}
-                    />
-                  ) : (
-                    <View
-                      style={[
-                        ds.avatarFallback,
-                        { width: 76, height: 76, borderRadius: 38 },
-                      ]}
-                    >
-                      <Ionicons
-                        name="person"
-                        size={32}
-                        color={colors.textMuted}
-                      />
-                    </View>
-                  )}
-                  <View style={ds.changePhotoRow}>
-                    <Ionicons
-                      name="camera-outline"
-                      size={15}
-                      color={colors.primary}
-                    />
-                    <Text style={ds.changePhotoLabel}>
-                      {avatarLocalUri ? "Đổi ảnh khác" : "Thay đổi ảnh"}
-                    </Text>
-                  </View>
+                  <Text style={s.btnGrayText}>Bỏ chặn</Text>
                 </TouchableOpacity>
-
-                <Field
-                  label="Họ tên"
-                  value={editForm.name}
-                  onChange={(v) => setEditForm((f) => ({ ...f, name: v }))}
-                  placeholder="Nhập họ tên"
-                />
-                <Field
-                  label="Tên người dùng"
-                  value={editForm.username}
-                  onChange={(v) => setEditForm((f) => ({ ...f, username: v }))}
-                  placeholder="@username"
-                  autoCapitalize="none"
-                />
-                <View style={ds.fieldGroup}>
-                  <Text style={ds.fieldLabel}>Tiểu sử</Text>
-                  <TextInput
-                    style={[ds.input, { height: 80, textAlignVertical: "top" }]}
-                    value={editForm.bio}
-                    onChangeText={(v) => setEditForm((f) => ({ ...f, bio: v }))}
-                    placeholder="Giới thiệu bản thân..."
-                    placeholderTextColor={colors.textMuted}
-                    multiline
-                    numberOfLines={3}
-                  />
-                </View>
-                <Field
-                  label="Ngày sinh"
-                  value={editForm.birthday}
-                  onChange={(v) => setEditForm((f) => ({ ...f, birthday: v }))}
-                  placeholder="DD/MM/YYYY"
-                />
-                <View style={ds.fieldGroup}>
-                  <Text style={ds.fieldLabel}>Giới tính</Text>
-                  <View style={ds.chipRow}>
-                    {GENDER_OPTIONS.map((opt) => {
-                      const active = editForm.gender === opt.value;
-                      return (
-                        <TouchableOpacity
-                          key={opt.value}
-                          style={[ds.chip, active && ds.chipActive]}
-                          onPress={() =>
-                            setEditForm((f) => ({ ...f, gender: opt.value }))
-                          }
-                          activeOpacity={0.7}
-                        >
-                          <Text
-                            style={[ds.chipText, active && ds.chipTextActive]}
-                          >
-                            {opt.label}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                </View>
-                <View style={{ height: 32 }} />
-              </ScrollView>
+              </View>
+            ))
+          ) : (
+            <View style={s.emptyWrap}>
+              <View style={s.emptyCircle}>
+                <Ionicons name="shield-checkmark-outline" size={38} color="#C7C7CC" />
+              </View>
+              <Text style={s.emptyTitle}>Chưa chặn ai</Text>
+              <Text style={s.emptySub}>Những người bạn chặn sẽ hiển thị ở đây</Text>
             </View>
-          </KeyboardAvoidingView>
-        </Modal>
-      </>
-    </SafeAreaView>
-  );
-}
-
-// ── Sub-components ────────────────────────────────────────────────────────────
-
-function StatBlock({ label, value }: { label: string; value: number }) {
-  return (
-    <View style={{ alignItems: "center" }}>
-      <Text style={{ fontSize: 19, fontWeight: "700", color: colors.text }}>
-        {value}
-      </Text>
-      <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 2 }}>
-        {label}
-      </Text>
+          )
+        ) : displayPosts.length > 0 ? (
+          <View style={s.grid}>
+            {displayPosts.map((post) => (
+              <TouchableOpacity key={post.id} style={s.gridItem} activeOpacity={0.85}>
+                {post.image ? (
+                  <Image source={{ uri: post.image }} style={s.gridImage} />
+                ) : (
+                  <View style={s.gridPlaceholder}>
+                    <Ionicons name="image-outline" size={30} color="#C7C7CC" />
+                  </View>
+                )}
+              </TouchableOpacity>
+            ))}
+          </View>
+        ) : (
+          <View style={s.emptyWrap}>
+            <View style={s.emptyCircle}>
+              <Ionicons
+                name={selectedTab === "saved" ? "bookmark-outline" : "camera-outline"}
+                size={38}
+                color="#C7C7CC"
+              />
+            </View>
+            <Text style={s.emptyTitle}>
+              {selectedTab === "saved" ? "Chưa lưu bài viết" : "Chưa có bài viết"}
+            </Text>
+            <Text style={s.emptySub}>
+              {selectedTab === "saved"
+                ? "Bài viết bạn lưu sẽ hiển thị ở đây"
+                : "Bài viết bạn tạo sẽ hiển thị ở đây"}
+            </Text>
+          </View>
+        )}
+      </ScrollView>
     </View>
   );
 }
 
-function MetaChip({ icon, text }: { icon: string; text: string }) {
+// ── Info modal row ───────────────────────────────────────────────────────────
+function InfoModalRow({ icon, label, value }: { icon: keyof typeof Ionicons.glyphMap; label: string; value: string }) {
   return (
-    <View
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 4,
-        backgroundColor: colors.surface,
-        paddingHorizontal: 10,
-        paddingVertical: 5,
-        borderRadius: 20,
-      }}
-    >
-      <Ionicons name={icon as any} size={13} color={colors.textMuted} />
-      <Text style={{ fontSize: 12, color: colors.textMuted }}>{text}</Text>
+    <View style={s.infoModalRow}>
+      <View style={s.infoModalIconWrap}>
+        <Ionicons name={icon} size={18} color="#3C3C43" />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={s.infoModalLabel}>{label}</Text>
+        <Text style={s.infoModalValue}>{value}</Text>
+      </View>
     </View>
   );
 }
 
-function Field({
-  label,
-  value,
-  onChange,
-  placeholder,
-  autoCapitalize,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  autoCapitalize?: "none" | "sentences" | "words" | "characters";
-}) {
+// ── Small stat cell ─────────────────────────────────────────────────────────
+function StatItem({ value, label }: { value: string; label: string }) {
   return (
-    <View style={{ marginTop: 16 }}>
-      <Text
-        style={{
-          fontSize: 13,
-          fontWeight: "600",
-          color: colors.textMuted,
-          marginBottom: 6,
-        }}
-      >
-        {label}
-      </Text>
-      <TextInput
-        style={{
-          backgroundColor: colors.surface,
-          borderWidth: 1,
-          borderColor: colors.border,
-          borderRadius: 12,
-          paddingHorizontal: 14,
-          paddingVertical: 12,
-          fontSize: 15,
-          color: colors.text,
-        }}
-        value={value}
-        onChangeText={onChange}
-        placeholder={placeholder}
-        placeholderTextColor={colors.textMuted}
-        autoCapitalize={autoCapitalize}
-      />
+    <View style={s.statItem}>
+      <Text style={s.statValue}>{value}</Text>
+      <Text style={s.statLabel}>{label}</Text>
     </View>
   );
 }
 
-// ── Styles: other-user view ───────────────────────────────────────────────────
+// ── Styles ──────────────────────────────────────────────────────────────────
+const s = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: "#fff" },
+  fullCenter: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#fff" },
 
-const os = StyleSheet.create({
-  header: {
+
+  /* ── Own profile top row: avatar bên trái + cột phải (username+stats) ── */
+  profileTopRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    backgroundColor: colors.background,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 14,
+    gap: 16,
   },
-  iconBtn: { padding: 6 },
-  headerTitle: {
+  profileRightCol: {
     flex: 1,
-    textAlign: "center",
-    fontSize: 17,
+    gap: 10,
+  },
+  profileUsernameRow: {
+    flexDirection: "row",
+    marginLeft: 18,
+    alignItems: "center",
+    gap: 8,
+  },
+  profileUsername: {
+    flex: 1,
+    fontSize: 18,
     fontWeight: "700",
-    color: colors.text,
+    color: "#000",
+    letterSpacing: -0.3,
   },
-  card: {
-    backgroundColor: colors.background,
-    marginHorizontal: 14,
-    marginTop: 12,
-    borderRadius: 20,
-    padding: 20,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 3,
+  topRowIcon: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  topRow: { flexDirection: "row", alignItems: "center" },
+
+  /* ── Other-user profile row (avatar left + stats right) ── */
+  profileRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 10,
+    gap: 20,
+  },
+  avatarStoryRing: {},
+  statsRow: {
+    flex: 1,
+    flexDirection: "row",
+    justifyContent: "space-around",
+  },
+
+  /* ── Shared avatar + stat styles ── */
   avatar: {
-    width: 78,
-    height: 78,
-    borderRadius: 39,
-    borderWidth: 2.5,
-    borderColor: colors.border,
+    width: 86,
+    height: 86,
+    borderRadius: 43,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#DBDBDB",
   },
   avatarFallback: {
-    width: 78,
-    height: 78,
-    borderRadius: 39,
-    backgroundColor: colors.surface,
+    backgroundColor: "#EFEFEF",
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 2.5,
-    borderColor: colors.border,
   },
-  statsRow: { flex: 1, flexDirection: "row", justifyContent: "space-around" },
-  statNum: { fontSize: 19, fontWeight: "700", color: colors.text },
-  statLbl: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
-  displayName: { fontSize: 20, fontWeight: "700", color: colors.text },
-  handle: {
-    fontSize: 14,
-    color: colors.textMuted,
-    fontWeight: "500",
-    marginTop: 2,
-  },
-  bio: { fontSize: 14, color: colors.textMuted, lineHeight: 20, marginTop: 8 },
-  btnRow: { flexDirection: "row", marginTop: 18, gap: 10 },
-  friendBtn: {
-    flex: 1,
-    flexDirection: "row",
+  statItem: {
     alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 12,
-    borderRadius: 12,
-    minHeight: 46,
+    gap: 1,
   },
-  friendBtnPrimary: { backgroundColor: colors.primary },
-  friendBtnOutline: {
-    backgroundColor: colors.surface,
-    borderWidth: 1.5,
-    borderColor: colors.border,
+  statValue: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#000",
   },
-  friendBtnDanger: { backgroundColor: colors.danger },
-  friendBtnTextWhite: { color: "#fff", fontSize: 14, fontWeight: "600" },
-  friendBtnTextPrimary: {
-    color: colors.primary,
+  statLabel: {
+    fontSize: 13,
+    color: "#000",
+  },
+
+  /* ── Info block ── */
+  infoBlock: {
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+    gap: 2,
+  },
+  displayName: {
     fontSize: 14,
     fontWeight: "600",
+    color: "#000",
+    marginBottom: 1,
   },
-  friendBtnTextMuted: {
-    color: colors.textMuted,
+  infoMeta: {
+    fontSize: 13,
+    color: "#3C3C43",
+  },
+  bio: {
     fontSize: 14,
-    fontWeight: "500",
+    color: "#000",
+    lineHeight: 20,
   },
-  receivedRow: { flex: 1, flexDirection: "row", gap: 8 },
-  msgBtn: {
-    width: 46,
-    height: 46,
-    borderRadius: 12,
-    backgroundColor: colors.surface,
-    borderWidth: 1.5,
-    borderColor: colors.border,
+  infoPhone: {
+    fontSize: 14,
+    color: "#0095F6",
+  },
+
+  /* ── Action buttons ── */
+  actionRow: {
+    flexDirection: "row",
+    paddingHorizontal: 16,
+    gap: 6,
+    marginBottom: 14,
+  },
+  btn: {
+    height: 34,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+  },
+  btnGray: {
+    backgroundColor: "#EFEFEF",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#DBDBDB",
+  },
+  btnBlue: {
+    backgroundColor: "#0095F6",
+  },
+  btnRed: {
+    backgroundColor: "#FEE2E2",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#FECACA",
+  },
+  btnIcon: {
+    width: 34,
+    paddingHorizontal: 0,
+  },
+  btnGrayText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#000",
+  },
+  btnBlueText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#fff",
+  },
+  btnRedText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: colors.danger,
+  },
+
+  /* ── Tab bar ── */
+  tabBar: {
+    flexDirection: "row",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#DBDBDB",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#DBDBDB",
+  },
+  tabItem: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: 11,
+    borderTopWidth: 1.5,
+    borderTopColor: "transparent",
+  },
+  tabItemActive: {
+    borderTopColor: "#000",
+  },
+
+  /* ── Grid ── */
+  grid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: GRID_GAP,
+  },
+  gridItem: {
+    width: GRID_SIZE,
+    height: GRID_SIZE,
+  },
+  gridImage: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: "#EFEFEF",
+  },
+  gridPlaceholder: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: "#EFEFEF",
     alignItems: "center",
     justifyContent: "center",
   },
-  emptyWrap: { alignItems: "center", paddingVertical: 56 },
+
+  /* ── Blocked list ── */
+  blockedRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#DBDBDB",
+    backgroundColor: "#fff",
+  },
+  blockedAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+  },
+  blockedName: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#000",
+  },
+  blockedSub: {
+    fontSize: 13,
+    color: "#8E8E93",
+    marginTop: 1,
+  },
+
+  /* ── Empty state ── */
+  emptyWrap: {
+    alignItems: "center",
+    paddingVertical: 56,
+    paddingHorizontal: 40,
+  },
   emptyCircle: {
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: colors.surface,
+    borderWidth: 1.5,
+    borderColor: "#C7C7CC",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 14,
+    marginBottom: 16,
   },
-  emptyTitle: { fontSize: 16, fontWeight: "600", color: colors.textMuted },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#000",
+    marginBottom: 8,
+  },
+  emptySub: {
+    fontSize: 14,
+    color: "#8E8E93",
+    textAlign: "center",
+    lineHeight: 20,
+  },
+
+  /* ── Info modal ── */
+  modalContainer: {
+    flex: 1,
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
+  },
+  modalHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#E5E5EA",
+    alignSelf: "center",
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#E5E5EA",
+  },
+  modalTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#000",
+  },
+  modalBody: {
+    paddingBottom: 40,
+  },
+  modalProfileRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 18,
+  },
+  modalAvatar: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#DBDBDB",
+  },
+  modalName: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#000",
+  },
+  modalSub: {
+    fontSize: 14,
+    color: "#8E8E93",
+    marginTop: 2,
+  },
+  modalDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: "#E5E5EA",
+    marginHorizontal: 16,
+    marginBottom: 8,
+  },
+  infoModalRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#F2F2F7",
+  },
+  infoModalIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#F2F2F7",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  infoModalLabel: {
+    fontSize: 12,
+    color: "#8E8E93",
+    marginBottom: 2,
+  },
+  infoModalValue: {
+    fontSize: 15,
+    color: "#000",
+    lineHeight: 20,
+  },
 });
-
-// ── Styles: own-profile view ──────────────────────────────────────────────────
-
-const createDynamicStyles = () =>
-  StyleSheet.create({
-    screen: { flex: 1, backgroundColor: colors.background },
-    card: {
-      backgroundColor: colors.background,
-      marginHorizontal: 14,
-      marginTop: 10,
-      borderRadius: 20,
-      padding: 20,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.06,
-      shadowRadius: 12,
-      elevation: 3,
-    },
-    settingsBtn: {
-      position: "absolute",
-      top: 16,
-      right: 16,
-      zIndex: 10,
-      padding: 4,
-    },
-    topRow: { flexDirection: "row", alignItems: "center" },
-    avatarWrap: { position: "relative", marginRight: 18 },
-    avatar: {
-      width: 78,
-      height: 78,
-      borderRadius: 39,
-      borderWidth: 2.5,
-      borderColor: colors.border,
-    },
-    avatarFallback: {
-      width: 78,
-      height: 78,
-      borderRadius: 39,
-      backgroundColor: colors.surface,
-      alignItems: "center",
-      justifyContent: "center",
-      borderWidth: 2.5,
-      borderColor: colors.border,
-    },
-    onlineDot: {
-      position: "absolute",
-      bottom: 2,
-      right: 2,
-      width: 13,
-      height: 13,
-      borderRadius: 7,
-      backgroundColor: colors.success,
-      borderWidth: 2.5,
-      borderColor: colors.background,
-    },
-    statsRow: { flex: 1, flexDirection: "row", justifyContent: "space-around" },
-    infoBlock: { marginTop: 16 },
-    displayName: { fontSize: 20, fontWeight: "700", color: colors.text },
-    handle: {
-      fontSize: 14,
-      color: colors.textMuted,
-      fontWeight: "500",
-      marginTop: 2,
-    },
-    bio: {
-      fontSize: 14,
-      color: colors.textMuted,
-      lineHeight: 20,
-      marginTop: 8,
-    },
-    metaRow: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 10 },
-    btnRow: { flexDirection: "row", marginTop: 18, gap: 10 },
-    primaryBtn: {
-      flex: 1,
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: 6,
-      backgroundColor: colors.primary,
-      paddingVertical: 12,
-      borderRadius: 12,
-    },
-    primaryBtnText: { color: colors.white, fontWeight: "600", fontSize: 14 },
-    dangerBtn: {
-      backgroundColor: "#FFE5E5",
-      paddingHorizontal: 14,
-      borderRadius: 12,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    tabBar: {
-      flexDirection: "row",
-      marginHorizontal: 14,
-      marginTop: 14,
-      backgroundColor: colors.background,
-      borderRadius: 14,
-      overflow: "hidden",
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.04,
-      shadowRadius: 4,
-      elevation: 2,
-    },
-    tab: {
-      flex: 1,
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: 6,
-      paddingVertical: 13,
-      borderBottomWidth: 2.5,
-      borderBottomColor: "transparent",
-    },
-    tabActive: { borderBottomColor: colors.primary },
-    tabText: { fontSize: 13, fontWeight: "500", color: colors.textMuted },
-    tabTextActive: { color: colors.primary, fontWeight: "600" },
-    grid: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      paddingHorizontal: 14,
-      paddingTop: 14,
-      gap: GRID_GAP,
-    },
-    gridItem: {
-      width: GRID_ITEM_SIZE,
-      aspectRatio: 1,
-      borderRadius: 12,
-      overflow: "hidden",
-    },
-    gridImage: {
-      width: "100%",
-      height: "100%",
-      backgroundColor: colors.border,
-    },
-    gridImagePlaceholder: {
-      width: "100%",
-      height: "100%",
-      backgroundColor: colors.surface,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    emptyWrap: { alignItems: "center", paddingVertical: 56 },
-    emptyCircle: {
-      width: 80,
-      height: 80,
-      borderRadius: 40,
-      backgroundColor: colors.surface,
-      alignItems: "center",
-      justifyContent: "center",
-      marginBottom: 14,
-    },
-    emptyTitle: { fontSize: 16, fontWeight: "600", color: colors.textMuted },
-    emptySub: { fontSize: 13, color: colors.textMuted, marginTop: 4 },
-    overlay: {
-      flex: 1,
-      backgroundColor: "rgba(0,0,0,0.5)",
-      justifyContent: "flex-end",
-    },
-    sheet: {
-      backgroundColor: colors.background,
-      borderTopLeftRadius: 24,
-      borderTopRightRadius: 24,
-      maxHeight: "92%",
-    },
-    dragBar: {
-      width: 40,
-      height: 4,
-      borderRadius: 2,
-      backgroundColor: colors.textMuted,
-      alignSelf: "center",
-      marginTop: 10,
-      marginBottom: 4,
-    },
-    sheetHeader: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      paddingHorizontal: 20,
-      paddingVertical: 12,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.border,
-    },
-    sheetTitle: { fontSize: 17, fontWeight: "700", color: colors.text },
-    sheetCancel: { fontSize: 15, color: colors.textMuted, fontWeight: "500" },
-    sheetSave: { fontSize: 15, fontWeight: "700", color: colors.primary },
-    sheetBody: { paddingHorizontal: 20 },
-    avatarPreview: { alignItems: "center", paddingVertical: 18 },
-    previewImg: {
-      width: 76,
-      height: 76,
-      borderRadius: 38,
-      borderWidth: 2.5,
-      borderColor: colors.border,
-    },
-    changePhotoRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 4,
-      marginTop: 8,
-    },
-    changePhotoLabel: {
-      fontSize: 13,
-      color: colors.primary,
-      fontWeight: "600",
-    },
-    fieldGroup: { marginTop: 16 },
-    fieldLabel: {
-      fontSize: 13,
-      fontWeight: "600",
-      color: colors.textMuted,
-      marginBottom: 6,
-    },
-    input: {
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: 12,
-      paddingHorizontal: 14,
-      paddingVertical: 12,
-      fontSize: 15,
-      color: colors.text,
-    },
-    chipRow: { flexDirection: "row", gap: 10 },
-    chip: {
-      flex: 1,
-      paddingVertical: 11,
-      borderRadius: 12,
-      borderWidth: 1.5,
-      borderColor: colors.border,
-      alignItems: "center",
-      backgroundColor: colors.background,
-    },
-    chipActive: {
-      borderColor: colors.primary,
-      backgroundColor: colors.surface,
-    },
-    chipText: { fontSize: 14, fontWeight: "500", color: colors.textMuted },
-    chipTextActive: { color: colors.text, fontWeight: "600" },
-    blockedRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      backgroundColor: colors.background,
-      borderRadius: 14,
-      padding: 14,
-      marginBottom: 10,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.04,
-      shadowRadius: 4,
-      elevation: 2,
-    },
-    blockedAvatar: {
-      width: 48,
-      height: 48,
-      borderRadius: 24,
-      borderWidth: 2,
-      borderColor: colors.border,
-    },
-    blockedAvatarFallback: {
-      width: 48,
-      height: 48,
-      borderRadius: 24,
-      backgroundColor: colors.surface,
-      alignItems: "center",
-      justifyContent: "center",
-      borderWidth: 2,
-      borderColor: colors.border,
-    },
-    blockedName: { fontSize: 15, fontWeight: "600", color: colors.text },
-    blockedUsername: { fontSize: 13, color: colors.textMuted, marginTop: 2 },
-    unblockBtn: {
-      backgroundColor: "#FFE5E5",
-      paddingHorizontal: 14,
-      paddingVertical: 8,
-      borderRadius: 10,
-    },
-    unblockBtnText: { fontSize: 13, fontWeight: "600", color: colors.danger },
-  });

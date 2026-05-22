@@ -23,7 +23,7 @@ export default function FeedScreen() {
                 title="Instagram"
                 leftAction={{
                     icon: "flag-outline",
-                    onPress: () => router.push("/(stack)/pages"),
+                    onPress: () => router.push("/(tabs)/pages"),
                 }}
                 rightActions={[
                     {

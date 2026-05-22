@@ -17,12 +17,10 @@ import {
   Dimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter, useLocalSearchParams } from "expo-router";
-import {
-  SafeAreaView,
-  useSafeAreaInsets,
-} from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, spacing } from "@/constants";
 import { useAppContext } from "@/context/AppContext";
 import pageService from "@/services/pageService";
@@ -31,7 +29,6 @@ import userService from "@/services/userService";
 import { usePageEvents } from "@/hooks/usePageEvents";
 import { usePagePostEvents } from "@/hooks/usePagePostEvents";
 import { usePageListUpdates } from "@/hooks/usePageListUpdates";
-import AppHeader from "@/components/AppHeader";
 import type {
   PageData,
   PageRole,
@@ -53,18 +50,39 @@ type PostItem = {
   stats?: { likes?: number; comments?: number };
 };
 
-type Section = "info" | "members" | "posts";
+type Section = "info" | "posts" | "members";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 const { width: screenWidth } = Dimensions.get("window");
-const POST_IMG_WIDTH = screenWidth * 0.75;
+const COVER_HEIGHT = 220;
+const FB_BG = "#F0F2F5";
+const FB_BLUE = colors.primary;
 
 const MEMBER_ROLES: { label: string; value: PageRole }[] = [
   { label: "Admin", value: "ADMIN" },
   { label: "Moderator", value: "MODERATOR" },
   { label: "User", value: "USER" },
 ];
+
+function fmtCount(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(".0", "") + "M";
+  if (n >= 1_000) return (n / 1_000).toFixed(1).replace(".0", "") + "K";
+  return String(n);
+}
+
+function timeAgo(dateStr?: string): string {
+  if (!dateStr) return "";
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "Vừa xong";
+  if (mins < 60) return `${mins} phút trước`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} giờ trước`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days} ngày trước`;
+  return new Date(dateStr).toLocaleDateString("vi-VN");
+}
 
 // ── Component ──────────────────────────────────────────────────────────────
 
@@ -226,32 +244,22 @@ export default function PageDetailScreen() {
     }
   }, [numericPageId]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
-  // Reload page data when screen comes back into focus (e.g., after editing)
-  useFocusEffect(
-    useCallback(() => {
-      void load();
-    }, [load]),
-  );
+  useFocusEffect(useCallback(() => { void load(); }, [load]));
 
-  // Load pending/waiting after page loads (when we know if we can manage)
   useEffect(() => {
     if (!page || !canManage) return;
     void loadWaiting();
     if (isAdmin || isOwner) void loadPending();
   }, [page?.id, canManage, isAdmin, isOwner]);
 
-  // Load my pending posts when member status is ACTIVE (regular member)
   useEffect(() => {
     if (memberStatus === "ACTIVE" && !canManage) {
       void loadMyPending();
     }
   }, [memberStatus, canManage, loadMyPending]);
 
-  // Load posts when posts tab is selected
   useEffect(() => {
     if (activeSection === "posts") void loadPosts();
   }, [activeSection, loadPosts]);
@@ -269,6 +277,7 @@ export default function PageDetailScreen() {
       }
     }
   });
+
   useEffect(() => {
     if (wsRefresh > 0) {
       const timer = setTimeout(() => {
@@ -282,19 +291,16 @@ export default function PageDetailScreen() {
     }
   }, [wsRefresh, load, loadPending, loadWaiting, loadPosts, loadMyPending, activeSection, memberStatus, canManage]);
 
-  // Real-time: lắng nghe sự kiện bài viết của page
   usePagePostEvents({
     pageId: numericPageId || undefined,
     onPostSubmitted: (_postId, post) => {
-      // Bài viết mới gửi lên → thêm vào postsWaiting (admin/mod thấy ngay)
       if (post && canManage) {
-        const newPost = post as unknown as import("@/services/pageService").PagePostItem;
+        const newPost = post as unknown as PagePostItem;
         setPostsWaiting(prev => {
           if (prev.some(p => p.id === newPost.id)) return prev;
           return [newPost, ...prev];
         });
       }
-      // Nếu chính mình vừa post → thêm vào myPendingPosts
       if (post && memberStatus === "ACTIVE" && !canManage) {
         const postAuthorId = (post as any).authorId;
         const myId = numericUserId ? String(numericUserId) : null;
@@ -308,9 +314,7 @@ export default function PageDetailScreen() {
       }
     },
     onPostApproved: (postId, post) => {
-      // Bài viết được duyệt → xóa khỏi waiting, thêm vào posts
       setPostsWaiting(prev => prev.filter(p => p.id !== postId));
-      // Xóa khỏi my-pending
       setMyPendingPosts(prev => prev.filter(p => p.id !== postId));
       if (post) {
         const approvedPost = post as unknown as PostItem;
@@ -321,38 +325,21 @@ export default function PageDetailScreen() {
       }
     },
     onPostRejected: (postId) => {
-      // Bài viết bị từ chối → xóa khỏi waiting và my-pending
       setPostsWaiting(prev => prev.filter(p => p.id !== postId));
       setMyPendingPosts(prev => prev.filter(p => p.id !== postId));
     },
     onPostRemoved: (postId) => {
-      // Bài viết bị xóa → xóa khỏi posts, my-pending và waiting
       setPosts(prev => prev.filter(p => p.id !== postId));
       setMyPendingPosts(prev => prev.filter(p => p.id !== postId));
       setPostsWaiting(prev => prev.filter(p => p.id !== postId));
     },
   });
 
-  // Real-time: lắng nghe cập nhật thông tin page (avatar, cover, name từ web)
   usePageListUpdates({
     pageId: numericPageId > 0 ? numericPageId : undefined,
-    onPageUpdated: (event) => {
-      console.log("🔄 [Mobile] Page updated event received, reloading page data...", event);
-      void load();
-    },
-    onPageDeleted: (event) => {
-      console.log("🗑️ [Mobile] Page deleted event received:", event);
-      Alert.alert(
-        "Trang đã bị xóa",
-        "",
-        [
-          {
-            text: "Quay lại",
-            onPress: () => router.back(),
-          },
-        ],
-        { cancelable: false }
-      );
+    onPageUpdated: () => { void load(); },
+    onPageDeleted: () => {
+      Alert.alert("Trang đã bị xóa", "", [{ text: "Quay lại", onPress: () => router.back() }], { cancelable: false });
     },
   });
 
@@ -367,36 +354,28 @@ export default function PageDetailScreen() {
 
   const handleWithdrawPost = (postId: string) => {
     if (!numericUserId) return;
-    Alert.alert(
-      "Rút bài viết",
-      "Bài viết sẽ bị xóa hoàn toàn. Bạn có chắc muốn rút bài này?",
-      [
-        { text: "Hủy", style: "cancel" },
-        {
-          text: "Rút bài",
-          style: "destructive",
-          onPress: async () => {
-            setWithdrawingPostId(postId);
-            try {
-              const ok = await pageService.removePostFromPage(
-                numericUserId,
-                numericPageId,
-                postId,
-              );
-              if (ok) {
-                setMyPendingPosts((prev) => prev.filter((p) => p.id !== postId));
-              } else {
-                Alert.alert("Ợi", "Không thể rút bài. Vui lòng thử lại.");
-              }
-            } catch {
-              Alert.alert("Ợi", "Không thể rút bài.");
-            } finally {
-              setWithdrawingPostId(null);
+    Alert.alert("Rút bài viết", "Bài viết sẽ bị xóa hoàn toàn. Bạn có chắc muốn rút bài này?", [
+      { text: "Hủy", style: "cancel" },
+      {
+        text: "Rút bài",
+        style: "destructive",
+        onPress: async () => {
+          setWithdrawingPostId(postId);
+          try {
+            const ok = await pageService.removePostFromPage(numericUserId, numericPageId, postId);
+            if (ok) {
+              setMyPendingPosts(prev => prev.filter(p => p.id !== postId));
+            } else {
+              Alert.alert("Lỗi", "Không thể rút bài. Vui lòng thử lại.");
             }
-          },
+          } catch {
+            Alert.alert("Lỗi", "Không thể rút bài.");
+          } finally {
+            setWithdrawingPostId(null);
+          }
         },
-      ],
-    );
+      },
+    ]);
   };
 
   // ── User search for add member ─────────────────────────────────────────
@@ -411,10 +390,8 @@ export default function PageDetailScreen() {
       try {
         const results = await userService.searchUserByUsername(memberQuery);
         if (Array.isArray(results)) {
-          const memberIds = members.map((m) => m.user?.id);
-          setMemberSearchResults(
-            results.filter((u) => !memberIds.includes(Number(u.id))),
-          );
+          const memberIds = members.map(m => m.user?.id);
+          setMemberSearchResults(results.filter(u => !memberIds.includes(Number(u.id))));
         } else {
           setMemberSearchResults([]);
         }
@@ -435,18 +412,10 @@ export default function PageDetailScreen() {
     try {
       if (interaction.isLiked) {
         await pageService.cancelLikePage(numericUserId, numericPageId);
-        setInteraction((s) => ({
-          ...s,
-          isLiked: false,
-          likeCount: Math.max(0, s.likeCount - 1),
-        }));
+        setInteraction(s => ({ ...s, isLiked: false, likeCount: Math.max(0, s.likeCount - 1) }));
       } else {
         await pageService.likePage(numericUserId, numericPageId);
-        setInteraction((s) => ({
-          ...s,
-          isLiked: true,
-          likeCount: s.likeCount + 1,
-        }));
+        setInteraction(s => ({ ...s, isLiked: true, likeCount: s.likeCount + 1 }));
       }
     } finally {
       setActionLoading(false);
@@ -459,18 +428,10 @@ export default function PageDetailScreen() {
     try {
       if (interaction.isFollowing) {
         await pageService.cancelFollowPage(numericUserId, numericPageId);
-        setInteraction((s) => ({
-          ...s,
-          isFollowing: false,
-          followCount: Math.max(0, s.followCount - 1),
-        }));
+        setInteraction(s => ({ ...s, isFollowing: false, followCount: Math.max(0, s.followCount - 1) }));
       } else {
         await pageService.followPage(numericUserId, numericPageId);
-        setInteraction((s) => ({
-          ...s,
-          isFollowing: true,
-          followCount: s.followCount + 1,
-        }));
+        setInteraction(s => ({ ...s, isFollowing: true, followCount: s.followCount + 1 }));
       }
     } finally {
       setActionLoading(false);
@@ -484,18 +445,10 @@ export default function PageDetailScreen() {
     setActionLoading(true);
     try {
       await pageService.requestJoinPage(numericUserId, numericPageId);
-      const status = await pageService.getMemberStatus(
-        numericPageId,
-        numericUserId,
-      );
+      const status = await pageService.getMemberStatus(numericPageId, numericUserId);
       setMemberStatus(status);
-      if (status === "ACTIVE") setMemberCount((c) => c + 1);
-      Alert.alert(
-        "Thành công",
-        page?.status === "PUBLIC"
-          ? "Đã tham gia trang."
-          : "Đã gửi yêu cầu tham gia.",
-      );
+      if (status === "ACTIVE") setMemberCount(c => c + 1);
+      Alert.alert("Thành công", page?.status === "PUBLIC" ? "Đã tham gia trang." : "Đã gửi yêu cầu tham gia.");
     } catch {
       Alert.alert("Lỗi", "Không thể gửi yêu cầu.");
     } finally {
@@ -536,7 +489,7 @@ export default function PageDetailScreen() {
             await pageService.removeMember(numericPageId, numericUserId);
             setMemberStatus(null);
             setUserRole(null);
-            setMemberCount((c) => Math.max(0, c - 1));
+            setMemberCount(c => Math.max(0, c - 1));
           } finally {
             setActionLoading(false);
           }
@@ -576,11 +529,7 @@ export default function PageDetailScreen() {
         style: "destructive",
         onPress: async () => {
           try {
-            await pageService.removePostFromPage(
-              numericUserId,
-              numericPageId,
-              postId,
-            );
+            await pageService.removePostFromPage(numericUserId, numericPageId, postId);
             void loadPosts();
             void loadWaiting();
           } catch {
@@ -631,10 +580,7 @@ export default function PageDetailScreen() {
   const handleCreatePost = async () => {
     if (!numericUserId || !numericPageId) return;
     if (!postContent.trim() && postImages.length === 0) {
-      Alert.alert(
-        "Thiếu nội dung",
-        "Vui lòng nhập nội dung hoặc chọn hình ảnh.",
-      );
+      Alert.alert("Thiếu nội dung", "Vui lòng nhập nội dung hoặc chọn hình ảnh.");
       return;
     }
     setCreatingPost(true);
@@ -673,7 +619,7 @@ export default function PageDetailScreen() {
         name: `post_${Date.now()}_${idx}.jpg`,
         type: asset.mimeType ?? "image/jpeg",
       }));
-      setPostImages((prev) => [...prev, ...newImages]);
+      setPostImages(prev => [...prev, ...newImages]);
     }
   };
 
@@ -686,11 +632,7 @@ export default function PageDetailScreen() {
     }
     setAddingMembers(true);
     try {
-      await Promise.all(
-        selectedUsers.map((u) =>
-          pageService.addMember(Number(u.id), numericPageId, newMemberRole),
-        ),
-      );
+      await Promise.all(selectedUsers.map(u => pageService.addMember(Number(u.id), numericPageId, newMemberRole)));
       Alert.alert("Thành công", `Đã thêm ${selectedUsers.length} thành viên.`);
       setShowAddMember(false);
       setMemberQuery("");
@@ -714,7 +656,6 @@ export default function PageDetailScreen() {
             await pageService.removeMember(numericPageId, userId);
             setMembers(prev => prev.filter(m => m.user?.id !== userId));
             setMemberCount(prev => Math.max(0, prev - 1));
-            // Không cần void load() vì đã filter state trực tiếp
           } catch {
             Alert.alert("Lỗi", "Không thể xóa thành viên.");
           }
@@ -764,69 +705,49 @@ export default function PageDetailScreen() {
   // ── Delete page ────────────────────────────────────────────────────────
 
   const handleDeletePage = () => {
-    Alert.alert(
-      "Xóa trang",
-      "Bạn có chắc muốn xóa trang này? Hành động không thể hoàn tác.",
-      [
-        { text: "Hủy", style: "cancel" },
-        {
-          text: "Xóa trang",
-          style: "destructive",
-          onPress: async () => {
-            setActionLoading(true);
-            try {
-              const ok = await pageService.deletePage(numericPageId);
-              if (ok) router.back();
-              else Alert.alert("Lỗi", "Không thể xóa trang.");
-            } finally {
-              setActionLoading(false);
-            }
-          },
+    Alert.alert("Xóa trang", "Bạn có chắc muốn xóa trang này? Hành động không thể hoàn tác.", [
+      { text: "Hủy", style: "cancel" },
+      {
+        text: "Xóa trang",
+        style: "destructive",
+        onPress: async () => {
+          setActionLoading(true);
+          try {
+            const ok = await pageService.deletePage(numericPageId);
+            if (ok) router.back();
+            else Alert.alert("Lỗi", "Không thể xóa trang.");
+          } finally {
+            setActionLoading(false);
+          }
         },
-      ],
-    );
+      },
+    ]);
   };
 
-  // ── Render: join button ────────────────────────────────────────────────
+  // ── Join button ────────────────────────────────────────────────────────
 
   const renderJoinButton = () => {
     if (!numericUserId || isOwner) return null;
     if (memberStatus === "ACTIVE") {
       return (
-        <TouchableOpacity
-          style={[styles.actionBtn, styles.memberBtn]}
-          onPress={handleLeave}
-          disabled={actionLoading}
-        >
-          <Ionicons name="checkmark-circle" size={16} color={colors.success} />
-          <Text style={[styles.actionBtnText, { color: colors.success }]}>
-            Thành viên
-          </Text>
+        <TouchableOpacity style={[st.actionBtn, st.activeGreenBtn]} onPress={handleLeave} disabled={actionLoading}>
+          <Ionicons name="checkmark-circle" size={16} color={colors.white} />
+          <Text style={[st.actionBtnText, { color: colors.white }]}>Thành viên</Text>
         </TouchableOpacity>
       );
     }
     if (memberStatus === "PENDING") {
       return (
-        <TouchableOpacity
-          style={[styles.actionBtn, styles.pendingBtn]}
-          onPress={handleCancelRequest}
-          disabled={actionLoading}
-        >
-          <Ionicons name="time-outline" size={16} color="#F59E0B" />
-          <Text style={[styles.actionBtnText, { color: "#F59E0B" }]}>
-            Hủy yêu cầu
-          </Text>
+        <TouchableOpacity style={[st.actionBtn, st.pendingBtn]} onPress={handleCancelRequest} disabled={actionLoading}>
+          <Ionicons name="time-outline" size={16} color="#92400E" />
+          <Text style={[st.actionBtnText, { color: "#92400E" }]}>Hủy yêu cầu</Text>
         </TouchableOpacity>
       );
     }
     return (
-      <TouchableOpacity
-        style={[styles.actionBtn, styles.joinBtn]}
-        onPress={handleJoin}
-        disabled={actionLoading}
-      >
+      <TouchableOpacity style={[st.actionBtn, st.joinBtn]} onPress={handleJoin} disabled={actionLoading}>
         <Ionicons name="person-add-outline" size={16} color={colors.white} />
-        <Text style={[styles.actionBtnText, { color: colors.white }]}>
+        <Text style={[st.actionBtnText, { color: colors.white }]}>
           {page?.status === "PUBLIC" ? "Tham gia" : "Xin tham gia"}
         </Text>
       </TouchableOpacity>
@@ -837,250 +758,214 @@ export default function PageDetailScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
-        <AppHeader
-          title="Chi tiết trang"
-          leftAction={{ icon: "arrow-back", onPress: () => router.back() }}
-        />
-        <View style={styles.center}>
-          <ActivityIndicator color={colors.primary} />
+      <View style={[st.container, { paddingTop: insets.top }]}>
+        <View style={st.loadingCover}>
+          <LinearGradient colors={["#0068FF", "#00A2FF"]} style={StyleSheet.absoluteFill} />
+          <TouchableOpacity onPress={() => router.back()} style={[st.coverBackBtn, { top: 12 }]}>
+            <Ionicons name="arrow-back" size={20} color={colors.white} />
+          </TouchableOpacity>
         </View>
-      </SafeAreaView>
+        <View style={st.center}>
+          <ActivityIndicator size="large" color={FB_BLUE} />
+          <Text style={{ color: colors.textMuted, marginTop: 12 }}>Đang tải...</Text>
+        </View>
+      </View>
     );
   }
 
   if (!page) {
     return (
-      <SafeAreaView style={styles.container}>
-        <AppHeader
-          title="Chi tiết trang"
-          leftAction={{ icon: "arrow-back", onPress: () => router.back() }}
-        />
-        <View style={styles.center}>
-          <Ionicons
-            name="alert-circle-outline"
-            size={48}
-            color={colors.textMuted}
-          />
-          <Text style={{ color: colors.textMuted, marginTop: 10 }}>
-            Không tìm thấy trang
-          </Text>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={{ marginTop: 16 }}
-          >
-            <Text style={{ color: colors.primary, fontWeight: "600" }}>
-              Quay lại
-            </Text>
+      <View style={[st.container, { paddingTop: insets.top }]}>
+        <View style={st.loadingCover}>
+          <LinearGradient colors={["#0068FF", "#00A2FF"]} style={StyleSheet.absoluteFill} />
+          <TouchableOpacity onPress={() => router.back()} style={[st.coverBackBtn, { top: 12 }]}>
+            <Ionicons name="arrow-back" size={20} color={colors.white} />
           </TouchableOpacity>
         </View>
-      </SafeAreaView>
+        <View style={st.center}>
+          <Ionicons name="alert-circle-outline" size={48} color={colors.textMuted} />
+          <Text style={{ color: colors.textMuted, marginTop: 12, fontSize: 15 }}>Không tìm thấy trang</Text>
+          <TouchableOpacity onPress={() => router.back()} style={st.backLinkBtn}>
+            <Text style={{ color: FB_BLUE, fontWeight: "700" }}>Quay lại</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
     );
   }
+
+  const coverUri = page.coverUrl ? `${buildS3Url(page.coverUrl)}?t=${page.updatedAt}` : null;
+  const avatarUri = page.avatarUrl ? `${buildS3Url(page.avatarUrl)}?t=${page.updatedAt}` : null;
 
   // ── Main render ────────────────────────────────────────────────────────
 
   return (
-    <SafeAreaView style={styles.container}>
-      <AppHeader
-        title={page.name ?? "Chi tiết trang"}
-        leftAction={{ icon: "arrow-back", onPress: () => router.back() }}
-      />
-
+    <View style={[st.container, { paddingTop: insets.top }]}>
       <ScrollView
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={FB_BLUE} />}
         showsVerticalScrollIndicator={false}
         nestedScrollEnabled
       >
-        {/* Cover */}
-        {page.coverUrl ? (
-          <Image
-            key={`cover-${page.coverUrl}-${page.updatedAt}`}
-            source={{ uri: buildS3Url(page.coverUrl) ? `${buildS3Url(page.coverUrl)}?t=${page.updatedAt}` : undefined }}
-            style={styles.cover}
-            resizeMode="cover"
-          />
-        ) : (
-          <View style={[styles.cover, styles.coverPlaceholder]}>
-            <Ionicons name="image-outline" size={40} color={colors.border} />
-          </View>
-        )}
+        {/* ── Hero: Cover + Avatar ── */}
+        <View style={st.heroSection}>
+          {/* Cover */}
+          {coverUri ? (
+            <Image source={{ uri: coverUri }} style={st.cover} resizeMode="cover" />
+          ) : (
+            <LinearGradient colors={["#0068FF", "#00A2FF"]} style={st.cover} />
+          )}
 
-        {/* Profile card */}
-        <View style={styles.profileCard}>
-          <View style={styles.avatarRow}>
-            <View style={styles.avatarWrap}>
-              {page.avatarUrl ? (
-                <Image
-                  key={`avatar-${page.avatarUrl}-${page.updatedAt}`}
-                  source={{ uri: buildS3Url(page.avatarUrl) ? `${buildS3Url(page.avatarUrl)}?t=${page.updatedAt}` : undefined }}
-                  style={styles.avatar}
-                />
+          {/* Gradient overlay on cover */}
+          <LinearGradient
+            colors={["rgba(0,0,0,0.35)", "transparent", "transparent"]}
+            style={st.coverGradient}
+          />
+
+          {/* Back button */}
+          <TouchableOpacity onPress={() => router.back()} style={st.coverBackBtn}>
+            <Ionicons name="arrow-back" size={20} color={colors.white} />
+          </TouchableOpacity>
+
+          {/* Edit/More button (top-right) */}
+          {(isOwner || isAdmin) && (
+            <TouchableOpacity
+              onPress={() => router.push({ pathname: "/(stack)/page-edit", params: { pageId: String(numericPageId) } })}
+              style={st.coverEditBtn}
+            >
+              <Ionicons name="pencil" size={16} color={colors.white} />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* ── Profile Card ── */}
+        <View style={st.profileCard}>
+          {/* Avatar row */}
+          <View style={st.avatarRow}>
+            <View style={st.avatarWrap}>
+              {avatarUri ? (
+                <Image source={{ uri: avatarUri }} style={st.avatar} />
               ) : (
-                <View style={[styles.avatar, styles.avatarFallback]}>
-                  <Ionicons
-                    name="business-outline"
-                    size={28}
-                    color={colors.textMuted}
-                  />
+                <View style={[st.avatar, st.avatarFallback]}>
+                  <Ionicons name="business-outline" size={40} color={FB_BLUE} />
                 </View>
               )}
             </View>
           </View>
 
-          <View style={styles.nameBlock}>
-            <View
-              style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
-            >
-              <Text style={styles.pageName}>{page.name}</Text>
+          {/* Page name + meta */}
+          <View style={st.nameSection}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Text style={st.pageName}>{page.name}</Text>
               {page.isVerified && (
-                <Ionicons name="checkmark-circle" size={18} color="#3B82F6" />
+                <Ionicons name="checkmark-circle" size={20} color={FB_BLUE} />
               )}
             </View>
             {!!page.username && (
-              <Text style={styles.pageUsername}>@{page.username}</Text>
+              <Text style={st.pageHandle}>@{page.username}</Text>
             )}
             {!!page.category && (
-              <View style={styles.categoryChip}>
-                <Text style={styles.categoryText}>{page.category}</Text>
+              <View style={st.categoryChip}>
+                <Text style={st.categoryText}>{page.category}</Text>
               </View>
             )}
-            {!!page.status && (
-              <View style={styles.statusRow}>
-                <Ionicons
-                  name={
-                    page.status === "PUBLIC"
-                      ? "earth-outline"
-                      : "lock-closed-outline"
-                  }
-                  size={13}
-                  color={colors.textMuted}
-                />
-                <Text style={styles.statusText}>
-                  {page.status === "PUBLIC"
-                    ? "Công khai"
-                    : page.status === "PRIVATE"
-                      ? "Riêng tư"
-                      : page.status}
-                </Text>
-              </View>
+
+            {/* Status + member count inline */}
+            <View style={st.metaLine}>
+              <Ionicons
+                name={page.status === "PUBLIC" ? "earth-outline" : "lock-closed-outline"}
+                size={13}
+                color={colors.textMuted}
+              />
+              <Text style={st.metaText}>
+                {page.status === "PUBLIC" ? "Công khai" : "Riêng tư"}
+                {" · "}
+                {memberCount.toLocaleString()} thành viên
+              </Text>
+            </View>
+
+            {/* Description */}
+            {!!page.description && (
+              <Text style={st.description} numberOfLines={3}>{page.description}</Text>
             )}
           </View>
 
-          {!!page.description && (
-            <Text style={styles.description}>{page.description}</Text>
-          )}
-
-          {/* Stats */}
-          <View style={styles.statsRow}>
-            <View style={styles.statItem}>
-              <Text style={styles.statNumber}>{interaction.likeCount}</Text>
-              <Text style={styles.statLabel}>Thích</Text>
+          {/* Stats row */}
+          <View style={st.statsRow}>
+            <View style={st.statItem}>
+              <Text style={st.statNumber}>{fmtCount(interaction.likeCount)}</Text>
+              <Text style={st.statLabel}>Thích</Text>
             </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statNumber}>{interaction.followCount}</Text>
-              <Text style={styles.statLabel}>Theo dõi</Text>
+            <View style={st.statSep} />
+            <View style={st.statItem}>
+              <Text style={st.statNumber}>{fmtCount(interaction.followCount)}</Text>
+              <Text style={st.statLabel}>Theo dõi</Text>
             </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statNumber}>{memberCount}</Text>
-              <Text style={styles.statLabel}>Thành viên</Text>
+            <View style={st.statSep} />
+            <View style={st.statItem}>
+              <Text style={st.statNumber}>{fmtCount(memberCount)}</Text>
+              <Text style={st.statLabel}>Thành viên</Text>
             </View>
           </View>
 
-          {/* Actions */}
-          <View style={styles.actionsRow}>
+          {/* Action buttons */}
+          <View style={st.actionsRow}>
+            {/* Like button */}
             <TouchableOpacity
-              style={[
-                styles.actionBtn,
-                interaction.isLiked ? styles.activeBtn : styles.outlineBtn,
-              ]}
+              style={[st.actionBtn, interaction.isLiked ? st.activePrimaryBtn : st.outlineBtn]}
               onPress={toggleLike}
               disabled={actionLoading}
             >
               <Ionicons
-                name={interaction.isLiked ? "heart" : "heart-outline"}
+                name={interaction.isLiked ? "thumbs-up" : "thumbs-up-outline"}
                 size={16}
-                color={interaction.isLiked ? colors.danger : colors.danger}
+                color={interaction.isLiked ? colors.white : colors.text}
               />
-              <Text
-                style={[
-                  styles.actionBtnText,
-                  { color: interaction.isLiked ? colors.white : colors.text },
-                ]}
-              >
+              <Text style={[st.actionBtnText, { color: interaction.isLiked ? colors.white : colors.text }]}>
                 {interaction.isLiked ? "Đã thích" : "Thích"}
               </Text>
             </TouchableOpacity>
 
+            {/* Follow button */}
             <TouchableOpacity
-              style={[
-                styles.actionBtn,
-                interaction.isFollowing ? styles.activeBtn : styles.outlineBtn,
-              ]}
+              style={[st.actionBtn, interaction.isFollowing ? st.activePrimaryBtn : st.outlineBtn]}
               onPress={toggleFollow}
               disabled={actionLoading}
             >
               <Ionicons
-                name={
-                  interaction.isFollowing
-                    ? "checkmark-circle"
-                    : "add-circle-outline"
-                }
+                name={interaction.isFollowing ? "notifications" : "notifications-outline"}
                 size={16}
-                color={interaction.isFollowing ? colors.white : colors.primary}
+                color={interaction.isFollowing ? colors.white : colors.text}
               />
-              <Text
-                style={[
-                  styles.actionBtnText,
-                  {
-                    color: interaction.isFollowing ? colors.white : colors.text,
-                  },
-                ]}
-              >
+              <Text style={[st.actionBtnText, { color: interaction.isFollowing ? colors.white : colors.text }]}>
                 {interaction.isFollowing ? "Đang theo dõi" : "Theo dõi"}
               </Text>
             </TouchableOpacity>
 
+            {/* Join/Member button */}
             {renderJoinButton()}
+
+            {/* Post button for members */}
+            {(memberStatus === "ACTIVE" || canManage || isOwner) && (
+              <TouchableOpacity
+                style={[st.actionBtn, st.outlineBtn]}
+                onPress={() => setShowCreatePost(true)}
+              >
+                <Ionicons name="create-outline" size={16} color={colors.text} />
+                <Text style={[st.actionBtnText, { color: colors.text }]}>Đăng bài</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
 
-        {/* Tab bar */}
-        <View style={styles.tabBar}>
-          {(["info", "members", "posts"] as Section[]).map((tab) => (
+        {/* ── Tab bar ── */}
+        <View style={st.tabBar}>
+          {(["info", "posts", "members"] as Section[]).map((tab) => (
             <TouchableOpacity
               key={tab}
-              style={[styles.tab, activeSection === tab && styles.tabActive]}
+              style={[st.tab, activeSection === tab && st.tabActive]}
               onPress={() => setActiveSection(tab)}
             >
-              <Ionicons
-                name={
-                  tab === "info"
-                    ? "information-circle-outline"
-                    : tab === "members"
-                      ? "people-outline"
-                      : "grid-outline"
-                }
-                size={18}
-                color={
-                  activeSection === tab ? colors.primary : colors.textMuted
-                }
-              />
-              <Text
-                style={[
-                  styles.tabText,
-                  activeSection === tab && styles.tabTextActive,
-                ]}
-              >
-                {tab === "info"
-                  ? "Thông tin"
-                  : tab === "members"
-                    ? `Thành viên (${members.length})`
-                    : "Bài viết"}
+              <Text style={[st.tabText, activeSection === tab && st.tabTextActive]}>
+                {tab === "info" ? "Giới thiệu" : tab === "posts" ? "Bài viết" : `Thành viên (${members.length})`}
               </Text>
             </TouchableOpacity>
           ))}
@@ -1088,230 +973,108 @@ export default function PageDetailScreen() {
 
         {/* ── Info tab ── */}
         {activeSection === "info" && (
-          <View
-            style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.md }}
-          >
-            {/* Contact */}
+          <View style={st.tabContent}>
+            {/* Contact card */}
             {(page.email || page.phone || page.website || page.address) && (
-              <View style={styles.card}>
-                <Text style={styles.cardTitle}>Thông tin liên hệ</Text>
-                {!!page.phone && (
-                  <InfoRow
-                    icon="call-outline"
-                    label="Điện thoại"
-                    value={page.phone}
-                  />
-                )}
-                {!!page.email && (
-                  <InfoRow
-                    icon="mail-outline"
-                    label="Email"
-                    value={page.email}
-                  />
-                )}
-                {!!page.website && (
-                  <InfoRow
-                    icon="globe-outline"
-                    label="Website"
-                    value={page.website}
-                  />
-                )}
-                {!!page.address && (
-                  <InfoRow
-                    icon="location-outline"
-                    label="Địa chỉ"
-                    value={page.address}
-                  />
-                )}
+              <View style={st.card}>
+                <Text style={st.cardTitle}>Thông tin liên hệ</Text>
+                {!!page.phone && <InfoRow icon="call-outline" label="Điện thoại" value={page.phone} />}
+                {!!page.email && <InfoRow icon="mail-outline" label="Email" value={page.email} />}
+                {!!page.website && <InfoRow icon="globe-outline" label="Website" value={page.website} />}
+                {!!page.address && <InfoRow icon="location-outline" label="Địa chỉ" value={page.address} />}
               </View>
             )}
 
-            {/* Creator */}
+            {/* Creator card */}
             {!!page.createdBy && (
-              <View style={styles.card}>
-                <Text style={styles.cardTitle}>Người tạo</Text>
-                <View style={styles.ownerRow}>
+              <View style={st.card}>
+                <Text style={st.cardTitle}>Người tạo</Text>
+                <View style={st.ownerRow}>
                   {page.createdBy.avatarUrl ? (
-                    <Image
-                      source={{ uri: buildS3Url(page.createdBy.avatarUrl) }}
-                      style={styles.ownerAvatar}
-                    />
+                    <Image source={{ uri: buildS3Url(page.createdBy.avatarUrl) }} style={st.ownerAvatar} />
                   ) : (
-                    <View style={[styles.ownerAvatar, styles.avatarFallback]}>
-                      <Ionicons
-                        name="person"
-                        size={14}
-                        color={colors.textMuted}
-                      />
+                    <View style={[st.ownerAvatar, st.avatarFallback]}>
+                      <Ionicons name="person" size={16} color={colors.textMuted} />
                     </View>
                   )}
-                  <Text style={styles.ownerName}>
-                    {page.createdBy.name ||
-                      page.createdBy.username ||
-                      page.createdBy.phone ||
-                      "Không rõ"}
-                  </Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={st.ownerName}>
+                      {page.createdBy.name || page.createdBy.username || page.createdBy.phone || "Không rõ"}
+                    </Text>
+                    {page.createdBy.username && (
+                      <Text style={st.ownerSub}>@{page.createdBy.username}</Text>
+                    )}
+                  </View>
                 </View>
               </View>
             )}
 
-            {/* Management (admin/owner) */}
+            {/* Management card */}
             {(canManage || isOwner) && (
-              <View style={styles.card}>
-                <Text style={styles.cardTitle}>Quản lý trang</Text>
-                <ManageBtn
-                  icon="add-circle-outline"
-                  label="Tạo bài viết"
-                  color={colors.primary}
-                  onPress={() => setShowCreatePost(true)}
-                />
+              <View style={st.card}>
+                <Text style={st.cardTitle}>Quản lý trang</Text>
+                <ManageRow icon="create-outline" label="Tạo bài viết" color={FB_BLUE} onPress={() => setShowCreatePost(true)} />
                 {(isAdmin || isOwner) && (
-                  <ManageBtn
+                  <ManageRow
                     icon="person-add-outline"
                     label="Thêm thành viên"
-                    color={colors.primary}
-                    onPress={() => {
-                      setMemberQuery("");
-                      setSelectedUsers([]);
-                      setShowAddMember(true);
-                    }}
+                    color={FB_BLUE}
+                    onPress={() => { setMemberQuery(""); setSelectedUsers([]); setShowAddMember(true); }}
                   />
                 )}
                 {(isAdmin || isOwner) && (
-                  <ManageBtn
-                    icon="create-outline"
+                  <ManageRow
+                    icon="settings-outline"
                     label="Chỉnh sửa trang"
-                    color={colors.primary}
-                    onPress={() =>
-                      router.push({
-                        pathname: "/(stack)/page-edit",
-                        params: { pageId: String(numericPageId) },
-                      })
-                    }
+                    color={FB_BLUE}
+                    onPress={() => router.push({ pathname: "/(stack)/page-edit", params: { pageId: String(numericPageId) } })}
                   />
                 )}
                 {isOwner && (
-                  <ManageBtn
-                    icon="trash-outline"
-                    label="Xóa trang"
-                    color={colors.danger}
-                    onPress={handleDeletePage}
-                    last
-                  />
+                  <ManageRow icon="trash-outline" label="Xóa trang" color={colors.danger} onPress={handleDeletePage} last />
                 )}
               </View>
             )}
 
             {/* Pending join requests */}
             {(isAdmin || isOwner) && pendingRequests.length > 0 && (
-              <View style={styles.card}>
-                <Text style={styles.cardTitle}>
-                  Yêu cầu tham gia ({pendingRequests.length})
-                </Text>
+              <View style={st.card}>
+                <Text style={st.cardTitle}>Yêu cầu tham gia ({pendingRequests.length})</Text>
                 {loadingPending ? (
-                  <ActivityIndicator size="small" color={colors.primary} />
+                  <ActivityIndicator size="small" color={FB_BLUE} />
                 ) : (
-                  pendingRequests.map((req) => (
-                    <View key={req.id} style={styles.requestRow}>
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          flex: 1,
-                        }}
-                      >
+                  pendingRequests.map(req => (
+                    <View key={req.id} style={st.requestRow}>
+                      <View style={{ flexDirection: "row", alignItems: "center", flex: 1, gap: 10 }}>
                         {req.user?.avatarUrl ? (
-                          <Image
-                            source={{ uri: buildS3Url(req.user.avatarUrl) }}
-                            style={styles.reqAvatar}
-                          />
+                          <Image source={{ uri: buildS3Url(req.user.avatarUrl) }} style={st.reqAvatar} />
                         ) : (
-                          <View
-                            style={[styles.reqAvatar, styles.avatarFallback]}
-                          >
-                            <Ionicons
-                              name="person"
-                              size={14}
-                              color={colors.textMuted}
-                            />
+                          <View style={[st.reqAvatar, st.avatarFallback]}>
+                            <Ionicons name="person" size={14} color={colors.textMuted} />
                           </View>
                         )}
-                        <View style={{ flex: 1, marginLeft: 10 }}>
-                          <Text style={styles.memberName}>
-                            {req.user?.name ||
-                              req.user?.username ||
-                              "Người dùng"}
-                          </Text>
-                          <Text style={styles.memberSub}>
-                            @{req.user?.username || "unknown"}
-                          </Text>
+                        <View style={{ flex: 1 }}>
+                          <Text style={st.memberName}>{req.user?.name || req.user?.username || "Người dùng"}</Text>
+                          <Text style={st.memberSub}>@{req.user?.username || "unknown"}</Text>
                           {req.joinedAt && (
-                            <Text style={styles.memberSub}>
-                              {new Date(req.joinedAt).toLocaleDateString(
-                                "vi-VN",
-                              )}
-                            </Text>
+                            <Text style={st.memberSub}>{new Date(req.joinedAt).toLocaleDateString("vi-VN")}</Text>
                           )}
                         </View>
                       </View>
-                      <View
-                        style={{ flexDirection: "row", gap: 8, marginTop: 10 }}
-                      >
+                      <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
                         <TouchableOpacity
-                          style={[
-                            styles.smallBtn,
-                            { backgroundColor: "#D1FAE5" },
-                          ]}
-                          onPress={() =>
-                            handleApproveJoinRequest(
-                              req.user?.id ?? 0,
-                              req.user?.name ||
-                                req.user?.username ||
-                                "người dùng",
-                            )
-                          }
+                          style={[st.smallBtn, { backgroundColor: "#D1FAE5" }]}
+                          onPress={() => handleApproveJoinRequest(req.user?.id ?? 0, req.user?.name || req.user?.username || "người dùng")}
                         >
-                          <Ionicons
-                            name="checkmark"
-                            size={16}
-                            color={colors.success}
-                          />
-                          <Text
-                            style={[
-                              styles.smallBtnText,
-                              { color: colors.success },
-                            ]}
-                          >
-                            Duyệt
-                          </Text>
+                          <Ionicons name="checkmark" size={14} color={colors.success} />
+                          <Text style={[st.smallBtnText, { color: colors.success }]}>Duyệt</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
-                          style={[
-                            styles.smallBtn,
-                            { backgroundColor: "#FEE2E2" },
-                          ]}
-                          onPress={() =>
-                            handleRejectJoinRequest(
-                              req.user?.id ?? 0,
-                              req.user?.name ||
-                                req.user?.username ||
-                                "người dùng",
-                            )
-                          }
+                          style={[st.smallBtn, { backgroundColor: "#FEE2E2" }]}
+                          onPress={() => handleRejectJoinRequest(req.user?.id ?? 0, req.user?.name || req.user?.username || "người dùng")}
                         >
-                          <Ionicons
-                            name="close"
-                            size={16}
-                            color={colors.danger}
-                          />
-                          <Text
-                            style={[
-                              styles.smallBtnText,
-                              { color: colors.danger },
-                            ]}
-                          >
-                            Từ chối
-                          </Text>
+                          <Ionicons name="close" size={14} color={colors.danger} />
+                          <Text style={[st.smallBtnText, { color: colors.danger }]}>Từ chối</Text>
                         </TouchableOpacity>
                       </View>
                     </View>
@@ -1322,158 +1085,58 @@ export default function PageDetailScreen() {
 
             {/* Waiting posts */}
             {canManage && (postsWaiting.length > 0 || loadingWaiting) && (
-              <View style={styles.card}>
-                <View style={styles.cardHeaderRow}>
-                  <Text style={styles.cardTitle}>
-                    Bài viết chờ duyệt ({postsWaiting.length})
-                  </Text>
-                  <TouchableOpacity
-                    onPress={() => setShowCreatePost(true)}
-                    hitSlop={8}
-                  >
-                    <Ionicons
-                      name="add-circle"
-                      size={22}
-                      color={colors.primary}
-                    />
+              <View style={st.card}>
+                <View style={st.cardHeaderRow}>
+                  <Text style={st.cardTitle}>Bài viết chờ duyệt ({postsWaiting.length})</Text>
+                  <TouchableOpacity onPress={() => setShowCreatePost(true)} hitSlop={8}>
+                    <Ionicons name="add-circle" size={22} color={FB_BLUE} />
                   </TouchableOpacity>
                 </View>
                 {postsWaiting.length > 0 && (
-                  <View
-                    style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}
-                  >
-                    <TouchableOpacity
-                      style={[styles.bulkBtn, { backgroundColor: "#D1FAE5" }]}
-                      onPress={handleApproveAll}
-                    >
-                      <Ionicons
-                        name="checkmark-done"
-                        size={15}
-                        color={colors.success}
-                      />
-                      <Text
-                        style={[styles.bulkBtnText, { color: colors.success }]}
-                      >
-                        Duyệt tất cả
-                      </Text>
+                  <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
+                    <TouchableOpacity style={[st.bulkBtn, { backgroundColor: "#D1FAE5" }]} onPress={handleApproveAll}>
+                      <Ionicons name="checkmark-done" size={14} color={colors.success} />
+                      <Text style={[st.bulkBtnText, { color: colors.success }]}>Duyệt tất cả</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.bulkBtn, { backgroundColor: "#FEE2E2" }]}
-                      onPress={handleCancelAll}
-                    >
-                      <Ionicons name="close" size={15} color={colors.danger} />
-                      <Text
-                        style={[styles.bulkBtnText, { color: colors.danger }]}
-                      >
-                        Hủy tất cả
-                      </Text>
+                    <TouchableOpacity style={[st.bulkBtn, { backgroundColor: "#FEE2E2" }]} onPress={handleCancelAll}>
+                      <Ionicons name="close" size={14} color={colors.danger} />
+                      <Text style={[st.bulkBtnText, { color: colors.danger }]}>Hủy tất cả</Text>
                     </TouchableOpacity>
                   </View>
                 )}
                 {loadingWaiting ? (
-                  <ActivityIndicator size="small" color={colors.primary} />
+                  <ActivityIndicator size="small" color={FB_BLUE} />
                 ) : (
-                  postsWaiting.map((post) => (
-                    <View
-                      key={post.id}
-                      style={[styles.postCard, { backgroundColor: "#FEF3C7" }]}
-                    >
-                      <View style={styles.postHeader}>
+                  postsWaiting.map(post => (
+                    <View key={post.id} style={[st.pendingPostCard, { borderColor: "#FCD34D" }]}>
+                      <View style={st.postHeader}>
                         {post.user?.avatarUrl ? (
-                          <Image
-                            source={{ uri: buildS3Url(post.user.avatarUrl) }}
-                            style={styles.postAvatar}
-                          />
+                          <Image source={{ uri: buildS3Url(post.user.avatarUrl) }} style={st.postAvatar} />
                         ) : (
-                          <View
-                            style={[styles.postAvatar, styles.avatarFallback]}
-                          >
-                            <Ionicons
-                              name="person"
-                              size={14}
-                              color={colors.textMuted}
-                            />
+                          <View style={[st.postAvatar, st.avatarFallback]}>
+                            <Ionicons name="person" size={12} color={colors.textMuted} />
                           </View>
                         )}
                         <View style={{ flex: 1 }}>
-                          <Text style={styles.postAuthor}>
-                            {post.user?.name ||
-                              post.user?.username ||
-                              "Người dùng"}
-                          </Text>
-                          {post.createdAt && (
-                            <Text style={styles.postDate}>
-                              {new Date(post.createdAt).toLocaleDateString(
-                                "vi-VN",
-                              )}
-                            </Text>
-                          )}
+                          <Text style={st.postAuthor}>{post.user?.name || post.user?.username || "Người dùng"}</Text>
+                          <Text style={st.postDate}>{post.createdAt ? timeAgo(post.createdAt) : ""}</Text>
                         </View>
-                        <TouchableOpacity
-                          onPress={() => handleRemovePost(post.id)}
-                          hitSlop={8}
-                        >
-                          <Ionicons
-                            name="close"
-                            size={20}
-                            color={colors.danger}
-                          />
+                        <TouchableOpacity onPress={() => handleRemovePost(post.id)} hitSlop={8}>
+                          <Ionicons name="close" size={18} color={colors.danger} />
                         </TouchableOpacity>
                       </View>
-                      {!!post.content && (
-                        <Text style={styles.postContent}>{post.content}</Text>
-                      )}
+                      {!!post.content && <Text style={st.postContent}>{post.content}</Text>}
                       {post.images && post.images.length > 0 && (
-                        <Image
-                          source={{ uri: buildS3Url(post.images[0]) }}
-                          style={styles.postImagePreview}
-                          resizeMode="cover"
-                        />
+                        <Image source={{ uri: buildS3Url(post.images[0]) }} style={st.postImagePreview} resizeMode="cover" />
                       )}
-                      <View
-                        style={{ flexDirection: "row", gap: 8, marginTop: 10 }}
-                      >
-                        <TouchableOpacity
-                          style={[
-                            styles.smallBtn,
-                            { flex: 1, backgroundColor: "#D1FAE5" },
-                          ]}
-                          onPress={() => handleApprovePost(post.id)}
-                        >
-                          <Ionicons
-                            name="checkmark"
-                            size={16}
-                            color={colors.success}
-                          />
-                          <Text
-                            style={[
-                              styles.smallBtnText,
-                              { color: colors.success },
-                            ]}
-                          >
-                            Duyệt
-                          </Text>
+                      <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
+                        <TouchableOpacity style={[st.smallBtn, { flex: 1, backgroundColor: "#D1FAE5" }]} onPress={() => handleApprovePost(post.id)}>
+                          <Ionicons name="checkmark" size={14} color={colors.success} />
+                          <Text style={[st.smallBtnText, { color: colors.success }]}>Duyệt</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[
-                            styles.smallBtn,
-                            { flex: 1, backgroundColor: "#FEE2E2" },
-                          ]}
-                          onPress={() => handleCancelApprovePost(post.id)}
-                        >
-                          <Ionicons
-                            name="close"
-                            size={16}
-                            color={colors.danger}
-                          />
-                          <Text
-                            style={[
-                              styles.smallBtnText,
-                              { color: colors.danger },
-                            ]}
-                          >
-                            Hủy
-                          </Text>
+                        <TouchableOpacity style={[st.smallBtn, { flex: 1, backgroundColor: "#FEE2E2" }]} onPress={() => handleCancelApprovePost(post.id)}>
+                          <Ionicons name="close" size={14} color={colors.danger} />
+                          <Text style={[st.smallBtnText, { color: colors.danger }]}>Hủy</Text>
                         </TouchableOpacity>
                       </View>
                     </View>
@@ -1482,90 +1145,48 @@ export default function PageDetailScreen() {
               </View>
             )}
 
-            {/* My pending posts — chỉ hiển thị cho member thường */}
+            {/* My pending posts */}
             {memberStatus === "ACTIVE" && !canManage && (
-              <View style={styles.card}>
-                <View style={styles.cardHeaderRow}>
+              <View style={st.card}>
+                <View style={st.cardHeaderRow}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                    <Ionicons name="time-outline" size={18} color="#F59E0B" />
-                    <Text style={styles.cardTitle}>
-                      Bài của tôi đang chờ duyệt
-                    </Text>
+                    <Ionicons name="time-outline" size={18} color="#D97706" />
+                    <Text style={st.cardTitle}>Bài của tôi đang chờ duyệt</Text>
                   </View>
                   {myPendingPosts.length > 0 && (
-                    <View style={{
-                      backgroundColor: "#F59E0B",
-                      borderRadius: 10,
-                      paddingHorizontal: 7,
-                      paddingVertical: 2,
-                    }}>
-                      <Text style={{ color: "#fff", fontSize: 12, fontWeight: "700" }}>
-                        {myPendingPosts.length}
-                      </Text>
+                    <View style={{ backgroundColor: "#F59E0B", borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 }}>
+                      <Text style={{ color: "#fff", fontSize: 12, fontWeight: "700" }}>{myPendingPosts.length}</Text>
                     </View>
                   )}
                 </View>
-
                 {loadingMyPending ? (
                   <ActivityIndicator size="small" color="#F59E0B" style={{ marginVertical: 12 }} />
                 ) : myPendingPosts.length === 0 ? (
-                  <View style={styles.emptyBlock}>
-                    <Ionicons name="checkmark-circle-outline" size={36} color={colors.border} />
-                    <Text style={styles.emptyText}>
-                      Không có bài nào đang chờ duyệt
-                    </Text>
+                  <View style={st.emptyBlock}>
+                    <Ionicons name="checkmark-circle-outline" size={32} color={colors.border} />
+                    <Text style={st.emptyText}>Không có bài nào đang chờ duyệt</Text>
                   </View>
                 ) : (
-                  myPendingPosts.map((post) => (
-                    <View
-                      key={post.id}
-                      style={[styles.postCard, { backgroundColor: "#FFFBEB", borderColor: "#FDE68A", borderWidth: 1 }]}
-                    >
-                      {/* Status banner */}
-                      <View style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 6,
-                        backgroundColor: "#FEF3C7",
-                        paddingHorizontal: 10,
-                        paddingVertical: 6,
-                        marginBottom: 8,
-                        borderRadius: 6,
-                      }}>
+                  myPendingPosts.map(post => (
+                    <View key={post.id} style={[st.pendingPostCard, { borderColor: "#FDE68A" }]}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#FEF3C7", padding: 8, borderRadius: 8, marginBottom: 8 }}>
                         <Ionicons name="time-outline" size={14} color="#D97706" />
-                        <Text style={{ fontSize: 12, color: "#D97706", fontWeight: "600", flex: 1 }}>
-                          Đang chờ admin duyệt
-                        </Text>
+                        <Text style={{ fontSize: 12, color: "#D97706", fontWeight: "600", flex: 1 }}>Đang chờ admin duyệt</Text>
                         {post.createdAt && (
-                          <Text style={{ fontSize: 11, color: "#9CA3AF" }}>
-                            {new Date(post.createdAt).toLocaleDateString("vi-VN")}
-                          </Text>
+                          <Text style={{ fontSize: 11, color: "#9CA3AF" }}>{timeAgo(post.createdAt)}</Text>
                         )}
                       </View>
-
-                      {!!post.content && (
-                        <Text style={styles.postContent}>{post.content}</Text>
-                      )}
+                      {!!post.content && <Text style={st.postContent}>{post.content}</Text>}
                       {post.images && post.images.length > 0 && (
-                        <Image
-                          source={{ uri: buildS3Url(post.images[0]) }}
-                          style={styles.postImagePreview}
-                          resizeMode="cover"
-                        />
+                        <Image source={{ uri: buildS3Url(post.images[0]) }} style={st.postImagePreview} resizeMode="cover" />
                       )}
-
                       <View style={{ flexDirection: "row", justifyContent: "flex-end", marginTop: 10 }}>
                         {withdrawingPostId === post.id ? (
                           <ActivityIndicator size="small" color={colors.danger} />
                         ) : (
-                          <TouchableOpacity
-                            style={[styles.smallBtn, { backgroundColor: "#FEE2E2" }]}
-                            onPress={() => handleWithdrawPost(post.id)}
-                          >
-                            <Ionicons name="close-circle-outline" size={15} color={colors.danger} />
-                            <Text style={[styles.smallBtnText, { color: colors.danger }]}>
-                              Rút bài
-                            </Text>
+                          <TouchableOpacity style={[st.smallBtn, { backgroundColor: "#FEE2E2" }]} onPress={() => handleWithdrawPost(post.id)}>
+                            <Ionicons name="close-circle-outline" size={14} color={colors.danger} />
+                            <Text style={[st.smallBtnText, { color: colors.danger }]}>Rút bài</Text>
                           </TouchableOpacity>
                         )}
                       </View>
@@ -1577,100 +1198,142 @@ export default function PageDetailScreen() {
           </View>
         )}
 
-        {/* ── Members tab ── */}
-        {activeSection === "members" && (
-          <View
-            style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.md }}
-          >
-            <View style={styles.card}>
-              <View style={styles.cardHeaderRow}>
-                <Text style={styles.cardTitle}>Danh sách thành viên</Text>
-                {(isAdmin || isOwner) && (
-                  <TouchableOpacity
-                    onPress={() => {
-                      setMemberQuery("");
-                      setSelectedUsers([]);
-                      setShowAddMember(true);
-                    }}
-                    hitSlop={8}
-                  >
-                    <Ionicons
-                      name="person-add"
-                      size={22}
-                      color={colors.primary}
-                    />
-                  </TouchableOpacity>
-                )}
-              </View>
-              {members.length === 0 ? (
-                <View style={styles.emptyBlock}>
-                  <Ionicons
-                    name="people-outline"
-                    size={40}
-                    color={colors.border}
-                  />
-                  <Text style={styles.emptyText}>Chưa có thành viên nào</Text>
+        {/* ── Posts tab ── */}
+        {activeSection === "posts" && (
+          <View style={st.tabContent}>
+            {/* Create post prompt */}
+            {(memberStatus === "ACTIVE" || canManage || isOwner) && (
+              <TouchableOpacity style={st.createPostPrompt} onPress={() => setShowCreatePost(true)}>
+                <View style={[st.promptAvatar, st.avatarFallback]}>
+                  <Ionicons name="person" size={14} color={colors.textMuted} />
                 </View>
-              ) : (
-                members.map((m) => (
-                  <View key={m.id ?? m.user?.id} style={styles.memberRow}>
-                    {m.user?.avatarUrl ? (
-                      <Image
-                        source={{ uri: buildS3Url(m.user.avatarUrl) }}
-                        style={styles.memberAvatar}
-                      />
+                <View style={st.promptInput}>
+                  <Text style={st.promptText}>Bạn đang nghĩ gì?</Text>
+                </View>
+              </TouchableOpacity>
+            )}
+
+            {loadingPosts ? (
+              <View style={{ alignItems: "center", paddingVertical: 40 }}>
+                <ActivityIndicator size="large" color={FB_BLUE} />
+              </View>
+            ) : posts.length === 0 ? (
+              <View style={st.emptyBlock}>
+                <Ionicons name="newspaper-outline" size={48} color={colors.border} />
+                <Text style={[st.emptyText, { marginTop: 12, fontSize: 15 }]}>Chưa có bài viết nào</Text>
+              </View>
+            ) : (
+              posts.map(post => (
+                <View key={post.id} style={st.fbPostCard}>
+                  {/* Post header */}
+                  <View style={st.postHeader}>
+                    {avatarUri ? (
+                      <Image source={{ uri: avatarUri }} style={st.postAvatar} />
                     ) : (
-                      <View
-                        style={[styles.memberAvatar, styles.avatarFallback]}
-                      >
-                        <Ionicons
-                          name="person"
-                          size={16}
-                          color={colors.textMuted}
-                        />
+                      <View style={[st.postAvatar, st.avatarFallback]}>
+                        <Ionicons name="flag" size={12} color={FB_BLUE} />
                       </View>
                     )}
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.memberName}>
-                        {m.user?.name || m.user?.username || "Người dùng"}
-                      </Text>
-                      <View
-                        style={{ flexDirection: "row", gap: 6, marginTop: 2 }}
-                      >
-                        <View
-                          style={[
-                            styles.roleBadge,
-                            m.role === "ADMIN" && {
-                              backgroundColor: colors.primary + "20",
-                            },
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.roleBadgeText,
-                              m.role === "ADMIN" && { color: colors.primary },
-                            ]}
-                          >
-                            {m.role}
+                      <Text style={st.postAuthor}>{page.name}</Text>
+                      <Text style={st.postDate}>{timeAgo(post.createdAt)}</Text>
+                    </View>
+                    {canManage && (
+                      <TouchableOpacity onPress={() => handleRemovePost(post.id)} hitSlop={8}>
+                        <Ionicons name="ellipsis-horizontal" size={20} color={colors.textMuted} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+
+                  {/* Post content */}
+                  {!!post.content && <Text style={[st.postContent, { paddingHorizontal: 14 }]}>{post.content}</Text>}
+
+                  {/* Post images */}
+                  {post.media && post.media.length > 0 && (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 10 }} contentContainerStyle={{ gap: 2 }}>
+                      {post.media.map((item, idx) =>
+                        item?.url ? (
+                          <Image key={idx} source={{ uri: buildS3Url(item.url) }} style={{ width: screenWidth * 0.85, height: 240, borderRadius: 0 }} resizeMode="cover" />
+                        ) : null
+                      )}
+                    </ScrollView>
+                  )}
+
+                  {/* Post stats */}
+                  {post.stats && (post.stats.likes || post.stats.comments) ? (
+                    <View style={st.postStatsRow}>
+                      {(post.stats.likes ?? 0) > 0 && (
+                        <Text style={st.postStatText}>👍 {post.stats.likes}</Text>
+                      )}
+                      {(post.stats.comments ?? 0) > 0 && (
+                        <Text style={[st.postStatText, { marginLeft: "auto" }]}>{post.stats.comments} bình luận</Text>
+                      )}
+                    </View>
+                  ) : null}
+                </View>
+              ))
+            )}
+          </View>
+        )}
+
+        {/* ── Members tab ── */}
+        {activeSection === "members" && (
+          <View style={st.tabContent}>
+            <View style={st.card}>
+              <View style={st.cardHeaderRow}>
+                <Text style={st.cardTitle}>Danh sách thành viên</Text>
+                {(isAdmin || isOwner) && (
+                  <TouchableOpacity
+                    onPress={() => { setMemberQuery(""); setSelectedUsers([]); setShowAddMember(true); }}
+                    hitSlop={8}
+                  >
+                    <Ionicons name="person-add" size={22} color={FB_BLUE} />
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {members.length === 0 ? (
+                <View style={st.emptyBlock}>
+                  <Ionicons name="people-outline" size={40} color={colors.border} />
+                  <Text style={st.emptyText}>Chưa có thành viên nào</Text>
+                </View>
+              ) : (
+                members.map(m => (
+                  <View key={m.id ?? m.user?.id} style={st.memberRow}>
+                    {m.user?.avatarUrl ? (
+                      <Image source={{ uri: buildS3Url(m.user.avatarUrl) }} style={st.memberAvatar} />
+                    ) : (
+                      <View style={[st.memberAvatar, st.avatarFallback]}>
+                        <Ionicons name="person" size={16} color={colors.textMuted} />
+                      </View>
+                    )}
+                    <View style={{ flex: 1 }}>
+                      <Text style={st.memberName}>{m.user?.name || m.user?.username || "Người dùng"}</Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 }}>
+                        <View style={[
+                          st.roleBadge,
+                          m.role === "ADMIN" && { backgroundColor: FB_BLUE + "20" },
+                          m.role === "MODERATOR" && { backgroundColor: "#DBEAFE" },
+                        ]}>
+                          <Text style={[
+                            st.roleBadgeText,
+                            m.role === "ADMIN" && { color: FB_BLUE },
+                            m.role === "MODERATOR" && { color: "#1E40AF" },
+                          ]}>
+                            {m.role === "ADMIN" ? "Admin" : m.role === "MODERATOR" ? "Moderator" : "Thành viên"}
                           </Text>
                         </View>
+                        {m.user?.id === numericUserId && (
+                          <Text style={{ fontSize: 11, color: colors.textMuted }}>· Bạn</Text>
+                        )}
                       </View>
                     </View>
                     {(isAdmin || isOwner) && m.user?.id !== numericUserId && (
                       <TouchableOpacity
-                        onPress={() =>
-                          handleRemoveMember(
-                            m.user?.id ?? 0,
-                            m.user?.name || m.user?.username || "thành viên",
-                          )
-                        }
+                        onPress={() => handleRemoveMember(m.user?.id ?? 0, m.user?.name || m.user?.username || "thành viên")}
                         hitSlop={8}
                       >
-                        <Ionicons
-                          name="close-circle-outline"
-                          size={22}
-                          color={colors.danger}
-                        />
+                        <Ionicons name="close-circle-outline" size={22} color={colors.danger} />
                       </TouchableOpacity>
                     )}
                   </View>
@@ -1680,210 +1343,61 @@ export default function PageDetailScreen() {
           </View>
         )}
 
-        {/* ── Posts tab ── */}
-        {activeSection === "posts" && (
-          <View
-            style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.md }}
-          >
-            <View style={styles.card}>
-              <View style={styles.cardHeaderRow}>
-                <Text style={styles.cardTitle}>Bài viết của trang</Text>
-                <TouchableOpacity
-                  onPress={() => setShowCreatePost(true)}
-                  hitSlop={8}
-                >
-                  <Ionicons
-                    name="add-circle"
-                    size={24}
-                    color={colors.primary}
-                  />
-                </TouchableOpacity>
-              </View>
-              {loadingPosts ? (
-                <ActivityIndicator
-                  size="large"
-                  color={colors.primary}
-                  style={{ paddingVertical: 40 }}
-                />
-              ) : posts.length === 0 ? (
-                <View style={styles.emptyBlock}>
-                  <Ionicons
-                    name="newspaper-outline"
-                    size={40}
-                    color={colors.border}
-                  />
-                  <Text style={styles.emptyText}>Chưa có bài viết</Text>
-                </View>
-              ) : (
-                posts.map((post) => (
-                  <View key={post.id} style={styles.postCard}>
-                    <View style={styles.postHeader}>
-                      <View style={[styles.postAvatar, styles.avatarFallback]}>
-                        <Ionicons
-                          name="person"
-                          size={14}
-                          color={colors.textMuted}
-                        />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.postAuthor}>
-                          Người dùng #{post.authorId}
-                        </Text>
-                        {post.createdAt && (
-                          <Text style={styles.postDate}>
-                            {new Date(post.createdAt).toLocaleDateString(
-                              "vi-VN",
-                            )}
-                          </Text>
-                        )}
-                      </View>
-                      {canManage && (
-                        <TouchableOpacity
-                          onPress={() => handleRemovePost(post.id)}
-                          hitSlop={8}
-                        >
-                          <Ionicons
-                            name="close"
-                            size={20}
-                            color={colors.danger}
-                          />
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                    {!!post.content && (
-                      <Text style={styles.postContent}>{post.content}</Text>
-                    )}
-                    {post.media && post.media.length > 0 && (
-                      <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        style={{ marginTop: 8 }}
-                        contentContainerStyle={{ gap: 8 }}
-                      >
-                        {post.media.map((item, idx) =>
-                          item?.url ? (
-                            <Image
-                              key={idx}
-                              source={{ uri: buildS3Url(item.url) }}
-                              style={{
-                                width: POST_IMG_WIDTH,
-                                height: 220,
-                                borderRadius: 10,
-                              }}
-                              resizeMode="cover"
-                            />
-                          ) : null,
-                        )}
-                      </ScrollView>
-                    )}
-                    {post.stats && (
-                      <View
-                        style={{ flexDirection: "row", marginTop: 8, gap: 16 }}
-                      >
-                        <Text style={{ fontSize: 13, color: colors.textMuted }}>
-                          ❤️ {post.stats.likes ?? 0}
-                        </Text>
-                        <Text style={{ fontSize: 13, color: colors.textMuted }}>
-                          💬 {post.stats.comments ?? 0}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                ))
-              )}
-            </View>
-          </View>
-        )}
-
-        <View style={{ height: spacing.xxl }} />
+        <View style={{ height: 40 }} />
       </ScrollView>
 
       {/* ── Create post modal ── */}
-      <Modal
-        visible={showCreatePost}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setShowCreatePost(false)}
-      >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          style={{ flex: 1 }}
-        >
-          <View style={styles.overlay}>
-            <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}>
-              <View style={styles.dragBar} />
-              <View style={styles.sheetHeader}>
-                <TouchableOpacity
-                  onPress={() => setShowCreatePost(false)}
-                  hitSlop={12}
-                >
-                  <Text style={styles.sheetCancel}>Hủy</Text>
+      <Modal visible={showCreatePost} animationType="slide" transparent onRequestClose={() => setShowCreatePost(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
+          <View style={st.overlay}>
+            <View style={[st.sheet, { paddingBottom: insets.bottom + 16 }]}>
+              <View style={st.dragBar} />
+              <View style={st.sheetHeader}>
+                <TouchableOpacity onPress={() => setShowCreatePost(false)} hitSlop={12}>
+                  <Text style={st.sheetCancel}>Hủy</Text>
                 </TouchableOpacity>
-                <Text style={styles.sheetTitle}>Tạo bài viết</Text>
-                <TouchableOpacity
-                  onPress={handleCreatePost}
-                  disabled={creatingPost}
-                  hitSlop={12}
-                >
-                  <Text
-                    style={[
-                      styles.sheetSave,
-                      creatingPost && { color: colors.textMuted },
-                    ]}
-                  >
+                <Text style={st.sheetTitle}>Tạo bài viết</Text>
+                <TouchableOpacity onPress={handleCreatePost} disabled={creatingPost} hitSlop={12}>
+                  <Text style={[st.sheetSave, creatingPost && { color: colors.textMuted }]}>
                     {creatingPost ? "Đang đăng..." : "Đăng"}
                   </Text>
                 </TouchableOpacity>
               </View>
-              <ScrollView
-                style={{ paddingHorizontal: 20 }}
-                keyboardShouldPersistTaps="handled"
-              >
+              <ScrollView style={{ paddingHorizontal: 20 }} keyboardShouldPersistTaps="handled">
+                {/* Author row */}
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 14 }}>
+                  {avatarUri ? (
+                    <Image source={{ uri: avatarUri }} style={{ width: 38, height: 38, borderRadius: 19 }} />
+                  ) : (
+                    <View style={[{ width: 38, height: 38, borderRadius: 19 }, st.avatarFallback]}>
+                      <Ionicons name="flag" size={14} color={FB_BLUE} />
+                    </View>
+                  )}
+                  <View>
+                    <Text style={{ fontSize: 14, fontWeight: "700", color: colors.text }}>{page?.name}</Text>
+                    <Text style={{ fontSize: 11, color: colors.textMuted }}>Đăng lên trang</Text>
+                  </View>
+                </View>
                 <TextInput
-                  style={styles.postInput}
+                  style={st.postInput}
                   value={postContent}
                   onChangeText={setPostContent}
                   placeholder="Bạn đang nghĩ gì?"
                   placeholderTextColor={colors.textMuted}
                   multiline
                 />
-                <TouchableOpacity
-                  style={styles.imagePickerRow}
-                  onPress={pickPostImages}
-                >
-                  <Ionicons
-                    name="images-outline"
-                    size={22}
-                    color={colors.primary}
-                  />
-                  <Text
-                    style={{
-                      fontSize: 14,
-                      fontWeight: "600",
-                      color: colors.primary,
-                    }}
-                  >
-                    Chọn hình ảnh
-                  </Text>
+                <TouchableOpacity style={st.imagePickerRow} onPress={pickPostImages}>
+                  <Ionicons name="images-outline" size={22} color={FB_BLUE} />
+                  <Text style={{ fontSize: 14, fontWeight: "600", color: FB_BLUE }}>Thêm ảnh / video</Text>
                 </TouchableOpacity>
                 {postImages.map((img, idx) => (
-                  <View
-                    key={idx}
-                    style={{ position: "relative", marginTop: 10 }}
-                  >
-                    <Image
-                      source={{ uri: buildS3Url(img.uri) }}
-                      style={{ width: "100%", height: 200, borderRadius: 12 }}
-                    />
+                  <View key={idx} style={{ position: "relative", marginTop: 10 }}>
+                    <Image source={{ uri: buildS3Url(img.uri) }} style={{ width: "100%", height: 200, borderRadius: 12 }} />
                     <TouchableOpacity
-                      onPress={() =>
-                        setPostImages((prev) =>
-                          prev.filter((_, i) => i !== idx),
-                        )
-                      }
-                      style={styles.removeImageBtn}
+                      onPress={() => setPostImages(prev => prev.filter((_, i) => i !== idx))}
+                      style={st.removeImageBtn}
                     >
-                      <Ionicons name="close" size={18} color={colors.white} />
+                      <Ionicons name="close" size={16} color={colors.white} />
                     </TouchableOpacity>
                   </View>
                 ))}
@@ -1895,226 +1409,96 @@ export default function PageDetailScreen() {
       </Modal>
 
       {/* ── Add member modal ── */}
-      <Modal
-        visible={showAddMember}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setShowAddMember(false)}
-      >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          style={{ flex: 1 }}
-        >
-          <View style={styles.overlay}>
-            <View
-              style={[
-                styles.sheet,
-                { paddingBottom: insets.bottom + 16, maxHeight: "80%" },
-              ]}
-            >
-              <View style={styles.dragBar} />
-              <View style={styles.sheetHeader}>
+      <Modal visible={showAddMember} animationType="slide" transparent onRequestClose={() => setShowAddMember(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
+          <View style={st.overlay}>
+            <View style={[st.sheet, { paddingBottom: insets.bottom + 16, maxHeight: "80%" }]}>
+              <View style={st.dragBar} />
+              <View style={st.sheetHeader}>
                 <TouchableOpacity
-                  onPress={() => {
-                    setShowAddMember(false);
-                    setMemberQuery("");
-                    setSelectedUsers([]);
-                  }}
+                  onPress={() => { setShowAddMember(false); setMemberQuery(""); setSelectedUsers([]); }}
                   hitSlop={12}
                 >
-                  <Text style={styles.sheetCancel}>Hủy</Text>
+                  <Text style={st.sheetCancel}>Hủy</Text>
                 </TouchableOpacity>
-                <Text style={styles.sheetTitle}>Thêm thành viên</Text>
-                <TouchableOpacity
-                  onPress={handleAddMembers}
-                  disabled={selectedUsers.length === 0 || addingMembers}
-                  hitSlop={12}
-                >
-                  <Text
-                    style={[
-                      styles.sheetSave,
-                      selectedUsers.length === 0 && { color: colors.textMuted },
-                    ]}
-                  >
-                    {addingMembers
-                      ? "Đang thêm..."
-                      : `Thêm (${selectedUsers.length})`}
+                <Text style={st.sheetTitle}>Thêm thành viên</Text>
+                <TouchableOpacity onPress={handleAddMembers} disabled={selectedUsers.length === 0 || addingMembers} hitSlop={12}>
+                  <Text style={[st.sheetSave, selectedUsers.length === 0 && { color: colors.textMuted }]}>
+                    {addingMembers ? "Đang thêm..." : `Thêm (${selectedUsers.length})`}
                   </Text>
                 </TouchableOpacity>
               </View>
-              <ScrollView
-                style={{ paddingHorizontal: 20, paddingTop: 12 }}
-                keyboardShouldPersistTaps="handled"
-              >
-                <TextInput
-                  style={styles.searchInput}
-                  value={memberQuery}
-                  onChangeText={setMemberQuery}
-                  placeholder="Nhập username để tìm kiếm"
-                  placeholderTextColor={colors.textMuted}
-                  autoCapitalize="none"
-                />
-                {memberSearching && (
-                  <ActivityIndicator
-                    size="small"
-                    color={colors.primary}
-                    style={{ marginTop: 12 }}
+              <ScrollView style={{ paddingHorizontal: 20, paddingTop: 12 }} keyboardShouldPersistTaps="handled">
+                <View style={st.memberSearchBar}>
+                  <Ionicons name="search-outline" size={16} color={colors.textMuted} />
+                  <TextInput
+                    style={{ flex: 1, fontSize: 15, color: colors.text, padding: 0, marginLeft: 8 }}
+                    value={memberQuery}
+                    onChangeText={setMemberQuery}
+                    placeholder="Nhập username để tìm kiếm"
+                    placeholderTextColor={colors.textMuted}
+                    autoCapitalize="none"
                   />
-                )}
-                {!memberSearching &&
-                  memberSearchResults.map((u) => {
-                    const selected = selectedUsers.some((s) => s.id === u.id);
-                    return (
-                      <TouchableOpacity
-                        key={u.id}
-                        style={[
-                          styles.userRow,
-                          selected && { borderColor: colors.primary },
-                        ]}
-                        onPress={() =>
-                          setSelectedUsers((prev) =>
-                            selected
-                              ? prev.filter((s) => s.id !== u.id)
-                              : [...prev, u],
-                          )
-                        }
-                        activeOpacity={0.7}
-                      >
-                        <View
-                          style={[
-                            styles.checkbox,
-                            selected && {
-                              backgroundColor: colors.primary,
-                              borderColor: colors.primary,
-                            },
-                          ]}
-                        >
-                          {selected && (
-                            <Ionicons
-                              name="checkmark"
-                              size={14}
-                              color={colors.white}
-                            />
-                          )}
-                        </View>
-                        {u.avatarUrl ? (
-                          <Image
-                            source={{ uri: buildS3Url(u.avatarUrl) }}
-                            style={styles.userAvatar}
-                          />
-                        ) : (
-                          <View
-                            style={[styles.userAvatar, styles.avatarFallback]}
-                          >
-                            <Ionicons
-                              name="person"
-                              size={16}
-                              color={colors.textMuted}
-                            />
-                          </View>
-                        )}
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.memberName}>
-                            {u.name || u.fullName}
-                          </Text>
-                          <Text style={styles.memberSub}>@{u.username}</Text>
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })}
-                {!memberSearching &&
-                  memberQuery.length >= 2 &&
-                  memberSearchResults.length === 0 && (
-                    <Text
-                      style={{
-                        textAlign: "center",
-                        color: colors.textMuted,
-                        marginTop: 20,
-                      }}
+                </View>
+                {memberSearching && <ActivityIndicator size="small" color={FB_BLUE} style={{ marginTop: 12 }} />}
+                {!memberSearching && memberSearchResults.map(u => {
+                  const selected = selectedUsers.some(s => s.id === u.id);
+                  return (
+                    <TouchableOpacity
+                      key={u.id}
+                      style={[st.userRow, selected && { borderColor: FB_BLUE, backgroundColor: colors.zalo50 }]}
+                      onPress={() => setSelectedUsers(prev => selected ? prev.filter(s => s.id !== u.id) : [...prev, u])}
+                      activeOpacity={0.7}
                     >
-                      Không tìm thấy người dùng
-                    </Text>
-                  )}
+                      <View style={[st.checkbox, selected && { backgroundColor: FB_BLUE, borderColor: FB_BLUE }]}>
+                        {selected && <Ionicons name="checkmark" size={13} color={colors.white} />}
+                      </View>
+                      {u.avatarUrl ? (
+                        <Image source={{ uri: buildS3Url(u.avatarUrl) }} style={st.userAvatar} />
+                      ) : (
+                        <View style={[st.userAvatar, st.avatarFallback]}>
+                          <Ionicons name="person" size={16} color={colors.textMuted} />
+                        </View>
+                      )}
+                      <View style={{ flex: 1 }}>
+                        <Text style={st.memberName}>{u.name || u.fullName}</Text>
+                        <Text style={st.memberSub}>@{u.username}</Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+                {!memberSearching && memberQuery.length >= 2 && memberSearchResults.length === 0 && (
+                  <Text style={{ textAlign: "center", color: colors.textMuted, marginTop: 20 }}>
+                    Không tìm thấy người dùng
+                  </Text>
+                )}
                 {selectedUsers.length > 0 && (
                   <View style={{ marginTop: 16 }}>
-                    <Text
-                      style={{
-                        fontSize: 13,
-                        fontWeight: "600",
-                        color: colors.textMuted,
-                        marginBottom: 8,
-                      }}
-                    >
+                    <Text style={{ fontSize: 13, fontWeight: "600", color: colors.textMuted, marginBottom: 8 }}>
                       Đã chọn ({selectedUsers.length})
                     </Text>
-                    <View
-                      style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}
-                    >
-                      {selectedUsers.map((u) => (
-                        <View key={u.id} style={styles.selectedChip}>
-                          <Text
-                            style={{
-                              fontSize: 13,
-                              color: colors.primary,
-                              fontWeight: "500",
-                            }}
-                          >
-                            {u.username}
-                          </Text>
-                          <TouchableOpacity
-                            onPress={() =>
-                              setSelectedUsers((prev) =>
-                                prev.filter((s) => s.id !== u.id),
-                              )
-                            }
-                            hitSlop={8}
-                          >
-                            <Ionicons
-                              name="close-circle"
-                              size={18}
-                              color={colors.primary}
-                            />
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                      {selectedUsers.map(u => (
+                        <View key={u.id} style={st.selectedChip}>
+                          <Text style={{ fontSize: 13, color: FB_BLUE, fontWeight: "500" }}>{u.username}</Text>
+                          <TouchableOpacity onPress={() => setSelectedUsers(prev => prev.filter(s => s.id !== u.id))} hitSlop={8}>
+                            <Ionicons name="close-circle" size={17} color={FB_BLUE} />
                           </TouchableOpacity>
                         </View>
                       ))}
                     </View>
                   </View>
                 )}
-                <Text
-                  style={{
-                    fontSize: 13,
-                    fontWeight: "600",
-                    color: colors.textMuted,
-                    marginTop: 16,
-                    marginBottom: 8,
-                  }}
-                >
-                  Vai trò
-                </Text>
-                <View
-                  style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}
-                >
-                  {MEMBER_ROLES.map((r) => (
+                <Text style={{ fontSize: 13, fontWeight: "600", color: colors.textMuted, marginTop: 16, marginBottom: 8 }}>Vai trò</Text>
+                <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                  {MEMBER_ROLES.map(r => (
                     <TouchableOpacity
                       key={r.value}
-                      style={[
-                        styles.roleChip,
-                        newMemberRole === r.value && {
-                          backgroundColor: colors.primary,
-                          borderColor: colors.primary,
-                        },
-                      ]}
+                      style={[st.roleChip, newMemberRole === r.value && { backgroundColor: FB_BLUE, borderColor: FB_BLUE }]}
                       onPress={() => setNewMemberRole(r.value)}
                       activeOpacity={0.7}
                     >
-                      <Text
-                        style={[
-                          styles.roleChipText,
-                          newMemberRole === r.value && { color: colors.white },
-                        ]}
-                      >
-                        {r.label}
-                      </Text>
+                      <Text style={[st.roleChipText, newMemberRole === r.value && { color: colors.white }]}>{r.label}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -2124,70 +1508,40 @@ export default function PageDetailScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 
 // ── Helper components ──────────────────────────────────────────────────────
 
-function InfoRow({
-  icon,
-  label,
-  value,
-}: {
-  icon: string;
-  label: string;
-  value: string;
-}) {
+function InfoRow({ icon, label, value }: { icon: string; label: string; value: string }) {
   return (
-    <View
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 10,
-        paddingVertical: 8,
-      }}
-    >
-      <Ionicons name={icon as any} size={17} color={colors.textMuted} />
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }}>
+      <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: "#F0F2F5", alignItems: "center", justifyContent: "center" }}>
+        <Ionicons name={icon as any} size={17} color={colors.textMuted} />
+      </View>
       <View style={{ flex: 1 }}>
-        <Text style={{ fontSize: 11, color: colors.textMuted }}>{label}</Text>
-        <Text style={{ fontSize: 14, color: colors.text, marginTop: 1 }}>
-          {value}
-        </Text>
+        <Text style={{ fontSize: 11, color: colors.textMuted, marginBottom: 1 }}>{label}</Text>
+        <Text style={{ fontSize: 14, color: colors.text }}>{value}</Text>
       </View>
     </View>
   );
 }
 
-function ManageBtn({
-  icon,
-  label,
-  color,
-  onPress,
-  last,
-}: {
-  icon: string;
-  label: string;
-  color: string;
-  onPress: () => void;
-  last?: boolean;
-}) {
+function ManageRow({ icon, label, color, onPress, last }: { icon: string; label: string; color: string; onPress: () => void; last?: boolean }) {
   return (
     <TouchableOpacity
       style={[
-        {
-          flexDirection: "row",
-          alignItems: "center",
-          gap: spacing.sm,
-          paddingVertical: 12,
-        },
-        !last && { borderBottomWidth: 1, borderColor: colors.border },
+        { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 13 },
+        !last && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
       ]}
       onPress={onPress}
       activeOpacity={0.7}
     >
-      <Ionicons name={icon as any} size={20} color={color} />
-      <Text style={{ flex: 1, fontSize: 14, color }}>{label}</Text>
+      <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: color + "15", alignItems: "center", justifyContent: "center" }}>
+        <Ionicons name={icon as any} size={18} color={color} />
+      </View>
+      <Text style={{ flex: 1, fontSize: 15, color: color, fontWeight: "500" }}>{label}</Text>
       <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
     </TouchableOpacity>
   );
@@ -2195,75 +1549,99 @@ function ManageBtn({
 
 // ── Styles ─────────────────────────────────────────────────────────────────
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.white },
+const st = StyleSheet.create({
+  container: { flex: 1, backgroundColor: FB_BG },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
-  cover: { width: "100%", height: 180 },
-  coverPlaceholder: {
-    backgroundColor: colors.surface,
-    justifyContent: "center",
+
+  loadingCover: { width: "100%", height: COVER_HEIGHT, position: "relative" },
+  backLinkBtn: { marginTop: 16, paddingHorizontal: 24, paddingVertical: 10, borderRadius: 24, borderWidth: 1, borderColor: FB_BLUE },
+
+  // Hero
+  heroSection: { position: "relative" },
+  cover: { width: "100%", height: COVER_HEIGHT },
+  coverGradient: { position: "absolute", top: 0, left: 0, right: 0, height: 80 },
+  coverBackBtn: {
+    position: "absolute",
+    top: 12,
+    left: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(0,0,0,0.45)",
     alignItems: "center",
+    justifyContent: "center",
+  },
+  coverEditBtn: {
+    position: "absolute",
+    top: 12,
+    right: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
   },
 
-  profileCard: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md },
-  avatarRow: { marginTop: -40 },
+  // Profile card
+  profileCard: {
+    backgroundColor: colors.white,
+    marginBottom: 8,
+    paddingBottom: 4,
+  },
+  avatarRow: {
+    paddingHorizontal: 16,
+    marginTop: -44,
+    marginBottom: 8,
+  },
   avatarWrap: {
-    borderWidth: 3,
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    borderWidth: 4,
     borderColor: colors.white,
-    borderRadius: 44,
-    alignSelf: "flex-start",
     overflow: "hidden",
+    backgroundColor: colors.zalo50,
   },
-  avatar: { width: 80, height: 80, borderRadius: 40 },
-  avatarFallback: {
-    backgroundColor: colors.surface,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  nameBlock: { marginTop: spacing.sm },
-  pageName: { fontSize: 18, fontWeight: "700", color: colors.text },
-  pageUsername: { fontSize: 13, color: colors.textMuted, marginTop: 2 },
+  avatar: { width: "100%", height: "100%" },
+  avatarFallback: { backgroundColor: colors.zalo50, justifyContent: "center", alignItems: "center" },
+
+  nameSection: { paddingHorizontal: 16, paddingBottom: 12 },
+  pageName: { fontSize: 22, fontWeight: "800", color: colors.text },
+  pageHandle: { fontSize: 14, color: colors.textMuted, marginTop: 2 },
   categoryChip: {
     alignSelf: "flex-start",
-    marginTop: 4,
+    marginTop: 6,
     paddingHorizontal: 10,
     paddingVertical: 3,
-    backgroundColor: colors.primary + "15",
+    backgroundColor: colors.zalo50,
     borderRadius: 12,
   },
-  categoryText: { fontSize: 12, color: colors.primary, fontWeight: "600" },
-  statusRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginTop: 4,
-  },
-  statusText: { fontSize: 12, color: colors.textMuted },
-  description: {
-    fontSize: 14,
-    color: colors.textMuted,
-    lineHeight: 20,
-    marginTop: 8,
-  },
+  categoryText: { fontSize: 12, color: FB_BLUE, fontWeight: "600" },
+  metaLine: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 8 },
+  metaText: { fontSize: 13, color: colors.textMuted },
+  description: { fontSize: 14, color: colors.text, lineHeight: 20, marginTop: 10 },
 
   statsRow: {
     flexDirection: "row",
-    marginTop: spacing.md,
-    paddingVertical: spacing.md,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
+    marginHorizontal: 16,
+    paddingVertical: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
+    marginBottom: 12,
   },
   statItem: { flex: 1, alignItems: "center" },
-  statNumber: { fontSize: 16, fontWeight: "700", color: colors.text },
+  statNumber: { fontSize: 18, fontWeight: "800", color: colors.text },
   statLabel: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
-  statDivider: { width: 1, backgroundColor: colors.border },
+  statSep: { width: StyleSheet.hairlineWidth, backgroundColor: colors.border },
 
   actionsRow: {
     flexDirection: "row",
-    marginTop: spacing.md,
-    gap: spacing.sm,
     flexWrap: "wrap",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingBottom: 14,
   },
   actionBtn: {
     flexDirection: "row",
@@ -2275,91 +1653,91 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  actionBtnText: { fontSize: 13, fontWeight: "600" },
-  joinBtn: { backgroundColor: colors.primary, borderColor: colors.primary },
-  pendingBtn: { backgroundColor: "#FEF3C7", borderColor: "#F59E0B" },
-  memberBtn: { backgroundColor: "#D1FAE5", borderColor: colors.success },
-  outlineBtn: { backgroundColor: colors.white, borderColor: colors.border },
-  activeBtn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  actionBtnText: { fontSize: 13, fontWeight: "700" },
+  outlineBtn: { backgroundColor: "#F0F2F5", borderColor: "#E0E0E0" },
+  activePrimaryBtn: { backgroundColor: FB_BLUE, borderColor: FB_BLUE },
+  activeGreenBtn: { backgroundColor: colors.success, borderColor: colors.success },
+  joinBtn: { backgroundColor: FB_BLUE, borderColor: FB_BLUE },
+  pendingBtn: { backgroundColor: "#FEF3C7", borderColor: "#FCD34D" },
 
+  // Tab bar
   tabBar: {
     flexDirection: "row",
-    borderTopWidth: 1,
+    backgroundColor: colors.white,
     borderBottomWidth: 1,
-    borderColor: colors.border,
+    borderBottomColor: colors.border,
+    marginBottom: 8,
   },
   tab: {
     flex: 1,
-    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 5,
     paddingVertical: 12,
+    borderBottomWidth: 3,
+    borderBottomColor: "transparent",
   },
-  tabActive: { borderBottomWidth: 2, borderBottomColor: colors.primary },
-  tabText: { fontSize: 12, fontWeight: "500", color: colors.textMuted },
-  tabTextActive: { color: colors.primary, fontWeight: "700" },
+  tabActive: { borderBottomColor: FB_BLUE },
+  tabText: { fontSize: 13, fontWeight: "600", color: colors.textMuted },
+  tabTextActive: { color: FB_BLUE, fontWeight: "700" },
 
+  tabContent: { paddingHorizontal: 12, paddingTop: 4 },
+
+  // Cards
   card: {
     backgroundColor: colors.white,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderRadius: 12,
     padding: 16,
-    marginBottom: 12,
-  },
-  cardTitle: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: colors.text,
     marginBottom: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
   },
+  cardTitle: { fontSize: 16, fontWeight: "700", color: colors.text, marginBottom: 12 },
   cardHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 10,
+    marginBottom: 12,
   },
 
-  ownerRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  ownerAvatar: { width: 36, height: 36, borderRadius: 18 },
-  ownerName: { fontSize: 14, fontWeight: "600", color: colors.text },
+  ownerRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  ownerAvatar: { width: 42, height: 42, borderRadius: 21 },
+  ownerName: { fontSize: 14, fontWeight: "700", color: colors.text },
+  ownerSub: { fontSize: 12, color: colors.textMuted, marginTop: 1 },
 
-  requestRow: {
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderColor: colors.border,
-  },
-  reqAvatar: { width: 40, height: 40, borderRadius: 20 },
+  requestRow: { paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  reqAvatar: { width: 42, height: 42, borderRadius: 21 },
 
   memberRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
     paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderColor: colors.border,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
   },
-  memberAvatar: { width: 42, height: 42, borderRadius: 21 },
-  memberName: { fontSize: 14, fontWeight: "600", color: colors.text },
+  memberAvatar: { width: 46, height: 46, borderRadius: 23 },
+  memberName: { fontSize: 14, fontWeight: "700", color: colors.text },
   memberSub: { fontSize: 12, color: colors.textMuted, marginTop: 1 },
   roleBadge: {
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 8,
-    backgroundColor: colors.surface,
+    borderRadius: 10,
+    backgroundColor: colors.zalo50,
   },
-  roleBadgeText: { fontSize: 11, color: colors.textMuted, fontWeight: "500" },
+  roleBadgeText: { fontSize: 11, color: FB_BLUE, fontWeight: "600" },
 
-  emptyBlock: { alignItems: "center", paddingVertical: 30 },
-  emptyText: { color: colors.textMuted, marginTop: 8, fontSize: 14 },
+  emptyBlock: { alignItems: "center", paddingVertical: 32 },
+  emptyText: { color: colors.textMuted, marginTop: 8, fontSize: 13, textAlign: "center" },
 
   smallBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 4,
-    paddingVertical: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     borderRadius: 8,
   },
   smallBtnText: { fontSize: 13, fontWeight: "600" },
@@ -2368,50 +1746,90 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 5,
+    gap: 4,
     paddingVertical: 8,
     borderRadius: 8,
   },
   bulkBtnText: { fontSize: 13, fontWeight: "600" },
 
-  postCard: {
-    backgroundColor: colors.surface,
+  // Pending post card
+  pendingPostCard: {
+    backgroundColor: "#FFFBEB",
     borderRadius: 12,
     padding: 12,
     marginBottom: 10,
     borderWidth: 1,
-    borderColor: colors.border,
+  },
+
+  // Facebook-style post card
+  fbPostCard: {
+    backgroundColor: colors.white,
+    borderRadius: 12,
+    marginBottom: 10,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
   },
   postHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    marginBottom: 8,
+    padding: 14,
+    paddingBottom: 8,
   },
-  postAvatar: { width: 36, height: 36, borderRadius: 18 },
-  postAuthor: { fontSize: 14, fontWeight: "600", color: colors.text },
-  postDate: { fontSize: 11, color: colors.textMuted },
-  postContent: { fontSize: 14, color: colors.text, lineHeight: 20 },
-  postImagePreview: {
-    width: "100%",
-    height: 160,
-    borderRadius: 10,
-    marginTop: 8,
+  postAvatar: { width: 38, height: 38, borderRadius: 19 },
+  postAuthor: { fontSize: 14, fontWeight: "700", color: colors.text },
+  postDate: { fontSize: 12, color: colors.textMuted, marginTop: 1 },
+  postContent: { fontSize: 15, color: colors.text, lineHeight: 22, paddingBottom: 10 },
+  postImagePreview: { width: "100%", height: 180, borderRadius: 10, marginTop: 8 },
+  postStatsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
   },
+  postStatText: { fontSize: 13, color: colors.textMuted },
 
-  overlay: {
-    flex: 1,
-    justifyContent: "flex-end",
-    backgroundColor: "rgba(0,0,0,0.4)",
+  // Create post prompt
+  createPostPrompt: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: colors.white,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
   },
+  promptAvatar: { width: 38, height: 38, borderRadius: 19 },
+  promptInput: {
+    flex: 1,
+    backgroundColor: FB_BG,
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+  },
+  promptText: { fontSize: 15, color: colors.textMuted },
+
+  // Modals
+  overlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.45)" },
   sheet: {
     backgroundColor: colors.white,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     paddingTop: 8,
   },
   dragBar: {
-    width: 40,
+    width: 36,
     height: 4,
     borderRadius: 2,
     backgroundColor: colors.border,
@@ -2424,25 +1842,20 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 20,
     paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderColor: colors.border,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
   },
-  sheetTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
-  sheetCancel: { fontSize: 15, color: colors.textMuted },
-  sheetSave: { fontSize: 15, fontWeight: "700", color: colors.primary },
+  sheetTitle: { fontSize: 17, fontWeight: "700", color: colors.text },
+  sheetCancel: { fontSize: 15, color: colors.textMuted, fontWeight: "500" },
+  sheetSave: { fontSize: 15, fontWeight: "700", color: FB_BLUE },
 
   postInput: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 15,
+    fontSize: 16,
     color: colors.text,
-    height: 120,
+    minHeight: 100,
     textAlignVertical: "top",
-    marginTop: 14,
+    paddingTop: 12,
+    lineHeight: 22,
   },
   imagePickerRow: {
     flexDirection: "row",
@@ -2452,7 +1865,7 @@ const styles = StyleSheet.create({
     marginTop: 14,
     paddingVertical: 14,
     borderRadius: 12,
-    backgroundColor: colors.surface,
+    backgroundColor: FB_BG,
     borderWidth: 1.5,
     borderStyle: "dashed",
     borderColor: colors.border,
@@ -2466,22 +1879,21 @@ const styles = StyleSheet.create({
     padding: 5,
   },
 
-  searchInput: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 15,
-    color: colors.text,
+  memberSearchBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: FB_BG,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
   },
   userRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
     padding: 12,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.white,
     borderRadius: 12,
     marginBottom: 8,
     borderWidth: 1.5,
@@ -2490,32 +1902,32 @@ const styles = StyleSheet.create({
   checkbox: {
     width: 22,
     height: 22,
-    borderRadius: 6,
+    borderRadius: 11,
     borderWidth: 2,
     borderColor: colors.border,
     alignItems: "center",
     justifyContent: "center",
   },
-  userAvatar: { width: 40, height: 40, borderRadius: 20 },
+  userAvatar: { width: 42, height: 42, borderRadius: 21 },
   selectedChip: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
     paddingLeft: 10,
-    paddingRight: 4,
+    paddingRight: 6,
     paddingVertical: 6,
-    backgroundColor: colors.primary + "20",
+    backgroundColor: colors.zalo50,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: colors.primary,
+    borderColor: FB_BLUE,
   },
   roleChip: {
     paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 10,
+    borderRadius: 20,
     borderWidth: 1.5,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
+    borderColor: FB_BLUE,
+    backgroundColor: colors.zalo50,
   },
-  roleChipText: { fontSize: 13, fontWeight: "500", color: colors.textMuted },
+  roleChipText: { fontSize: 13, fontWeight: "500", color: FB_BLUE },
 });

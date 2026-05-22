@@ -220,8 +220,10 @@ export default function PagePostsApprovalScreen() {
                     contentContainerStyle={styles.list}
                     ListEmptyComponent={
                         <View style={styles.emptyContainer}>
-                            <Ionicons name="checkmark-circle-outline" size={60} color="#D1D5DB" />
-                            <Text style={styles.emptyText}>Không có bài viết chờ duyệt</Text>
+                            <View style={styles.emptyIconCircle}>
+                                <Ionicons name="checkmark-circle-outline" size={40} color={colors.primary} />
+                            </View>
+                            <Text style={styles.emptyText}>Khong co bai viet cho duyet</Text>
                         </View>
                     }
                 />
@@ -231,32 +233,41 @@ export default function PagePostsApprovalScreen() {
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background },
+    container: { flex: 1, backgroundColor: "#F5F5F5" },
     header: {
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
         paddingHorizontal: 16,
         paddingVertical: 12,
+        backgroundColor: colors.white,
         borderBottomWidth: 1,
         borderBottomColor: colors.border,
     },
     backButton: { padding: 8 },
     headerTitle: { fontSize: 18, fontWeight: "700", color: colors.text },
-    approveAllBtn: { padding: 8 },
-    approveAllText: { fontSize: 14, fontWeight: "600", color: colors.primary },
+    approveAllBtn: {
+        paddingHorizontal: 14,
+        paddingVertical: 7,
+        borderRadius: 20,
+        backgroundColor: colors.zalo50,
+    },
+    approveAllText: { fontSize: 13, fontWeight: "600", color: colors.primary },
     approveAllDisabled: { color: colors.textMuted },
 
     center: { flex: 1, justifyContent: "center", alignItems: "center" },
-    list: { padding: spacing.md },
+    list: { padding: 14 },
 
     card: {
-        backgroundColor: colors.background,
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: colors.border,
-        marginBottom: spacing.md,
+        backgroundColor: colors.white,
+        borderRadius: 16,
+        marginBottom: 12,
         overflow: "hidden",
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 8,
+        elevation: 3,
     },
     authorRow: {
         flexDirection: "row",
@@ -264,12 +275,12 @@ const styles = StyleSheet.create({
         padding: 12,
         gap: 10,
     },
-    avatar: { width: 38, height: 38, borderRadius: 19 },
+    avatar: { width: 40, height: 40, borderRadius: 20 },
     avatarFallback: {
-        width: 38,
-        height: 38,
-        borderRadius: 19,
-        backgroundColor: colors.surface,
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: colors.zalo50,
         alignItems: "center",
         justifyContent: "center",
     },
@@ -285,8 +296,11 @@ const styles = StyleSheet.create({
         paddingBottom: 10,
     },
     postImage: {
-        width: "100%",
+        width: "auto",
         height: 200,
+        borderRadius: 12,
+        marginHorizontal: 12,
+        marginBottom: 10,
         backgroundColor: colors.surface,
     },
 
@@ -294,8 +308,6 @@ const styles = StyleSheet.create({
         flexDirection: "row",
         gap: 8,
         padding: 12,
-        borderTopWidth: 1,
-        borderTopColor: colors.border,
     },
     actionBtn: {
         flex: 1,
@@ -303,18 +315,26 @@ const styles = StyleSheet.create({
         alignItems: "center",
         justifyContent: "center",
         gap: 6,
-        paddingVertical: 9,
-        borderRadius: 8,
+        paddingVertical: 10,
+        borderRadius: 20,
     },
-    approveBtn: { backgroundColor: colors.success },
+    approveBtn: { backgroundColor: colors.primary },
     approveBtnText: { fontSize: 13, fontWeight: "600", color: "#fff" },
     removeBtn: {
-        backgroundColor: "#FEF2F2",
+        backgroundColor: "#FEE2E2",
         borderWidth: 1,
-        borderColor: colors.danger,
+        borderColor: "#FECACA",
     },
     removeBtnText: { fontSize: 13, fontWeight: "600", color: colors.danger },
 
     emptyContainer: { alignItems: "center", paddingTop: 80 },
+    emptyIconCircle: {
+        width: 80,
+        height: 80,
+        borderRadius: 40,
+        backgroundColor: colors.zalo50,
+        alignItems: "center",
+        justifyContent: "center",
+    },
     emptyText: { marginTop: 16, fontSize: 15, color: colors.textMuted },
 });
