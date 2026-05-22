@@ -1,5 +1,6 @@
 import apiClient from "@/api/apiClient";
 import type {
+    AddGroupMembersWithInvitesRequest,
     AddGroupMembersRequest,
     ApiResponse,
     BulkPresignedRequest,
@@ -10,6 +11,7 @@ import type {
     ConversationSidebar,
     ConversationMember,
     CreatePollRequest,
+    CreateGroupWithInvitesRequest,
     CreateGroupRequest,
     CursorResponse,
     LocalUploadFile,
@@ -344,12 +346,39 @@ const chatService = {
         );
     },
 
+    async createGroupConversationWithInvites(
+        request: CreateGroupWithInvitesRequest,
+    ): Promise<Conversation> {
+        const response = await apiClient.post(
+            "/conversations/group-with-invites",
+            request,
+        );
+
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
     async addMembersToGroup(
         conversationId: number,
         request: AddGroupMembersRequest,
     ): Promise<Conversation> {
         const response = await apiClient.post(
             `/conversations/${conversationId}/members`,
+            request,
+        );
+
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async addMembersToGroupWithInvites(
+        conversationId: number,
+        request: AddGroupMembersWithInvitesRequest,
+    ): Promise<Conversation> {
+        const response = await apiClient.post(
+            `/conversations/${conversationId}/members-with-invites`,
             request,
         );
 

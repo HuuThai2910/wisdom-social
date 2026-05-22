@@ -24,7 +24,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Audio, type AVPlaybackStatus, ResizeMode, Video } from "expo-av";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, usePreventRemove } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Alert,
@@ -139,13 +139,23 @@ export default function MessagesConversationScreen() {
     const conversationId = Number(conversationIdParam ?? 0);
     const router = useRouter();
     const insets = useSafeAreaInsets();
+    const redirectingBackToMessagesRef = useRef(false);
+    const [redirectingBackToMessages, setRedirectingBackToMessages] =
+        useState(false);
+    const goBackToMessagesRoot = useCallback(() => {
+        if (redirectingBackToMessagesRef.current) return;
+        redirectingBackToMessagesRef.current = true;
+        setRedirectingBackToMessages(true);
+        router.replace("/(tabs)/activity");
+    }, [router]);
+
     const handleBackPress = useCallback(() => {
         if (backToMessages === "1") {
-            router.replace("/(tabs)/activity");
+            goBackToMessagesRoot();
             return;
         }
         router.back();
-    }, [backToMessages, router]);
+    }, [backToMessages, goBackToMessagesRoot, router]);
 
     useEffect(() => {
         if (backToMessages !== "1") return;
@@ -153,13 +163,18 @@ export default function MessagesConversationScreen() {
         const subscription = BackHandler.addEventListener(
             "hardwareBackPress",
             () => {
-                router.replace("/(tabs)/activity");
+                goBackToMessagesRoot();
                 return true;
             },
         );
 
         return () => subscription.remove();
-    }, [backToMessages, router]);
+    }, [backToMessages, goBackToMessagesRoot]);
+
+    usePreventRemove(
+        backToMessages === "1" && !redirectingBackToMessages,
+        goBackToMessagesRoot,
+    );
     const handleAccessBlocked = useCallback(() => {
         router.replace("/(tabs)/activity");
     }, [router]);
@@ -201,7 +216,6 @@ export default function MessagesConversationScreen() {
         loading,
         loadingMore,
         loadingNewer,
-        hasMoreOlder,
         hasMoreNewer,
         isHistoricalMode,
         sending,
@@ -341,6 +355,7 @@ export default function MessagesConversationScreen() {
     const isAtBottomRef = useRef(true);
     const stickToBottomRef = useRef(true);
     const didInitialAutoScrollRef = useRef(false);
+    const userHasDraggedListRef = useRef(false);
     const listLayoutRef = useRef({ y: 0, height: 0 });
     const scrollMetricsRef = useRef({
         contentHeight: 0,
@@ -1051,6 +1066,7 @@ export default function MessagesConversationScreen() {
         isAtBottomRef.current = true;
         stickToBottomRef.current = true;
         didInitialAutoScrollRef.current = false;
+        userHasDraggedListRef.current = false;
         setShowScrollToBottomButton(false);
         setPendingNewMessages(0);
         rightScrollCueVisibleRef.current = false;
@@ -1076,6 +1092,7 @@ export default function MessagesConversationScreen() {
         if (jumpScrollLockRef.current) return;
 
         didInitialAutoScrollRef.current = true;
+        autoPagingSuppressedUntilRef.current = Date.now() + 500;
         stickToBottomRef.current = true;
         isAtBottomRef.current = true;
         forceScrollToBottom(false);
@@ -1169,6 +1186,7 @@ export default function MessagesConversationScreen() {
 
     const handleListScrollBeginDrag = useCallback(
         (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+            userHasDraggedListRef.current = true;
             autoPagingSuppressedUntilRef.current = 0;
             const distanceFromBottom =
                 event.nativeEvent.contentSize.height -
@@ -1546,7 +1564,11 @@ export default function MessagesConversationScreen() {
         };
         updateRightScrollCuePosition();
 
-        if (event.nativeEvent.contentOffset.y <= LOAD_OLDER_TRIGGER_PX) {
+        if (
+            userHasDraggedListRef.current &&
+            didInitialAutoScrollRef.current &&
+            event.nativeEvent.contentOffset.y <= LOAD_OLDER_TRIGGER_PX
+        ) {
             if (!isAutoPagingSuppressed) {
                 void loadOlderMessages();
             } else if (now - autoPagingSuppressLogAtRef.current > 700) {

@@ -37,6 +37,7 @@ import SelectGroupMembersModal from "../components/message/SelectGroupMembersMod
 import { useGroupManagement } from "../hooks/useGroupManagement";
 import { useMessagesController } from "../hooks/useMessagesController";
 import { useSidebarLayout } from "../hooks/useSidebarLayout";
+import { useAuth } from "../contexts/AuthContext";
 import chatService, { type ChatUserSearchResult, type Message } from "../services/chatService";
 import chatRuntimeStore from "../stores/chatRuntimeStore";
 import { buildConversationLastMessagePreview } from "../utils/conversationLastMessagePreview";
@@ -115,6 +116,7 @@ function isCurrentUserRemovedFromConversation(
 export default function Messages() {
     const INFO_PANEL_WIDTH = 352;
     const { sidebarWidth } = useSidebarLayout();
+    const { currentUser } = useAuth();
     const {
         searchQuery,
         setSearchQuery,
@@ -2094,6 +2096,11 @@ export default function Messages() {
                 friendsError={friendsError}
                 submitting={isCreatingGroup}
                 error={actionError}
+                currentUserName={
+                    currentUser?.fullName ||
+                    currentUser?.name ||
+                    currentUser?.username
+                }
                 onClose={closeCreateGroupModal}
                 onSubmit={createGroup}
             />

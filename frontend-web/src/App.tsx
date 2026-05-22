@@ -12,6 +12,7 @@ import { AvatarProvider } from "./context/AvatarContext";
 import { FriendNotificationProvider } from "./contexts/FriendNotificationContext";
 import { NotificationProvider } from "./contexts/NotificationContext";
 import FriendDataProvider from "./contexts/FriendDataContext";
+import { ChatUnreadProvider } from "./contexts/ChatUnreadContext";
 import MainLayout from "./components/layout/MainLayout";
 import PublicLayout from "./components/layout/PublicLayout";
 import RequireAuth from "./components/auth/RequireAuth";
@@ -93,6 +94,7 @@ function App() {
           <FriendDataProvider>
             <FriendNotificationProvider>
               <NotificationProvider>
+              <ChatUnreadProvider>
                 <Toaster
                 position="top-right"
                 toastOptions={{
@@ -177,6 +179,7 @@ function App() {
                 </Routes>
               )}
 
+              </ChatUnreadProvider>
               </NotificationProvider>
             </FriendNotificationProvider>
           </FriendDataProvider>

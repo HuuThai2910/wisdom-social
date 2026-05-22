@@ -50,6 +50,7 @@ const GROUP_SYSTEM_MEMBER_SYNC_TYPES = new Set<Message["type"]>([
     "SYSTEM_UPDATE_SETTING",
     "SYSTEM_REQUIRE_APPROVAL",
     "SYSTEM_JOIN_VIA_LINK",
+    "SYSTEM_GROUP_INVITE_LINK_SENT",
 ]);
 
 export interface ReadReceipt {

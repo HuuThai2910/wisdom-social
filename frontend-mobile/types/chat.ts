@@ -9,6 +9,7 @@ export interface ApiResponse<T> {
 
 export type MessageType =
     | "TEXT"
+    | "LINK"
     | "IMAGE"
     | "VIDEO"
     | "FILE"
@@ -32,7 +33,8 @@ export type MessageType =
     | "SYSTEM_UPDATE_SETTING"
     | "SYSTEM_REQUIRE_APPROVAL"
     | "SYSTEM_JOIN_VIA_LINK"
-    | "SYSTEM_MEMBER_BLOCKED_FROM_JOIN";
+    | "SYSTEM_MEMBER_BLOCKED_FROM_JOIN"
+    | "SYSTEM_GROUP_INVITE_LINK_SENT";
 
 export type MemberRole = "OWNER" | "DEPUTY" | "MEMBER";
 
@@ -278,8 +280,16 @@ export interface CreateGroupRequest {
     memberIds: number[];
 }
 
+export interface CreateGroupWithInvitesRequest extends CreateGroupRequest {
+    inviteeUserIds: number[];
+}
+
 export interface AddGroupMembersRequest {
     newMemberIds: number[];
+}
+
+export interface AddGroupMembersWithInvitesRequest extends AddGroupMembersRequest {
+    inviteeUserIds: number[];
 }
 
 export interface PresignedUrlResponse {

@@ -8,6 +8,7 @@ import {
 import { colors, spacing } from "@/constants";
 import { useGroupManagement } from "@/hooks/useGroupManagement";
 import { useMessagesController } from "@/hooks/useMessagesController";
+import { useAppContext } from "@/context/AppContext";
 import chatService from "@/services/chatService";
 import type { ChatUserSearchResult } from "@/types/chat";
 import { buildConversationDisplayInfo } from "@/utils/conversationDisplayInfo";
@@ -160,6 +161,7 @@ function isCurrentUserRemovedFromConversation(
 export default function MessagesListScreen() {
     const router = useRouter();
     const segments = useSegments();
+    const { currentUser } = useAppContext();
     const { refreshAt, pendingJoinNotice } = useLocalSearchParams<{
         refreshAt?: string;
         pendingJoinNotice?: string;
@@ -727,6 +729,11 @@ export default function MessagesListScreen() {
                 friendsError={friendsError}
                 submitting={isCreatingGroup}
                 error={actionError}
+                currentUserName={
+                    currentUser?.fullName ||
+                    currentUser?.name ||
+                    currentUser?.username
+                }
                 onClose={closeCreateGroupModal}
                 onSubmit={createGroup}
             />

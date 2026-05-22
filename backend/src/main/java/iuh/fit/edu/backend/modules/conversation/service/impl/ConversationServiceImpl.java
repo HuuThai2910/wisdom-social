@@ -9,9 +9,11 @@ import iuh.fit.edu.backend.modules.conversation.dto.response.*;
 import iuh.fit.edu.backend.modules.conversation.entity.Conversation;
 import iuh.fit.edu.backend.modules.conversation.entity.ConversationMember;
 import iuh.fit.edu.backend.modules.conversation.dto.request.CreateGroupRequest;
+import iuh.fit.edu.backend.modules.conversation.dto.request.CreateGroupWithInvitesRequest;
 import iuh.fit.edu.backend.modules.chat.dto.response.MessageSeenResponse;
 import iuh.fit.edu.backend.modules.conversation.event.payload.ConversationCreatedEvent;
 import iuh.fit.edu.backend.modules.conversation.event.payload.ConversationUpdatedEvent;
+import iuh.fit.edu.backend.modules.conversation.event.payload.GroupInviteLinkDispatchEvent;
 import iuh.fit.edu.backend.modules.chat.event.payload.MessageSeenEvent;
 import iuh.fit.edu.backend.common.exception.ConversationAccessDeniedException;
 import iuh.fit.edu.backend.common.exception.ConversationMemberKickedException;
@@ -30,6 +32,8 @@ import iuh.fit.edu.backend.modules.conversation.service.ConversationMemberCacheS
 import iuh.fit.edu.backend.modules.conversation.service.ConversationMemberService;
 import iuh.fit.edu.backend.modules.conversation.service.ConversationService;
 import iuh.fit.edu.backend.modules.chat.service.InternalMessageService;
+import iuh.fit.edu.backend.modules.user.constant.FriendStatus;
+import iuh.fit.edu.backend.modules.user.repository.FriendRepository;
 import iuh.fit.edu.backend.common.util.TransactionUtil;
 import iuh.fit.edu.backend.common.util.heplper.ChatSnapshotHelper;
 import lombok.RequiredArgsConstructor;
@@ -65,6 +69,7 @@ public class ConversationServiceImpl implements ConversationService {
     private final ChatSnapshotHelper chatSnapshotHelper;
     private final GroupJoinRequestService groupJoinRequestService;
     private final MediaUrlBuilder mediaUrlBuilder;
+    private final FriendRepository friendRepository;
 
 
     @Override
@@ -119,17 +124,63 @@ public class ConversationServiceImpl implements ConversationService {
     @Transactional(rollbackFor = Exception.class)
     @Override
     public ConversationResponse createGroup(CreateGroupRequest request, Long creatorId) {
+        return createGroupInternal(request.getName(), request.getImageUrl(), request.getMemberIds(), creatorId, 2);
+    }
 
-        Set<Long> targetMemberIds = new HashSet<>(request.getMemberIds());
+    @Transactional(rollbackFor = Exception.class)
+    @Override
+    public ConversationResponse createGroupWithInvites(CreateGroupWithInvitesRequest request, Long creatorId) {
+        Set<Long> directMemberIds = normalizeIds(request.getMemberIds(), creatorId);
+        Set<Long> inviteeUserIds = normalizeIds(request.getInviteeUserIds(), creatorId);
+        inviteeUserIds.removeAll(directMemberIds);
+
+        if (directMemberIds.isEmpty()) {
+            throw new IllegalArgumentException("Phai chon it nhat 1 ban be de tao nhom");
+        }
+        if (inviteeUserIds.isEmpty()) {
+            throw new IllegalArgumentException("Danh sach nguoi nhan link moi khong duoc trong");
+        }
+        if (directMemberIds.size() + inviteeUserIds.size() < 2) {
+            throw new IllegalArgumentException("Phai chon it nhat 2 nguoi de tao nhom");
+        }
+
+        validateAcceptedFriends(creatorId, directMemberIds, "Chi co the them truc tiep ban be vao nhom");
+        validateStrangerInvitees(creatorId, inviteeUserIds);
+
+        ConversationResponse created = createGroupInternal(
+                request.getName(),
+                request.getImageUrl(),
+                directMemberIds,
+                creatorId,
+                1
+        );
+
+        String inviteToken = ensureInviteToken(created.getId());
+        publishInviteLinkSystemMessage(created.getId(), creatorId, inviteeUserIds);
+        eventPublisher.publishEvent(new GroupInviteLinkDispatchEvent(
+                creatorId,
+                created.getId(),
+                inviteToken,
+                inviteeUserIds
+        ));
+
+        return getConversationById(created.getId(), creatorId);
+    }
+
+    private ConversationResponse createGroupInternal(
+            String name,
+            String requestedImageUrl,
+            Set<Long> memberIds,
+            Long creatorId,
+            int minDirectMembers) {
+
+        Set<Long> targetMemberIds = new HashSet<>(memberIds);
         targetMemberIds.remove(creatorId); // Đề phòng FE vô tình gửi kèm ID của người tạo
-        if (targetMemberIds.size() < 2) {
+        if (targetMemberIds.size() < minDirectMembers) {
             throw new IllegalArgumentException("Nhóm phải có ít nhất 3 thành viên (bao gồm bạn)");
         }
 
-        String imageUrl = request.getImageUrl() != null ? request.getImageUrl() : "users/group.png";
-        if(request.getImageUrl() == null){
-            request.setImageUrl("users/group.png");
-        }
+        String imageUrl = requestedImageUrl != null ? requestedImageUrl : "users/group.png";
         // Set tổng hợp tất cả ID
         Set<Long> allMemberIds = new HashSet<>(targetMemberIds);
         allMemberIds.add(creatorId);
@@ -137,7 +188,7 @@ public class ConversationServiceImpl implements ConversationService {
         // LƯU BẢNG CONVERSATION (MySQL)
         Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
 
-        Conversation savedConversation = initializeNewConversation(request.getName(), imageUrl, now);
+        Conversation savedConversation = initializeNewConversation(name, imageUrl, now);
 
 
         // LƯU BẢNG CONVERSATION MEMBER (MySQL - BATCH INSERT)
@@ -469,6 +520,88 @@ public class ConversationServiceImpl implements ConversationService {
 
     private String generateUniqueToken() {
         return java.util.UUID.randomUUID().toString().replace("-", "");
+    }
+
+    private Set<Long> normalizeIds(Set<Long> rawIds, Long actorId) {
+        Set<Long> ids = rawIds == null ? new HashSet<>() : new HashSet<>(rawIds);
+        ids.remove(null);
+        ids.remove(actorId);
+        return ids;
+    }
+
+    private void validateAcceptedFriends(Long currentUserId, Set<Long> targetIds, String message) {
+        for (Long targetId : targetIds) {
+            if (friendRepository.countAcceptedFriendship(
+                    currentUserId,
+                    targetId,
+                    FriendStatus.ACCEPTED.ordinal()
+            ) == 0) {
+                throw new IllegalArgumentException(message);
+            }
+        }
+    }
+
+    private void validateStrangerInvitees(Long currentUserId, Set<Long> inviteeUserIds) {
+        for (Long inviteeUserId : inviteeUserIds) {
+            if (!userRepository.existsById(inviteeUserId)) {
+                throw new IllegalArgumentException("Nguoi nhan link moi khong ton tai");
+            }
+            if (friendRepository.countAcceptedFriendship(
+                    currentUserId,
+                    inviteeUserId,
+                    FriendStatus.ACCEPTED.ordinal()
+            ) > 0) {
+                throw new IllegalArgumentException("Ban be nen duoc them truc tiep vao nhom");
+            }
+        }
+    }
+
+    private String ensureInviteToken(Long conversationId) {
+        Conversation conversation = conversationRepository.findById(conversationId)
+                .orElseThrow(() -> new RuntimeException("Khong tim thay cuoc tro chuyen"));
+        if (conversation.getInviteToken() == null || conversation.getInviteToken().isBlank()) {
+            conversation.setInviteToken(generateUniqueToken());
+            conversationRepository.save(conversation);
+        }
+        return conversation.getInviteToken();
+    }
+
+    private ConversationResponse publishInviteLinkSystemMessage(
+            Long conversationId,
+            Long actorId,
+            Set<Long> inviteeUserIds) {
+        Conversation conversation = conversationRepository.findById(conversationId)
+                .orElseThrow(() -> new RuntimeException("Khong tim thay cuoc tro chuyen"));
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        String content = chatSnapshotHelper.buildMemberSnapshotContent(inviteeUserIds);
+
+        internalMessageService.createSystemMessage(
+                conversationId,
+                actorId,
+                MessageType.SYSTEM_GROUP_INVITE_LINK_SENT,
+                content
+        );
+
+        String actorName = chatSnapshotHelper.resolveActorDisplayName(conversation, actorId);
+        conversation.setLastMessageContent(content);
+        conversation.setLastSenderId(actorId);
+        conversation.setLastMessageType(MessageType.SYSTEM_GROUP_INVITE_LINK_SENT);
+        conversation.setLastMessageAt(now);
+        conversation.setLastSenderName(actorName);
+        conversationRepository.save(conversation);
+
+        ConversationResponse response = conversationMapper.toConversationResponse(conversation, actorId);
+        if (response.getLastMessage() != null) {
+            response.getLastMessage().setLastSenderName(actorName);
+            response.getLastMessage().setRead(true);
+        }
+
+        Set<Long> memberIds = conversationMemberRepository.findUserIdsByConversationIdAndStatus(
+                conversationId,
+                ConversationMemberStatus.ACTIVE
+        );
+        eventPublisher.publishEvent(new ConversationUpdatedEvent(conversationId, response.getLastMessage(), memberIds));
+        return response;
     }
 
     private void updateConversationAndNotify(Conversation conv, Long requesterId, String content) {

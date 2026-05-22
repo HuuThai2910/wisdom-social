@@ -12,6 +12,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -97,6 +98,7 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
 
     // Tăng số tin nhắn chưa đọc cho tất cả các thành viên trong cuộc hội thoại (trừ người nhắn)
     @Modifying
+    @Transactional
     @Query("""
     UPDATE ConversationMember cu
     SET cu.unreadCount = cu.unreadCount + 1
@@ -109,6 +111,7 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
 
     // Đánh dấu đã đọc (Reset về 0)
     @Modifying
+    @Transactional
     @Query("UPDATE ConversationMember cu SET cu.unreadCount = 0 " +
             "WHERE cu.conversation.id = :conversationId AND cu.user.id = :userId")
     void resetUnreadCount(@Param("conversationId") Long conversationId,
@@ -117,6 +120,7 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
     // Reset isHidden về false khi có tin nhắn mới (để conversation hiện lại)
     // KHÔNG reset clearedAt - giữ nguyên để filter messages cũ
     @Modifying
+    @Transactional
     @Query("UPDATE ConversationMember cm SET cm.isHidden = false " +
             "WHERE cm.conversation.id = :conversationId AND cm.isHidden = true " +
             "AND cm.status = iuh.fit.edu.backend.modules.conversation.constant.ConversationMemberStatus.ACTIVE")

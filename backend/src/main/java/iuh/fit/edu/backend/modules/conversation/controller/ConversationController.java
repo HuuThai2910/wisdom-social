@@ -6,7 +6,9 @@ package iuh.fit.edu.backend.modules.conversation.controller;
 
 import iuh.fit.edu.backend.modules.conversation.constant.MemberRole;
 import iuh.fit.edu.backend.modules.conversation.dto.request.AddMemberRequest;
+import iuh.fit.edu.backend.modules.conversation.dto.request.AddMemberWithInvitesRequest;
 import iuh.fit.edu.backend.modules.conversation.dto.request.CreateGroupRequest;
+import iuh.fit.edu.backend.modules.conversation.dto.request.CreateGroupWithInvitesRequest;
 import iuh.fit.edu.backend.modules.conversation.dto.request.ResolveDirectConversationRequest;
 import iuh.fit.edu.backend.common.dto.response.CursorResponse;
 import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationMemberResponse;
@@ -140,6 +142,14 @@ public class ConversationController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
+    @PostMapping("/group-with-invites")
+    public ResponseEntity<ConversationResponse> createConversationWithInvites(
+            @Valid @RequestBody CreateGroupWithInvitesRequest request) {
+        Long userId = this.userService.getCurrentUser().getId();
+        ConversationResponse response = this.conversationService.createGroupWithInvites(request, userId);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
     @PostMapping("/direct/resolve")
     public ResponseEntity<ConversationResponse> resolveDirectConversation(
             @Valid @RequestBody ResolveDirectConversationRequest request) {
@@ -154,6 +164,15 @@ public class ConversationController {
     public ResponseEntity<ConversationResponse> addMembers(@PathVariable Long conversationId, @Valid @RequestBody AddMemberRequest request){
         Long userId = this.userService.getCurrentUser().getId();
         ConversationResponse response = this.memberService.addMembers(conversationId, request, userId);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/{conversationId}/members-with-invites")
+    public ResponseEntity<ConversationResponse> addMembersWithInvites(
+            @PathVariable Long conversationId,
+            @Valid @RequestBody AddMemberWithInvitesRequest request) {
+        Long userId = this.userService.getCurrentUser().getId();
+        ConversationResponse response = this.memberService.addMembersWithInvites(conversationId, request, userId);
         return ResponseEntity.ok(response);
     }
     @DeleteMapping("/{conversationId}/leave")

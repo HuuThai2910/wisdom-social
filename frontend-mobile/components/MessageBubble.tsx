@@ -96,6 +96,7 @@ const GROUP_SYSTEM_MESSAGE_TYPES = new Set<Message["type"]>([
     "SYSTEM_UPDATE_SETTING",
     "SYSTEM_REQUIRE_APPROVAL",
     "SYSTEM_JOIN_VIA_LINK",
+    "SYSTEM_GROUP_INVITE_LINK_SENT",
 ]);
 
 function isPollSystemType(type: Message["type"]): boolean {
@@ -704,7 +705,7 @@ export const MessageBubble = React.memo(
                       : replyPreviewContent || "Tin nhan";
         const trimmedContent = item.content?.trim() ?? "";
         const groupInviteToken =
-            item.type === "TEXT" && !item.isRecalled
+            (item.type === "TEXT" || item.type === "LINK") && !item.isRecalled
                 ? extractGroupInviteToken(trimmedContent)
                 : null;
         const messageIsEmojiOnly =
@@ -719,6 +720,7 @@ export const MessageBubble = React.memo(
             item.type !== "AUDIO" &&
             item.type !== "POLL" &&
             item.type !== "CALL" &&
+            item.type !== "LINK" &&
             item.type !== "SYSTEM_PIN" &&
             item.type !== "SYSTEM_UPIN" &&
             !GROUP_SYSTEM_MESSAGE_TYPES.has(item.type) &&
@@ -1036,7 +1038,8 @@ export const MessageBubble = React.memo(
                     | "SYSTEM_DISBAND_GROUP"
                     | "SYSTEM_UPDATE_SETTING"
                     | "SYSTEM_REQUIRE_APPROVAL"
-                    | "SYSTEM_JOIN_VIA_LINK",
+                    | "SYSTEM_JOIN_VIA_LINK"
+                    | "SYSTEM_GROUP_INVITE_LINK_SENT",
                 content: item.content,
                 isOwn: mine,
                 senderName: senderDisplayName,

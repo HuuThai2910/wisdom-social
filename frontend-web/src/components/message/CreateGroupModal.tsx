@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { ImagePlus, Loader2, Search, Users, X } from "lucide-react";
 import type { User } from "../../types";
 import { DEFAULT_AVATAR_URL } from "../../constants/ui";
-import chatService from "../../services/chatService";
+import chatService, { type ChatUserSearchResult } from "../../services/chatService";
 
 interface CreateGroupSubmitPayload {
     name: string;
     imageUrl?: string;
     memberIds: number[];
+    inviteeUserIds?: number[];
 }
 
 interface CreateGroupModalProps {
@@ -17,6 +18,7 @@ interface CreateGroupModalProps {
     friendsError: string | null;
     submitting: boolean;
     error: string | null;
+    currentUserName?: string;
     onClose: () => void;
     onSubmit: (payload: CreateGroupSubmitPayload) => Promise<boolean>;
 }
@@ -32,6 +34,7 @@ export default function CreateGroupModal({
     friendsError,
     submitting,
     error,
+    currentUserName,
     onClose,
     onSubmit,
 }: CreateGroupModalProps) {
@@ -41,6 +44,9 @@ export default function CreateGroupModal({
     const [imageUploading, setImageUploading] = useState(false);
     const [searchKeyword, setSearchKeyword] = useState("");
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
+    const [selectedInvitees, setSelectedInvitees] = useState<ChatUserSearchResult[]>([]);
+    const [phoneSearchResult, setPhoneSearchResult] = useState<ChatUserSearchResult | null>(null);
+    const [phoneSearchLoading, setPhoneSearchLoading] = useState(false);
 
     const resetForm = () => {
         setGroupName("");
@@ -49,6 +55,9 @@ export default function CreateGroupModal({
         setImageUploading(false);
         setSearchKeyword("");
         setSelectedIds([]);
+        setSelectedInvitees([]);
+        setPhoneSearchResult(null);
+        setPhoneSearchLoading(false);
     };
 
     const handleClose = () => {
@@ -71,6 +80,34 @@ export default function CreateGroupModal({
         });
     }, [friends, searchKeyword]);
 
+    const phoneSearchDigits = searchKeyword.replace(/\D/g, "");
+
+    useEffect(() => {
+        if (phoneSearchDigits.length !== 10) {
+            setPhoneSearchResult(null);
+            setPhoneSearchLoading(false);
+            return;
+        }
+
+        let cancelled = false;
+        setPhoneSearchLoading(true);
+        chatService
+            .searchChatUserByPhone(phoneSearchDigits)
+            .then((result) => {
+                if (!cancelled) setPhoneSearchResult(result);
+            })
+            .catch(() => {
+                if (!cancelled) setPhoneSearchResult(null);
+            })
+            .finally(() => {
+                if (!cancelled) setPhoneSearchLoading(false);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [phoneSearchDigits]);
+
     const groupImagePreviewUrl = useMemo(() => {
         return groupImageFile ? URL.createObjectURL(groupImageFile) : "";
     }, [groupImageFile]);
@@ -83,7 +120,14 @@ export default function CreateGroupModal({
         };
     }, [groupImagePreviewUrl]);
 
-    const canSubmit = selectedIds.length >= 2 && !submitting && !imageUploading;
+    const selectedInviteeIds = selectedInvitees.map((user) => user.userId);
+    const selectedCount = selectedIds.length + selectedInviteeIds.length;
+    const canSubmit =
+        !submitting &&
+        !imageUploading &&
+        (selectedInviteeIds.length > 0
+            ? selectedIds.length >= 1 && selectedCount >= 2
+            : selectedIds.length >= 2);
 
     const toggleSelectedId = (userId: number) => {
         setSelectedIds((prev) =>
@@ -91,6 +135,30 @@ export default function CreateGroupModal({
                 ? prev.filter((id) => id !== userId)
                 : [...prev, userId],
         );
+    };
+
+    const clearSearch = () => {
+        setSearchKeyword("");
+        setPhoneSearchResult(null);
+        setPhoneSearchLoading(false);
+    };
+
+    const togglePhoneSearchResult = (result: ChatUserSearchResult) => {
+        if (result.friendStatus === "FRIEND") {
+            toggleSelectedId(result.userId);
+            clearSearch();
+            return;
+        }
+        setSelectedInvitees((prev) =>
+            prev.some((user) => user.userId === result.userId)
+                ? prev.filter((user) => user.userId !== result.userId)
+                : [...prev, result],
+        );
+        clearSearch();
+    };
+
+    const removeInvitee = (userId: number) => {
+        setSelectedInvitees((prev) => prev.filter((user) => user.userId !== userId));
     };
 
     const handleSubmit = async () => {
@@ -104,8 +172,11 @@ export default function CreateGroupModal({
                 selectedIds.includes(f.id),
             );
 
-            finalName = selectedFriends
-                .map((f) => getFriendDisplayName(f))
+            finalName = [
+                currentUserName?.trim(),
+                ...selectedFriends.map((f) => getFriendDisplayName(f)),
+            ]
+                .filter((name): name is string => Boolean(name?.trim()))
                 .join(", ");
         }
 
@@ -137,6 +208,7 @@ export default function CreateGroupModal({
             name: finalName,
             imageUrl: uploadedImageKey,
             memberIds: selectedIds,
+            inviteeUserIds: selectedInviteeIds,
         });
         if (created) {
             resetForm();
@@ -232,9 +304,92 @@ export default function CreateGroupModal({
                                 setSearchKeyword(event.target.value)
                             }
                             placeholder="Tìm bạn bè để thêm vào nhóm"
-                            className="w-full rounded-lg border border-gray-200 bg-white py-2.5 pl-9 pr-3 text-sm text-gray-900 outline-none focus:border-blue-400 dark:border-[#2f2f2f] dark:bg-[#171717] dark:text-white"
+                            className="w-full rounded-lg border border-gray-200 bg-white py-2.5 pl-9 pr-10 text-sm text-gray-900 outline-none focus:border-blue-400 dark:border-[#2f2f2f] dark:bg-[#171717] dark:text-white"
                         />
+                        {searchKeyword && (
+                            <button
+                                type="button"
+                                onClick={clearSearch}
+                                className="absolute right-2 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-[#242424] dark:hover:text-gray-200"
+                                aria-label="Xoa tim kiem"
+                            >
+                                <X size={14} />
+                            </button>
+                        )}
                     </div>
+                    {phoneSearchLoading && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                            Dang tim nguoi dung theo so dien thoai...
+                        </p>
+                    )}
+                    {phoneSearchResult && (
+                        <button
+                            type="button"
+                            onClick={() => togglePhoneSearchResult(phoneSearchResult)}
+                            className="flex w-full items-center gap-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-left transition-colors hover:bg-blue-100 dark:border-blue-900/50 dark:bg-blue-950/20 dark:hover:bg-blue-950/40"
+                        >
+                            <img
+                                src={phoneSearchResult.avatarUrl || DEFAULT_AVATAR_URL}
+                                onError={(event) => {
+                                    event.currentTarget.src = DEFAULT_AVATAR_URL;
+                                }}
+                                alt={phoneSearchResult.name}
+                                className="h-9 w-9 rounded-full object-cover"
+                            />
+                            <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-medium text-gray-900 dark:text-white">
+                                    {phoneSearchResult.name}
+                                </p>
+                                <p className="truncate text-xs text-gray-500 dark:text-gray-400">
+                                    {phoneSearchResult.friendStatus === "FRIEND"
+                                        ? "Ban be - them truc tiep"
+                                        : "Nguoi la - gui link moi"}
+                                </p>
+                            </div>
+                            <span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-blue-700 ring-1 ring-blue-100 dark:bg-[#111] dark:text-blue-200 dark:ring-blue-900">
+                                {phoneSearchResult.friendStatus === "FRIEND"
+                                    ? selectedIds.includes(phoneSearchResult.userId)
+                                        ? "Da chon"
+                                        : "Chon"
+                                    : selectedInviteeIds.includes(phoneSearchResult.userId)
+                                      ? "Da moi"
+                                      : "Moi link"}
+                            </span>
+                        </button>
+                    )}
+                    {selectedInvitees.length > 0 && (
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-[#2f2f2f] dark:bg-[#171717]">
+                            <p className="mb-2 text-xs font-semibold text-gray-500 dark:text-gray-400">
+                                Nguoi la se nhan link moi
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                                {selectedInvitees.map((user) => (
+                                    <span
+                                        key={user.userId}
+                                        className="inline-flex max-w-[220px] items-center gap-2 rounded-full border border-slate-200 bg-white py-1 pl-1 pr-2 text-sm font-medium text-gray-800 dark:border-[#333] dark:bg-[#202020] dark:text-gray-100"
+                                    >
+                                        <img
+                                            src={user.avatarUrl || DEFAULT_AVATAR_URL}
+                                            onError={(event) => {
+                                                event.currentTarget.src = DEFAULT_AVATAR_URL;
+                                            }}
+                                            alt={user.name}
+                                            className="h-7 w-7 rounded-full object-cover"
+                                        />
+                                        <span className="truncate">{user.name}</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => removeInvitee(user.userId)}
+                                            className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-gray-500 hover:bg-slate-200 hover:text-gray-800 dark:bg-[#2b2b2b] dark:hover:bg-[#363636] dark:hover:text-white"
+                                            aria-label={`Bo moi ${user.name}`}
+                                        >
+                                            <X size={12} />
+                                        </button>
+                                    </span>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 <div className="min-h-0 flex-1 overflow-y-auto border-y border-gray-200 px-5 py-3 dark:border-[#2a2a2a]">
@@ -309,7 +464,7 @@ export default function CreateGroupModal({
 
                     <div className="flex items-center justify-between gap-3">
                         <p className="text-sm text-gray-600 dark:text-gray-300">
-                            Đã chọn {selectedIds.length} người
+                            Đã chọn {selectedIds.length} người, {selectedInviteeIds.length} người nhận link
                         </p>
                         <div className="flex items-center gap-2">
                             <button

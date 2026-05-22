@@ -85,6 +85,7 @@ const GROUP_SYSTEM_MESSAGE_TYPES = new Set<MessageType>([
     "SYSTEM_UPDATE_SETTING",
     "SYSTEM_REQUIRE_APPROVAL",
     "SYSTEM_JOIN_VIA_LINK",
+    "SYSTEM_GROUP_INVITE_LINK_SENT",
 ]);
 
 export function isGroupSystemType(
@@ -100,6 +101,7 @@ export function isGroupSystemType(
     | "SYSTEM_UPDATE_SETTING"
     | "SYSTEM_REQUIRE_APPROVAL"
     | "SYSTEM_JOIN_VIA_LINK"
+    | "SYSTEM_GROUP_INVITE_LINK_SENT"
     | "SYSTEM_POLL_CREATED"
     | "SYSTEM_POLL_VOTED"
     | "SYSTEM_POLL_CHANGED"
