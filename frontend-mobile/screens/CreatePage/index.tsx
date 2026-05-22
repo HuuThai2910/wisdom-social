@@ -16,13 +16,16 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { colors, spacing } from "@/constants";
+import { colors } from "@/constants";
 import pageService from "@/services/pageService";
 import type { CreatePageRequest, PageStatus } from "@/services/pageService";
 
-const STATUS_OPTIONS: { label: string; value: PageStatus; icon: string }[] = [
-    { label: "Công khai", value: "PUBLIC", icon: "earth-outline" },
-    { label: "Riêng tư", value: "PRIVATE", icon: "lock-closed-outline" },
+const FB_BG = "#F0F2F5";
+const FB_BLUE = colors.primary;
+
+const STATUS_OPTIONS: { label: string; value: PageStatus; icon: string; desc: string }[] = [
+    { label: "Công khai", value: "PUBLIC", icon: "earth-outline", desc: "Mọi người đều thấy và tham gia" },
+    { label: "Riêng tư", value: "PRIVATE", icon: "lock-closed-outline", desc: "Chỉ thành viên được duyệt" },
 ];
 
 const CATEGORIES = [
@@ -66,10 +69,7 @@ export default function CreatePageScreen() {
             Alert.alert("Quyền truy cập", "Cần quyền truy cập thư viện ảnh để chọn ảnh.");
             return;
         }
-        const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ["images"],
-            quality: 0.8,
-        });
+        const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.8 });
         if (result.canceled || !result.assets[0]) return;
         const asset = result.assets[0];
         const mimeType = asset.mimeType ?? "image/jpeg";
@@ -84,10 +84,7 @@ export default function CreatePageScreen() {
             Alert.alert("Quyền truy cập", "Cần quyền truy cập thư viện ảnh để chọn ảnh.");
             return;
         }
-        const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ["images"],
-            quality: 0.8,
-        });
+        const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.8 });
         if (result.canceled || !result.assets[0]) return;
         const asset = result.assets[0];
         const mimeType = asset.mimeType ?? "image/jpeg";
@@ -137,7 +134,7 @@ export default function CreatePageScreen() {
             }
 
             await pageService.createPage({ ...form, avatarUrl: finalAvatarUrl, coverUrl: finalCoverUrl });
-            Alert.alert("Thành công", "Đã tạo trang mới!", [
+            Alert.alert("Trang đã được tạo!", "Mọi người có thể tìm thấy trang của bạn.", [
                 { text: "OK", onPress: () => router.back() },
             ]);
         } catch (err: any) {
@@ -150,270 +147,391 @@ export default function CreatePageScreen() {
         }
     };
 
+    const canSubmit = !!form.name?.trim() && !isSubmitting;
+
     return (
         <KeyboardAvoidingView
-            style={[styles.container, { paddingTop: insets.top }]}
+            style={[s.container, { paddingTop: insets.top }]}
             behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
-            <View style={styles.header}>
-                <TouchableOpacity onPress={() => router.back()} hitSlop={12}>
+            {/* Header */}
+            <View style={s.header}>
+                <TouchableOpacity onPress={() => router.back()} hitSlop={12} style={s.headerClose}>
                     <Ionicons name="close" size={24} color={colors.text} />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>Tạo trang mới</Text>
+                <Text style={s.headerTitle}>Tạo trang mới</Text>
                 <TouchableOpacity
                     onPress={handleSubmit}
-                    disabled={isSubmitting || !form.name?.trim()}
-                    style={[styles.submitBtn, (!form.name?.trim() || isSubmitting) && styles.submitBtnDisabled]}
-                    activeOpacity={0.7}
+                    disabled={!canSubmit}
+                    style={[s.submitBtn, !canSubmit && s.submitBtnDisabled]}
+                    activeOpacity={0.8}
                 >
                     {isSubmitting ? (
                         <ActivityIndicator size="small" color={colors.white} />
                     ) : (
-                        <Text style={styles.submitBtnText}>Tạo</Text>
+                        <Text style={s.submitBtnText}>Tạo</Text>
                     )}
                 </TouchableOpacity>
             </View>
 
             <ScrollView
-                contentContainerStyle={{ padding: 18, paddingBottom: insets.bottom + 60 }}
+                contentContainerStyle={s.scrollContent}
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
             >
-                <SectionLabel label="Thông tin cơ bản" />
-                <Field
-                    label="Tên trang *"
-                    value={form.name || ""}
-                    onChange={v => update("name", v)}
-                    placeholder="Nhập tên trang"
-                />
-                <Field
-                    label="Username"
-                    value={form.username || ""}
-                    onChange={v => update("username", v)}
-                    placeholder="VD: my-awesome-page"
-                    autoCapitalize="none"
-                />
+                {/* Cover photo picker */}
+                <TouchableOpacity
+                    onPress={pickCoverImage}
+                    disabled={isUploadingCover}
+                    style={s.coverPickerWrap}
+                    activeOpacity={0.85}
+                >
+                    {coverLocalUri ? (
+                        <Image source={{ uri: coverLocalUri }} style={s.coverPreview} resizeMode="cover" />
+                    ) : (
+                        <View style={s.coverPlaceholder}>
+                            <Ionicons name="image-outline" size={32} color={colors.textMuted} />
+                            <Text style={s.coverPlaceholderText}>Thêm ảnh bìa</Text>
+                        </View>
+                    )}
+                    {/* Avatar overlapping cover */}
+                    <TouchableOpacity
+                        onPress={pickAvatarImage}
+                        disabled={isUploadingAvatar}
+                        style={s.avatarOverCover}
+                        activeOpacity={0.85}
+                    >
+                        {avatarLocalUri ? (
+                            <Image source={{ uri: avatarLocalUri }} style={s.avatarPreview} />
+                        ) : (
+                            <View style={s.avatarPlaceholder}>
+                                <Ionicons name="camera" size={20} color={colors.textMuted} />
+                            </View>
+                        )}
+                        <View style={s.avatarEditBadge}>
+                            <Ionicons name="camera" size={10} color={colors.white} />
+                        </View>
+                    </TouchableOpacity>
+                </TouchableOpacity>
 
-                <Text style={styles.fieldLabel}>Danh mục</Text>
-                <View style={styles.chipRow}>
-                    {CATEGORIES.map(cat => {
-                        const active = form.category === cat;
-                        return (
-                            <TouchableOpacity
-                                key={cat}
-                                onPress={() => update("category", active ? "" : cat)}
-                                style={[styles.chip, active && styles.chipActive]}
-                                activeOpacity={0.7}
-                            >
-                                <Text style={[styles.chipText, active && styles.chipTextActive]}>{cat}</Text>
-                            </TouchableOpacity>
-                        );
-                    })}
+                {/* Info tip */}
+                <View style={s.tipRow}>
+                    <Ionicons name="information-circle-outline" size={16} color={colors.textMuted} />
+                    <Text style={s.tipText}>Nhấn ảnh bìa để đổi ảnh bìa · Nhấn avatar để đổi ảnh đại diện</Text>
                 </View>
 
-                <Field
-                    label="Mô tả"
-                    value={form.description || ""}
-                    onChange={v => update("description", v)}
-                    placeholder="Mô tả ngắn về trang"
-                    multiline
-                />
+                {/* Basic info section */}
+                <SectionHeader icon="flag-outline" title="Thông tin cơ bản" />
 
-                <SectionLabel label="Quyền riêng tư" />
-                <View style={{ flexDirection: "row", gap: 12, marginBottom: 4 }}>
-                    {STATUS_OPTIONS.map(opt => {
+                <View style={s.card}>
+                    <FormField
+                        label="Tên trang *"
+                        value={form.name || ""}
+                        onChange={v => update("name", v)}
+                        placeholder="VD: Cộng đồng yêu du lịch"
+                    />
+                    <FormField
+                        label="Username"
+                        value={form.username || ""}
+                        onChange={v => update("username", v)}
+                        placeholder="VD: travel-community"
+                        autoCapitalize="none"
+                        hint="Dùng để tìm kiếm trang của bạn"
+                    />
+                    <FormField
+                        label="Mô tả"
+                        value={form.description || ""}
+                        onChange={v => update("description", v)}
+                        placeholder="Mô tả ngắn về trang của bạn..."
+                        multiline
+                        last
+                    />
+                </View>
+
+                {/* Category section */}
+                <SectionHeader icon="grid-outline" title="Danh mục" />
+                <View style={s.card}>
+                    <Text style={s.categoryHint}>Chọn danh mục phù hợp nhất với trang của bạn</Text>
+                    <View style={s.categoryGrid}>
+                        {CATEGORIES.map(cat => {
+                            const active = form.category === cat;
+                            return (
+                                <TouchableOpacity
+                                    key={cat}
+                                    onPress={() => update("category", active ? "" : cat)}
+                                    style={[s.categoryChip, active && s.categoryChipActive]}
+                                    activeOpacity={0.7}
+                                >
+                                    <Text style={[s.categoryChipText, active && s.categoryChipTextActive]}>{cat}</Text>
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </View>
+                </View>
+
+                {/* Privacy section */}
+                <SectionHeader icon="shield-outline" title="Quyền riêng tư" />
+                <View style={s.card}>
+                    {STATUS_OPTIONS.map((opt, idx) => {
                         const active = form.status === opt.value;
                         return (
                             <TouchableOpacity
                                 key={opt.value}
                                 onPress={() => update("status", opt.value)}
-                                style={[styles.statusCard, active && styles.statusCardActive]}
+                                style={[s.privacyOption, active && s.privacyOptionActive, idx === 0 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}
                                 activeOpacity={0.7}
                             >
-                                <Ionicons
-                                    name={opt.icon as any}
-                                    size={24}
-                                    color={active ? colors.white : colors.textMuted}
-                                />
-                                <Text style={[styles.statusLabel, active && styles.statusLabelActive]}>{opt.label}</Text>
+                                <View style={[s.privacyIconWrap, active && { backgroundColor: FB_BLUE }]}>
+                                    <Ionicons name={opt.icon as any} size={20} color={active ? colors.white : colors.textMuted} />
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={[s.privacyLabel, active && { color: FB_BLUE }]}>{opt.label}</Text>
+                                    <Text style={s.privacyDesc}>{opt.desc}</Text>
+                                </View>
+                                <View style={[s.radioOuter, active && { borderColor: FB_BLUE }]}>
+                                    {active && <View style={s.radioInner} />}
+                                </View>
                             </TouchableOpacity>
                         );
                     })}
                 </View>
 
-                <SectionLabel label="Hình ảnh" />
-                <Text style={styles.imageSubLabel}>Avatar trang</Text>
-                <TouchableOpacity
-                    onPress={pickAvatarImage}
-                    disabled={isUploadingAvatar}
-                    style={styles.avatarPickerBtn}
-                    activeOpacity={0.7}
-                >
-                    {isUploadingAvatar ? (
-                        <ActivityIndicator size="small" color={colors.primary} />
-                    ) : avatarLocalUri ? (
-                        <Image source={{ uri: avatarLocalUri }} style={styles.avatarPreview} />
-                    ) : (
-                        <Ionicons name="camera-outline" size={28} color={colors.textMuted} />
-                    )}
-                    <Text style={[styles.imagePickerLabel, avatarLocalUri ? { color: colors.primary } : {}]}>
-                        {isUploadingAvatar ? "Đang tải lên..." : avatarLocalUri ? "Đổi ảnh" : "Chọn ảnh"}
-                    </Text>
-                </TouchableOpacity>
+                {/* Contact section */}
+                <SectionHeader icon="call-outline" title="Thông tin liên hệ (tùy chọn)" />
+                <View style={s.card}>
+                    <FormField label="Điện thoại" value={form.phone || ""} onChange={v => update("phone", v)} placeholder="+84..." icon="call-outline" />
+                    <FormField label="Email" value={form.email || ""} onChange={v => update("email", v)} placeholder="page@example.com" autoCapitalize="none" icon="mail-outline" />
+                    <FormField label="Website" value={form.website || ""} onChange={v => update("website", v)} placeholder="https://..." autoCapitalize="none" icon="globe-outline" />
+                    <FormField label="Địa chỉ" value={form.address || ""} onChange={v => update("address", v)} placeholder="Địa chỉ trang..." icon="location-outline" last />
+                </View>
 
-                <Text style={styles.imageSubLabel}>Ảnh bìa trang</Text>
+                {/* Create button at bottom */}
                 <TouchableOpacity
-                    onPress={pickCoverImage}
-                    disabled={isUploadingCover}
-                    style={styles.coverPickerBtn}
-                    activeOpacity={0.7}
+                    onPress={handleSubmit}
+                    disabled={!canSubmit}
+                    style={[s.createBtn, !canSubmit && s.submitBtnDisabled]}
+                    activeOpacity={0.85}
                 >
-                    {isUploadingCover ? (
-                        <ActivityIndicator size="small" color={colors.primary} />
-                    ) : coverLocalUri ? (
-                        <Image source={{ uri: coverLocalUri }} style={styles.coverPreview} />
+                    {isSubmitting ? (
+                        <ActivityIndicator color={colors.white} />
                     ) : (
-                        <Ionicons name="image-outline" size={28} color={colors.textMuted} />
+                        <Text style={s.createBtnText}>Tạo trang</Text>
                     )}
-                    <Text style={[styles.imagePickerLabel, coverLocalUri ? { color: colors.primary } : {}]}>
-                        {isUploadingCover ? "Đang tải lên..." : coverLocalUri ? "Đổi ảnh bìa" : "Chọn ảnh bìa"}
-                    </Text>
                 </TouchableOpacity>
-
-                <SectionLabel label="Liên hệ (tùy chọn)" />
-                <Field label="Điện thoại" value={form.phone || ""} onChange={v => update("phone", v)} placeholder="+84..." />
-                <Field label="Email" value={form.email || ""} onChange={v => update("email", v)} placeholder="page@example.com" autoCapitalize="none" />
-                <Field label="Website" value={form.website || ""} onChange={v => update("website", v)} placeholder="https://..." autoCapitalize="none" />
-                <Field label="Địa chỉ" value={form.address || ""} onChange={v => update("address", v)} placeholder="Địa chỉ..." />
             </ScrollView>
         </KeyboardAvoidingView>
     );
 }
 
-function SectionLabel({ label }: { label: string }) {
+function SectionHeader({ icon, title }: { icon: string; title: string }) {
     return (
-        <Text style={{
-            fontSize: 16, fontWeight: "700", color: colors.text,
-            marginTop: 24, marginBottom: 12,
-        }}>
-            {label}
-        </Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, paddingTop: 20, paddingBottom: 8 }}>
+            <Ionicons name={icon as any} size={16} color={colors.textMuted} />
+            <Text style={{ fontSize: 13, fontWeight: "700", color: colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                {title}
+            </Text>
+        </View>
     );
 }
 
-function Field({ label, value, onChange, placeholder, multiline, autoCapitalize }: {
+function FormField({
+    label,
+    value,
+    onChange,
+    placeholder,
+    multiline,
+    autoCapitalize,
+    hint,
+    icon,
+    last,
+}: {
     label: string;
     value: string;
     onChange: (v: string) => void;
     placeholder?: string;
     multiline?: boolean;
     autoCapitalize?: "none" | "sentences";
+    hint?: string;
+    icon?: string;
+    last?: boolean;
 }) {
     return (
-        <View style={{ marginBottom: 14 }}>
-            <Text style={{ fontSize: 13, fontWeight: "600", color: colors.textMuted, marginBottom: 6 }}>{label}</Text>
-            <TextInput
-                style={{
-                    backgroundColor: colors.surface,
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    borderRadius: 12,
-                    paddingHorizontal: 14,
-                    paddingVertical: 12,
-                    fontSize: 15,
-                    color: colors.text,
-                    ...(multiline ? { minHeight: 80, textAlignVertical: "top" as any } : {}),
-                }}
-                value={value}
-                onChangeText={onChange}
-                placeholder={placeholder}
-                placeholderTextColor={colors.textMuted}
-                multiline={multiline}
-                autoCapitalize={autoCapitalize}
-            />
+        <View style={[
+            { paddingVertical: 12 },
+            !last && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+        ]}>
+            <Text style={{ fontSize: 12, fontWeight: "600", color: colors.textMuted, marginBottom: 6 }}>{label}</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                {icon && <Ionicons name={icon as any} size={16} color={colors.textMuted} />}
+                <TextInput
+                    style={[
+                        { flex: 1, fontSize: 15, color: colors.text, padding: 0 },
+                        multiline && { minHeight: 72, textAlignVertical: "top" as any },
+                    ]}
+                    value={value}
+                    onChangeText={onChange}
+                    placeholder={placeholder}
+                    placeholderTextColor={colors.textMuted}
+                    multiline={multiline}
+                    autoCapitalize={autoCapitalize}
+                />
+            </View>
+            {hint && (
+                <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 4 }}>{hint}</Text>
+            )}
         </View>
     );
 }
 
-const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background },
+const s = StyleSheet.create({
+    container: { flex: 1, backgroundColor: FB_BG },
+
     header: {
         flexDirection: "row",
         alignItems: "center",
-        justifyContent: "space-between",
         paddingHorizontal: 16,
-        paddingVertical: 12,
-        backgroundColor: colors.background,
-        borderBottomWidth: 1,
+        paddingVertical: 10,
+        backgroundColor: colors.white,
+        borderBottomWidth: StyleSheet.hairlineWidth,
         borderBottomColor: colors.border,
     },
-    headerTitle: { fontSize: 18, fontWeight: "700", color: colors.text },
+    headerClose: { padding: 4, marginRight: 4 },
+    headerTitle: { flex: 1, fontSize: 18, fontWeight: "700", color: colors.text },
     submitBtn: {
         paddingHorizontal: 20,
-        paddingVertical: 10,
-        borderRadius: 12,
-        backgroundColor: colors.primary,
-        minWidth: 60,
+        paddingVertical: 9,
+        borderRadius: 8,
+        backgroundColor: FB_BLUE,
+        minWidth: 56,
         alignItems: "center",
     },
-    submitBtnDisabled: { opacity: 0.5 },
+    submitBtnDisabled: { opacity: 0.45 },
     submitBtnText: { fontSize: 15, fontWeight: "700", color: colors.white },
 
-    fieldLabel: { fontSize: 13, fontWeight: "600", color: colors.textMuted, marginBottom: 8 },
-    chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 },
-    chip: {
-        paddingHorizontal: 14,
-        paddingVertical: 8,
-        borderRadius: 10,
-        borderWidth: 1.5,
-        borderColor: colors.border,
-        backgroundColor: colors.surface,
-    },
-    chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-    chipText: { fontSize: 13, fontWeight: "500", color: colors.textMuted },
-    chipTextActive: { color: colors.white, fontWeight: "600" },
+    scrollContent: { paddingBottom: 40 },
 
-    statusCard: {
+    // Cover + Avatar photo pickers
+    coverPickerWrap: {
+        position: "relative",
+        height: 180,
+        backgroundColor: "#E4E6EB",
+        marginBottom: 0,
+    },
+    coverPreview: { width: "100%", height: "100%" },
+    coverPlaceholder: {
         flex: 1,
         alignItems: "center",
         justifyContent: "center",
+        gap: 8,
+    },
+    coverPlaceholderText: { fontSize: 14, color: colors.textMuted, fontWeight: "600" },
+
+    avatarOverCover: {
+        position: "absolute",
+        bottom: -28,
+        left: 20,
+        width: 80,
+        height: 80,
+        borderRadius: 40,
+        borderWidth: 4,
+        borderColor: FB_BG,
+        overflow: "hidden",
+        backgroundColor: "#E4E6EB",
+    },
+    avatarPreview: { width: "100%", height: "100%" },
+    avatarPlaceholder: {
+        flex: 1,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#E4E6EB",
+    },
+    avatarEditBadge: {
+        position: "absolute",
+        bottom: 4,
+        right: 4,
+        width: 18,
+        height: 18,
+        borderRadius: 9,
+        backgroundColor: colors.textMuted,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+
+    tipRow: {
+        flexDirection: "row",
+        alignItems: "center",
         gap: 6,
-        paddingVertical: 18,
-        borderRadius: 14,
+        paddingHorizontal: 16,
+        paddingTop: 36,
+        paddingBottom: 4,
+    },
+    tipText: { fontSize: 12, color: colors.textMuted, flex: 1 },
+
+    card: {
+        backgroundColor: colors.white,
+        marginHorizontal: 12,
+        borderRadius: 12,
+        paddingHorizontal: 16,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.06,
+        shadowRadius: 4,
+        elevation: 2,
+    },
+
+    categoryHint: { fontSize: 13, color: colors.textMuted, marginTop: 12, marginBottom: 10 },
+    categoryGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingBottom: 14 },
+    categoryChip: {
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+        borderRadius: 20,
         borderWidth: 1.5,
         borderColor: colors.border,
-        backgroundColor: colors.surface,
+        backgroundColor: FB_BG,
     },
-    statusCardActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-    statusLabel: { fontSize: 14, fontWeight: "600", color: colors.textMuted },
-    statusLabelActive: { color: colors.white },
+    categoryChipActive: { backgroundColor: FB_BLUE, borderColor: FB_BLUE },
+    categoryChipText: { fontSize: 13, fontWeight: "500", color: colors.textMuted },
+    categoryChipTextActive: { color: colors.white, fontWeight: "700" },
 
-    imageSubLabel: { fontSize: 13, fontWeight: "600", color: colors.textMuted, marginBottom: 8 },
-    imagePickerLabel: { fontSize: 13, color: colors.textMuted, marginTop: 6 },
-
-    avatarPickerBtn: {
+    privacyOption: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+        paddingVertical: 14,
+    },
+    privacyOptionActive: { },
+    privacyIconWrap: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: FB_BG,
         alignItems: "center",
         justifyContent: "center",
-        borderWidth: 1.5,
-        borderStyle: "dashed",
-        borderRadius: 16,
-        borderColor: colors.border,
-        backgroundColor: colors.surface,
-        paddingVertical: 20,
-        marginBottom: 14,
     },
-    avatarPreview: { width: 80, height: 80, borderRadius: 16 },
-
-    coverPickerBtn: {
+    privacyLabel: { fontSize: 15, fontWeight: "700", color: colors.text },
+    privacyDesc: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
+    radioOuter: {
+        width: 20,
+        height: 20,
+        borderRadius: 10,
+        borderWidth: 2,
+        borderColor: colors.border,
         alignItems: "center",
         justifyContent: "center",
-        borderWidth: 1.5,
-        borderStyle: "dashed",
-        borderRadius: 16,
-        borderColor: colors.border,
-        backgroundColor: colors.surface,
-        paddingVertical: 20,
-        marginBottom: 14,
     },
-    coverPreview: { width: "100%", height: 120, borderRadius: 12 },
+    radioInner: {
+        width: 10,
+        height: 10,
+        borderRadius: 5,
+        backgroundColor: FB_BLUE,
+    },
+
+    createBtn: {
+        margin: 16,
+        paddingVertical: 15,
+        borderRadius: 12,
+        backgroundColor: FB_BLUE,
+        alignItems: "center",
+    },
+    createBtnText: { fontSize: 16, fontWeight: "700", color: colors.white },
 });

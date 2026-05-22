@@ -6,7 +6,7 @@ import { cancelAccountDeletion } from "@/services/securityService";
 import { Ionicons } from "@expo/vector-icons";
 import { Redirect, Tabs, usePathname, useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Image, StyleSheet, View } from "react-native";
+import { Alert } from "react-native";
 
 export default function TabsLayout() {
     const { currentUser, loggedIn, deletionPending, deletionRemainingDays, clearDeletionPending, logout } = useAppContext();
@@ -17,13 +17,10 @@ export default function TabsLayout() {
         () => Object.values(chatUnreadByConversation).reduce((sum, count) => sum + count, 0),
         [chatUnreadByConversation],
     );
-    // Flag để đảm bảo alert chỉ hiện đúng 1 lần dù effect chạy lại nhiều lần
     const alertShownRef = useRef(false);
 
-    // Hiện cảnh báo hủy xóa tài khoản ngay khi vào app (cả cold start lẫn sau đăng nhập lại)
     useEffect(() => {
-        if (!loggedIn || !deletionPending) return; // Không reset ref ở đây
-
+        if (!loggedIn || !deletionPending) return;
         if (alertShownRef.current) return;
         alertShownRef.current = true;
 
@@ -31,11 +28,7 @@ export default function TabsLayout() {
             "⚠️ Tài khoản đang chờ xóa",
             `Tài khoản của bạn sẽ bị xóa vĩnh viễn sau ${deletionRemainingDays ?? 30} ngày. Bạn có muốn hủy yêu cầu xóa không?`,
             [
-                {
-                    text: "Tiếp tục dùng app",
-                    style: "cancel",
-                    // Không làm gì — cảnh báo sẽ xuất hiện lại ở lần mở app tiếp theo
-                },
+                { text: "Tiếp tục dùng app", style: "cancel" },
                 {
                     text: "Đăng xuất",
                     style: "default",
@@ -53,7 +46,7 @@ export default function TabsLayout() {
                             clearDeletionPending();
                             Alert.alert("Thành công", "Yêu cầu xóa tài khoản đã được hủy. Tài khoản của bạn sẽ không bị xóa.");
                         } else {
-                            alertShownRef.current = false; // Cho phép hiện lại nếu thất bại
+                            alertShownRef.current = false;
                             Alert.alert("Lỗi", result.message || "Không thể hủy yêu cầu xóa tài khoản.");
                         }
                     },
@@ -92,19 +85,13 @@ export default function TabsLayout() {
         void loadUnread();
         void chatWebsocketService.connect().then(() => {
             if (!disposed) {
-                chatWebsocketService.subscribeToUserConversations(
-                    currentUserId,
-                    handleConversationUpdate,
-                );
+                chatWebsocketService.subscribeToUserConversations(currentUserId, handleConversationUpdate);
             }
         });
 
         return () => {
             disposed = true;
-            chatWebsocketService.unsubscribeFromUserConversations(
-                currentUserId,
-                handleConversationUpdate,
-            );
+            chatWebsocketService.unsubscribeFromUserConversations(currentUserId, handleConversationUpdate);
         };
     }, [currentUser?.id, loggedIn, pathname]);
 
@@ -116,81 +103,49 @@ export default function TabsLayout() {
         <Tabs
             screenOptions={({ route }) => ({
                 headerShown: false,
-                tabBarShowLabel: false,
-                tabBarActiveTintColor: colors.text,
+                tabBarShowLabel: true,
+                tabBarActiveTintColor: colors.primary,
                 tabBarInactiveTintColor: colors.textMuted,
+                tabBarLabelStyle: {
+                    fontSize: 10,
+                    fontWeight: "600",
+                    marginTop: -2,
+                },
                 tabBarStyle: {
                     borderTopColor: colors.border,
                     backgroundColor: colors.white,
-                    height: 62,
+                    height: 64,
+                    paddingBottom: 8,
+                    paddingTop: 6,
                 },
                 tabBarIcon: ({ color, size, focused }) => {
-                    if (route.name === "profile" && currentUser?.avatar) {
-                        return (
-                            <View
-                                style={[
-                                    styles.profileAvatarRing,
-                                    focused && styles.profileAvatarRingActive,
-                                ]}
-                            >
-                                <Image
-                                    source={{ uri: currentUser.avatar }}
-                                    style={styles.profileAvatar}
-                                />
-                            </View>
-                        );
-                    }
-
                     let icon: keyof typeof Ionicons.glyphMap = "ellipse";
 
+                    if (route.name === "activity")
+                        icon = focused ? "chatbubble-ellipses" : "chatbubble-ellipses-outline";
+                    if (route.name === "friends")
+                        icon = focused ? "people" : "people-outline";
                     if (route.name === "index")
                         icon = focused ? "home" : "home-outline";
-                    if (route.name === "search")
-                        icon = focused ? "search" : "search-outline";
-                    if (route.name === "add") icon = "add-circle-outline";
-                    if (route.name === "activity")
-                        icon = focused
-                            ? "chatbubble-ellipses"
-                            : "chatbubble-ellipses-outline";
+                    if (route.name === "explore")
+                        icon = focused ? "compass" : "compass-outline";
                     if (route.name === "profile")
-                        icon = focused ? "person" : "person-outline";
+                        icon = focused ? "person-circle" : "person-circle-outline";
 
-                    return (
-                        <Ionicons name={icon} color={color} size={size + 2} />
-                    );
+                    return <Ionicons name={icon} color={color} size={size} />;
                 },
             })}
         >
-            <Tabs.Screen name="index" />
-            <Tabs.Screen name="search" />
-            <Tabs.Screen name="add" />
-            <Tabs.Screen
-                name="activity"
-                options={{
-                    tabBarBadge: chatUnreadCount > 0 ? (chatUnreadCount > 99 ? "99+" : chatUnreadCount) : undefined,
-                }}
-            />
-            <Tabs.Screen name="profile" />
+            <Tabs.Screen name="activity" options={{ tabBarLabel: "Tin nhắn", tabBarBadge: chatUnreadCount > 0 ? (chatUnreadCount > 99 ? "99+" : chatUnreadCount) : undefined }} />
+            <Tabs.Screen name="friends" options={{ tabBarLabel: "Bạn bè" }} />
+            <Tabs.Screen name="index" options={{ tabBarLabel: "Tường nhà" }} />
+            <Tabs.Screen name="explore" options={{ tabBarLabel: "Khám phá" }} />
+            <Tabs.Screen name="profile" options={{ tabBarLabel: "Cá nhân" }} />
+            <Tabs.Screen name="pages" options={{ href: null }} />
+            <Tabs.Screen name="user-profile" options={{ href: null }} />
+            <Tabs.Screen name="search" options={{ href: null }} />
+            <Tabs.Screen name="add" options={{ href: null }} />
         </Tabs>
     );
 }
 
-const styles = StyleSheet.create({
-    profileAvatarRing: {
-        width: 28,
-        height: 28,
-        borderRadius: 14,
-        alignItems: "center",
-        justifyContent: "center",
-        borderWidth: 1.5,
-        borderColor: "transparent",
-    },
-    profileAvatarRingActive: {
-        borderColor: colors.text,
-    },
-    profileAvatar: {
-        width: 22,
-        height: 22,
-        borderRadius: 11,
-    },
-});

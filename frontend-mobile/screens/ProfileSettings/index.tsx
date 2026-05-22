@@ -89,7 +89,7 @@ export default function ProfileSettingsScreen() {
                 <CustomButton
                     title="Pages"
                     variant="outline"
-                    onPress={() => router.push("/(stack)/pages")}
+                    onPress={() => router.push("/(tabs)/pages")}
                     style={styles.gap}
                 />
                 <CustomButton
