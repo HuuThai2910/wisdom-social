@@ -32,6 +32,8 @@ public class Conversation {
     private Long id;
     @Enumerated(EnumType.STRING)
     private ConversationType type;
+    @Column(name = "direct_key", unique = true, length = 50)
+    private String directKey;
     //    Tên nhóm (null nếu là direct chat)
     private String name;
     //    Avatar nhom

@@ -25,6 +25,7 @@ import { buildS3Url } from "../../utils/s3";
 import { useFriendDataSafe } from "../../contexts/FriendDataContext";
 import { useSidebarLayout } from "../../hooks/useSidebarLayout";
 import { useNotificationContext } from "../../contexts/NotificationContext";
+import { useChatUnread } from "../../contexts/ChatUnreadContext";
 
 export default function Sidebar() {
   const location = useLocation();
@@ -35,6 +36,7 @@ export default function Sidebar() {
   const showLabels = !sidebarCollapsed;
 
   const { unreadCount } = useNotificationContext();
+  const { unreadCount: chatUnreadCount } = useChatUnread();
 
   // Get friend requests count for badge (safe - returns 0 if not in provider)
   const { friendRequests } = useFriendDataSafe();
@@ -45,7 +47,7 @@ export default function Sidebar() {
     { icon: Search, label: "Search", path: "/search" },
     { icon: Compass, label: "Explore", path: "/explore" },
     { icon: Clapperboard, label: "Reels", path: "/reels" },
-    { icon: MessageCircle, label: "Messages", path: "/messages" },
+    { icon: MessageCircle, label: "Messages", path: "/messages", badge: chatUnreadCount },
     { 
       icon: Heart, 
       label: "Notifications", 

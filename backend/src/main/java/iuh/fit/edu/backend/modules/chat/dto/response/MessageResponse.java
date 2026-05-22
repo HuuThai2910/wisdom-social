@@ -8,6 +8,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import iuh.fit.edu.backend.modules.chat.constant.MessageType;
 import iuh.fit.edu.backend.modules.chat.dto.response.poll.PollResponse;
+import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationResponse;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -43,6 +44,10 @@ public class MessageResponse {
     private boolean isRecalled = false;
     private List<MediaAttachmentResponse> attachments;
     private List<IconNameResponse> iconName;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private ConversationResponse conversation;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Boolean newConversation;
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private Set<Long> deletedFor = new HashSet<>();

@@ -23,7 +23,8 @@ type GroupSystemPreviewType =
     | "SYSTEM_DISBAND_GROUP"
     | "SYSTEM_UPDATE_SETTING"
     | "SYSTEM_REQUIRE_APPROVAL"
-    | "SYSTEM_JOIN_VIA_LINK";
+    | "SYSTEM_JOIN_VIA_LINK"
+    | "SYSTEM_GROUP_INVITE_LINK_SENT";
 
 type PollSystemPreviewType =
     | "SYSTEM_POLL_CREATED"
@@ -48,6 +49,7 @@ const GROUP_SYSTEM_PREVIEW_TYPES = new Set<GroupSystemPreviewType>([
     "SYSTEM_UPDATE_SETTING",
     "SYSTEM_REQUIRE_APPROVAL",
     "SYSTEM_JOIN_VIA_LINK",
+    "SYSTEM_GROUP_INVITE_LINK_SENT",
 ]);
 
 const POLL_SYSTEM_PREVIEW_TYPES = new Set<PollSystemPreviewType>([

@@ -16,6 +16,7 @@ import java.util.Set;
 import iuh.fit.edu.backend.modules.conversation.constant.MemberRole;
 import iuh.fit.edu.backend.modules.conversation.entity.ConversationMember;
 import iuh.fit.edu.backend.modules.conversation.dto.request.AddMemberRequest;
+import iuh.fit.edu.backend.modules.conversation.dto.request.AddMemberWithInvitesRequest;
 import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationMemberResponse;
 import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationResponse;
 import jakarta.transaction.Transactional;
@@ -27,6 +28,8 @@ public interface ConversationMemberService {
 
 
     ConversationResponse addMembers(Long conversationId, AddMemberRequest request, Long inviterId);
+
+    ConversationResponse addMembersWithInvites(Long conversationId, AddMemberWithInvitesRequest request, Long inviterId);
 
     ConversationResponse joinByInviteLink(Long conversationId, Long userId);
 

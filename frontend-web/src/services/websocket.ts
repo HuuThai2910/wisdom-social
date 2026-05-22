@@ -400,6 +400,14 @@ class WebSocketService {
      * Value: subscription object để unsubscribe sau này
      */
     private subscriptions: Map<string, any> = new Map();
+    private userConversationCallbacks: Map<
+        number,
+        Set<(
+            conversationId: number,
+            lastMessage: LastMessageUpdate,
+            conversation?: ConversationSnapshot,
+        ) => void>
+    > = new Map();
     private profileUpdateListeners: Map<
         string,
         Set<(updatedUser: any) => void>
@@ -837,6 +845,22 @@ class WebSocketService {
         // Format: /topic/user/{userId}/conversations
         // VD: /topic/user/1/conversations cho user có ID = 1
         const destination = `/topic/user/${userId}/conversations`;
+        const callbacks =
+            this.userConversationCallbacks.get(userId) ?? new Set();
+        callbacks.add(callback);
+        this.userConversationCallbacks.set(userId, callbacks);
+        const notifyCallbacks = (
+            conversationId: number,
+            lastMessage: LastMessageUpdate,
+            conversation?: ConversationSnapshot,
+        ) => {
+            const listeners = Array.from(
+                this.userConversationCallbacks.get(userId) ?? [],
+            );
+            listeners.forEach((listener) =>
+                listener(conversationId, lastMessage, conversation),
+            );
+        };
 
         // BƯỚC 3: Kiểm tra đã subscribe destination này chưa
         // Tránh tạo duplicate subscription cho cùng một destination
@@ -885,7 +909,7 @@ class WebSocketService {
                                 resolvedLastMessage,
                         };
 
-                        callback(
+                        notifyCallbacks(
                             createdConversation.id,
                             resolvedLastMessage,
                             conversationSnapshot,
@@ -898,7 +922,7 @@ class WebSocketService {
                         disbandPayload.domainEventType === "GROUP_DISBANDED" &&
                         typeof disbandPayload.conversationId === "number"
                     ) {
-                        callback(
+                        notifyCallbacks(
                             disbandPayload.conversationId,
                             disbandPayload.lastMessage ??
                                 buildSystemFallbackByDomainEvent(
@@ -923,7 +947,7 @@ class WebSocketService {
                                     name: request.userName,
                                 },
                             ]);
-                        callback(
+                        notifyCallbacks(
                             joinRequestPayload.conversationId,
                             {
                                 lastMessageContent:
@@ -963,7 +987,7 @@ class WebSocketService {
                         processedJoinRequestId !== null
                     ) {
                         const now = new Date().toISOString();
-                        callback(
+                        notifyCallbacks(
                             processedJoinConversationId,
                             {
                                 lastMessageContent: "",
@@ -1004,7 +1028,7 @@ class WebSocketService {
                         typeof updatedEvent.conversationId === "number" &&
                         updatedEvent.lastMessage
                     ) {
-                        callback(
+                        notifyCallbacks(
                             updatedEvent.conversationId,
                             updatedEvent.lastMessage,
                         );
@@ -1037,7 +1061,24 @@ class WebSocketService {
      * 4. Xóa subscription khỏi Map
      * 5. Server ngừng gửi message tới client cho destination này
      */
-    unsubscribeFromUserConversations(userId: number) {
+    unsubscribeFromUserConversations(
+        userId: number,
+        callback?: (
+            conversationId: number,
+            lastMessage: LastMessageUpdate,
+            conversation?: ConversationSnapshot,
+        ) => void,
+    ) {
+        if (callback) {
+            const callbacks = this.userConversationCallbacks.get(userId);
+            callbacks?.delete(callback);
+            if (callbacks && callbacks.size > 0) {
+                return;
+            }
+            this.userConversationCallbacks.delete(userId);
+        } else {
+            this.userConversationCallbacks.delete(userId);
+        }
         // Tạo lại destination để tìm subscription
         const destination = `/topic/user/${userId}/conversations`;
         const subscription = this.subscriptions.get(destination);

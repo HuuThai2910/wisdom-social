@@ -1,14 +1,17 @@
 import apiClient from "@/api/apiClient";
 import type {
+    AddGroupMembersWithInvitesRequest,
     AddGroupMembersRequest,
     ApiResponse,
     BulkPresignedRequest,
+    ChatUserSearchResult,
     Conversation,
     ConversationPreview,
     ConversationPin,
     ConversationSidebar,
     ConversationMember,
     CreatePollRequest,
+    CreateGroupWithInvitesRequest,
     CreateGroupRequest,
     CursorResponse,
     LocalUploadFile,
@@ -202,6 +205,29 @@ const chatService = {
         return normalizeMessagePayload(response.data);
     },
 
+    async searchChatUserByPhone(phone: string): Promise<ChatUserSearchResult | null> {
+        const response = await apiClient.get("/chat-users/search-by-phone", {
+            params: { phone },
+        });
+        return unwrapApiData(
+            response.data as ApiResponse<ChatUserSearchResult | null> | ChatUserSearchResult | null,
+        );
+    },
+
+    async getChatUserRelationship(userId: number): Promise<ChatUserSearchResult | null> {
+        const response = await apiClient.get(`/chat-users/${userId}/relationship`);
+        return unwrapApiData(
+            response.data as ApiResponse<ChatUserSearchResult | null> | ChatUserSearchResult | null,
+        );
+    },
+
+    async resolveDirectConversation(receiverId: number): Promise<Conversation> {
+        const response = await apiClient.post("/conversations/direct/resolve", {
+            receiverId,
+        });
+        return unwrapApiData(response.data as ApiResponse<Conversation> | Conversation);
+    },
+
     async createPoll(request: CreatePollRequest): Promise<Message> {
         const response = await apiClient.post(`/messages/polls`, request);
         return normalizeMessagePayload(response.data);
@@ -320,12 +346,39 @@ const chatService = {
         );
     },
 
+    async createGroupConversationWithInvites(
+        request: CreateGroupWithInvitesRequest,
+    ): Promise<Conversation> {
+        const response = await apiClient.post(
+            "/conversations/group-with-invites",
+            request,
+        );
+
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
     async addMembersToGroup(
         conversationId: number,
         request: AddGroupMembersRequest,
     ): Promise<Conversation> {
         const response = await apiClient.post(
             `/conversations/${conversationId}/members`,
+            request,
+        );
+
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async addMembersToGroupWithInvites(
+        conversationId: number,
+        request: AddGroupMembersWithInvitesRequest,
+    ): Promise<Conversation> {
+        const response = await apiClient.post(
+            `/conversations/${conversationId}/members-with-invites`,
             request,
         );
 

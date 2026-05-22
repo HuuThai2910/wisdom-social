@@ -3,6 +3,7 @@ import axiosClient from "../api/axiosClient";
 
 export type MessageType =
     | "TEXT"
+    | "LINK"
     | "IMAGE"
     | "VIDEO"
     | "FILE"
@@ -26,7 +27,8 @@ export type MessageType =
     | "SYSTEM_UPDATE_SETTING"
     | "SYSTEM_REQUIRE_APPROVAL"
     | "SYSTEM_JOIN_VIA_LINK"
-    | "SYSTEM_MEMBER_BLOCKED_FROM_JOIN";
+    | "SYSTEM_MEMBER_BLOCKED_FROM_JOIN"
+    | "SYSTEM_GROUP_INVITE_LINK_SENT";
 
 export type MemberRole = "OWNER" | "DEPUTY" | "MEMBER";
 
@@ -57,6 +59,8 @@ export interface Message {
     attachments?: MessageAttachment[];
     deletedFor?: number[];
     iconName?: MessageReaction[];
+    conversation?: Conversation;
+    newConversation?: boolean;
 }
 
 export interface PollOptionResponse {
@@ -219,7 +223,8 @@ export interface ConversationMember {
 export interface SendMessageRequest {
     content: string;
     type: MessageType;
-    conversationId: number;
+    conversationId?: number;
+    receiverId?: number;
     replyToId?: string;
     attachments?: Array<{
         url: string;
@@ -227,6 +232,18 @@ export interface SendMessageRequest {
         fileName: string;
         fileSize: number;
     }>;
+}
+
+export interface ChatUserSearchResult {
+    userId: number;
+    name: string;
+    username?: string;
+    phone?: string;
+    avatarUrl?: string;
+    friendStatus: "FRIEND" | "STRANGER";
+    mutualGroupsCount: number;
+    existingDirectConversationId?: number | null;
+    blocked?: boolean;
 }
 
 export interface ForwardMessageRequest {
@@ -276,8 +293,16 @@ export interface CreateGroupRequest {
     memberIds: number[];
 }
 
+export interface CreateGroupWithInvitesRequest extends CreateGroupRequest {
+    inviteeUserIds: number[];
+}
+
 export interface AddGroupMembersRequest {
     newMemberIds: number[];
+}
+
+export interface AddGroupMembersWithInvitesRequest extends AddGroupMembersRequest {
+    inviteeUserIds: number[];
 }
 
 function normalizeMembersPayload(
@@ -407,6 +432,29 @@ const chatService = {
         return response.data;
     },
 
+    async searchChatUserByPhone(phone: string): Promise<ChatUserSearchResult | null> {
+        const response = await axiosClient.get("/chat-users/search-by-phone", {
+            params: { phone },
+        });
+        return unwrapApiData(
+            response.data as ApiResponse<ChatUserSearchResult | null> | ChatUserSearchResult | null,
+        );
+    },
+
+    async getChatUserRelationship(userId: number): Promise<ChatUserSearchResult | null> {
+        const response = await axiosClient.get(`/chat-users/${userId}/relationship`);
+        return unwrapApiData(
+            response.data as ApiResponse<ChatUserSearchResult | null> | ChatUserSearchResult | null,
+        );
+    },
+
+    async resolveDirectConversation(receiverId: number): Promise<Conversation> {
+        const response = await axiosClient.post("/conversations/direct/resolve", {
+            receiverId,
+        });
+        return unwrapApiData(response.data as ApiResponse<Conversation> | Conversation);
+    },
+
     async createPoll(request: CreatePollRequest): Promise<Message> {
         const response = await axiosClient.post("/messages/polls", request);
         return unwrapApiData(response.data as ApiResponse<Message> | Message);
@@ -511,12 +559,37 @@ const chatService = {
         );
     },
 
+    async createGroupConversationWithInvites(
+        request: CreateGroupWithInvitesRequest,
+    ): Promise<Conversation> {
+        const response = await axiosClient.post(
+            "/conversations/group-with-invites",
+            request,
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
     async addMembersToGroup(
         conversationId: number,
         request: AddGroupMembersRequest,
     ): Promise<Conversation> {
         const response = await axiosClient.post(
             `/conversations/${conversationId}/members`,
+            request,
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async addMembersToGroupWithInvites(
+        conversationId: number,
+        request: AddGroupMembersWithInvitesRequest,
+    ): Promise<Conversation> {
+        const response = await axiosClient.post(
+            `/conversations/${conversationId}/members-with-invites`,
             request,
         );
         return unwrapApiData(

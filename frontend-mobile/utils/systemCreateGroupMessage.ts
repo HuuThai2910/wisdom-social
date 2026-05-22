@@ -14,7 +14,8 @@ export type GroupSystemMessageType =
     | "SYSTEM_UPDATE_SETTING"
     | "SYSTEM_REQUIRE_APPROVAL"
     | "SYSTEM_JOIN_VIA_LINK"
-    | "SYSTEM_MEMBER_BLOCKED_FROM_JOIN";
+    | "SYSTEM_MEMBER_BLOCKED_FROM_JOIN"
+    | "SYSTEM_GROUP_INVITE_LINK_SENT";
 
 function formatCommaNameList(names: string[]): string {
     return names.join(", ");
@@ -457,6 +458,14 @@ export function buildSystemGroupMessage(params: {
             content,
             membersById,
         });
+    }
+
+    if (type === "SYSTEM_GROUP_INVITE_LINK_SENT") {
+        const memberNames = safeParseMemberEntries(content)
+            .map((entry) => resolveMemberLabelFromSnapshot(entry, membersById))
+            .filter((name): name is string => Boolean(name));
+        const joinedNames = formatCommaNameList(memberNames) || "Nguoi duoc moi";
+        return `${joinedNames} da nhan duoc link nhom va can xac nhan tham gia.`;
     }
 
     if (type === "SYSTEM_LEAVE_GROUP") {

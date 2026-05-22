@@ -8,6 +8,9 @@ import {
 import { colors, spacing } from "@/constants";
 import { useGroupManagement } from "@/hooks/useGroupManagement";
 import { useMessagesController } from "@/hooks/useMessagesController";
+import { useAppContext } from "@/context/AppContext";
+import chatService from "@/services/chatService";
+import type { ChatUserSearchResult } from "@/types/chat";
 import { buildConversationDisplayInfo } from "@/utils/conversationDisplayInfo";
 import { buildConversationLastMessagePreview } from "@/utils/conversationLastMessagePreview";
 import { Ionicons } from "@expo/vector-icons";
@@ -18,6 +21,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
     Alert,
     Animated,
+    ActivityIndicator,
     Dimensions,
     FlatList,
     GestureResponderEvent,
@@ -27,6 +31,7 @@ import {
     SafeAreaView,
     StyleSheet,
     Text,
+    TextInput,
     View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -156,6 +161,7 @@ function isCurrentUserRemovedFromConversation(
 export default function MessagesListScreen() {
     const router = useRouter();
     const segments = useSegments();
+    const { currentUser } = useAppContext();
     const { refreshAt, pendingJoinNotice } = useLocalSearchParams<{
         refreshAt?: string;
         pendingJoinNotice?: string;
@@ -205,6 +211,13 @@ export default function MessagesListScreen() {
         },
     });
     const [menuState, setMenuState] = useState<MenuState | null>(null);
+    const [chatUserSearchResult, setChatUserSearchResult] =
+        useState<ChatUserSearchResult | null>(null);
+    const [chatUserSearchLoading, setChatUserSearchLoading] = useState(false);
+    const [selectedChatUserPreview, setSelectedChatUserPreview] =
+        useState<ChatUserSearchResult | null>(null);
+    const [previewMessageText, setPreviewMessageText] = useState("");
+    const [previewSending, setPreviewSending] = useState(false);
     const suppressNextPressRef = useRef(false);
     const menuProgress = useRef(new Animated.Value(0)).current;
     const menuSoundRef = useRef<Audio.Sound | null>(null);
@@ -337,6 +350,108 @@ export default function MessagesListScreen() {
         }
     }, [pendingJoinNotice, refreshAt, reload]);
 
+    const phoneSearchDigits = useMemo(
+        () => searchQuery.replace(/\D/g, ""),
+        [searchQuery],
+    );
+
+    useEffect(() => {
+        if (phoneSearchDigits.length !== 10) {
+            setChatUserSearchResult(null);
+            setChatUserSearchLoading(false);
+            return;
+        }
+
+        let cancelled = false;
+        setChatUserSearchLoading(true);
+        chatService
+            .searchChatUserByPhone(phoneSearchDigits)
+            .then((result) => {
+                if (!cancelled) setChatUserSearchResult(result);
+            })
+            .catch(() => {
+                if (!cancelled) setChatUserSearchResult(null);
+            })
+            .finally(() => {
+                if (!cancelled) setChatUserSearchLoading(false);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [phoneSearchDigits]);
+
+    const openChatUserSearchResult = async (result: ChatUserSearchResult) => {
+        const existingLocalDirectConversationId =
+            result.existingDirectConversationId ??
+            filteredConversations.find(
+                (conversation) =>
+                    conversation.type === "DIRECT" &&
+                    conversation.members?.some(
+                        (member) => Number(member.userId) === Number(result.userId),
+                    ),
+            )?.id;
+
+        if (existingLocalDirectConversationId) {
+            setSearchQuery("");
+            await reload();
+            router.push({
+                pathname: "/(stack)/messages/[conversationId]",
+                params: {
+                    conversationId: String(existingLocalDirectConversationId),
+                    peerFriendStatus: result.friendStatus,
+                    peerMutualGroupsCount: String(result.mutualGroupsCount ?? 0),
+                },
+            });
+            return;
+        }
+        try {
+            const conversation = await chatService.resolveDirectConversation(
+                result.userId,
+            );
+            setSelectedChatUserPreview(null);
+            setSearchQuery("");
+            await reload();
+            router.push({
+                pathname: "/(stack)/messages/[conversationId]",
+                params: {
+                    conversationId: String(conversation.id),
+                    peerFriendStatus: result.friendStatus,
+                    peerMutualGroupsCount: String(result.mutualGroupsCount ?? 0),
+                },
+            });
+        } catch {
+            Alert.alert("Thong bao", "Khong the mo cuoc tro chuyen");
+        }
+    };
+
+    const sendPreviewMessage = async () => {
+        if (!selectedChatUserPreview || !previewMessageText.trim()) return;
+        setPreviewSending(true);
+        try {
+            const message = await chatService.sendMessage(
+                {
+                    receiverId: selectedChatUserPreview.userId,
+                    content: previewMessageText.trim(),
+                    type: "TEXT",
+                },
+                currentUserId,
+            );
+            setPreviewMessageText("");
+            setSelectedChatUserPreview(null);
+            setSearchQuery("");
+            await reload();
+            router.push({
+                pathname: "/(stack)/messages/[conversationId]",
+                params: { conversationId: String(message.conversationId) },
+            });
+        } catch {
+            Alert.alert("Thong bao", "Khong the gui tin nhan");
+        } finally {
+            setPreviewSending(false);
+        }
+    };
+
     const closeMenu = () => setMenuState(null);
 
     const handleItemLongPress = (
@@ -461,9 +576,76 @@ export default function MessagesListScreen() {
             </View>
 
             <FlatList
-                data={filteredConversations}
+                keyboardShouldPersistTaps="always"
+                keyboardDismissMode="on-drag"
+                data={
+                    phoneSearchDigits.length === 10 && chatUserSearchResult
+                        ? []
+                        : filteredConversations
+                }
                 keyExtractor={(item) => String(item.id)}
+                ListHeaderComponent={
+                    phoneSearchDigits.length === 10 ? (
+                        <View style={styles.searchResultWrap}>
+                            {chatUserSearchLoading ? (
+                                <ActivityIndicator color="#2563EB" />
+                            ) : chatUserSearchResult ? (
+                                <Pressable
+                                    style={styles.searchUserRow}
+                                    onPress={() =>
+                                        void openChatUserSearchResult(
+                                            chatUserSearchResult,
+                                        )
+                                    }
+                                >
+                                    {chatUserSearchResult.avatarUrl ? (
+                                        <Image
+                                            source={{
+                                                uri: chatUserSearchResult.avatarUrl,
+                                            }}
+                                            style={styles.searchUserAvatar}
+                                        />
+                                    ) : (
+                                        <View style={styles.searchUserFallback}>
+                                            <Ionicons
+                                                name="person"
+                                                size={22}
+                                                color="#64748B"
+                                            />
+                                        </View>
+                                    )}
+                                    <View style={styles.searchUserTextWrap}>
+                                        <Text
+                                            style={styles.searchUserName}
+                                            numberOfLines={1}
+                                        >
+                                            {chatUserSearchResult.name}
+                                        </Text>
+                                        <Text
+                                            style={[styles.searchUserMeta, { display: "none" }]}
+                                            numberOfLines={1}
+                                        >
+                                            {chatUserSearchResult.friendStatus ===
+                                            "FRIEND"
+                                                ? "Ban be"
+                                                : "Nguoi la"}
+                                            {chatUserSearchResult.mutualGroupsCount >
+                                            0
+                                                ? ` · Nhom chung (${chatUserSearchResult.mutualGroupsCount})`
+                                                : ""}
+                                        </Text>
+                                    </View>
+                                </Pressable>
+                            ) : (
+                                <Text style={styles.searchUserEmpty}>
+                                    Khong tim thay nguoi dung voi so nay
+                                </Text>
+                            )}
+                        </View>
+                    ) : null
+                }
                 ListEmptyComponent={
+                    phoneSearchDigits.length === 10 && chatUserSearchResult ? null :
                     <EmptyState
                         title={
                             loading
@@ -508,11 +690,12 @@ export default function MessagesListScreen() {
                                 username: displayInfo.name,
                                 fullName: displayInfo.name,
                                 bio: "",
-                                avatar: displayInfo.avatarUrl || "",
+                                avatarUrl: displayInfo.avatarUrl || "",
                                 followers: 0,
                                 following: 0,
                             }}
-                            preview={preview}
+                            preview={searchQuery.trim() ? "" : preview}
+                            hideMeta={Boolean(searchQuery.trim())}
                             unreadCount={item.unreadCount ?? 0}
                             isPinned={isPinned}
                             updatedAt={item.updatedAt}
@@ -523,6 +706,7 @@ export default function MessagesListScreen() {
                                 }
 
                                 clearUnreadCount(item.id);
+                                setSearchQuery("");
                                 router.push({
                                     pathname:
                                         "/(stack)/messages/[conversationId]",
@@ -545,9 +729,130 @@ export default function MessagesListScreen() {
                 friendsError={friendsError}
                 submitting={isCreatingGroup}
                 error={actionError}
+                currentUserName={
+                    currentUser?.fullName ||
+                    currentUser?.name ||
+                    currentUser?.username
+                }
                 onClose={closeCreateGroupModal}
                 onSubmit={createGroup}
             />
+
+            <Modal
+                visible={Boolean(selectedChatUserPreview)}
+                transparent
+                animationType="slide"
+                onRequestClose={() => setSelectedChatUserPreview(null)}
+            >
+                <View style={styles.previewModalOverlay}>
+                    <View style={styles.previewSheet}>
+                        <View style={styles.previewHeader}>
+                            {selectedChatUserPreview?.avatarUrl ? (
+                                <Image
+                                    source={{
+                                        uri: selectedChatUserPreview.avatarUrl,
+                                    }}
+                                    style={styles.previewAvatar}
+                                />
+                            ) : (
+                                <View style={styles.previewAvatarFallback}>
+                                    <Ionicons
+                                        name="person"
+                                        size={24}
+                                        color="#64748B"
+                                    />
+                                </View>
+                            )}
+                            <View style={styles.previewTitleWrap}>
+                                <Text style={styles.previewName} numberOfLines={1}>
+                                    {selectedChatUserPreview?.name}
+                                </Text>
+                                <Text style={styles.previewMeta} numberOfLines={1}>
+                                    {selectedChatUserPreview?.friendStatus ===
+                                    "FRIEND"
+                                        ? "Ban be"
+                                        : "Nguoi la"}
+                                    {selectedChatUserPreview &&
+                                    selectedChatUserPreview.mutualGroupsCount > 0
+                                        ? ` · Nhom chung (${selectedChatUserPreview.mutualGroupsCount})`
+                                        : ""}
+                                </Text>
+                            </View>
+                            <Pressable
+                                style={styles.previewCloseBtn}
+                                onPress={() => setSelectedChatUserPreview(null)}
+                            >
+                                <Ionicons name="close" size={20} color="#64748B" />
+                            </Pressable>
+                        </View>
+
+                        {selectedChatUserPreview?.friendStatus !== "FRIEND" ? (
+                        <View style={styles.previewFriendBar}>
+                            <Ionicons
+                                name="person-add-outline"
+                                size={18}
+                                color="#334155"
+                            />
+                            <Text style={styles.previewFriendText}>
+                                Gui yeu cau ket ban toi nguoi nay
+                            </Text>
+                            <Pressable style={styles.previewFriendBtn}>
+                                <Text style={styles.previewFriendBtnText}>
+                                    Gui ket ban
+                                </Text>
+                            </Pressable>
+                        </View>
+                        ) : null}
+
+                        <Text style={styles.previewHint}>
+                            Tin nhan dau tien se tao cuoc hoi thoai rieng.
+                        </Text>
+
+                        <View style={styles.previewComposer}>
+                            <TextInput
+                                value={previewMessageText}
+                                onChangeText={setPreviewMessageText}
+                                placeholder={
+                                    selectedChatUserPreview?.blocked
+                                        ? "Khong the nhan tin voi nguoi dung nay"
+                                        : "Nhap tin nhan..."
+                                }
+                                editable={
+                                    !previewSending &&
+                                    !selectedChatUserPreview?.blocked
+                                }
+                                style={styles.previewInput}
+                                onSubmitEditing={() => void sendPreviewMessage()}
+                            />
+                            <Pressable
+                                style={[
+                                    styles.previewSendBtn,
+                                    (!previewMessageText.trim() ||
+                                        previewSending ||
+                                        selectedChatUserPreview?.blocked) &&
+                                        styles.previewSendBtnDisabled,
+                                ]}
+                                disabled={
+                                    !previewMessageText.trim() ||
+                                    previewSending ||
+                                    selectedChatUserPreview?.blocked
+                                }
+                                onPress={() => void sendPreviewMessage()}
+                            >
+                                {previewSending ? (
+                                    <ActivityIndicator color="#fff" />
+                                ) : (
+                                    <Ionicons
+                                        name="send"
+                                        size={18}
+                                        color={colors.white}
+                                    />
+                                )}
+                            </Pressable>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
 
             {/* --- Pin limit modal --- */}
             <Modal
@@ -739,7 +1044,7 @@ export default function MessagesListScreen() {
                                             fullName:
                                                 selectedConversationDisplayInfo.name,
                                             bio: "",
-                                            avatar:
+                                            avatarUrl:
                                                 selectedConversationDisplayInfo.avatarUrl ||
                                                 "",
                                             followers: 0,
@@ -863,6 +1168,164 @@ const styles = StyleSheet.create({
         paddingVertical: spacing.sm,
         borderBottomWidth: 1,
         borderBottomColor: colors.border,
+    },
+    searchResultWrap: {
+        paddingHorizontal: spacing.lg,
+        paddingVertical: spacing.sm,
+    },
+    searchUserRow: {
+        minHeight: 68,
+        flexDirection: "row",
+        alignItems: "center",
+        borderRadius: 14,
+        paddingHorizontal: 10,
+        backgroundColor: "#F8FAFC",
+    },
+    searchUserAvatar: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: "#E5E7EB",
+    },
+    searchUserFallback: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#E5E7EB",
+    },
+    searchUserTextWrap: {
+        flex: 1,
+        minWidth: 0,
+        marginLeft: 12,
+    },
+    searchUserName: {
+        fontSize: 15,
+        fontWeight: "700",
+        color: colors.text,
+    },
+    searchUserMeta: {
+        marginTop: 3,
+        fontSize: 12,
+        color: colors.textMuted,
+    },
+    searchUserEmpty: {
+        paddingVertical: 18,
+        textAlign: "center",
+        color: colors.textMuted,
+        fontSize: 13,
+    },
+    previewModalOverlay: {
+        flex: 1,
+        backgroundColor: colors.white,
+    },
+    previewSheet: {
+        flex: 1,
+        paddingTop: 12,
+        padding: 16,
+        backgroundColor: colors.white,
+    },
+    previewHeader: {
+        minHeight: 58,
+        flexDirection: "row",
+        alignItems: "center",
+    },
+    previewAvatar: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: "#E5E7EB",
+    },
+    previewAvatarFallback: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#E5E7EB",
+    },
+    previewTitleWrap: {
+        flex: 1,
+        minWidth: 0,
+        marginLeft: 12,
+    },
+    previewName: {
+        fontSize: 16,
+        fontWeight: "800",
+        color: colors.text,
+    },
+    previewMeta: {
+        marginTop: 3,
+        fontSize: 12,
+        color: colors.textMuted,
+    },
+    previewCloseBtn: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#F3F4F6",
+    },
+    previewFriendBar: {
+        marginTop: 14,
+        minHeight: 44,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        borderRadius: 12,
+        paddingHorizontal: 10,
+        backgroundColor: "#F8FAFC",
+    },
+    previewFriendText: {
+        flex: 1,
+        fontSize: 13,
+        color: "#334155",
+    },
+    previewFriendBtn: {
+        borderRadius: 10,
+        paddingHorizontal: 12,
+        paddingVertical: 7,
+        backgroundColor: "#E5E7EB",
+    },
+    previewFriendBtnText: {
+        fontSize: 12,
+        fontWeight: "700",
+        color: "#1F2937",
+    },
+    previewHint: {
+        paddingVertical: 18,
+        textAlign: "center",
+        fontSize: 13,
+        color: colors.textMuted,
+    },
+    previewComposer: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        borderRadius: 22,
+        paddingLeft: 12,
+        paddingRight: 6,
+        paddingVertical: 6,
+        backgroundColor: "#F3F4F6",
+    },
+    previewInput: {
+        flex: 1,
+        minHeight: 36,
+        fontSize: 14,
+        color: colors.text,
+    },
+    previewSendBtn: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#2563EB",
+    },
+    previewSendBtnDisabled: {
+        opacity: 0.5,
     },
     modalRoot: {
         flex: 1,

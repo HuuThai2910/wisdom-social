@@ -11,6 +11,7 @@ interface CreateGroupPayload {
     name: string;
     imageUrl?: string;
     memberIds: number[];
+    inviteeUserIds?: number[];
 }
 
 interface UseGroupManagementParams {
@@ -210,7 +211,13 @@ export function useGroupManagement({
     const createGroup = useCallback(
         async (payload: CreateGroupPayload) => {
             const memberIds = Array.from(new Set(payload.memberIds));
-            if (memberIds.length < 2) {
+            const inviteeUserIds = Array.from(new Set(payload.inviteeUserIds ?? []));
+            const hasInvitees = inviteeUserIds.length > 0;
+            if (hasInvitees && memberIds.length === 0) {
+                setActionError("Vui long chon it nhat 1 ban be de tao nhom.");
+                return false;
+            }
+            if ((!hasInvitees && memberIds.length < 2) || (hasInvitees && memberIds.length + inviteeUserIds.length < 2)) {
                 setActionError(
                     "Vui lòng chọn ít nhất 2 thành viên để tạo nhóm.",
                 );
@@ -221,8 +228,14 @@ export function useGroupManagement({
                 setIsCreatingGroup(true);
                 setActionError(null);
 
-                const createdConversation =
-                    await chatService.createGroupConversation({
+                const createdConversation = hasInvitees
+                    ? await chatService.createGroupConversationWithInvites({
+                        name: payload.name.trim() || undefined,
+                        imageUrl: payload.imageUrl?.trim() || undefined,
+                        memberIds,
+                        inviteeUserIds,
+                    })
+                    : await chatService.createGroupConversation({
                         name: payload.name.trim() || undefined,
                         imageUrl: payload.imageUrl?.trim() || undefined,
                         memberIds,
@@ -245,7 +258,7 @@ export function useGroupManagement({
     );
 
     const addMembersToGroup = useCallback(
-        async (memberIds: number[]) => {
+        async (memberIds: number[], inviteeUserIds: number[] = []) => {
             if (!selectedConversationId || !selectedGroupConversation) {
                 setActionError("Không tìm thấy cuộc trò chuyện nhóm.");
                 return false;
@@ -260,8 +273,17 @@ export function useGroupManagement({
                     ),
                 ),
             );
+            const validInviteeIds = Array.from(
+                new Set(
+                    inviteeUserIds.filter(
+                        (memberId) =>
+                            Number(memberId) !== Number(currentUserId) &&
+                            !groupMemberIds.has(Number(memberId)),
+                    ),
+                ),
+            );
 
-            if (validIds.length === 0) {
+            if (validIds.length === 0 && validInviteeIds.length === 0) {
                 setActionError("Vui lòng chọn ít nhất 1 thành viên mới.");
                 return false;
             }
@@ -270,9 +292,16 @@ export function useGroupManagement({
                 setIsAddingMembers(true);
                 setActionError(null);
 
-                await chatService.addMembersToGroup(selectedConversationId, {
-                    newMemberIds: validIds,
-                });
+                if (validInviteeIds.length > 0) {
+                    await chatService.addMembersToGroupWithInvites(selectedConversationId, {
+                        newMemberIds: validIds,
+                        inviteeUserIds: validInviteeIds,
+                    });
+                } else {
+                    await chatService.addMembersToGroup(selectedConversationId, {
+                        newMemberIds: validIds,
+                    });
+                }
                 await reloadConversations();
                 setIsAddMembersModalOpen(false);
                 if (

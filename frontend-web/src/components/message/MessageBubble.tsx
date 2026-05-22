@@ -451,7 +451,7 @@ export function MessageBubble({
     }, [reactionOpen]);
 
     const groupInviteUrl =
-        message.type === "TEXT" && !message.isRecalled
+        (message.type === "TEXT" || message.type === "LINK") && !message.isRecalled
             ? extractGroupInviteUrl(message.content)
             : null;
     const groupInviteToken = groupInviteUrl
@@ -1170,7 +1170,8 @@ export function MessageBubble({
                       | "SYSTEM_DISBAND_GROUP"
                       | "SYSTEM_UPDATE_SETTING"
                       | "SYSTEM_REQUIRE_APPROVAL"
-                      | "SYSTEM_JOIN_VIA_LINK",
+                      | "SYSTEM_JOIN_VIA_LINK"
+                      | "SYSTEM_GROUP_INVITE_LINK_SENT",
                   content: message.content,
                   isOwn,
                   senderName,

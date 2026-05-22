@@ -54,16 +54,20 @@ import iuh.fit.edu.backend.modules.chat.service.PollCacheService;
 import iuh.fit.edu.backend.modules.conversation.constant.ConversationMemberStatus;
 import iuh.fit.edu.backend.modules.conversation.constant.MemberRole;
 import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationMemberResponse;
+import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationResponse;
+import iuh.fit.edu.backend.modules.conversation.dto.response.DirectConversationResolveResult;
 import iuh.fit.edu.backend.modules.conversation.entity.Conversation;
 import iuh.fit.edu.backend.modules.conversation.entity.ConversationMember;
 import iuh.fit.edu.backend.modules.conversation.entity.FrozenLastMessage;
 import iuh.fit.edu.backend.modules.conversation.entity.PinnedMessageDetail;
+import iuh.fit.edu.backend.modules.conversation.event.payload.ConversationCreatedEvent;
 import iuh.fit.edu.backend.modules.conversation.event.payload.ConversationUpdatedEvent;
 import iuh.fit.edu.backend.modules.conversation.event.payload.PinUpdatedEvent;
 import iuh.fit.edu.backend.modules.conversation.mapper.ConversationMapper;
 import iuh.fit.edu.backend.modules.conversation.repository.ConversationMemberRepository;
 import iuh.fit.edu.backend.modules.conversation.repository.ConversationRepository;
 import iuh.fit.edu.backend.modules.conversation.service.ConversationMemberService;
+import iuh.fit.edu.backend.modules.conversation.service.DirectConversationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -91,17 +95,32 @@ public class MessageCommandService {
     private final S3Service s3Service;
     private final ObjectMapper objectMapper;
     private final ChatSnapshotHelper chatSnapshotHelper;
+    private final DirectConversationService directConversationService;
 
     /**
      * Hàm xử lý việc gửi tin nhắn
      */
     @Transactional
     public MessageResponse sendMessage(SendMessageRequest sendMessageRequest, Long userId) {
+        DirectConversationResolveResult directResolveResult = null;
         // Kiểm tra phòng còn tồn tại hay không
-        Conversation conversation = this.conversationRepository.findById(sendMessageRequest.getConversationId())
+        Conversation conversation;
+        if (sendMessageRequest.getConversationId() != null) {
+            conversation = this.conversationRepository.findById(sendMessageRequest.getConversationId())
                 .orElseThrow(() -> new RuntimeException("Không tim thấy cuộc trò chuyện"));
 
         // Lấy ra thông tin của người gửi (lần đầu tiên thì lấy từ db, những lần khác còn trong thời gian thì lấy từ redis cache)
+        } else if (sendMessageRequest.getReceiverId() != null) {
+            directResolveResult = directConversationService
+                    .getOrCreateDirectConversation(userId, sendMessageRequest.getReceiverId());
+            Long conversationId = directResolveResult.conversation().getId();
+            sendMessageRequest.setConversationId(conversationId);
+            conversation = this.conversationRepository.findById(conversationId)
+                    .orElseThrow(() -> new RuntimeException("Khong tim thay cuoc tro chuyen"));
+        } else {
+            throw new IllegalArgumentException("conversationId hoac receiverId la bat buoc");
+        }
+
         ConversationMemberResponse senderInfo = conversationMemberService
                 .getMemberInfo(sendMessageRequest.getConversationId(), userId);
 
@@ -116,7 +135,7 @@ public class MessageCommandService {
         newMessage.setContent(sendMessageRequest.getContent());
         newMessage.setMessageType(sendMessageRequest.getType());
         newMessage.setSenderId(senderInfo.getUserId());
-        newMessage.setConversationId(sendMessageRequest.getConversationId());
+        newMessage.setConversationId(conversation.getId());
         newMessage.setCreatedAt(Instant.now().truncatedTo(ChronoUnit.MILLIS));
         newMessage.setReplyInfo(buildReplyInfo(sendMessageRequest.getReplyToId()));
         newMessage.setAttachments(mapAttachments(sendMessageRequest.getAttachments()));
@@ -131,6 +150,9 @@ public class MessageCommandService {
 
         // Ban su kien gui tin nhan di cho cac noi dang ky
         publishMessageEvents(conversation.getId(), messageResponse, lastMessageResponse);
+        if (directResolveResult != null && directResolveResult.created()) {
+            enrichAndPublishDirectConversationCreated(conversation.getId(), userId, messageResponse);
+        }
 
         return messageResponse;
     }
@@ -728,6 +750,26 @@ public class MessageCommandService {
 
 
     // Hàm xử lý hệ quả (MySQL, Cache)
+    private void enrichAndPublishDirectConversationCreated(Long conversationId, Long senderId, MessageResponse messageResponse) {
+        Conversation createdConversation = conversationRepository.findById(conversationId)
+                .orElseThrow(() -> new RuntimeException("Khong tim thay cuoc tro chuyen"));
+        Set<Long> memberIds = this.conversationMemberService.getAllMemberId(conversationId);
+
+        for (Long memberId : memberIds) {
+            ConversationResponse conversationResponse = conversationMapper.toConversationResponse(createdConversation, memberId);
+            if (conversationResponse.getLastMessage() != null
+                    && conversationResponse.getLastMessage().getLastSenderId() != null
+                    && conversationResponse.getLastMessage().getLastSenderId().equals(memberId)) {
+                conversationResponse.getLastMessage().setRead(true);
+            }
+            if (memberId.equals(senderId)) {
+                messageResponse.setConversation(conversationResponse);
+                messageResponse.setNewConversation(true);
+            }
+            eventPublisher.publishEvent(new ConversationCreatedEvent(conversationResponse, Collections.singleton(memberId)));
+        }
+    }
+
     private LastMessageResponse processPostMessageSideEffects(
             Conversation conversation, Message savedMessage,
             ConversationMemberResponse senderInfo, MessageResponse messageResponse) {

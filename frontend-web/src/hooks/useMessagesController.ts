@@ -11,6 +11,7 @@ import websocketService, {
     type LastMessageUpdate,
 } from "../services/websocket";
 import { useAuth } from "../contexts/AuthContext";
+import { useChatUnread } from "../contexts/ChatUnreadContext";
 import chatRuntimeStore from "../stores/chatRuntimeStore";
 import {
     formatConversationTime,
@@ -32,6 +33,7 @@ const PRESERVE_EMPTY_PENDING_REQUEST_TYPES = new Set<MessageType>([
     "SYSTEM_UPDATE_SETTING",
     "SYSTEM_REQUIRE_APPROVAL",
     "SYSTEM_JOIN_VIA_LINK",
+    "SYSTEM_GROUP_INVITE_LINK_SENT",
 ]);
 
 const MAX_PINNED_CONVERSATIONS = 4;
@@ -95,6 +97,7 @@ export function useMessagesController() {
 
     // currentUserId: lấy từ AuthContext (security integration)
     const { currentUser } = useAuth();
+    const { clearConversationUnread } = useChatUnread();
     const currentUserId = currentUser?.id ?? 0;
 
     // ====== Refs chống stale-closure (đặc biệt cho websocket callbacks) ======
@@ -353,7 +356,8 @@ export function useMessagesController() {
                 conv.id === convId ? { ...conv, unreadCount: 0 } : conv,
             ),
         );
-    }, [selectedConversationId]);
+        clearConversationUnread(convId);
+    }, [clearConversationUnread, selectedConversationId]);
 
     // Hydrate chi tiết hội thoại sau khi chọn item từ sidebar response mới
     // (GET /conversations đã tối ưu và không còn members/pinnedMessages).
@@ -505,7 +509,8 @@ export function useMessagesController() {
                 conv.id === conversationId ? { ...conv, unreadCount: 0 } : conv,
             ),
         );
-    }, []);
+        clearConversationUnread(conversationId);
+    }, [clearConversationUnread]);
 
     const refreshConversationById = useCallback(
         (
@@ -887,7 +892,10 @@ export function useMessagesController() {
 
         return () => {
             // Cleanup để tránh leak subscribe khi userId đổi/unmount.
-            websocketService.unsubscribeFromUserConversations(currentUserId);
+            websocketService.unsubscribeFromUserConversations(
+                currentUserId,
+                handleConversationUpdate,
+            );
         };
     }, [currentUserId, handleConversationUpdate]);
 
@@ -909,9 +917,16 @@ export function useMessagesController() {
         navigate(`/messages`);
     }, [navigate]);
 
+    const normalizeSearchValue = useCallback((value: string) => {
+        return value
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .toLowerCase();
+    }, []);
+
     const filteredConversations = useMemo(() => {
         // Filter theo searchQuery trên displayName.
-        const trimmed = searchQuery.trim().toLowerCase();
+        const trimmed = normalizeSearchValue(searchQuery.trim());
         const source = sortWithPinnedConversations(
             conversations,
             pinnedConversations,
@@ -922,9 +937,9 @@ export function useMessagesController() {
                 conv.name?.trim() ||
                 (conv.type === "GROUP" ? "Nhóm chat" : "Người dùng");
 
-            return displayName?.toLowerCase().includes(trimmed);
+            return normalizeSearchValue(displayName || "").includes(trimmed);
         });
-    }, [conversations, pinnedConversations, searchQuery]);
+    }, [conversations, normalizeSearchValue, pinnedConversations, searchQuery]);
 
     const getDisplayInfo = useCallback(
         (conv: Conversation) => {

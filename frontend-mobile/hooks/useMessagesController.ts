@@ -32,6 +32,7 @@ const GROUP_SYSTEM_SYNC_TYPES = new Set<Message["type"]>([
     "SYSTEM_UPDATE_SETTING",
     "SYSTEM_REQUIRE_APPROVAL",
     "SYSTEM_JOIN_VIA_LINK",
+    "SYSTEM_GROUP_INVITE_LINK_SENT",
 ]);
 
 const PRESERVE_EMPTY_PENDING_REQUEST_TYPES = new Set<Message["type"]>([
@@ -43,6 +44,7 @@ const PRESERVE_EMPTY_PENDING_REQUEST_TYPES = new Set<Message["type"]>([
     "SYSTEM_UPDATE_SETTING",
     "SYSTEM_REQUIRE_APPROVAL",
     "SYSTEM_JOIN_VIA_LINK",
+    "SYSTEM_GROUP_INVITE_LINK_SENT",
 ]);
 
 const MAX_PINNED_CONVERSATIONS = 4;
@@ -119,6 +121,16 @@ function sortConversationsByLatest(
 ): Conversation[] {
     return [...conversations].sort(
         (a, b) => getConversationSortTime(b) - getConversationSortTime(a),
+    );
+}
+
+function shouldShowInConversationList(conversation: Conversation): boolean {
+    if (String(conversation.type).toUpperCase() !== "DIRECT") return true;
+    const lastMessage = conversation.lastMessage;
+    return Boolean(
+        lastMessage?.lastMessageContent?.trim() ||
+            (lastMessage?.lastMessageType &&
+                lastMessage.lastMessageType !== "SYSTEM_CREATE_GROUP")
     );
 }
 
@@ -264,7 +276,9 @@ export function useMessagesController() {
             const cachedConversations = chatRuntimeStore.getAllConversations();
             if (cachedConversations.length > 0) {
                 setConversations(
-                    sortConversationsByLatest(cachedConversations),
+                    sortConversationsByLatest(
+                        cachedConversations.filter(shouldShowInConversationList),
+                    ),
                 );
             }
 
@@ -279,10 +293,17 @@ export function useMessagesController() {
                 );
                 const merged = mergeConversationsByFreshness([
                     sidebarConversations,
-                    chatRuntimeStore.getAllConversations(),
+                    chatRuntimeStore
+                        .getAllConversations()
+                        .filter(shouldShowInConversationList),
                 ]);
 
-                setConversations(sortWithPinnedConversations(merged, pins));
+                setConversations(
+                    sortWithPinnedConversations(
+                        merged.filter(shouldShowInConversationList),
+                        pins,
+                    ),
+                );
                 merged.forEach((conversation) => {
                     chatRuntimeStore.setConversation(
                         conversation.id,
@@ -498,6 +519,13 @@ export function useMessagesController() {
         return chatRuntimeStore.subscribeConversationChanges(
             (updatedConversation) => {
                 setConversations((prev) => {
+                    if (!shouldShowInConversationList(updatedConversation)) {
+                        return prev.filter(
+                            (conversation) =>
+                                conversation.id !== updatedConversation.id,
+                        );
+                    }
+
                     const exists = prev.some(
                         (conversation) =>
                             conversation.id === updatedConversation.id,
@@ -507,7 +535,7 @@ export function useMessagesController() {
                         return sortConversationsByLatest([
                             updatedConversation,
                             ...prev,
-                        ]);
+                        ].filter(shouldShowInConversationList));
                     }
 
                     return sortConversationsByLatest(
@@ -530,7 +558,7 @@ export function useMessagesController() {
                                           conversation.lastMessage,
                                   }
                                 : conversation,
-                        ),
+                        ).filter(shouldShowInConversationList),
                     );
                 });
             },
@@ -925,10 +953,17 @@ export function useMessagesController() {
         }, [currentUserId, handleConversationUpdate, loadConversations]),
     );
 
+    const normalizeSearchValue = useCallback((value: string) => {
+        return value
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .toLowerCase();
+    }, []);
+
     const filteredConversations = useMemo(() => {
-        const query = searchQuery.trim().toLowerCase();
+        const query = normalizeSearchValue(searchQuery.trim());
         const source = sortWithPinnedConversations(
-            conversations,
+            conversations.filter(shouldShowInConversationList),
             pinnedConversations,
         );
         if (!query) return source;
@@ -940,11 +975,13 @@ export function useMessagesController() {
             ]
                 .filter(Boolean)
                 .join(" ")
+                .normalize("NFD")
+                .replace(/[\u0300-\u036f]/g, "")
                 .toLowerCase();
 
             return candidate.includes(query);
         });
-    }, [conversations, pinnedConversations, searchQuery]);
+    }, [conversations, normalizeSearchValue, pinnedConversations, searchQuery]);
 
     const clearUnreadCount = useCallback((conversationId: number) => {
         setConversations((prev) =>

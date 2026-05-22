@@ -1,14 +1,22 @@
 import { colors } from "@/constants";
 import { useAppContext } from "@/context/AppContext";
+import chatService from "@/services/chatService";
+import chatWebsocketService from "@/services/chatWebsocketService";
 import { cancelAccountDeletion } from "@/services/securityService";
 import { Ionicons } from "@expo/vector-icons";
-import { Redirect, Tabs, useRouter } from "expo-router";
-import { useEffect, useRef } from "react";
+import { Redirect, Tabs, usePathname, useRouter } from "expo-router";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Image, StyleSheet, View } from "react-native";
 
 export default function TabsLayout() {
     const { currentUser, loggedIn, deletionPending, deletionRemainingDays, clearDeletionPending, logout } = useAppContext();
     const router = useRouter();
+    const pathname = usePathname();
+    const [chatUnreadByConversation, setChatUnreadByConversation] = useState<Record<number, number>>({});
+    const chatUnreadCount = useMemo(
+        () => Object.values(chatUnreadByConversation).reduce((sum, count) => sum + count, 0),
+        [chatUnreadByConversation],
+    );
     // Flag để đảm bảo alert chỉ hiện đúng 1 lần dù effect chạy lại nhiều lần
     const alertShownRef = useRef(false);
 
@@ -53,6 +61,52 @@ export default function TabsLayout() {
             ],
         );
     }, [loggedIn, deletionPending]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    useEffect(() => {
+        const currentUserId = Number(currentUser?.id);
+        if (!loggedIn || !Number.isFinite(currentUserId)) {
+            setChatUnreadByConversation({});
+            return;
+        }
+
+        let disposed = false;
+        const loadUnread = async () => {
+            const response = await chatService.getConversations(currentUserId);
+            if (disposed || !response.success || !Array.isArray(response.data)) return;
+            const next: Record<number, number> = {};
+            response.data.forEach((conversation) => {
+                next[conversation.id] = conversation.unreadCount ?? 0;
+            });
+            setChatUnreadByConversation(next);
+        };
+
+        const handleConversationUpdate = (conversationId: number, lastMessage: any) => {
+            const lastSenderId = Number(lastMessage?.lastSenderId ?? 0);
+            if (lastSenderId === currentUserId) return;
+            setChatUnreadByConversation((prev) => ({
+                ...prev,
+                [conversationId]: (prev[conversationId] ?? 0) + 1,
+            }));
+        };
+
+        void loadUnread();
+        void chatWebsocketService.connect().then(() => {
+            if (!disposed) {
+                chatWebsocketService.subscribeToUserConversations(
+                    currentUserId,
+                    handleConversationUpdate,
+                );
+            }
+        });
+
+        return () => {
+            disposed = true;
+            chatWebsocketService.unsubscribeFromUserConversations(
+                currentUserId,
+                handleConversationUpdate,
+            );
+        };
+    }, [currentUser?.id, loggedIn, pathname]);
 
     if (!loggedIn) {
         return <Redirect href="/(auth)/login" />;
@@ -110,7 +164,12 @@ export default function TabsLayout() {
             <Tabs.Screen name="index" />
             <Tabs.Screen name="search" />
             <Tabs.Screen name="add" />
-            <Tabs.Screen name="activity" />
+            <Tabs.Screen
+                name="activity"
+                options={{
+                    tabBarBadge: chatUnreadCount > 0 ? (chatUnreadCount > 99 ? "99+" : chatUnreadCount) : undefined,
+                }}
+            />
             <Tabs.Screen name="profile" />
         </Tabs>
     );

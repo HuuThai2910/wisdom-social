@@ -50,6 +50,7 @@ const GROUP_SYSTEM_MEMBER_SYNC_TYPES = new Set<Message["type"]>([
     "SYSTEM_UPDATE_SETTING",
     "SYSTEM_REQUIRE_APPROVAL",
     "SYSTEM_JOIN_VIA_LINK",
+    "SYSTEM_GROUP_INVITE_LINK_SENT",
 ]);
 
 export interface ReadReceipt {
@@ -1286,6 +1287,9 @@ if (token !== loadTokenRef.current) return;
 
         let disposed = false;
         let retryTimeout: ReturnType<typeof setTimeout> | null = null;
+        let handleUserConversationUpdate:
+            | ((updatedConversationId: number) => void)
+            | null = null;
 
         const setup = async () => {
             try {
@@ -1364,6 +1368,21 @@ if (token !== loadTokenRef.current) return;
                     },
                 );
 
+                handleUserConversationUpdate = (
+                    updatedConversationId: number,
+                ) => {
+                    if (Number(updatedConversationId) !== Number(conversationId)) {
+                        return;
+                    }
+                    const token = ++loadTokenRef.current;
+                    void loadInitialDataRef.current(token);
+                };
+
+                chatWebsocketService.subscribeToUserConversations(
+                    currentUserId,
+                    handleUserConversationUpdate,
+                );
+
                 console.log(
                     "[RECALL_DEBUG][mobile][useChatWindowController] ws setup subscribed",
                     { conversationId },
@@ -1435,6 +1454,12 @@ if (token !== loadTokenRef.current) return;
                 currentUserId,
                 conversationId,
             );
+            if (handleUserConversationUpdate) {
+                chatWebsocketService.unsubscribeFromUserConversations(
+                    currentUserId,
+                    handleUserConversationUpdate,
+                );
+            }
         };
     }, [
         applyRecallDomino,

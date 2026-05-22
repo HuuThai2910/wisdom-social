@@ -888,6 +888,13 @@ class ChatWebsocketService {
                     if (createdConversation?.id) {
                         const lastMessageData =
                             toLastMessageUpdate(createdConversation);
+                        if (
+                            String(createdConversation.type).toUpperCase() ===
+                                "DIRECT" &&
+                            !lastMessageData
+                        ) {
+                            return;
+                        }
                         const resolvedLastMessage =
                             lastMessageData ??
                             buildFallbackLastMessageUpdate(createdConversation);

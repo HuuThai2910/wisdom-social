@@ -29,13 +29,13 @@ public interface FriendRepository extends JpaRepository<Friend,Long> {
     List<Long> findAcceptedFriendIds(@Param("userId") Long userId, @Param("acceptedStatus") int acceptedStatus);
 
     @Query(value = """
-        SELECT COUNT(*) > 0
+        SELECT COUNT(*)
         FROM friends f
         WHERE f.status = :acceptedStatus
           AND ((f.user_id = :userId1 AND f.friend_id = :userId2)
            OR (f.user_id = :userId2 AND f.friend_id = :userId1))
         """, nativeQuery = true)
-    boolean existsAcceptedFriendship(
+    long countAcceptedFriendship(
         @Param("userId1") Long userId1,
         @Param("userId2") Long userId2,
         @Param("acceptedStatus") int acceptedStatus

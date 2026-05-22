@@ -11,9 +11,12 @@ import { UserAvatar } from "@/components";
 import SelectGroupMembersModal from "@/components/SelectGroupMembersModal";
 import { colors, spacing } from "@/constants";
 import { useChatWindowController } from "@/hooks/useChatWindowController";
+import { useFriendNotifications } from "@/hooks/useFriendNotifications";
 import { useGroupManagement } from "@/hooks/useGroupManagement";
 import chatService from "@/services/chatService";
-import type { ConversationSidebar, LocalUploadFile, Message } from "@/types/chat";
+import friendService from "@/services/friendService";
+import type { FriendEvent } from "@/services/friendWebsocketService";
+import type { ChatUserSearchResult, ConversationSidebar, LocalUploadFile, Message } from "@/types/chat";
 import { formatRelativeTime } from "@/utils/format";
 import { focusComposerInput } from "@/utils/focusComposerInput";
 import { buildConversationDisplayInfo } from "@/utils/conversationDisplayInfo";
@@ -21,7 +24,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Audio, type AVPlaybackStatus, ResizeMode, Video } from "expo-av";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, usePreventRemove } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Alert,
@@ -121,24 +124,38 @@ export default function MessagesConversationScreen() {
         refreshAt,
         pendingJoinNotice,
         backToMessages,
+        peerFriendStatus,
+        peerMutualGroupsCount,
         openMessageId,
     } = useLocalSearchParams<{
         conversationId?: string;
         refreshAt?: string;
         pendingJoinNotice?: string;
         backToMessages?: string;
+        peerFriendStatus?: string;
+        peerMutualGroupsCount?: string;
         openMessageId?: string;
     }>();
     const conversationId = Number(conversationIdParam ?? 0);
     const router = useRouter();
     const insets = useSafeAreaInsets();
+    const redirectingBackToMessagesRef = useRef(false);
+    const [redirectingBackToMessages, setRedirectingBackToMessages] =
+        useState(false);
+    const goBackToMessagesRoot = useCallback(() => {
+        if (redirectingBackToMessagesRef.current) return;
+        redirectingBackToMessagesRef.current = true;
+        setRedirectingBackToMessages(true);
+        router.replace("/(tabs)/activity");
+    }, [router]);
+
     const handleBackPress = useCallback(() => {
         if (backToMessages === "1") {
-            router.replace("/(tabs)/activity");
+            goBackToMessagesRoot();
             return;
         }
         router.back();
-    }, [backToMessages, router]);
+    }, [backToMessages, goBackToMessagesRoot, router]);
 
     useEffect(() => {
         if (backToMessages !== "1") return;
@@ -146,16 +163,45 @@ export default function MessagesConversationScreen() {
         const subscription = BackHandler.addEventListener(
             "hardwareBackPress",
             () => {
-                router.replace("/(tabs)/activity");
+                goBackToMessagesRoot();
                 return true;
             },
         );
 
         return () => subscription.remove();
-    }, [backToMessages, router]);
+    }, [backToMessages, goBackToMessagesRoot]);
+
+    usePreventRemove(
+        backToMessages === "1" && !redirectingBackToMessages,
+        goBackToMessagesRoot,
+    );
     const handleAccessBlocked = useCallback(() => {
         router.replace("/(tabs)/activity");
     }, [router]);
+    const [loadedRelationshipInfo, setLoadedRelationshipInfo] =
+        useState<ChatUserSearchResult | null>(null);
+    const [friendRequestSending, setFriendRequestSending] = useState(false);
+    const [friendRequestSent, setFriendRequestSent] = useState(false);
+    const routeRelationshipInfo = useMemo(() => {
+        if (!peerFriendStatus) return null;
+        return {
+            friendStatus: peerFriendStatus === "FRIEND" ? "FRIEND" : "STRANGER",
+            mutualGroupsCount: Number(peerMutualGroupsCount ?? 0),
+        };
+    }, [peerFriendStatus, peerMutualGroupsCount]);
+    const effectiveRelationshipInfo =
+        loadedRelationshipInfo ?? routeRelationshipInfo;
+    const peerRelationshipText = useMemo(() => {
+        if (!effectiveRelationshipInfo) return null;
+        const parts = [
+            effectiveRelationshipInfo.friendStatus === "FRIEND" ? "Ban be" : "Nguoi la",
+        ];
+        const mutualGroupsCount = Number(effectiveRelationshipInfo.mutualGroupsCount ?? 0);
+        if (mutualGroupsCount > 0) {
+            parts.push(`Nhom chung (${mutualGroupsCount})`);
+        }
+        return parts.join(" · ");
+    }, [effectiveRelationshipInfo]);
 
     const {
         currentUserId,
@@ -170,7 +216,6 @@ export default function MessagesConversationScreen() {
         loading,
         loadingMore,
         loadingNewer,
-        hasMoreOlder,
         hasMoreNewer,
         isHistoricalMode,
         sending,
@@ -310,6 +355,7 @@ export default function MessagesConversationScreen() {
     const isAtBottomRef = useRef(true);
     const stickToBottomRef = useRef(true);
     const didInitialAutoScrollRef = useRef(false);
+    const userHasDraggedListRef = useRef(false);
     const listLayoutRef = useRef({ y: 0, height: 0 });
     const scrollMetricsRef = useRef({
         contentHeight: 0,
@@ -374,6 +420,132 @@ export default function MessagesConversationScreen() {
             null
         );
     }, [currentUserId, membersById]);
+
+    useFriendNotifications(
+        useCallback(
+            (event: FriendEvent) => {
+                if (!currentUserId || !otherUser?.userId) return;
+                const senderId = Number(event.senderId);
+                const receiverId = Number(event.receiverId);
+                const matchesCurrentConversation =
+                    (senderId === currentUserId &&
+                        receiverId === Number(otherUser.userId)) ||
+                    (senderId === Number(otherUser.userId) &&
+                        receiverId === currentUserId);
+
+                if (!matchesCurrentConversation) return;
+
+                if (event.eventType === "friend-accept") {
+                    setFriendRequestSent(false);
+                    setLoadedRelationshipInfo((previous) =>
+                        previous
+                            ? { ...previous, friendStatus: "FRIEND" }
+                            : {
+                                  userId: Number(otherUser.userId),
+                                  name:
+                                      otherUser.nickname ||
+                                      otherUser.username ||
+                                      "",
+                                  friendStatus: "FRIEND",
+                                  mutualGroupsCount: 0,
+                              },
+                    );
+                    return;
+                }
+
+                if (
+                    event.eventType === "friend-reject" ||
+                    event.eventType === "friend-cancel"
+                ) {
+                    setFriendRequestSent(false);
+                    setLoadedRelationshipInfo((previous) =>
+                        previous
+                            ? { ...previous, friendStatus: "STRANGER" }
+                            : previous,
+                    );
+                }
+            },
+            [currentUserId, otherUser?.nickname, otherUser?.userId, otherUser?.username],
+        ),
+    );
+
+    useEffect(() => {
+        setFriendRequestSent(false);
+        setFriendRequestSending(false);
+    }, [otherUser?.userId]);
+
+    const handleSendFriendRequest = useCallback(async () => {
+        if (
+            !currentUserId ||
+            !otherUser?.userId ||
+            friendRequestSending
+        ) {
+            return;
+        }
+
+        setFriendRequestSending(true);
+        if (friendRequestSent) {
+            setFriendRequestSent(false);
+        }
+        const ok = friendRequestSent
+            ? await friendService.cancelFriendRequest(
+                  currentUserId,
+                  otherUser.userId,
+              )
+            : await friendService.sendFriendRequest(
+                  currentUserId,
+                  otherUser.userId,
+              );
+        setFriendRequestSending(false);
+
+        if (ok) {
+            if (!friendRequestSent) {
+                setFriendRequestSent(true);
+            }
+            return;
+        }
+
+        if (friendRequestSent) {
+            setFriendRequestSent(true);
+        }
+
+        Alert.alert(
+            "Thong bao",
+            friendRequestSent
+                ? "Khong the huy loi moi ket ban"
+                : "Khong the gui loi moi ket ban",
+        );
+    }, [
+        currentUserId,
+        friendRequestSending,
+        friendRequestSent,
+        otherUser?.userId,
+    ]);
+
+    useEffect(() => {
+        if (routeRelationshipInfo) {
+            setLoadedRelationshipInfo(null);
+            return;
+        }
+        if (conversation?.type !== "DIRECT" || !otherUser?.userId) {
+            setLoadedRelationshipInfo(null);
+            return;
+        }
+
+        let cancelled = false;
+        chatService
+            .getChatUserRelationship(otherUser.userId)
+            .then((result) => {
+                if (!cancelled) setLoadedRelationshipInfo(result);
+            })
+            .catch(() => {
+                if (!cancelled) setLoadedRelationshipInfo(null);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [conversation?.type, otherUser?.userId, routeRelationshipInfo]);
 
     const conversationDisplayInfo = useMemo(() => {
         if (!conversation) return null;
@@ -894,6 +1066,7 @@ export default function MessagesConversationScreen() {
         isAtBottomRef.current = true;
         stickToBottomRef.current = true;
         didInitialAutoScrollRef.current = false;
+        userHasDraggedListRef.current = false;
         setShowScrollToBottomButton(false);
         setPendingNewMessages(0);
         rightScrollCueVisibleRef.current = false;
@@ -919,6 +1092,7 @@ export default function MessagesConversationScreen() {
         if (jumpScrollLockRef.current) return;
 
         didInitialAutoScrollRef.current = true;
+        autoPagingSuppressedUntilRef.current = Date.now() + 500;
         stickToBottomRef.current = true;
         isAtBottomRef.current = true;
         forceScrollToBottom(false);
@@ -1012,6 +1186,7 @@ export default function MessagesConversationScreen() {
 
     const handleListScrollBeginDrag = useCallback(
         (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+            userHasDraggedListRef.current = true;
             autoPagingSuppressedUntilRef.current = 0;
             const distanceFromBottom =
                 event.nativeEvent.contentSize.height -
@@ -1389,7 +1564,11 @@ export default function MessagesConversationScreen() {
         };
         updateRightScrollCuePosition();
 
-        if (event.nativeEvent.contentOffset.y <= LOAD_OLDER_TRIGGER_PX) {
+        if (
+            userHasDraggedListRef.current &&
+            didInitialAutoScrollRef.current &&
+            event.nativeEvent.contentOffset.y <= LOAD_OLDER_TRIGGER_PX
+        ) {
             if (!isAutoPagingSuppressed) {
                 void loadOlderMessages();
             } else if (now - autoPagingSuppressLogAtRef.current > 700) {
@@ -1649,7 +1828,7 @@ export default function MessagesConversationScreen() {
                                     "Conversation"}
                             </Text>
                             <Text style={styles.headerStatus} numberOfLines={1}>
-                                {activityText}
+                                {peerRelationshipText || activityText}
                             </Text>
                         </View>
                     </View>
@@ -1697,6 +1876,44 @@ export default function MessagesConversationScreen() {
                         </Pressable>
                     </View>
                 </View>
+
+                {effectiveRelationshipInfo &&
+                effectiveRelationshipInfo.friendStatus !== "FRIEND" ? (
+                    <View style={styles.friendRequestBanner}>
+                        <View style={styles.friendRequestTextWrap}>
+                            <Ionicons
+                                name="person-add-outline"
+                                size={18}
+                                color="#334155"
+                            />
+                            <Text
+                                style={styles.friendRequestText}
+                                numberOfLines={1}
+                            >
+                                Gui yeu cau ket ban toi nguoi nay
+                            </Text>
+                        </View>
+                        <Pressable
+                            style={[
+                                styles.friendRequestButton,
+                                friendRequestSending &&
+                                    styles.friendRequestButtonDisabled,
+                            ]}
+                            disabled={friendRequestSending}
+                            onPress={() => void handleSendFriendRequest()}
+                        >
+                            <Text style={styles.friendRequestButtonText}>
+                                {friendRequestSent
+                                    ? friendRequestSending
+                                        ? "Dang huy..."
+                                        : "Huy yeu cau"
+                                    : friendRequestSending
+                                      ? "Dang gui..."
+                                      : "Gui ket ban"}
+                            </Text>
+                        </Pressable>
+                    </View>
+                ) : null}
 
                 <PinnedBanner
                     pinnedBannerItems={pinnedBannerItems}

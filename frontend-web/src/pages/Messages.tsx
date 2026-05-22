@@ -1,7 +1,5 @@
 import {
-    Archive,
     Bell,
-    Edit,
     MailOpen,
     BellOff,
     Ban,
@@ -39,7 +37,8 @@ import SelectGroupMembersModal from "../components/message/SelectGroupMembersMod
 import { useGroupManagement } from "../hooks/useGroupManagement";
 import { useMessagesController } from "../hooks/useMessagesController";
 import { useSidebarLayout } from "../hooks/useSidebarLayout";
-import chatService, { type Message } from "../services/chatService";
+import { useAuth } from "../contexts/AuthContext";
+import chatService, { type ChatUserSearchResult, type Message } from "../services/chatService";
 import chatRuntimeStore from "../stores/chatRuntimeStore";
 import { buildConversationLastMessagePreview } from "../utils/conversationLastMessagePreview";
 
@@ -117,6 +116,7 @@ function isCurrentUserRemovedFromConversation(
 export default function Messages() {
     const INFO_PANEL_WIDTH = 352;
     const { sidebarWidth } = useSidebarLayout();
+    const { currentUser } = useAuth();
     const {
         searchQuery,
         setSearchQuery,
@@ -178,6 +178,15 @@ export default function Messages() {
         privacy: true,
     });
     const menuRef = useRef<HTMLDivElement>(null);
+    const [chatUserSearchResult, setChatUserSearchResult] =
+        useState<ChatUserSearchResult | null>(null);
+    const [chatUserSearchLoading, setChatUserSearchLoading] = useState(false);
+    const [selectedChatUserPreview, setSelectedChatUserPreview] =
+        useState<ChatUserSearchResult | null>(null);
+    const [selectedChatUserMeta, setSelectedChatUserMeta] =
+        useState<ChatUserSearchResult | null>(null);
+    const [previewMessageText, setPreviewMessageText] = useState("");
+    const [previewSending, setPreviewSending] = useState(false);
 
     const selectedConversation =
         conversations.find((conv) => conv.id === selectedConversationId) ||
@@ -186,6 +195,107 @@ export default function Messages() {
             : null) ||
         null;
     const isGroupConversation = selectedConversation?.type === "GROUP";
+    const phoneSearchDigits = useMemo(
+        () => searchQuery.replace(/\D/g, ""),
+        [searchQuery],
+    );
+    useEffect(() => {
+        if (phoneSearchDigits.length !== 10) {
+            setChatUserSearchResult(null);
+            setChatUserSearchLoading(false);
+            return;
+        }
+
+        let cancelled = false;
+        setChatUserSearchLoading(true);
+        chatService
+            .searchChatUserByPhone(phoneSearchDigits)
+            .then((result) => {
+                if (cancelled) return;
+                setChatUserSearchResult(result);
+            })
+            .catch(() => {
+                if (!cancelled) setChatUserSearchResult(null);
+            })
+            .finally(() => {
+                if (!cancelled) setChatUserSearchLoading(false);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [phoneSearchDigits]);
+
+    const handleSelectChatUserSearchResult = useCallback(
+        async (result: ChatUserSearchResult) => {
+            const existingLocalDirectConversationId =
+                result.existingDirectConversationId ??
+                conversations.find(
+                    (conversation) =>
+                        conversation.type === "DIRECT" &&
+                        conversation.members?.some(
+                            (member) =>
+                                Number(member.userId) === Number(result.userId),
+                        ),
+                )?.id;
+
+            if (existingLocalDirectConversationId) {
+                setSelectedChatUserPreview(null);
+                setSelectedChatUserMeta(result);
+                setSearchQuery("");
+                handleSelectConversation(existingLocalDirectConversationId);
+                return;
+            }
+            try {
+                const conversation = await chatService.resolveDirectConversation(
+                    result.userId,
+                );
+                chatRuntimeStore.setConversation(conversation.id, conversation);
+                setSelectedChatUserPreview(null);
+                setSelectedChatUserMeta(result);
+                setShowInfoPanel(false);
+                setSearchQuery("");
+                handleSelectConversation(conversation.id);
+                void reload();
+            } catch {
+                window.alert("Khong the mo cuoc tro chuyen");
+            }
+        },
+        [conversations, handleSelectConversation, reload],
+    );
+
+    const handleSendPreviewMessage = useCallback(async () => {
+        if (!selectedChatUserPreview || !previewMessageText.trim()) return;
+        setPreviewSending(true);
+        try {
+            const message = await chatService.sendMessage(
+                {
+                    receiverId: selectedChatUserPreview.userId,
+                    content: previewMessageText.trim(),
+                    type: "TEXT",
+                },
+                currentUserId,
+            );
+            setPreviewMessageText("");
+            setSelectedChatUserPreview(null);
+            if (message.conversation) {
+                chatRuntimeStore.setConversation(message.conversation.id, message.conversation);
+            }
+            setSearchQuery("");
+            handleSelectConversation(message.conversationId);
+            void reload();
+        } catch {
+            window.alert("Khong the gui tin nhan");
+        } finally {
+            setPreviewSending(false);
+        }
+    }, [
+        currentUserId,
+        handleSelectConversation,
+        previewMessageText,
+        reload,
+        selectedChatUserPreview,
+    ]);
 
     const {
         selectedGroupConversation,
@@ -453,8 +563,11 @@ export default function Messages() {
     }, [currentUserId, selectedConversation, selectedConversationId]);
 
     // Click outside để đóng menu
+    void handleChangeNickname;
+
     useEffect(() => {
         if (!openMenuConvId) return;
+
         function handleOutside(e: MouseEvent) {
             if (
                 menuRef.current &&
@@ -1038,18 +1151,76 @@ export default function Messages() {
                                 placeholder="Tìm kiếm"
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                className="w-full rounded-xl border border-transparent bg-gray-100 py-2.5 pl-10 pr-3 text-sm text-gray-900 outline-none transition-colors focus:border-blue-200 focus:bg-white dark:bg-gray-900 dark:text-white dark:placeholder-gray-400 dark:focus:border-blue-900 dark:focus:bg-black"
+                                className="w-full rounded-xl border border-transparent bg-gray-100 py-2.5 pl-10 pr-10 text-sm text-gray-900 outline-none transition-colors focus:border-blue-200 focus:bg-white dark:bg-gray-900 dark:text-white dark:placeholder-gray-400 dark:focus:border-blue-900 dark:focus:bg-black"
                             />
                             <Search
                                 size={16}
                                 className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
                             />
+                            {searchQuery && (
+                                <button
+                                    type="button"
+                                    onClick={() => setSearchQuery("")}
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+                                    aria-label="Xóa tìm kiếm"
+                                >
+                                    <X size={15} />
+                                </button>
+                            )}
                         </div>
                     </div>
 
                     {/* Chat List */}
                     <div className="flex-1 space-y-1 overflow-y-auto px-2 py-2">
-                        {loading ? (
+                        {phoneSearchDigits.length === 10 && chatUserSearchLoading ? (
+                            <div className="flex items-center justify-center py-8">
+                                <p className="text-gray-500">Đang tìm người dùng...</p>
+                            </div>
+                        ) : phoneSearchDigits.length === 10 && chatUserSearchResult ? (
+                            <button
+                                type="button"
+                                onClick={() =>
+                                    void handleSelectChatUserSearchResult(
+                                        chatUserSearchResult,
+                                    )
+                                }
+                                className={`flex w-full items-center gap-3 rounded-lg border px-3 py-3 text-left transition-colors ${
+                                    selectedChatUserPreview?.userId ===
+                                    chatUserSearchResult.userId
+                                        ? "border-blue-100 bg-blue-50/90 shadow-sm dark:border-[#262626] dark:bg-gray-900"
+                                        : "border-transparent hover:border-gray-200 hover:bg-gray-50 dark:hover:border-[#242424] dark:hover:bg-[#131313]"
+                                }`}
+                            >
+                                <ConversationAvatar
+                                    name={chatUserSearchResult.name}
+                                    avatarUrl={chatUserSearchResult.avatarUrl}
+                                    fallbackAvatarUrl={chatUserSearchResult.avatarUrl || ""}
+                                    sizeClassName="h-14 w-14"
+                                    ringClassName="ring-1 ring-gray-200 dark:ring-[#2a2a2a]"
+                                />
+                                <div className="min-w-0 flex-1">
+                                    <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">
+                                        {chatUserSearchResult.name}
+                                    </p>
+                                    <p className="hidden">
+                                        {chatUserSearchResult.friendStatus ===
+                                        "FRIEND"
+                                            ? "Bạn bè"
+                                            : "Người lạ"}
+                                        {chatUserSearchResult.mutualGroupsCount >
+                                        0
+                                            ? ` · Nhóm chung (${chatUserSearchResult.mutualGroupsCount})`
+                                            : ""}
+                                    </p>
+                                </div>
+                            </button>
+                        ) : phoneSearchDigits.length === 10 && !chatUserSearchLoading ? (
+                            <div className="flex items-center justify-center px-4 py-8">
+                                <p className="text-center text-sm text-gray-500">
+                                    Không tìm thấy người dùng với số này
+                                </p>
+                            </div>
+                        ) : loading ? (
                             <div className="flex items-center justify-center py-8">
                                 <p className="text-gray-500">Đang tải...</p>
                             </div>
@@ -1093,11 +1264,14 @@ export default function Messages() {
                                         className="group/item relative"
                                     >
                                         <div
-                                            onClick={() =>
+                                            onClick={() => {
+                                                setSelectedChatUserPreview(null);
+                                                setSelectedChatUserMeta(null);
+                                                setSearchQuery("");
                                                 handleSelectConversation(
                                                     conv.id,
-                                                )
-                                            }
+                                                );
+                                            }}
                                             className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-3 transition-colors ${
                                                 isActive
                                                     ? "border-blue-100 bg-blue-50/90 shadow-sm dark:border-[#262626] dark:bg-gray-900"
@@ -1137,7 +1311,7 @@ export default function Messages() {
                                                     </p>
                                                 </div>
                                                 <p
-                                                    className={`truncate text-sm ${
+                                                    className={`${searchQuery.trim() ? "hidden" : "truncate"} text-sm ${
                                                         conv.unreadCount &&
                                                         conv.unreadCount > 0
                                                             ? "font-semibold text-gray-900 dark:text-white"
@@ -1158,7 +1332,7 @@ export default function Messages() {
                                                 </p>
                                             </div>
 
-                                            <div className="flex flex-col items-end gap-1.5">
+                                            <div className={`${searchQuery.trim() ? "hidden" : "flex"} flex-col items-end gap-1.5`}>
                                                 <span className="text-[11px] text-gray-500 dark:text-gray-400">
                                                     {conv.lastMessage
                                                         ?.lastMessageAt
@@ -1390,6 +1564,14 @@ export default function Messages() {
                                         selectedConversationReadOnlyNotice
                                     }
                                     onForbidden={handleConversationForbidden}
+                                    peerRelationshipInfo={
+                                        selectedChatUserMeta &&
+                                        selectedConversationId ===
+                                            (selectedChatUserMeta.existingDirectConversationId ??
+                                                selectedConversationId)
+                                            ? selectedChatUserMeta
+                                            : null
+                                    }
                                     name={selectedDisplayInfo?.name}
                                     avatarUrl={
                                         selectedDisplayInfo?.avatar ?? undefined
@@ -1434,6 +1616,110 @@ export default function Messages() {
                                     {infoPanelContent}
                                 </aside>
                             )}
+                        </div>
+                    ) : selectedChatUserPreview ? (
+                        <div className="flex min-w-0 flex-1 flex-col bg-white dark:bg-black">
+                            <div className="flex h-23 items-center gap-3 border-b border-gray-200 px-6 dark:border-[#262626]">
+                                <ConversationAvatar
+                                    name={selectedChatUserPreview.name}
+                                    avatarUrl={selectedChatUserPreview.avatarUrl}
+                                    fallbackAvatarUrl={selectedChatUserPreview.avatarUrl || ""}
+                                    sizeClassName="h-12 w-12"
+                                    ringClassName="ring-1 ring-gray-200 dark:ring-[#2a2a2a]"
+                                />
+                                <div className="min-w-0 flex-1">
+                                    <h3 className="truncate text-base font-semibold text-gray-900 dark:text-white">
+                                        {selectedChatUserPreview.name}
+                                    </h3>
+                                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                                        <span className="rounded bg-gray-200 px-1.5 py-0.5 text-[11px] font-semibold uppercase text-gray-700 dark:bg-gray-800 dark:text-gray-200">
+                                            {selectedChatUserPreview.friendStatus ===
+                                            "FRIEND"
+                                                ? "Bạn bè"
+                                                : "Người lạ"}
+                                        </span>
+                                        {selectedChatUserPreview.mutualGroupsCount >
+                                            0 && (
+                                            <span>
+                                                Nhóm chung (
+                                                {
+                                                    selectedChatUserPreview.mutualGroupsCount
+                                                }
+                                                )
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                            {selectedChatUserPreview.friendStatus !==
+                                "FRIEND" && (
+                            <div className="border-b border-gray-200 bg-gray-50 px-4 py-3 dark:border-[#262626] dark:bg-[#080808]">
+                                <div className="flex items-center justify-between gap-3 rounded bg-white px-3 py-2 dark:bg-black">
+                                    <div className="flex min-w-0 items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+                                        <LucideUserPlus2 size={18} />
+                                        <span>
+                                            Gửi yêu cầu kết bạn tới người này
+                                        </span>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        className="rounded bg-gray-200 px-4 py-1.5 text-sm font-semibold text-gray-800 hover:bg-gray-300 dark:bg-gray-800 dark:text-gray-100"
+                                    >
+                                        Gửi kết bạn
+                                    </button>
+                                </div>
+                            </div>
+                            )}
+                            <div className="flex flex-1 items-center justify-center px-6 text-center">
+                                <p className="max-w-sm text-sm text-gray-500 dark:text-gray-400">
+                                    Chưa có cuộc trò chuyện. Tin nhắn đầu tiên sẽ
+                                    tạo cuộc hội thoại riêng giữa hai người.
+                                </p>
+                            </div>
+                            <div className="border-t border-gray-200 px-4 py-3 dark:border-[#262626]">
+                                <div className="flex items-center gap-2 rounded-full bg-gray-100 px-3 py-2 dark:bg-gray-900">
+                                    <input
+                                        value={previewMessageText}
+                                        onChange={(event) =>
+                                            setPreviewMessageText(
+                                                event.target.value,
+                                            )
+                                        }
+                                        onKeyDown={(event) => {
+                                            if (
+                                                event.key === "Enter" &&
+                                                !previewSending
+                                            ) {
+                                                void handleSendPreviewMessage();
+                                            }
+                                        }}
+                                        disabled={
+                                            previewSending ||
+                                            selectedChatUserPreview.blocked
+                                        }
+                                        placeholder={
+                                            selectedChatUserPreview.blocked
+                                                ? "Không thể nhắn tin với người dùng này"
+                                                : "Nhập tin nhắn..."
+                                        }
+                                        className="min-w-0 flex-1 bg-transparent px-2 py-1.5 text-sm text-gray-900 outline-none placeholder:text-gray-500 dark:text-white"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            void handleSendPreviewMessage()
+                                        }
+                                        disabled={
+                                            previewSending ||
+                                            !previewMessageText.trim() ||
+                                            selectedChatUserPreview.blocked
+                                        }
+                                        className="rounded-full p-1.5 text-gray-700 hover:bg-gray-200 disabled:opacity-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                                    >
+                                        <MailOpen size={20} />
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     ) : (
                         <div className="flex-1 flex items-center justify-center">
@@ -1810,6 +2096,11 @@ export default function Messages() {
                 friendsError={friendsError}
                 submitting={isCreatingGroup}
                 error={actionError}
+                currentUserName={
+                    currentUser?.fullName ||
+                    currentUser?.name ||
+                    currentUser?.username
+                }
                 onClose={closeCreateGroupModal}
                 onSubmit={createGroup}
             />
