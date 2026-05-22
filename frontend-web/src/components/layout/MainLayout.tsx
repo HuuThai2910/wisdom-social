@@ -1,9 +1,9 @@
 import { Outlet, useLocation } from "react-router-dom";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import Sidebar from "../nav/Sidebar";
 import BottomNav from "../nav/BottomNav";
-import { suggestedUsers } from "../../api/mockData";
 import { Link } from "react-router-dom";
+import { Loader2, UserPlus, Check } from "lucide-react";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useForceLogout } from "../../hooks/useForceLogout";
 import { useAvatarBuster } from "../../context/AvatarContext";
@@ -14,6 +14,10 @@ import {
 } from "../../contexts/FriendDataContext";
 import { buildS3Url } from "../../utils/s3";
 import { useSidebarLayout } from "../../hooks/useSidebarLayout";
+import friendService from "../../services/friendService";
+import type { User } from "../../types";
+
+type Suggestion = User & { mutualFriendsCount?: number };
 
 // Inner component that uses FriendDataContext
 function MainLayoutContent() {
@@ -26,6 +30,61 @@ function MainLayoutContent() {
 
     // Lắng nghe force-logout event từ backend (khi logoutAllDevices được gọi từ thiết bị khác)
     useForceLogout(currentUser?.phone);
+
+    // Friend suggestions for the right sidebar
+    const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+    const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+    const [sentIds, setSentIds] = useState<Set<number>>(new Set());
+    const [sendingId, setSendingId] = useState<number | null>(null);
+
+    // Friend events trigger a refresh — keeps suggestions in sync when a
+    // request is accepted/rejected/canceled by either side. Granular: we
+    // only refetch this small list, never reload the page.
+    const { refreshTrigger } = useFriendData();
+
+    useEffect(() => {
+        const id = currentUser?.id;
+        if (!id) return;
+        let cancelled = false;
+        setSuggestionsLoading(true);
+        friendService
+            .getFriendSuggestions(id, 8)
+            .then((list) => {
+                if (cancelled) return;
+                setSuggestions(list as Suggestion[]);
+                // Drop stale "sent" marks for users no longer in the list.
+                setSentIds((prev) => {
+                    const valid = new Set<number>();
+                    const ids = new Set(list.map((u) => u.id));
+                    prev.forEach((id) => {
+                        if (ids.has(id)) valid.add(id);
+                    });
+                    return valid;
+                });
+            })
+            .finally(() => {
+                if (!cancelled) setSuggestionsLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [currentUser?.id, refreshTrigger]);
+
+    const handleSendRequest = async (targetId: number) => {
+        if (!currentUser?.id) return;
+        setSendingId(targetId);
+        try {
+            await friendService.sendFriendRequest({
+                senderId: currentUser.id,
+                receivedId: targetId,
+            });
+            setSentIds((prev) => new Set(prev).add(targetId));
+        } catch (err) {
+            console.error("Error sending friend request:", err);
+        } finally {
+            setSendingId(null);
+        }
+    };
 
     console.log(
         "🔴 MainLayoutContent re-render with currentUser:",
@@ -90,52 +149,84 @@ function MainLayoutContent() {
                             </Link>
                         )}
 
-                        {/* Suggestions for you */}
+                        {/* Friend suggestions */}
                         <div className={isRightSidebarExpanded ? "" : "hidden"}>
                             <div className="flex items-center justify-between mb-4">
                                 <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400">
-                                    Suggestions For You
+                                    Gợi ý kết bạn
                                 </h2>
-                                <button className="text-xs font-semibold hover:text-gray-500 dark:text-white dark:hover:text-gray-400">
-                                    See All
-                                </button>
+                                <Link
+                                    to="/friend-requests"
+                                    className="text-xs font-semibold hover:text-gray-500 dark:text-white dark:hover:text-gray-400"
+                                >
+                                    Xem tất cả
+                                </Link>
                             </div>
 
-                            <div className="space-y-3">
-                                {suggestedUsers.map((user) => (
-                                    <div
-                                        key={user.id}
-                                        className="flex items-center justify-between"
-                                    >
-                                        <Link
-                                            to={`/profile/${user.username}`}
-                                            className="flex items-center gap-3 flex-1 min-w-0"
-                                        >
-                                            <img
-                                                src={
-                                                    buildS3Url(
-                                                        user.avatarUrl,
-                                                    ) ||
-                                                    "https://i.pravatar.cc/150"
-                                                }
-                                                alt={user.username}
-                                                className="w-11 h-11 rounded-full flex-shrink-0"
-                                            />
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-sm font-semibold truncate dark:text-white">
-                                                    {user.username}
-                                                </p>
-                                                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                                                    Suggested for you
-                                                </p>
+                            {suggestionsLoading ? (
+                                <div className="flex items-center justify-center py-6">
+                                    <Loader2 className="animate-spin text-blue-500" size={20} />
+                                </div>
+                            ) : suggestions.length === 0 ? (
+                                <p className="text-xs text-gray-500 dark:text-gray-400 py-4">
+                                    Không có gợi ý
+                                </p>
+                            ) : (
+                                <div className="space-y-3">
+                                    {suggestions.map((user) => {
+                                        const sent = sentIds.has(user.id);
+                                        return (
+                                            <div
+                                                key={user.id}
+                                                className="flex items-center justify-between gap-2"
+                                            >
+                                                <Link
+                                                    to={`/profile/${user.username}`}
+                                                    className="flex items-center gap-3 flex-1 min-w-0"
+                                                >
+                                                    <img
+                                                        src={
+                                                            buildS3Url(user.avatarUrl) ||
+                                                            user.avatarUrl ||
+                                                            "https://i.pravatar.cc/150"
+                                                        }
+                                                        alt={user.username}
+                                                        className="w-11 h-11 rounded-full shrink-0 object-cover"
+                                                    />
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="text-sm font-semibold truncate dark:text-white">
+                                                            {user.username}
+                                                        </p>
+                                                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                                                            {user.mutualFriendsCount && user.mutualFriendsCount > 0
+                                                                ? `${user.mutualFriendsCount} bạn chung`
+                                                                : user.fullName || user.name || "Gợi ý cho bạn"}
+                                                        </p>
+                                                    </div>
+                                                </Link>
+                                                <button
+                                                    onClick={() => handleSendRequest(user.id)}
+                                                    disabled={sent || sendingId === user.id}
+                                                    className={`shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full transition-colors ${
+                                                        sent
+                                                            ? "bg-gray-100 dark:bg-[#262626] text-green-500"
+                                                            : "bg-blue-500 hover:bg-blue-600 text-white disabled:opacity-60"
+                                                    }`}
+                                                    title={sent ? "Đã gửi lời mời" : "Kết bạn"}
+                                                >
+                                                    {sendingId === user.id ? (
+                                                        <Loader2 className="animate-spin" size={14} />
+                                                    ) : sent ? (
+                                                        <Check size={14} />
+                                                    ) : (
+                                                        <UserPlus size={14} />
+                                                    )}
+                                                </button>
                                             </div>
-                                        </Link>
-                                        <button className="text-xs font-semibold text-[#0095f6] hover:text-[#00376b] flex-shrink-0">
-                                            Follow
-                                        </button>
-                                    </div>
-                                ))}
-                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
                         </div>
 
                         {/* Footer Links */}

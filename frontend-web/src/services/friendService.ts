@@ -84,6 +84,36 @@ export const friendService = {
         const response = await axiosClient.post(`friends/reject`, data);
         return response.data.data;
     },
+
+    async getFriendSuggestions(userId: number, limit = 20): Promise<User[]> {
+        try {
+            const response = await axiosClient.get(`friends/suggestions/${userId}`, {
+                params: { limit, _t: Date.now() },
+            });
+            const data = response.data?.data ?? [];
+            if (!Array.isArray(data)) return [];
+            return data.map((s: any) => {
+                const rawAvatar =
+                    s.avatarUrl || s.avatar || s.imageUrl || s.profilePicture || "";
+                const avatarUrl =
+                    buildS3Url(rawAvatar) ||
+                    rawAvatar ||
+                    "https://i.pravatar.cc/150";
+                return {
+                    id: Number(s.userId ?? s.id),
+                    username: s.username,
+                    fullName: s.fullName || s.name || s.username,
+                    name: s.name || s.fullName || s.username,
+                    avatarUrl,
+                    bio: s.bio,
+                    mutualFriendsCount: s.mutualFriendsCount,
+                } as User & { mutualFriendsCount?: number };
+            });
+        } catch (err) {
+            console.error(`Error fetching friend suggestions for ${userId}:`, err);
+            return [];
+        }
+    },
 };
 
 export default friendService;

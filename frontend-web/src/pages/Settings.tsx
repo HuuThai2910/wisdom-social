@@ -52,11 +52,13 @@ export default function SettingsPage() {
   ];
 
   return (
-    <div className="max-w-[600px] mx-auto">
+    <div className="max-w-[600px] mx-auto px-4 sm:px-6 md:px-8 py-6">
       <div className="bg-white dark:bg-[#000]">
-        <div className="py-8">
-          <h1 className="text-2xl font-bold mb-2 dark:text-white">Cài đặt</h1>
-          <p className="text-gray-600 dark:text-gray-400 text-sm">
+        <div className="pb-8">
+          <h1 className="text-2xl font-bold mb-2 dark:text-white p-4">
+            Cài đặt
+          </h1>
+          <p className="text-gray-600 dark:text-gray-400 text-sm px-4">
             Quản lý cài đặt tài khoản và tùy chọn của bạn
           </p>
         </div>
