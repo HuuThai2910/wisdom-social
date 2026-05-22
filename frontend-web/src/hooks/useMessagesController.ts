@@ -909,9 +909,16 @@ export function useMessagesController() {
         navigate(`/messages`);
     }, [navigate]);
 
+    const normalizeSearchValue = useCallback((value: string) => {
+        return value
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .toLowerCase();
+    }, []);
+
     const filteredConversations = useMemo(() => {
         // Filter theo searchQuery trên displayName.
-        const trimmed = searchQuery.trim().toLowerCase();
+        const trimmed = normalizeSearchValue(searchQuery.trim());
         const source = sortWithPinnedConversations(
             conversations,
             pinnedConversations,
@@ -922,9 +929,9 @@ export function useMessagesController() {
                 conv.name?.trim() ||
                 (conv.type === "GROUP" ? "Nhóm chat" : "Người dùng");
 
-            return displayName?.toLowerCase().includes(trimmed);
+            return normalizeSearchValue(displayName || "").includes(trimmed);
         });
-    }, [conversations, pinnedConversations, searchQuery]);
+    }, [conversations, normalizeSearchValue, pinnedConversations, searchQuery]);
 
     const getDisplayInfo = useCallback(
         (conv: Conversation) => {

@@ -34,11 +34,14 @@ import EmojiPicker, {
 import { useChatWindowController } from "../../hooks/useChatWindowController";
 import { MessageBubble } from "./MessageBubble";
 import chatService, {
+  type ChatUserSearchResult,
   type ConversationSidebar,
   type Message,
 } from "../../services/chatService";
 import { buildConversationDisplayInfo } from "../../utils/conversationDisplayInfo";
 import { useCall } from "../../hooks/useCall";
+import { useFriendStatus } from "../../hooks/useFriendStatus";
+import { useFriendDataSafe } from "../../contexts/FriendDataContext";
 import IncomingCallModal from "./IncomingCallModal";
 import CallScreen from "./CallScreen";
 import { useChatAI } from "../../features/chat-ai/hooks/useChatAI";
@@ -61,6 +64,10 @@ interface ChatWindowProps {
   openPollMessageId?: string | null;
   openPollModalToken?: number;
   onPollModalClose?: () => void;
+  peerRelationshipInfo?: {
+    friendStatus?: string | null;
+    mutualGroupsCount?: number | null;
+  } | null;
 }
 
 function createClientFileId(): string {
@@ -130,14 +137,33 @@ export default function ChatWindow({
   onForbidden,
   name,
   avatarUrl,
-  compositeAvatarUrls,
   openPollMessageId = null,
   openPollModalToken = 0,
   onPollModalClose,
+  peerRelationshipInfo = null,
 }: ChatWindowProps) {
   const [isAiPanelOpen, setIsAiPanelOpen] = useState(false);
   const [internalOpenPollMessageId, setInternalOpenPollMessageId] = useState<string | null>(null);
   const [internalOpenPollModalToken, setInternalOpenPollModalToken] = useState(0);
+  const [loadedRelationshipInfo, setLoadedRelationshipInfo] =
+    useState<ChatUserSearchResult | null>(null);
+  const [friendRequestSending, setFriendRequestSending] = useState(false);
+  const [friendRequestSent, setFriendRequestSent] = useState(false);
+  const effectiveRelationshipInfo =
+    peerRelationshipInfo ?? loadedRelationshipInfo;
+  const relationshipText = useMemo(() => {
+    if (!effectiveRelationshipInfo) return null;
+    const parts = [
+      effectiveRelationshipInfo.friendStatus === "FRIEND"
+        ? "Bạn bè"
+        : "Người lạ",
+    ];
+    const mutualGroupsCount = Number(effectiveRelationshipInfo.mutualGroupsCount ?? 0);
+    if (mutualGroupsCount > 0) {
+      parts.push(`Nhóm chung (${mutualGroupsCount})`);
+    }
+    return parts.join(" · ");
+  }, [effectiveRelationshipInfo]);
 
   const {
     conversation,
@@ -204,6 +230,8 @@ export default function ChatWindow({
     readOnlyNotice,
   } = useChatWindowController({ conversationId, onMarkAsRead, forcedReadOnlyNotice, onForbidden });
 
+  const headerDisplayName = displayName || name || "Conversation";
+  const headerDisplayAvatar = displayAvatar || avatarUrl || defaultAvatarUrl;
   const isConversationReadOnly = Boolean(readOnlyNotice);
   const isAccessBlocked =
     isAccessBlockedNotice(error) || isAccessBlockedNotice(readOnlyNotice);
@@ -213,6 +241,122 @@ export default function ChatWindow({
     () => Object.values(membersById).find((m) => m.userId !== userId),
     [membersById, userId]
   );
+  const {
+    status: friendshipStatus,
+    loading: friendActionLoading,
+    sendRequest: sendFriendRequest,
+    cancelRequest: cancelFriendRequest,
+  } = useFriendStatus(otherMember?.userId);
+  const { friends: contextFriends, sentRequests: contextSentRequests } =
+    useFriendDataSafe();
+  const isFriendInContext = useMemo(
+    () =>
+      contextFriends.some(
+        (friend: any) => String(friend.id) === String(otherMember?.userId)
+      ),
+    [contextFriends, otherMember?.userId]
+  );
+  const isSentRequestInContext = useMemo(
+    () =>
+      contextSentRequests.some(
+        (request: any) => String(request.id) === String(otherMember?.userId)
+      ),
+    [contextSentRequests, otherMember?.userId]
+  );
+  const isFriend = friendshipStatus === "friends" || isFriendInContext;
+  const isPendingSent =
+    friendshipStatus === "pending_sent" ||
+    friendRequestSent ||
+    isSentRequestInContext;
+  const resolvedRelationshipText = useMemo(() => {
+    if (!effectiveRelationshipInfo || !isFriend) {
+      return relationshipText;
+    }
+
+    const mutualGroupsCount = Number(
+      effectiveRelationshipInfo.mutualGroupsCount ?? 0
+    );
+    return mutualGroupsCount > 0
+      ? `Bạn bè · Nhóm chung (${mutualGroupsCount})`
+      : "Bạn bè";
+  }, [effectiveRelationshipInfo, isFriend, relationshipText]);
+  const canShowFriendBanner =
+    Boolean(effectiveRelationshipInfo) &&
+    !isFriend &&
+    effectiveRelationshipInfo?.friendStatus !== "FRIEND";
+
+  useEffect(() => {
+    setFriendRequestSent(false);
+    setFriendRequestSending(false);
+  }, [otherMember?.userId]);
+
+  useEffect(() => {
+    if (friendshipStatus !== "pending_sent") {
+      setFriendRequestSent(false);
+    }
+  }, [friendshipStatus]);
+
+  const handleSendFriendRequest = useCallback(async () => {
+    if (!userId || !otherMember?.userId || friendRequestSending) {
+      return;
+    }
+
+    setFriendRequestSending(true);
+    try {
+      if (isPendingSent) {
+        setFriendRequestSent(false);
+        const ok = await cancelFriendRequest();
+        if (!ok) throw new Error("cancel failed");
+      } else {
+        const ok = await sendFriendRequest();
+        if (!ok) throw new Error("send failed");
+        setFriendRequestSent(true);
+      }
+    } catch {
+      if (isPendingSent) {
+        setFriendRequestSent(true);
+      }
+      window.alert(
+        isPendingSent
+          ? "Không thể hủy lời mời kết bạn. Vui lòng thử lại."
+          : "Không thể gửi lời mời kết bạn. Vui lòng thử lại.",
+      );
+    } finally {
+      setFriendRequestSending(false);
+    }
+  }, [
+    cancelFriendRequest,
+    friendRequestSending,
+    isPendingSent,
+    otherMember?.userId,
+    sendFriendRequest,
+    userId,
+  ]);
+
+  useEffect(() => {
+    if (peerRelationshipInfo) {
+      setLoadedRelationshipInfo(null);
+      return;
+    }
+    if (conversation?.type !== "DIRECT" || !otherMember?.userId) {
+      setLoadedRelationshipInfo(null);
+      return;
+    }
+
+    let cancelled = false;
+    chatService
+      .getChatUserRelationship(otherMember.userId)
+      .then((result) => {
+        if (!cancelled) setLoadedRelationshipInfo(result);
+      })
+      .catch(() => {
+        if (!cancelled) setLoadedRelationshipInfo(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [conversation?.type, otherMember?.userId, peerRelationshipInfo]);
 
   const targetMemberIds = useMemo(
     () =>
@@ -1104,16 +1248,16 @@ export default function ChatWindow({
       <div className="flex items-center justify-between border-b border-gray-200/80 dark:border-gray-700 px-5 py-3.5 bg-white dark:bg-black backdrop-blur-sm">
         <div className="flex items-center gap-3">
           <img
-            src={displayAvatar || defaultAvatarUrl}
-            alt={displayName}
+            src={headerDisplayAvatar}
+            alt={headerDisplayName}
             className="h-10 w-10 rounded-full object-cover ring-1 ring-gray-200 dark:ring-gray-700"
           />
-          <div>
+          <div className="min-w-0">
             <p className="text-sm font-semibold text-gray-900 dark:text-white">
-              {displayName}
+              {headerDisplayName}
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              Active now
+              {resolvedRelationshipText || "Active now"}
             </p>
           </div>
         </div>
@@ -1148,6 +1292,31 @@ export default function ChatWindow({
           </button>
         </div>
       </div>
+
+      {canShowFriendBanner && (
+        <div className="border-b border-gray-200 bg-gray-50 px-4 py-2.5 dark:border-[#262626] dark:bg-[#080808]">
+          <div className="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2 shadow-sm dark:bg-black">
+            <div className="flex min-w-0 items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+              <Plus size={18} />
+              <span>Gửi yêu cầu kết bạn tới người này</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleSendFriendRequest()}
+              disabled={friendRequestSending || friendActionLoading}
+              className="rounded-lg bg-gray-200 px-3.5 py-1.5 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-300 disabled:cursor-default disabled:opacity-70 dark:bg-gray-800 dark:text-gray-100"
+            >
+              {isPendingSent
+                ? friendRequestSending || friendActionLoading
+                  ? "Đang hủy..."
+                  : "Hủy yêu cầu"
+                : friendRequestSending || friendActionLoading
+                  ? "Đang gửi..."
+                  : "Gửi kết bạn"}
+            </button>
+          </div>
+        </div>
+      )}
 
       {pinnedBannerItems.length > 0 && (
         <div className="bg-gray-50 px-2.5 py-2 border-b border-gray-200 dark:bg-black dark:border-[#262626]">

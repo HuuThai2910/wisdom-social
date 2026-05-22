@@ -70,6 +70,8 @@ export interface Message {
     attachments?: MessageAttachment[];
     deletedFor?: number[];
     iconName?: MessageReaction[];
+    conversation?: Conversation;
+    newConversation?: boolean;
 }
 
 export interface PollOptionResponse {
@@ -229,7 +231,8 @@ export interface ConversationPreview {
 export interface SendMessageRequest {
     content: string;
     type: MessageType;
-    conversationId: number;
+    conversationId?: number;
+    receiverId?: number;
     replyToId?: string;
     attachments?: Array<{
         url: string;
@@ -237,6 +240,18 @@ export interface SendMessageRequest {
         fileName: string;
         fileSize: number;
     }>;
+}
+
+export interface ChatUserSearchResult {
+    userId: number;
+    name: string;
+    username?: string;
+    phone?: string;
+    avatarUrl?: string;
+    friendStatus: "FRIEND" | "STRANGER";
+    mutualGroupsCount: number;
+    existingDirectConversationId?: number | null;
+    blocked?: boolean;
 }
 
 export interface ForwardMessageRequest {

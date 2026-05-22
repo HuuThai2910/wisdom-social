@@ -31,7 +31,12 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
     @Query("""
     SELECT cm.conversation
     FROM ConversationMember cm
-    WHERE cm.user.id = :userId AND cm.isHidden = false
+    WHERE cm.user.id = :userId
+      AND cm.isHidden = false
+      AND (
+          cm.conversation.type <> iuh.fit.edu.backend.modules.conversation.constant.ConversationType.DIRECT
+          OR cm.conversation.lastMessageId IS NOT NULL
+      )
     ORDER BY cm.conversation.lastMessageAt DESC
 """)
     List<Conversation> findConversationsByUserIdOrderByLastMessageAtDesc(
@@ -43,6 +48,8 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
             "JOIN FETCH cm.conversation c " +
             "JOIN FETCH c.members " +
             "WHERE cm.user.id = :userId AND cm.isHidden = false " +
+            "AND (c.type <> iuh.fit.edu.backend.modules.conversation.constant.ConversationType.DIRECT " +
+            "OR c.lastMessageId IS NOT NULL) " +
             "ORDER BY c.lastMessageAt DESC")
     List<ConversationMember> findActiveSidebarByUserId(@Param("userId") Long userId);
 
@@ -51,6 +58,8 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
             "JOIN FETCH c.members " +
             "WHERE cm.user.id = :userId AND cm.isHidden = false " +
             "AND cm.status = iuh.fit.edu.backend.modules.conversation.constant.ConversationMemberStatus.ACTIVE " +
+            "AND (c.type <> iuh.fit.edu.backend.modules.conversation.constant.ConversationType.DIRECT " +
+            "OR c.lastMessageId IS NOT NULL) " +
             "ORDER BY c.lastMessageAt DESC")
     List<ConversationMember> findForwardableSidebarByUserId(@Param("userId") Long userId);
 
@@ -64,6 +73,10 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
       AND c.id IN :conversationIds
       AND cm.isHidden = false
       AND cm.status = iuh.fit.edu.backend.modules.conversation.constant.ConversationMemberStatus.ACTIVE
+      AND (
+          c.type <> iuh.fit.edu.backend.modules.conversation.constant.ConversationType.DIRECT
+          OR c.lastMessageId IS NOT NULL
+      )
 """)
     List<ConversationMember> findActiveSidebarByUserIdAndConversationIds(
             @Param("userId") Long userId,
@@ -132,4 +145,17 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
     Set<Long> findAdminIdsByConversationId(@Param("conversationId") Long conversationId);
 
     int countByConversation_IdAndStatus(Long id, ConversationMemberStatus conversationMemberStatus);
+
+    @Query("""
+    SELECT COUNT(DISTINCT c.id)
+    FROM Conversation c
+    JOIN c.members cm1
+    JOIN c.members cm2
+    WHERE c.type = iuh.fit.edu.backend.modules.conversation.constant.ConversationType.GROUP
+      AND cm1.user.id = :userId1
+      AND cm2.user.id = :userId2
+      AND cm1.status = iuh.fit.edu.backend.modules.conversation.constant.ConversationMemberStatus.ACTIVE
+      AND cm2.status = iuh.fit.edu.backend.modules.conversation.constant.ConversationMemberStatus.ACTIVE
+""")
+    long countCommonActiveGroups(@Param("userId1") Long userId1, @Param("userId2") Long userId2);
 }

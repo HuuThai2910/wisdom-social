@@ -3,6 +3,7 @@ import type {
     AddGroupMembersRequest,
     ApiResponse,
     BulkPresignedRequest,
+    ChatUserSearchResult,
     Conversation,
     ConversationPreview,
     ConversationPin,
@@ -200,6 +201,29 @@ const chatService = {
     ): Promise<Message> {
         const response = await apiClient.post(`/messages/send`, request);
         return normalizeMessagePayload(response.data);
+    },
+
+    async searchChatUserByPhone(phone: string): Promise<ChatUserSearchResult | null> {
+        const response = await apiClient.get("/chat-users/search-by-phone", {
+            params: { phone },
+        });
+        return unwrapApiData(
+            response.data as ApiResponse<ChatUserSearchResult | null> | ChatUserSearchResult | null,
+        );
+    },
+
+    async getChatUserRelationship(userId: number): Promise<ChatUserSearchResult | null> {
+        const response = await apiClient.get(`/chat-users/${userId}/relationship`);
+        return unwrapApiData(
+            response.data as ApiResponse<ChatUserSearchResult | null> | ChatUserSearchResult | null,
+        );
+    },
+
+    async resolveDirectConversation(receiverId: number): Promise<Conversation> {
+        const response = await apiClient.post("/conversations/direct/resolve", {
+            receiverId,
+        });
+        return unwrapApiData(response.data as ApiResponse<Conversation> | Conversation);
     },
 
     async createPoll(request: CreatePollRequest): Promise<Message> {

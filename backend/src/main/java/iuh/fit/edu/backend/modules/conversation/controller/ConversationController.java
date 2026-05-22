@@ -7,6 +7,7 @@ package iuh.fit.edu.backend.modules.conversation.controller;
 import iuh.fit.edu.backend.modules.conversation.constant.MemberRole;
 import iuh.fit.edu.backend.modules.conversation.dto.request.AddMemberRequest;
 import iuh.fit.edu.backend.modules.conversation.dto.request.CreateGroupRequest;
+import iuh.fit.edu.backend.modules.conversation.dto.request.ResolveDirectConversationRequest;
 import iuh.fit.edu.backend.common.dto.response.CursorResponse;
 import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationMemberResponse;
 import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationPreviewResponse;
@@ -15,6 +16,7 @@ import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationSidebar
 import iuh.fit.edu.backend.modules.chat.dto.response.MessageResponse;
 import iuh.fit.edu.backend.modules.conversation.service.ConversationMemberService;
 import iuh.fit.edu.backend.modules.conversation.service.ConversationService;
+import iuh.fit.edu.backend.modules.conversation.service.DirectConversationService;
 import iuh.fit.edu.backend.modules.chat.service.MessageService;
 import iuh.fit.edu.backend.modules.user.service.UserService;
 import jakarta.validation.Valid;
@@ -41,6 +43,7 @@ public class ConversationController {
     private final MessageService messageService;
     private final ConversationMemberService memberService;
     private final UserService userService;
+    private final DirectConversationService directConversationService;
 
     @GetMapping
     public ResponseEntity<List<ConversationSidebarResponse>> getConversationsByUser(){
@@ -135,6 +138,17 @@ public class ConversationController {
         Long userId = this.userService.getCurrentUser().getId();
         ConversationResponse response = this.conversationService.createGroup(request, userId);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @PostMapping("/direct/resolve")
+    public ResponseEntity<ConversationResponse> resolveDirectConversation(
+            @Valid @RequestBody ResolveDirectConversationRequest request) {
+        Long userId = this.userService.getCurrentUser().getId();
+        Long conversationId = directConversationService
+                .getOrCreateDirectConversation(userId, request.getReceiverId())
+                .conversation()
+                .getId();
+        return ResponseEntity.ok(conversationService.getConversationById(conversationId, userId));
     }
     @PostMapping("/{conversationId}/members")
     public ResponseEntity<ConversationResponse> addMembers(@PathVariable Long conversationId, @Valid @RequestBody AddMemberRequest request){

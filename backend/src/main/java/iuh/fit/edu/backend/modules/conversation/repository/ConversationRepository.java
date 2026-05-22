@@ -11,11 +11,45 @@ package iuh.fit.edu.backend.modules.conversation.repository;/*
 
 import iuh.fit.edu.backend.modules.conversation.entity.Conversation;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
+import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 
 @Repository
 public interface ConversationRepository extends JpaRepository<Conversation, Long> {
     Optional<Conversation> findByInviteToken(String inviteToken);
+    Optional<Conversation> findByDirectKey(String directKey);
+
+    @Query("""
+    SELECT c
+    FROM Conversation c
+    WHERE (SELECT COUNT(cmAll.id)
+           FROM ConversationMember cmAll
+           WHERE cmAll.conversation = c) = 2
+      AND (SELECT COUNT(cmMatch.id)
+           FROM ConversationMember cmMatch
+           WHERE cmMatch.conversation = c
+             AND (cmMatch.user.id = :userId1 OR cmMatch.user.id = :userId2)) = 2
+    ORDER BY c.lastMessageAt DESC
+""")
+    List<Conversation> findDirectConversationsByMemberIds(
+            @Param("userId1") Long userId1,
+            @Param("userId2") Long userId2
+    );
+
+    @Query("""
+    SELECT DISTINCT c
+    FROM Conversation c
+    LEFT JOIN FETCH c.members members
+    LEFT JOIN FETCH members.user
+    WHERE c.directKey IS NULL
+      AND (SELECT COUNT(cmAll.id)
+           FROM ConversationMember cmAll
+           WHERE cmAll.conversation = c) = 2
+    ORDER BY c.lastMessageAt DESC
+""")
+    List<Conversation> findLegacyDirectConversationsWithoutDirectKey();
 }
