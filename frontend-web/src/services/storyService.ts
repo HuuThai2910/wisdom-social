@@ -28,9 +28,13 @@ export const getStoryPresignedUploadUrl = async (
             params,
         });
 
-        const presignedUrl = response.data?.presignedUrl;
-        const objectKey = response.data?.objectKey;
-        const fileName = response.data?.fileName;
+        console.log("📋 [Story] upload-url response:", response);
+        console.log("📋 [Story] upload-url response.data:", response.data);
+
+        const responseData = response.data?.data || response.data;
+        const presignedUrl = responseData?.presignedUrl;
+        const objectKey = responseData?.objectKey;
+        const fileName = responseData?.fileName;
 
         if (!presignedUrl || !objectKey) {
             throw new Error("Missing required fields: presignedUrl, objectKey");
@@ -117,10 +121,13 @@ export const uploadStoryMediaAndGetFormat = async (file: File): Promise<string> 
 export const createStory = async (
     content?: string,
     privacy: string = "PUBLIC",
-    mediaUrls?: string[]
+    mediaUrls?: string[],
+    musicId?: string,
+    musicStartTime?: number,
+    muteOriginal?: boolean
 ): Promise<any> => {
     try {
-        console.log(`📝 [Story] Creating story with ${mediaUrls?.length || 0} media items`);
+        console.log(`📝 [Story] Creating story with ${mediaUrls?.length || 0} media items, music: ${musicId}, muteOriginal: ${muteOriginal}`);
 
         const formData = new FormData();
         if (content) formData.append("content", content);
@@ -130,6 +137,16 @@ export const createStory = async (
             mediaUrls.forEach((url) => {
                 formData.append("mediaUrls", url);
             });
+        }
+
+        if (musicId) {
+            formData.append("musicId", musicId);
+        }
+        if (musicStartTime !== undefined) {
+            formData.append("musicStartTime", Math.round(musicStartTime).toString());
+        }
+        if (muteOriginal !== undefined) {
+            formData.append("muteOriginal", muteOriginal.toString());
         }
 
         const response = await axiosClient.post("/stories", formData, {
@@ -211,5 +228,60 @@ export const reactToStory = async (storyId: string): Promise<void> => {
     } catch (error: any) {
         console.error(`❌ [Story] Error reacting to story:`, error);
         throw new Error("Failed to react to story: " + (error?.message || "Unknown error"));
+    }
+};
+
+/**
+ * Record a story view
+ * @param storyId Story ID
+ */
+export const viewStory = async (storyId: string): Promise<void> => {
+    try {
+        console.log(`👁️ [Story] Recording view for story: ${storyId}`);
+        await axiosClient.post(`/stories/${storyId}/view`);
+        console.log(`✅ [Story] View recorded successfully`);
+    } catch (error: any) {
+        console.error(`❌ [Story] Error recording story view:`, error);
+    }
+};
+
+/**
+ * Update story privacy level
+ * @param storyId Story ID
+ * @param privacy Privacy type (PUBLIC, FRIENDS, PRIVATE)
+ */
+export const updateStoryPrivacy = async (storyId: string, privacy: string): Promise<any> => {
+    try {
+        console.log(`🔒 [Story] Updating privacy for story ${storyId} to ${privacy}`);
+        const response = await axiosClient.put(`/stories/${storyId}/privacy`, null, {
+            params: { privacy }
+        });
+        console.log(`✅ [Story] Privacy updated successfully:`, response.data);
+        return response.data;
+    } catch (error: any) {
+        console.error(`❌ [Story] Error updating story privacy:`, error);
+        throw new Error("Failed to update story privacy: " + (error?.message || "Unknown error"));
+    }
+};
+
+/**
+ * Update story advanced settings
+ * @param storyId Story ID
+ * @param settings Settings object containing allowReplies, allowReactions, or allowSharing flags
+ */
+export const updateStorySettings = async (
+    storyId: string,
+    settings: { allowReplies?: boolean; allowReactions?: boolean; allowSharing?: boolean }
+): Promise<any> => {
+    try {
+        console.log(`⚙️ [Story] Updating settings for story ${storyId}`, settings);
+        const response = await axiosClient.put(`/stories/${storyId}/settings`, null, {
+            params: settings
+        });
+        console.log(`✅ [Story] Settings updated successfully:`, response.data);
+        return response.data;
+    } catch (error: any) {
+        console.error(`❌ [Story] Error updating story settings:`, error);
+        throw new Error("Failed to update story settings: " + (error?.message || "Unknown error"));
     }
 };

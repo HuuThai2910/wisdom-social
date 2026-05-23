@@ -1,5 +1,5 @@
 import { useRef, useCallback, useEffect, useState } from "react";
-import { Pen, X } from "lucide-react";
+import { Pen, X, Volume2, VolumeX } from "lucide-react";
 import StoryTextLayer from "./StoryTextLayer";
 import StoryToolbar from "./StoryToolbar";
 import StoryMusicSticker from "./StoryMusicSticker";
@@ -20,6 +20,8 @@ interface Props {
   mediaScale?: number;
   onMediaMouseDown?: (e: any) => void;
   onMediaTouchStart?: (e: any) => void;
+  videoMuted?: boolean;
+  onToggleMute?: () => void;
 }
 
 export default function StoryCanvas({
@@ -33,6 +35,8 @@ export default function StoryCanvas({
   mediaScale = 1,
   onMediaMouseDown,
   onMediaTouchStart,
+  videoMuted = false,
+  onToggleMute,
 }: Props) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -46,10 +50,10 @@ export default function StoryCanvas({
         return;
       }
 
-      if (e.target === canvasRef.current || e.target === e.currentTarget) {
-        manager.deselectAll();
-        musicManager?.deselectSticker();
-      }
+      // Any click that bubbles up here means it wasn't on a sticker/text
+      // (those call e.stopPropagation). Deselect everything.
+      manager.deselectAll();
+      musicManager?.deselectSticker();
     },
     [manager, musicManager]
   );
@@ -120,12 +124,26 @@ export default function StoryCanvas({
               transformOrigin: "center",
             }}
             autoPlay
-            muted
+            muted={videoMuted}
             loop
             playsInline
             onMouseDown={(e) => onMediaMouseDown?.(e as any)}
             onTouchStart={(e) => onMediaTouchStart?.(e as any)}
           />
+        )}
+
+        {/* Floating Mute Button for Video */}
+        {backgroundUrl && backgroundType === "video" && onToggleMute && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleMute();
+            }}
+            className="absolute top-4 left-4 p-2.5 bg-black/60 hover:bg-black/80 text-white rounded-full shadow-lg transition-all z-20 flex items-center justify-center border border-white/10"
+            title={videoMuted ? "Bật âm thanh" : "Tắt âm thanh"}
+          >
+            {videoMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+          </button>
         )}
 
         {/* Gradient overlay for text readability */}
@@ -203,21 +221,20 @@ export default function StoryCanvas({
           <div className="absolute inset-0 ring-2 ring-blue-400/20 rounded-2xl pointer-events-none" />
         )}
 
-        {/* Drawing Canvas Overlay */}
-        {isDrawing && (
-          <DrawingCanvas
-            width={360}
-            height={640}
-            canvasRef={drawing.canvasRef}
-            isDrawingRef={drawing.isDrawingRef}
-            lastPointRef={drawing.lastPointRef}
-            tool={drawing.drawingState.tool}
-            brushSize={drawing.drawingState.brushSize}
-            brushOpacity={drawing.drawingState.brushOpacity}
-            brushColor={drawing.drawingState.brushColor}
-            onSaveToHistory={drawing.saveToHistory}
-          />
-        )}
+        {/* Drawing Canvas Overlay — always mounted to preserve drawings */}
+        <DrawingCanvas
+          width={360}
+          height={640}
+          canvasRef={drawing.canvasRef}
+          isDrawingRef={drawing.isDrawingRef}
+          lastPointRef={drawing.lastPointRef}
+          tool={drawing.drawingState.tool}
+          brushSize={drawing.drawingState.brushSize}
+          brushOpacity={drawing.drawingState.brushOpacity}
+          brushColor={drawing.drawingState.brushColor}
+          onSaveToHistory={drawing.saveToHistory}
+          isActive={isDrawing}
+        />
       </div>
 
       {/* Toolbar - Text & Drawing Tools */}

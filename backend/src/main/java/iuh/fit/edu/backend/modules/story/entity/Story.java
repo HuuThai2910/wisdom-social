@@ -100,10 +100,11 @@ public class Story {
     // Timestamps
     private Instant createdAt;
     
-    // TTL - Tự động xóa sau 24h (config via MongoConfig)
+    // TTL - MongoDB tự động xóa document khi thời gian hiện tại >= expireAt
+    // expireAfterSeconds = 0 => MongoDB sẽ xóa tại đúng thời điểm expireAt
     // QUAN TRỌNG: CHỈ set expireAt nếu isArchived = false
     // Nếu user muốn lưu story làm Highlight, set isArchived=true và KHÔNG set expireAt
-    @Indexed
+    @Indexed(name = "story_ttl_idx", expireAfter = "0s")
     private Instant expireAt;
 
     @Data

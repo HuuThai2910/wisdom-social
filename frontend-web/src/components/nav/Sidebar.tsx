@@ -27,6 +27,7 @@ import { buildS3Url } from "../../utils/s3";
 import { useFriendDataSafe } from "../../contexts/FriendDataContext";
 import { useSidebarLayout } from "../../hooks/useSidebarLayout";
 import { useNotificationContext } from "../../contexts/NotificationContext";
+import { useHasActiveStory } from "../../hooks/useHasActiveStory";
 
 export default function Sidebar() {
   const location = useLocation();
@@ -38,6 +39,9 @@ export default function Sidebar() {
   const showLabels = !sidebarCollapsed;
 
   const { unreadCount } = useNotificationContext();
+
+  // Check if current user has an active story
+  const { hasStory: hasActiveStory } = useHasActiveStory(currentUser?.id);
 
   // Get friend requests count for badge (safe - returns 0 if not in provider)
   const { friendRequests } = useFriendDataSafe();
@@ -212,13 +216,22 @@ export default function Sidebar() {
                     : "font-normal"
                 } dark:text-white`}
               >
-                <img
-                  src={
-                    buildS3Url(currentUser.avatarUrl) || currentUser.avatarUrl
-                  }
-                  alt={currentUser.username}
-                  className="w-6.5 h-6.5 rounded-full object-cover"
-                />
+                <div className={`relative shrink-0 ${
+                    hasActiveStory
+                      ? "p-[2px] rounded-full bg-gradient-to-tr from-green-400 to-emerald-500"
+                      : ""
+                  }`}
+                >
+                  <img
+                    src={
+                      buildS3Url(currentUser.avatarUrl) || currentUser.avatarUrl
+                    }
+                    alt={currentUser.username}
+                    className={`w-6.5 h-6.5 rounded-full object-cover ${
+                      hasActiveStory ? "border-2 border-white dark:border-black" : ""
+                    }`}
+                  />
+                </div>
                 {showLabels && <span className="text-[16px]">Profile</span>}
               </Link>
             </li>

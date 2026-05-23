@@ -15,6 +15,7 @@ public interface S3Service {
     String getContentType(String extension);
     String resolveMediaType(String extension);
     String relocatePostMediaKey(String sourceKey, String postId, String mediaType);
+    String relocateStoryMediaKey(String sourceKey, String storyId, String mediaType);
 
     List<PresignedUrlResponse> generateMultiplePresignedUrls(BulkPresignedRequest request);
 

@@ -6,6 +6,7 @@ type MusicController = {
 class MusicFeedManager {
     private activeMusicId: string | null = null;
     private controllers = new Map<string, MusicController>();
+    private isSuspended = false;
 
     register(musicId: string, controller: MusicController) {
         this.controllers.set(musicId, controller);
@@ -22,6 +23,19 @@ class MusicFeedManager {
         return this.activeMusicId;
     }
 
+    setSuspended(suspended: boolean) {
+        this.isSuspended = suspended;
+        if (suspended) {
+            if (this.activeMusicId) {
+                this.controllers.get(this.activeMusicId)?.pause();
+            }
+        } else {
+            if (this.activeMusicId) {
+                this.controllers.get(this.activeMusicId)?.play();
+            }
+        }
+    }
+
     setActiveMusic(musicId: string | null) {
         if (musicId === this.activeMusicId) {
             return;
@@ -34,7 +48,7 @@ class MusicFeedManager {
             this.controllers.get(previousId)?.pause();
         }
 
-        if (musicId) {
+        if (musicId && !this.isSuspended) {
             this.controllers.get(musicId)?.play();
         }
     }

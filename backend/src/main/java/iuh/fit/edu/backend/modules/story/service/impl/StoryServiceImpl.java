@@ -7,6 +7,7 @@ import iuh.fit.edu.backend.modules.story.entity.StoryView;
 import iuh.fit.edu.backend.modules.post.entity.Stats;
 import iuh.fit.edu.backend.modules.story.repository.StoryRepository;
 import iuh.fit.edu.backend.modules.story.repository.StoryViewRepository;
+import iuh.fit.edu.backend.modules.user.repository.FriendRepository;
 import iuh.fit.edu.backend.common.service.s3.S3Service;
 import iuh.fit.edu.backend.modules.story.service.StoryService;
 import lombok.RequiredArgsConstructor;
@@ -39,6 +40,7 @@ public class StoryServiceImpl implements StoryService {
     private final StoryViewRepository storyViewRepository;
     private final MongoTemplate mongoTemplate;
     private final S3Service s3Service;
+    private final FriendRepository friendRepository;
     
     private static final long STORY_VALID_DURATION_HOURS = 24;
 
@@ -61,11 +63,12 @@ public class StoryServiceImpl implements StoryService {
             try {
                 // Move first uploaded file as main media
                 String tempUrl = mediaUrls.get(0);
-                String finalUrl = s3Service.moveUploadUrl("stories", createdStory.getId(), tempUrl);
                 
                 // Detect media type from file extension
                 String extension = tempUrl.substring(tempUrl.lastIndexOf(".") + 1).toLowerCase();
                 String mediaType = getMediaType(extension);
+                
+                String finalUrl = s3Service.relocateStoryMediaKey(tempUrl, createdStory.getId(), mediaType);
                 
                 Story.StoryMedia storyMedia = Story.StoryMedia.builder()
                         .type(mediaType)
@@ -94,12 +97,13 @@ public class StoryServiceImpl implements StoryService {
      */
     @Override
     @Transactional(readOnly = true)
-    public Page<Story> getFeedStories(List<String> userIds, Pageable pageable) {
-        log.info("Fetching feed for users: {}", userIds);
+    public Page<Story> getFeedStories(List<String> userIds, String currentUserId, Pageable pageable) {
+        log.info("Fetching feed for users: {} with currentUserId: {}", userIds, currentUserId);
         
         Instant twentyFourHoursAgo = Instant.now().minusSeconds(STORY_VALID_DURATION_HOURS * 3600);
         
-        Page<Story> stories = storyRepository.findFeedStories(userIds, twentyFourHoursAgo, pageable);
+        String queryUserId = currentUserId != null ? currentUserId : "";
+        Page<Story> stories = storyRepository.findFeedStories(userIds, StatusType.ACTIVE, twentyFourHoursAgo, queryUserId, pageable);
         log.info("Found {} feed stories", stories.getTotalElements());
         
         return stories;
@@ -113,15 +117,35 @@ public class StoryServiceImpl implements StoryService {
     @Override
     @Transactional(readOnly = true)
     public List<Story> getUserStories(String userId, String currentUserId) {
+        Instant twentyFourHoursAgo = Instant.now().minusSeconds(STORY_VALID_DURATION_HOURS * 3600);
         if (userId.equals(currentUserId)) {
-            // Owner: get all stories
-            log.info("Owner fetching all stories for user: {}", userId);
-            return storyRepository.findByUserIdOrderByCreatedAtDesc(userId);
+            // Owner: get active stories within 24 hours (excludes soft-deleted and expired)
+            log.info("Owner fetching active stories for user: {}", userId);
+            return storyRepository.findByUserIdAndStatusAndCreatedAtGreaterThanEqualOrderByCreatedAtDesc(
+                    userId, StatusType.ACTIVE, twentyFourHoursAgo
+            );
         } else {
-            // Not owner: get only public recent or archived
-            log.info("Non-owner fetching public stories for user: {}", userId);
-            Instant twentyFourHoursAgo = Instant.now().minusSeconds(STORY_VALID_DURATION_HOURS * 3600);
-            return storyRepository.findUserStoriesPublic(userId, twentyFourHoursAgo);
+            // Not owner: check friendship
+            boolean areFriends = false;
+            if (currentUserId != null) {
+                try {
+                    areFriends = friendRepository.existsAcceptedFriendship(
+                            Long.parseLong(userId),
+                            Long.parseLong(currentUserId),
+                            1
+                    );
+                } catch (Exception e) {
+                    log.warn("Failed to check friendship between {} and {}", userId, currentUserId, e);
+                }
+            }
+
+            if (areFriends) {
+                log.info("Friend fetching active stories for user: {}", userId);
+                return storyRepository.findUserStoriesFriends(userId, StatusType.ACTIVE, twentyFourHoursAgo);
+            } else {
+                log.info("Non-owner non-friend fetching public active stories for user: {}", userId);
+                return storyRepository.findUserStoriesPublic(userId, StatusType.ACTIVE, twentyFourHoursAgo);
+            }
         }
     }
 
@@ -153,8 +177,11 @@ public class StoryServiceImpl implements StoryService {
             
             storyViewRepository.save(view);
             
-            // Increment viewCount atomically
-            incrementViewCount(storyId);
+            // Increment viewCount atomically only if the viewer is not the owner
+            Optional<Story> storyOpt = storyRepository.findById(storyId);
+            if (storyOpt.isPresent() && !storyOpt.get().getUserId().equals(viewerId)) {
+                incrementViewCount(storyId);
+            }
             log.info("View recorded successfully for story: {}", storyId);
             
             return true;
@@ -272,7 +299,7 @@ public class StoryServiceImpl implements StoryService {
             return true;
         }
 
-        // Check if story is still public (within 24h or archived)
+        // Check if story is still active/valid (within 24h or archived)
         Instant twentyFourHoursAgo = Instant.now().minusSeconds(STORY_VALID_DURATION_HOURS * 3600);
         if (story.getCreatedAt().isBefore(twentyFourHoursAgo) && !story.isArchived()) {
             return false; // Expired and not archived
@@ -283,7 +310,23 @@ public class StoryServiceImpl implements StoryService {
             return true;
         }
 
-        // FRIENDS and PRIVATE require friend verification (implement in controller)
+        if (story.getPrivacy() == PrivacyType.FRIENDS) {
+            if (requesterId == null) {
+                return false;
+            }
+            try {
+                return friendRepository.existsAcceptedFriendship(
+                        Long.parseLong(story.getUserId()),
+                        Long.parseLong(requesterId),
+                        1
+                );
+            } catch (Exception e) {
+                log.warn("Failed to check friendship in canViewStory", e);
+                return false;
+            }
+        }
+
+        // ONLY_ME / PRIVATE or other restricted privacy levels
         return false;
     }
 
@@ -322,6 +365,18 @@ public class StoryServiceImpl implements StoryService {
     @Transactional
     public Story saveStory(Story story, String userId) {
         return storyRepository.save(story);
+    }
+
+    /**
+     * Check if user has at least one active story (within 24h)
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public boolean hasActiveStory(String userId) {
+        Instant twentyFourHoursAgo = Instant.now().minusSeconds(STORY_VALID_DURATION_HOURS * 3600);
+        return storyRepository.existsByUserIdAndStatusAndCreatedAtGreaterThanEqual(
+                userId, StatusType.ACTIVE, twentyFourHoursAgo
+        );
     }
 
     /**

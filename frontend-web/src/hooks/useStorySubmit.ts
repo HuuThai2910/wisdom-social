@@ -2,6 +2,10 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { StoryTextManager } from "./useStoryTextManager";
 import type { StoryMusicManager } from "./useStoryMusicSticker";
+import {
+    uploadStoryMediaAndGetFormat,
+    createStory,
+} from "../services/storyService";
 
 const BG_GRADIENTS = [
     "bg-gradient-to-br from-purple-600 via-pink-500 to-red-500",
@@ -24,6 +28,7 @@ interface SubmitParams {
     allowReplies: boolean;
     allowSharing: boolean;
     selectedBgIndex: number;
+    muteOriginal?: boolean;
 }
 
 export function useStorySubmit() {
@@ -34,23 +39,78 @@ export function useStorySubmit() {
         if (!canSubmit(params)) return;
         setIsSubmitting(true);
         try {
-            console.log("Creating story...", {
-                layers: params.textManager.layers,
-                selectedMedia: params.selectedMedia,
-                privacy: params.privacy,
-                music: params.musicManager.sticker?.music || null,
-                musicStyle: params.musicManager.sticker?.style || null,
-                allowReplies: params.allowReplies,
-                allowSharing: params.allowSharing,
-                bgGradient: !params.selectedMedia
-                    ? BG_GRADIENTS[params.selectedBgIndex]
-                    : null,
+            // ── 1. Build text content from all text layers ──
+            const textContent = params.textManager.layers
+                .filter((l) => l.text.trim())
+                .map((l) => l.text.trim())
+                .join("\n");
+
+            // ── 2. Upload media to S3 if present ──
+            const mediaUrls: string[] = [];
+            if (params.selectedMedia) {
+                console.log("📤 Uploading story media...");
+                const objectKey = await uploadStoryMediaAndGetFormat(
+                    params.selectedMedia
+                );
+                mediaUrls.push(objectKey);
+                console.log("✅ Story media uploaded:", objectKey);
+            }
+
+            // ── 3. Build content with metadata ──
+            // Include background gradient info for text-only stories
+            let fullContent = textContent;
+            if (!params.selectedMedia && params.selectedBgIndex >= 0) {
+                const bgGradient = BG_GRADIENTS[params.selectedBgIndex];
+                if (bgGradient) {
+                    fullContent = fullContent
+                        ? `${fullContent}\n[bg:${bgGradient}]`
+                        : `[bg:${bgGradient}]`;
+                }
+            }
+
+            // Map privacy to backend enum
+            const privacyMap: Record<string, string> = {
+                PUBLIC: "PUBLIC",
+                FRIENDS: "FRIENDS",
+                ONLY_ME: "ONLY_ME",
+                SPECIFIC: "SPECIFIC",
+                EXCEPT: "EXCEPT",
+                // fallback/backwards compatibility
+                PRIVATE: "ONLY_ME",
+                FRIENDS_EXCEPT: "EXCEPT",
+                public: "PUBLIC",
+                friends: "FRIENDS",
+                private: "ONLY_ME",
+                close_friends: "FRIENDS",
+            };
+            const backendPrivacy =
+                privacyMap[params.privacy.toUpperCase()] || "PUBLIC";
+
+            // ── 4. Call backend API to create story ──
+            console.log("📝 Creating story...", {
+                content: fullContent,
+                privacy: backendPrivacy,
+                mediaUrls,
+                music: params.musicManager.sticker?.music?.title || null,
             });
-            await new Promise((r) => setTimeout(r, 1000));
-            navigate(-1);
-        } catch (error) {
-            console.error("Error creating story:", error);
-            alert("Không thể tạo tin. Vui lòng thử lại.");
+
+            await createStory(
+                fullContent || undefined,
+                backendPrivacy,
+                mediaUrls.length > 0 ? mediaUrls : undefined,
+                params.musicManager.sticker?.music?.id,
+                0, // musicStartTime
+                params.muteOriginal
+            );
+
+            console.log("✅ Story created successfully!");
+            navigate("/");
+        } catch (error: any) {
+            console.error("❌ Error creating story:", error);
+            alert(
+                "Không thể tạo tin. Vui lòng thử lại.\n" +
+                    (error?.message || "")
+            );
         } finally {
             setIsSubmitting(false);
         }

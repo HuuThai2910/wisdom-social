@@ -3,9 +3,9 @@ import { useState } from "react";
 type StoryPrivacy =
     | "PUBLIC"
     | "FRIENDS"
-    | "PRIVATE"
+    | "ONLY_ME"
     | "SPECIFIC"
-    | "FRIENDS_EXCEPT";
+    | "EXCEPT";
 
 export function useStoryPrivacy() {
     const [privacy, setPrivacy] = useState<StoryPrivacy>("PUBLIC");

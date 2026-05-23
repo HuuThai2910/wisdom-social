@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import toast from "react-hot-toast";
 import { useLocation, useNavigate } from "react-router-dom";
-import { mockStories } from "../api/mockData";
 import StoriesBar from "../components/story/StoriesBar";
 import PostCard from "../components/post/post-card/PostCard";
 import { useCurrentUser } from "../hooks/useCurrentUser";
@@ -171,7 +170,7 @@ export default function Home() {
   return (
     <div>
       {/* Stories */}
-      <StoriesBar stories={mockStories} />
+      <StoriesBar />
 
       {/* Posts Feed */}
       <div>

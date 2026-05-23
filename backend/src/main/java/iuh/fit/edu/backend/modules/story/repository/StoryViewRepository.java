@@ -24,6 +24,9 @@ public interface StoryViewRepository extends MongoRepository<StoryView, String> 
     // Check if user viewed story (for preventing duplicate)
     Optional<StoryView> findByStoryIdAndViewerId(String storyId, String viewerId);
     
+    // Batch query viewed stories for a user
+    List<StoryView> findByViewerIdAndStoryIdIn(String viewerId, List<String> storyIds);
+    
     // Count views for story
     long countByStoryId(String storyId);
     

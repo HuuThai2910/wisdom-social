@@ -9,7 +9,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import type { DrawingTool } from "../hooks/useStoryDrawing";
+import type { DrawingTool } from "../../hooks/useStoryDrawing";
 
 interface DrawingToolbarProps {
   tool: DrawingTool;

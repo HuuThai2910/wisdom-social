@@ -1,4 +1,4 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import {
   ImagePlus,
   X,
@@ -54,6 +54,8 @@ export default function CreateStory() {
   const settings = useStoryAdvancedSettings();
   const submit = useStorySubmit();
 
+  const [videoMuted, setVideoMuted] = useState(false);
+
   // Audio cleanup
   useEffect(() => {
     return () => stopAudioPreview();
@@ -86,6 +88,7 @@ export default function CreateStory() {
     media.handleRemoveMedia();
     // Reset drag state
     drag.handleResetMediaPosition();
+    setVideoMuted(false);
   };
 
   const canSubmit =
@@ -103,6 +106,7 @@ export default function CreateStory() {
       allowReplies: settings.allowReplies,
       allowSharing: settings.allowSharing,
       selectedBgIndex: media.selectedBgIndex,
+      muteOriginal: videoMuted,
     });
   };
 
@@ -159,6 +163,8 @@ export default function CreateStory() {
             mediaScale={drag.mediaScale}
             onMediaMouseDown={drag.handleMediaMouseDown}
             onMediaTouchStart={drag.handleMediaTouchStart}
+            videoMuted={videoMuted}
+            onToggleMute={() => setVideoMuted((prev) => !prev)}
           />
 
           {/* Delete Media Button (Mobile Friendly) */}
@@ -290,6 +296,33 @@ export default function CreateStory() {
                   </button>
                 )}
               </div>
+
+              {/* Video Settings (Mute Original) */}
+              {media.selectedMedia?.type.startsWith("video/") && (
+                <>
+                  <div className="h-px bg-white/5" />
+                  <div>
+                    <p className="text-white/40 text-[10px] font-bold uppercase tracking-wider mb-2.5">
+                      Cài đặt video
+                    </p>
+                    <div className="flex items-center justify-between px-3 py-2.5 bg-white/[0.02] rounded-lg border border-white/5">
+                      <span className="text-xs text-white/70 font-medium">Tắt tiếng video gốc</span>
+                      <button
+                        onClick={() => setVideoMuted((prev) => !prev)}
+                        className={`relative w-9 h-5 rounded-full transition-colors ${
+                          videoMuted ? "bg-blue-500" : "bg-white/10"
+                        }`}
+                      >
+                        <span
+                          className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform shadow-sm ${
+                            videoMuted ? "translate-x-4" : "translate-x-0"
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
 
               {/* Divider */}
               <div className="h-px bg-white/5" />
@@ -450,7 +483,7 @@ export default function CreateStory() {
                     <div className="space-y-1 pt-0.5 pl-3 border-l border-white/5 ml-1">
                       <button
                         onClick={() => {
-                          privacy.setPrivacy("PRIVATE");
+                          privacy.setPrivacy("ONLY_ME");
                           privacy.setShowPrivacyMenu(false);
                         }}
                         className="flex items-center gap-2 text-[11px] text-white/50 py-1.5 hover:text-blue-400 transition-colors"
@@ -468,7 +501,7 @@ export default function CreateStory() {
                       </button>
                       <button
                         onClick={() => {
-                          privacy.setPrivacy("FRIENDS_EXCEPT");
+                          privacy.setPrivacy("EXCEPT");
                           privacy.setShowExcludedModal(true);
                         }}
                         className="flex items-center gap-2 text-[11px] text-white/50 py-1.5 hover:text-blue-400 transition-colors"
@@ -589,6 +622,7 @@ export default function CreateStory() {
         isOpen={settings.showMusicPicker}
         onClose={() => settings.setShowMusicPicker(false)}
         onSelect={(music) => {
+          stopAudioPreview(); // Stop picker preview before sticker plays
           musicManager.addSticker(music);
           settings.setShowMusicPicker(false);
         }}

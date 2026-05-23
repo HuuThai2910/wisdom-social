@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useRef } from "react";
-import type { DrawingTool } from "../hooks/useStoryDrawing";
+import type { DrawingTool } from "../../hooks/useStoryDrawing";
 
 interface DrawingCanvasProps {
   width: number;
@@ -12,6 +12,7 @@ interface DrawingCanvasProps {
   brushOpacity: number;
   brushColor: string;
   onSaveToHistory: () => void;
+  isActive: boolean;
 }
 
 export default function DrawingCanvas({
@@ -25,22 +26,23 @@ export default function DrawingCanvas({
   brushOpacity,
   brushColor,
   onSaveToHistory,
+  isActive,
 }: DrawingCanvasProps) {
   const arrowStartRef = useRef<{ x: number; y: number } | null>(null);
   const savedImageDataRef = useRef<ImageData | null>(null);
 
-  // Initialize canvas
+  // Initialize canvas (only set dimensions, don't clear existing content)
+  const initializedRef = useRef(false);
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    // Only initialize once to avoid clearing existing drawings
+    if (initializedRef.current) return;
+    initializedRef.current = true;
 
     canvas.width = width;
     canvas.height = height;
-    ctx.fillStyle = "transparent";
-    ctx.fillRect(0, 0, width, height);
   }, [width, height]);
 
   // Get context
@@ -342,8 +344,11 @@ export default function DrawingCanvas({
     <canvas
       ref={canvasRef}
       className={`absolute inset-0 rounded-2xl ${
-        tool !== "none" ? "cursor-crosshair" : "cursor-default"
+        isActive && tool !== "none" ? "cursor-crosshair" : "cursor-default"
       }`}
+      style={{
+        pointerEvents: isActive ? "auto" : "none",
+      }}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
