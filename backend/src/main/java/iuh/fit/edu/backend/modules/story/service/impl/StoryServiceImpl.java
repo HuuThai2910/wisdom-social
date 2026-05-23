@@ -10,6 +10,10 @@ import iuh.fit.edu.backend.modules.story.repository.StoryViewRepository;
 import iuh.fit.edu.backend.modules.user.repository.FriendRepository;
 import iuh.fit.edu.backend.common.service.s3.S3Service;
 import iuh.fit.edu.backend.modules.story.service.StoryService;
+import iuh.fit.edu.backend.modules.post.repository.ReactionRepository;
+import iuh.fit.edu.backend.modules.post.entity.Reaction;
+import iuh.fit.edu.backend.modules.post.constant.ReactionType;
+import iuh.fit.edu.backend.modules.notification.constant.TargetType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -38,6 +42,7 @@ public class StoryServiceImpl implements StoryService {
 
     private final StoryRepository storyRepository;
     private final StoryViewRepository storyViewRepository;
+    private final ReactionRepository reactionRepository;
     private final MongoTemplate mongoTemplate;
     private final S3Service s3Service;
     private final FriendRepository friendRepository;
@@ -158,12 +163,30 @@ public class StoryServiceImpl implements StoryService {
     @Override
     @Transactional
     public boolean recordView(String storyId, String viewerId) {
-        log.info("Recording view for story: {} by user: {}", storyId, viewerId);
+        log.info("[recordView] storyId={}, viewerId={}", storyId, viewerId);
         
-        // Check if already viewed
-        Optional<StoryView> existing = storyViewRepository.findByStoryIdAndViewerId(storyId, viewerId);
-        if (existing.isPresent()) {
-            log.info("Duplicate view detected - skipping");
+        // 1. Fetch story
+        Optional<Story> storyOpt = storyRepository.findById(storyId);
+        if (storyOpt.isEmpty()) {
+            log.warn("[recordView] Story not found: {}", storyId);
+            return false;
+        }
+        
+        String storyOwnerId = storyOpt.get().getUserId();
+        
+        // 2. Check if already viewed - use List to handle legacy duplicates gracefully
+        List<StoryView> existingViews = storyViewRepository.findByStoryIdAndViewerId(storyId, viewerId);
+        
+        // Clean up duplicates if they exist (keep only the first one)
+        if (existingViews.size() > 1) {
+            log.warn("[recordView] Found {} duplicate views for storyId={}, viewerId={} - cleaning up", existingViews.size(), storyId, viewerId);
+            for (int i = 1; i < existingViews.size(); i++) {
+                storyViewRepository.deleteById(existingViews.get(i).getId());
+            }
+        }
+        
+        if (!existingViews.isEmpty()) {
+            log.info("[recordView] Already viewed storyId={}, viewerId={}", storyId, viewerId);
             return false;
         }
 
@@ -176,17 +199,20 @@ public class StoryServiceImpl implements StoryService {
                     .build();
             
             storyViewRepository.save(view);
+            log.info("[recordView] Saved new view for storyId={}, viewerId={}", storyId, viewerId);
             
-            // Increment viewCount atomically only if the viewer is not the owner
-            Optional<Story> storyOpt = storyRepository.findById(storyId);
-            if (storyOpt.isPresent() && !storyOpt.get().getUserId().equals(viewerId)) {
+            // Increment viewCount only if the viewer is not the owner
+            if (!storyOwnerId.equals(viewerId)) {
                 incrementViewCount(storyId);
             }
-            log.info("View recorded successfully for story: {}", storyId);
             
             return true;
+        } catch (org.springframework.dao.DuplicateKeyException e) {
+            // Race condition: another thread already inserted this view
+            log.info("[recordView] Concurrent duplicate detected for storyId={}, viewerId={}", storyId, viewerId);
+            return false;
         } catch (Exception e) {
-            log.warn("View recording failed (duplicate?): {}", e.getMessage());
+            log.error("[recordView] Failed to save view: {}", e.getMessage(), e);
             return false;
         }
     }
@@ -197,18 +223,83 @@ public class StoryServiceImpl implements StoryService {
     @Override
     @Transactional(readOnly = true)
     public List<StoryView> getStoryViewers(String storyId) {
-        log.info("Fetching viewers for story: {}", storyId);
-        return storyViewRepository.findByStoryIdOrderByCreatedAtDesc(storyId);
+        List<StoryView> views = storyViewRepository.findByStoryIdOrderByCreatedAtDesc(storyId);
+        log.info("[getStoryViewers] storyId={}, found {} views", storyId, views.size());
+        return views;
     }
 
-    /**
-     * Add reaction to story
-     */
     @Override
     @Transactional
-    public void reactToStory(String storyId) {
-        log.info("Recording reaction for story: {}", storyId);
-        incrementReactCount(storyId);
+    public void reactToStory(String storyId, String viewerId, String emoji) {
+        log.info("Recording reaction for story: {} by user: {} with emoji: {}", storyId, viewerId, emoji);
+        
+        // 1. Save or update in the generic 'reactions' collection
+        try {
+            ReactionType reactionType = getReactionTypeFromEmoji(emoji);
+            Optional<Reaction> genericReactionOpt = reactionRepository.findByUserIdAndTargetTypeAndTargetId(
+                    viewerId, TargetType.STORY, storyId
+            );
+            if (genericReactionOpt.isPresent()) {
+                Reaction reaction = genericReactionOpt.get();
+                reaction.setType(reactionType);
+                reaction.setUpdatedAt(Instant.now());
+                reactionRepository.save(reaction);
+            } else {
+                Reaction reaction = new Reaction();
+                reaction.setUserId(viewerId);
+                reaction.setTargetType(TargetType.STORY);
+                reaction.setTargetId(storyId);
+                reaction.setType(reactionType);
+                reaction.setCreatedAt(Instant.now());
+                reaction.setUpdatedAt(Instant.now());
+                reactionRepository.save(reaction);
+            }
+        } catch (Exception e) {
+            log.error("Failed to save to generic reactions collection: {}", e.getMessage(), e);
+        }
+
+        // 2. Find existing view or create one
+        List<StoryView> existingViews = storyViewRepository.findByStoryIdAndViewerId(storyId, viewerId);
+        if (!existingViews.isEmpty()) {
+            StoryView view = existingViews.get(0);
+            if (view.getReaction() == null) {
+                incrementReactCount(storyId);
+            }
+            view.setReaction(emoji);
+            storyViewRepository.save(view);
+            
+            // Clean up duplicates
+            for (int i = 1; i < existingViews.size(); i++) {
+                storyViewRepository.deleteById(existingViews.get(i).getId());
+            }
+        } else {
+            StoryView newView = StoryView.builder()
+                    .storyId(storyId)
+                    .viewerId(viewerId)
+                    .createdAt(Instant.now())
+                    .reaction(emoji)
+                    .build();
+            storyViewRepository.save(newView);
+            
+            Optional<Story> storyOpt = storyRepository.findById(storyId);
+            if (storyOpt.isPresent() && !storyOpt.get().getUserId().equals(viewerId)) {
+                incrementViewCount(storyId);
+            }
+            incrementReactCount(storyId);
+        }
+    }
+
+    private ReactionType getReactionTypeFromEmoji(String emoji) {
+        if (emoji == null) return ReactionType.LIKE;
+        switch (emoji) {
+            case "❤️": return ReactionType.LOVE;
+            case "😂": return ReactionType.HAHA;
+            case "😮": return ReactionType.WOW;
+            case "😢": return ReactionType.SAD;
+            case "🔥": return ReactionType.WOW;
+            case "👏": return ReactionType.LIKE;
+            default: return ReactionType.LIKE;
+        }
     }
 
     /**
@@ -289,43 +380,54 @@ public class StoryServiceImpl implements StoryService {
      */
     @Override
     public boolean canViewStory(Story story, String requesterId) {
+        log.info("[canViewStory] Checking storyId={}, ownerId={}, requesterId={}, status={}, privacy={}, createdAt={}", 
+            story.getId(), story.getUserId(), requesterId, story.getStatus(), story.getPrivacy(), story.getCreatedAt());
+
         // Must be active (not deleted)
         if (story.getStatus() != StatusType.ACTIVE) {
+            log.warn("[canViewStory] Story is not ACTIVE: status={}", story.getStatus());
             return false;
         }
 
         // Owner can view
         if (story.getUserId().equals(requesterId)) {
+            log.info("[canViewStory] Requester is owner - access granted");
             return true;
         }
 
         // Check if story is still active/valid (within 24h or archived)
         Instant twentyFourHoursAgo = Instant.now().minusSeconds(STORY_VALID_DURATION_HOURS * 3600);
         if (story.getCreatedAt().isBefore(twentyFourHoursAgo) && !story.isArchived()) {
+            log.warn("[canViewStory] Story is expired and not archived: createdAt={}, twentyFourHoursAgo={}", story.getCreatedAt(), twentyFourHoursAgo);
             return false; // Expired and not archived
         }
 
         // Check privacy
-        if (story.getPrivacy() == PrivacyType.PUBLIC) {
+        if (story.getPrivacy() == null || story.getPrivacy() == PrivacyType.PUBLIC) {
+            log.info("[canViewStory] Story is PUBLIC or null privacy - access granted");
             return true;
         }
 
         if (story.getPrivacy() == PrivacyType.FRIENDS) {
             if (requesterId == null) {
+                log.warn("[canViewStory] Requester ID is null for FRIENDS story");
                 return false;
             }
             try {
-                return friendRepository.existsAcceptedFriendship(
+                boolean areFriends = friendRepository.existsAcceptedFriendship(
                         Long.parseLong(story.getUserId()),
                         Long.parseLong(requesterId),
                         1
                 );
+                log.info("[canViewStory] Friendship check between {} and {}: {}", story.getUserId(), requesterId, areFriends);
+                return areFriends;
             } catch (Exception e) {
-                log.warn("Failed to check friendship in canViewStory", e);
+                log.warn("[canViewStory] Failed to check friendship", e);
                 return false;
             }
         }
 
+        log.warn("[canViewStory] Story privacy is restricted: {}", story.getPrivacy());
         // ONLY_ME / PRIVATE or other restricted privacy levels
         return false;
     }

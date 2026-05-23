@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { X, ChevronLeft, ChevronRight, MoreHorizontal, Trash2, Lock, Settings, Globe, Users } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, MoreHorizontal, Trash2, Lock, Settings, Globe, Users, Eye } from "lucide-react";
 import { buildS3Url } from "../../utils/s3";
-import { viewStory, deleteStory, updateStoryPrivacy, updateStorySettings } from "../../services/storyService";
+import { viewStory, deleteStory, updateStoryPrivacy, updateStorySettings, fetchStoryViewers } from "../../services/storyService";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { musicFeedManager } from "../../services/MusicFeedManager";
 import StoryOptionsBottomSheet from "./StoryOptionsBottomSheet";
+import StoryReactionBar from "./StoryReactionBar";
+import StoryViewersBottomSheet from "./StoryViewersBottomSheet";
 
 export interface StoryGroup {
   userId: string;
@@ -57,14 +59,43 @@ export default function StoryViewerModal({
       setStoryIdx(initialStoryIdx);
       setProgress(0);
       setIsFinished(false);
+      setShowViewers(false);
     }
   }, [isOpen]);
 
+  // Close viewers sheet when story changes
+  useEffect(() => {
+    setShowViewers(false);
+  }, [groupIdx, storyIdx]);
+
   const [showOptions, setShowOptions] = useState(false);
-  const [showPrivacyOptions, setShowPrivacyOptions] = useState(false);
-  const [showSettingsOptions, setShowSettingsOptions] = useState(false);
+  const [showViewers, setShowViewers] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [isInputFocused, setIsInputFocused] = useState(false);
+  const [syncedViewCount, setSyncedViewCount] = useState<number | null>(null);
+
+  // Fetch real view count when story changes (owner only)
+  useEffect(() => {
+    if (isOpen && activeStory && isMyStory) {
+      // Set to current viewCount initially
+      setSyncedViewCount(activeStory.viewCount || 0);
+      
+      // Fetch fresh count from server
+      fetchStoryViewers(activeStory.id)
+        .then((viewersList) => {
+          const count = Array.isArray(viewersList) ? viewersList.length : 0;
+          setSyncedViewCount(count);
+          // Update parent state directly by mutating model reference
+          activeStory.viewCount = count;
+        })
+        .catch((err) => {
+          console.error("Failed to sync story view count:", err);
+        });
+    } else {
+      setSyncedViewCount(null);
+    }
+  }, [isOpen, activeStory?.id, isMyStory]);
 
   const handleDelete = async () => {
     if (!activeStory) return;
@@ -118,7 +149,6 @@ export default function StoryViewerModal({
       // Mutate the story object directly so UI reflects change
       activeStory.privacy = newPrivacy;
 
-      setShowPrivacyOptions(false);
       setShowOptions(false);
       setIsPaused(false);
     } catch (err) {
@@ -136,7 +166,6 @@ export default function StoryViewerModal({
       // Mutate the story object directly so UI reflects change
       Object.assign(activeStory, settings);
 
-      setShowSettingsOptions(false);
       setShowOptions(false);
       setIsPaused(false);
     } catch (err) {
@@ -174,6 +203,8 @@ export default function StoryViewerModal({
     }
     setIsFinished(false);
     setProgress(0);
+    setShowViewers(false);
+    setIsPaused(false);
     onClose();
   };
 
@@ -264,7 +295,7 @@ export default function StoryViewerModal({
   // Progress Timer Effect (only for non-video stories)
   const progressRef = useRef(0);
   useEffect(() => {
-    if (!isOpen || isPaused || !activeStory || isFinished) return;
+    if (!isOpen || isPaused || isInputFocused || !activeStory || isFinished) return;
 
     const isVideoStory = activeStory.media?.type?.toUpperCase() === "VIDEO";
     if (isVideoStory) return; // Handled by inline video element events
@@ -289,7 +320,7 @@ export default function StoryViewerModal({
     return () => {
       clearInterval(intervalId);
     };
-  }, [isOpen, groupIdx, storyIdx, isPaused, isFinished]);
+  }, [isOpen, groupIdx, storyIdx, isPaused, isInputFocused, isFinished]);
 
   // Pause / Resume Effect
   useEffect(() => {
@@ -458,10 +489,10 @@ export default function StoryViewerModal({
       {/* Main Story Container */}
       <div
         className="relative w-full h-full max-h-[85vh] md:max-h-[90vh] max-w-[420px] aspect-[9/16] md:rounded-2xl overflow-hidden bg-zinc-950 flex flex-col justify-between shadow-2xl ring-1 ring-white/10"
-        onMouseDown={isFinished || showOptions ? undefined : handleMouseDown}
-        onMouseUp={isFinished || showOptions ? undefined : handleMouseUp}
-        onTouchStart={isFinished || showOptions ? undefined : handleTouchStart}
-        onTouchEnd={isFinished || showOptions ? undefined : handleTouchEnd}
+        onMouseDown={isFinished || showOptions || showViewers ? undefined : handleMouseDown}
+        onMouseUp={isFinished || showOptions || showViewers ? undefined : handleMouseUp}
+        onTouchStart={isFinished || showOptions || showViewers ? undefined : handleTouchStart}
+        onTouchEnd={isFinished || showOptions || showViewers ? undefined : handleTouchEnd}
       >
         {isFinished ? (
           <div className="flex-1 flex flex-col items-center justify-center p-6 text-center bg-zinc-950 text-white relative">
@@ -608,10 +639,51 @@ export default function StoryViewerModal({
 
             {/* Text Overlay for media stories */}
             {activeStory?.media?.url && cleanText && (
-              <div className="absolute inset-x-4 bottom-8 bg-black/45 backdrop-blur-sm px-4 py-3 rounded-xl border border-white/10 text-center pointer-events-none z-30">
+              <div className={`absolute inset-x-4 bg-black/45 backdrop-blur-sm px-4 py-3 rounded-xl border border-white/10 text-center pointer-events-none z-30 ${isMyStory ? 'bottom-20' : (!isMyStory && (activeStory?.allowReactions !== false || activeStory?.allowReplies !== false) ? 'bottom-28' : 'bottom-8')}`}>
                 <p className="text-white text-xs font-medium whitespace-pre-wrap leading-snug drop-shadow-sm">
                   {cleanText}
                 </p>
+              </div>
+            )}
+
+            {/* Reaction & Reply Bar (for non-owner viewers) */}
+            {activeStory && (
+              <StoryReactionBar
+                storyId={activeStory.id}
+                storyOwnerId={activeGroup?.userId || ""}
+                isMyStory={!!isMyStory}
+                allowReactions={activeStory.allowReactions !== false}
+                allowReplies={activeStory.allowReplies !== false}
+                onFocus={() => {
+                  setIsPaused(true);
+                  setIsInputFocused(true);
+                }}
+                onBlur={() => {
+                  setIsPaused(false);
+                  setIsInputFocused(false);
+                }}
+              />
+            )}
+
+            {/* View Count for Owner */}
+            {isMyStory && activeStory && (
+              <div
+                className="absolute bottom-0 left-0 right-0 z-40 bg-gradient-to-t from-black/85 via-black/45 to-transparent pt-10 pb-5 px-4 flex justify-center"
+                onMouseDown={(e) => e.stopPropagation()}
+                onMouseUp={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
+                onTouchEnd={(e) => e.stopPropagation()}
+              >
+                <button
+                  onClick={() => {
+                    setIsPaused(true);
+                    setShowViewers(true);
+                  }}
+                  className="flex items-center gap-2 bg-white/10 hover:bg-white/20 active:scale-95 px-4 py-2.5 rounded-full border border-white/10 text-white text-xs font-semibold cursor-pointer transition-all duration-200"
+                >
+                  <Eye size={14} className="text-blue-400" />
+                  <span>{syncedViewCount !== null ? syncedViewCount : (activeStory.viewCount || 0)} người xem</span>
+                </button>
               </div>
             )}
           </>
@@ -630,6 +702,22 @@ export default function StoryViewerModal({
           onUpdatePrivacy={handleUpdatePrivacy}
           onUpdateSettings={handleUpdateSettings}
         />
+
+        {/* Story Viewers list Bottom Sheet */}
+        {activeStory && (
+          <StoryViewersBottomSheet
+            isOpen={showViewers}
+            onClose={() => {
+              setShowViewers(false);
+              setIsPaused(false);
+            }}
+            storyId={activeStory.id}
+            viewCount={activeStory.viewCount || 0}
+            onViewersLoaded={(count) => {
+              setSyncedViewCount(count);
+            }}
+          />
+        )}
       </div>
 
       {/* Desktop Right navigation arrow */}

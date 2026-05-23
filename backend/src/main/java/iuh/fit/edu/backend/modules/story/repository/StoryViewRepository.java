@@ -10,7 +10,6 @@ import org.springframework.data.mongodb.repository.MongoRepository;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
-import java.util.Optional;
 
 @Repository
 public interface StoryViewRepository extends MongoRepository<StoryView, String> {
@@ -21,8 +20,8 @@ public interface StoryViewRepository extends MongoRepository<StoryView, String> 
     // Get views for story with pagination/sorting
     List<StoryView> findByStoryId(String storyId, Sort sort);
     
-    // Check if user viewed story (for preventing duplicate)
-    Optional<StoryView> findByStoryIdAndViewerId(String storyId, String viewerId);
+    // Check if user viewed story (for preventing duplicate) - returns List to handle legacy duplicates gracefully
+    List<StoryView> findByStoryIdAndViewerId(String storyId, String viewerId);
     
     // Batch query viewed stories for a user
     List<StoryView> findByViewerIdAndStoryIdIn(String viewerId, List<String> storyIds);

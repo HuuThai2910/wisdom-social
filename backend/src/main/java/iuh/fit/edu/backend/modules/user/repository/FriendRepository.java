@@ -2,6 +2,7 @@ package iuh.fit.edu.backend.modules.user.repository;
 
 import iuh.fit.edu.backend.modules.user.entity.Friend;
 import iuh.fit.edu.backend.modules.user.entity.User;
+import iuh.fit.edu.backend.modules.user.constant.FriendStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -17,27 +18,27 @@ public interface FriendRepository extends JpaRepository<Friend,Long> {
 
     List<Friend> findFriendsByFriend(User friend);
 
-    @Query(value = """
-        SELECT f.friend_id
-        FROM friends f
-        WHERE f.user_id = :userId AND f.status = :acceptedStatus
-        UNION
-        SELECT f.user_id
-        FROM friends f
-        WHERE f.friend_id = :userId AND f.status = :acceptedStatus
-        """, nativeQuery = true)
-    List<Long> findAcceptedFriendIds(@Param("userId") Long userId, @Param("acceptedStatus") int acceptedStatus);
+    @Query("""
+        SELECT CASE WHEN f.user.id = :userId THEN f.friend.id ELSE f.user.id END
+        FROM Friend f
+        WHERE (f.user.id = :userId OR f.friend.id = :userId)
+          AND f.status = iuh.fit.edu.backend.modules.user.constant.FriendStatus.ACCEPTED
+        """)
+    List<Long> findAcceptedFriendIdsQuery(@Param("userId") Long userId);
 
-    @Query(value = """
-        SELECT COUNT(*) > 0
-        FROM friends f
-        WHERE f.status = :acceptedStatus
-          AND ((f.user_id = :userId1 AND f.friend_id = :userId2)
-           OR (f.user_id = :userId2 AND f.friend_id = :userId1))
-        """, nativeQuery = true)
-    boolean existsAcceptedFriendship(
-        @Param("userId1") Long userId1,
-        @Param("userId2") Long userId2,
-        @Param("acceptedStatus") int acceptedStatus
-    );
+    default List<Long> findAcceptedFriendIds(Long userId, int acceptedStatus) {
+        return findAcceptedFriendIdsQuery(userId);
+    }
+
+    @Query("""
+        SELECT COUNT(f) FROM Friend f
+        WHERE ((f.user.id = :userId1 AND f.friend.id = :userId2) OR (f.user.id = :userId2 AND f.friend.id = :userId1))
+          AND f.status = iuh.fit.edu.backend.modules.user.constant.FriendStatus.ACCEPTED
+        """)
+    Long countAcceptedFriendship(@Param("userId1") Long userId1, @Param("userId2") Long userId2);
+
+    default boolean existsAcceptedFriendship(Long userId1, Long userId2, int acceptedStatus) {
+        Long count = countAcceptedFriendship(userId1, userId2);
+        return count != null && count > 0;
+    }
 }

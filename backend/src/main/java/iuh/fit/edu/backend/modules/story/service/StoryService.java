@@ -58,7 +58,7 @@ public interface StoryService {
     /**
      * Add reaction to story
      */
-    void reactToStory(String storyId);
+    void reactToStory(String storyId, String viewerId, String emoji);
 
     /**
      * Archive story (add to highlights)

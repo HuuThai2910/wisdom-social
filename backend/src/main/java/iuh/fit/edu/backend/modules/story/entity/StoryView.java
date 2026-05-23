@@ -49,4 +49,7 @@ public class StoryView {
 
     // Thời điểm xem
     private Instant createdAt;
+
+    // Reaction (emoji)
+    private String reaction;
 }

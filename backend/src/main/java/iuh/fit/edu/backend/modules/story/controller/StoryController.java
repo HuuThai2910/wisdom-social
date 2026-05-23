@@ -18,6 +18,11 @@ import iuh.fit.edu.backend.modules.music.entity.Music;
 import iuh.fit.edu.backend.modules.note.service.NotePermissionService;
 import iuh.fit.edu.backend.modules.user.repository.UserRepository;
 import iuh.fit.edu.backend.modules.user.repository.FriendRepository;
+import iuh.fit.edu.backend.modules.post.repository.ReactionRepository;
+import iuh.fit.edu.backend.modules.post.entity.Reaction;
+import iuh.fit.edu.backend.modules.post.constant.ReactionType;
+import iuh.fit.edu.backend.modules.notification.constant.TargetType;
+import iuh.fit.edu.backend.modules.post.entity.Stats;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -53,10 +58,16 @@ public class StoryController {
     private final StoryRepository storyRepository;
     private final FriendRepository friendRepository;
     private final StoryViewRepository storyViewRepository;
+    private final ReactionRepository reactionRepository;
 
     @GetMapping("/debug/all-stories")
     public ResponseEntity<List<Story>> getDebugAllStories() {
         return ResponseEntity.ok(storyRepository.findAll());
+    }
+
+    @GetMapping("/debug/all-views")
+    public ResponseEntity<List<StoryView>> getDebugAllViews() {
+        return ResponseEntity.ok(storyViewRepository.findAll());
     }
 
     @GetMapping("/debug/all-users")
@@ -485,11 +496,79 @@ public class StoryController {
             }
 
             List<StoryView> viewers = storyService.getStoryViewers(storyId);
-            List<Map<String, Object>> response = viewers.stream()
+            
+            // Fetch reactions from generic reactions collection for this story
+            Map<String, String> reactionMap = new HashMap<>();
+            try {
+                List<Reaction> storyReactions = reactionRepository.findByTargetTypeAndTargetId(TargetType.STORY, storyId);
+                for (Reaction r : storyReactions) {
+                    reactionMap.put(r.getUserId(), getEmojiFromReactionType(r.getType()));
+                }
+            } catch (Exception e) {
+                log.error("Failed to fetch generic reactions for story: {}", storyId, e);
+            }
+            
+            // Deduplicate by viewerId and filter out story owner
+            String storyOwnerId = story.getUserId();
+            Map<String, StoryView> uniqueViews = new LinkedHashMap<>();
+            for (StoryView view : viewers) {
+                String viewerId = view.getViewerId();
+                if (viewerId.equals(storyOwnerId)) {
+                    continue;
+                }
+                
+                // Merge reaction from generic reactions collection
+                String reactionEmoji = reactionMap.get(viewerId);
+                if (reactionEmoji != null) {
+                    view.setReaction(reactionEmoji);
+                }
+                
+                if (uniqueViews.containsKey(viewerId)) {
+                    StoryView existing = uniqueViews.get(viewerId);
+                    // Keep the one with a reaction if available
+                    if (existing.getReaction() == null && view.getReaction() != null) {
+                        uniqueViews.put(viewerId, view);
+                    }
+                } else {
+                    uniqueViews.put(viewerId, view);
+                }
+            }
+
+            // Sync/update story viewCount in DB if it mismatches actual unique non-owner count
+            int correctViewCount = uniqueViews.size();
+            if (story.getStats() == null || story.getStats().getViewCount() != correctViewCount) {
+                try {
+                    if (story.getStats() == null) {
+                        story.setStats(new Stats());
+                    }
+                    story.getStats().setViewCount(correctViewCount);
+                    storyRepository.save(story);
+                    log.info("🔔 [getViewers] Synchronized story viewCount in DB to {}", correctViewCount);
+                } catch (Exception e) {
+                    log.error("Failed to sync viewCount for story: {}", storyId, e);
+                }
+            }
+
+            List<Map<String, Object>> response = uniqueViews.values().stream()
                     .map(view -> {
                         Map<String, Object> map = new HashMap<>();
                         map.put("viewerId", view.getViewerId());
                         map.put("viewedAt", view.getCreatedAt());
+                        map.put("reaction", view.getReaction());
+
+                        // Fetch user details for the viewer
+                        try {
+                            Long uid = Long.parseLong(view.getViewerId());
+                            Optional<User> uOpt = userRepository.findById(uid);
+                            if (uOpt.isPresent()) {
+                                User u = uOpt.get();
+                                map.put("username", u.getUsername() != null ? u.getUsername() : u.getName());
+                                map.put("avatarUrl", u.getAvatarUrl());
+                            }
+                        } catch (Exception e) {
+                            log.warn("Failed to fetch user details for viewer ID: {}", view.getViewerId(), e);
+                        }
+
                         return map;
                     })
                     .collect(Collectors.toList());
@@ -505,11 +584,26 @@ public class StoryController {
         }
     }
 
+    private String getEmojiFromReactionType(ReactionType type) {
+        if (type == null) return null;
+        switch (type) {
+            case LOVE: return "❤️";
+            case HAHA: return "😂";
+            case WOW: return "😮";
+            case SAD: return "😢";
+            case ANGRY: return "😡";
+            case LIKE: return "👍";
+            default: return "👍";
+        }
+    }
+
     /**
      * POST /api/stories/{storyId}/react - Add reaction
      */
     @PostMapping("/{storyId}/react")
-    public ResponseEntity<Void> reactStory(@PathVariable String storyId) {
+    public ResponseEntity<Void> reactStory(
+            @PathVariable String storyId,
+            @RequestParam(required = false) String emoji) {
         try {
             String currentUserId = getCurrentUserId();
 
@@ -529,7 +623,7 @@ public class StoryController {
                 return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
             }
 
-            storyService.reactToStory(storyId);
+            storyService.reactToStory(storyId, currentUserId, emoji);
             
             // Publish STORY_REACTION event
             // Note: We need to fetch updated story to get new reaction count
@@ -753,6 +847,23 @@ public class StoryController {
             log.warn("Failed to map user info for story user ID: {}", story.getUserId(), e);
         }
 
+        // Calculate actual view count from StoryView records, excluding story owner
+        int actualViewCount = 0;
+        try {
+            List<StoryView> views = storyViewRepository.findByStoryIdOrderByCreatedAtDesc(story.getId());
+            Set<String> uniqueNonOwnerViewers = new HashSet<>();
+            for (StoryView v : views) {
+                if (!v.getViewerId().equals(story.getUserId())) {
+                    uniqueNonOwnerViewers.add(v.getViewerId());
+                }
+            }
+            actualViewCount = uniqueNonOwnerViewers.size();
+        } catch (Exception e) {
+            // Fallback to stats counter if query fails
+            actualViewCount = (int) (story.getStats() != null ? story.getStats().getViewCount() : 0);
+            log.warn("Failed to compute actual viewCount for story {}, using stats fallback: {}", story.getId(), actualViewCount);
+        }
+
         return StoryResponse.builder()
                 .id(story.getId())
                 .userId(story.getUserId())
@@ -766,7 +877,7 @@ public class StoryController {
                 .allowReplies(story.isAllowReplies())
                 .allowReactions(story.isAllowReactions())
                 .allowSharing(story.isAllowSharing())
-                .viewCount((int) (story.getStats() != null ? story.getStats().getViewCount() : 0))
+                .viewCount(actualViewCount)
                 .reactCount((int) (story.getStats() != null ? story.getStats().getReactCount() : 0))
                 .replyCount((int) story.getReplyCount())
                 .shareCount((int) (story.getStats() != null ? story.getStats().getShareCount() : 0))

@@ -219,15 +219,35 @@ export const fetchStoryFeed = async (page?: number, size?: number): Promise<any>
 /**
  * React to a story
  * @param storyId Story ID
+ * @param emoji Reaction emoji (optional)
  */
-export const reactToStory = async (storyId: string): Promise<void> => {
+export const reactToStory = async (storyId: string, emoji?: string): Promise<void> => {
     try {
-        console.log(`😊 [Story] Reacting to story: ${storyId}`);
-        await axiosClient.post(`/stories/${storyId}/react`);
+        console.log(`😊 [Story] Reacting to story: ${storyId} with emoji: ${emoji}`);
+        await axiosClient.post(`/stories/${storyId}/react`, null, {
+            params: emoji ? { emoji } : undefined
+        });
         console.log(`✅ [Story] Reaction recorded`);
     } catch (error: any) {
         console.error(`❌ [Story] Error reacting to story:`, error);
         throw new Error("Failed to react to story: " + (error?.message || "Unknown error"));
+    }
+};
+
+/**
+ * Fetch viewers of a story (owner only)
+ * @param storyId Story ID
+ */
+export const fetchStoryViewers = async (storyId: string): Promise<any[]> => {
+    try {
+        console.log(`👁️ [Story] Fetching viewers for story: ${storyId}`);
+        const response = await axiosClient.get(`/stories/${storyId}/viewers`);
+        console.log(`✅ [Story] Viewers fetched:`, response.data);
+        const data = response.data?.data || response.data;
+        return Array.isArray(data) ? data : [];
+    } catch (error: any) {
+        console.error(`❌ [Story] Error fetching story viewers:`, error);
+        throw new Error("Failed to fetch story viewers: " + (error?.message || "Unknown error"));
     }
 };
 
