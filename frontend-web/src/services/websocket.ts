@@ -8,12 +8,14 @@ import { Client, type IMessage } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
 import type { Conversation, JoinRequest, Message, MessageType, PollResponse } from "./chatService";
 
-const resolveSockJsUrl = (): string => {
-    const envUrl = import.meta.env.VITE_WS_URL;
-    if (typeof envUrl === "string" && envUrl.trim()) {
-        return envUrl.trim();
-    }
-    return "/ws";
+const normalizePresencePhone = (phone?: string | null): string | null => {
+    if (!phone) return null;
+    const normalized = phone.trim().replace(/\s+/g, "");
+    if (!normalized) return null;
+    if (normalized.startsWith("+84")) return normalized;
+    if (normalized.startsWith("0")) return `+84${normalized.substring(1)}`;
+    if (normalized.startsWith("84")) return `+${normalized}`;
+    return `+84${normalized}`;
 };
 
 export type CallStatus =
@@ -417,6 +419,12 @@ class WebSocketService {
         number,
         Set<(event: CallSignalPayload) => void>
     > = new Map();
+    private presenceLoginPhone: string | null = null;
+    private presenceHeartbeatTimer: number | null = null;
+    private presenceListeners: Map<
+        number,
+        Set<(event: { userId: number; online: boolean; lastActiveAt?: string | null }) => void>
+    > = new Map();
 
     /**
      * Promise theo dõi trạng thái kết nối
@@ -425,6 +433,36 @@ class WebSocketService {
      * Dùng để tránh nhiều component cùng gọi connect() tạo duplicate connections
      */
     private connectPromise: Promise<void> | null = null;
+
+    setPresenceIdentity(phone?: string | null) {
+        // Phone được gửi qua STOMP CONNECT header "login" để backend map session -> user.
+        this.presenceLoginPhone = normalizePresencePhone(phone);
+    }
+
+    private getPresenceConnectHeaders(): Record<string, string> | undefined {
+        return this.presenceLoginPhone ? { login: this.presenceLoginPhone } : undefined;
+    }
+
+    private startPresenceHeartbeat() {
+        this.stopPresenceHeartbeat();
+        if (!this.presenceLoginPhone) return;
+
+        // Heartbeat presence chạy trên WebSocket đang mở, không tạo request REST định kỳ.
+        this.presenceHeartbeatTimer = window.setInterval(() => {
+            if (!this.client?.connected) return;
+            this.client.publish({
+                destination: "/app/presence/heartbeat",
+                body: "{}",
+            });
+        }, 30000);
+    }
+
+    private stopPresenceHeartbeat() {
+        if (this.presenceHeartbeatTimer) {
+            window.clearInterval(this.presenceHeartbeatTimer);
+            this.presenceHeartbeatTimer = null;
+        }
+    }
 
     /**
      * Thiết lập kết nối WebSocket tới server
@@ -503,6 +541,7 @@ class WebSocketService {
                  * Để server biết client còn sống
                  */
                 heartbeatOutgoing: 4000,
+                connectHeaders: this.getPresenceConnectHeaders(),
 
                 /**
                  * onConnect: Callback khi STOMP connection thành công
@@ -512,6 +551,7 @@ class WebSocketService {
                 onConnect: () => {
                     console.log("🟢🟢🟢 STOMP Connected to server 🟢🟢🟢");
                     this.connectPromise = null; // Reset promise
+                    this.startPresenceHeartbeat();
                     onConnect?.(); // Gọi callback của caller
                     resolve(); // Resolve promise để caller biết đã kết nối xong
                 },
@@ -567,6 +607,7 @@ class WebSocketService {
      * 4. Reset client về null
      */
     disconnect() {
+        this.stopPresenceHeartbeat();
         if (this.client) {
             // Unsubscribe tất cả subscriptions trước khi disconnect
             this.subscriptions.forEach((subscription) => {
@@ -574,6 +615,7 @@ class WebSocketService {
             });
             this.subscriptions.clear();
             this.profileUpdateListeners.clear();
+            this.presenceListeners.clear();
 
             // Deactivate client (gửi DISCONNECT, đóng WebSocket)
             this.client.deactivate();
@@ -1090,6 +1132,72 @@ class WebSocketService {
             // Xóa khỏi Map để giải phóng bộ nhớ
             this.subscriptions.delete(destination);
             console.log(`Unsubscribed from ${destination}`);
+        }
+    }
+
+    subscribeToPresence(
+        currentUserId: number,
+        callback: (event: { userId: number; online: boolean; lastActiveAt?: string | null }) => void,
+    ) {
+        const listeners =
+            this.presenceListeners.get(currentUserId) ??
+            new Set<(event: { userId: number; online: boolean; lastActiveAt?: string | null }) => void>();
+        listeners.add(callback);
+        this.presenceListeners.set(currentUserId, listeners);
+
+        if (!this.client?.connected) {
+            console.error("WebSocket not connected, cannot subscribe to presence");
+            return;
+        }
+
+        const destination = `/topic/user/${currentUserId}/presence`;
+        const existingSubscription = this.subscriptions.get(destination);
+        if (existingSubscription) return;
+
+        const subscription = this.client.subscribe(destination, (message: IMessage) => {
+            try {
+                const raw = JSON.parse(message.body);
+                const payload = raw?.payload ?? raw?.data ?? raw;
+                const userId = Number(payload?.userId);
+                if (!Number.isFinite(userId)) return;
+
+                // Event realtime chi cap nhat cache UI; snapshot ban dau van lay bang REST.
+                const event = {
+                    userId,
+                    online: Boolean(payload?.online ?? payload?.isOnline),
+                    lastActiveAt: payload?.lastActiveAt ?? null,
+                };
+                this.presenceListeners
+                    .get(currentUserId)
+                    ?.forEach((listener) => listener(event));
+            } catch (error) {
+                console.error("Error parsing presence event:", error);
+            }
+        });
+
+        this.subscriptions.set(destination, subscription);
+    }
+
+    unsubscribeFromPresence(
+        currentUserId: number,
+        callback?: (event: { userId: number; online: boolean; lastActiveAt?: string | null }) => void,
+    ) {
+        const listeners = this.presenceListeners.get(currentUserId);
+
+        if (callback && listeners) {
+            listeners.delete(callback);
+            if (listeners.size > 0) return;
+        }
+
+        if (!callback || !listeners || listeners.size === 0) {
+            this.presenceListeners.delete(currentUserId);
+        }
+
+        const destination = `/topic/user/${currentUserId}/presence`;
+        const subscription = this.subscriptions.get(destination);
+        if (subscription) {
+            subscription.unsubscribe();
+            this.subscriptions.delete(destination);
         }
     }
 

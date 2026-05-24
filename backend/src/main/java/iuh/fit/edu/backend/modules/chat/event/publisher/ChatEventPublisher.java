@@ -123,12 +123,12 @@ public class ChatEventPublisher {
     @EventListener
     public void handleUserStatusEvent(UserStatusEvent event) {
         log.info("Publishing user status to redis pub/sub");
-//        RedisEnvelope envelope = new RedisEnvelope(
-//                Collections.emptySet(),
-//                event.getDomainEventType(),
-//                event
-//        );
-        pubSubRedisTemplate.convertAndSend(RedisPubSubConfig.CHAT_CHANNEL, event);
+        RedisEnvelope envelope = new RedisEnvelope(
+                Collections.emptySet(),
+                event.getDomainEventType(),
+                event
+        );
+        pubSubRedisTemplate.convertAndSend(RedisPubSubConfig.CHAT_CHANNEL, envelope);
     }
 
 

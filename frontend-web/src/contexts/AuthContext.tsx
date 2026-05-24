@@ -9,6 +9,7 @@ import axiosClient from "../api/axiosClient";
 import { buildS3Url } from "../utils/s3";
 import { getCookie } from "../utils/cookies";
 import type { User } from "../types";
+import websocketService from "../services/websocket";
 
 interface UserProfile extends User {
   postsCount?: number;
@@ -388,6 +389,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.addEventListener("storage", handleStorageChange);
     return () => window.removeEventListener("storage", handleStorageChange);
   }, []);
+
+  useEffect(() => {
+    // Presence duoc khoi dong o AuthProvider de moi man hinh dung chung 1 ket noi WebSocket.
+    websocketService.setPresenceIdentity(currentUser?.phone);
+    if (!currentUser?.phone) return;
+
+    void websocketService.connect().catch((error) => {
+      console.error("Khong the khoi tao WebSocket presence:", error);
+    });
+  }, [currentUser?.phone]);
 
   return (
     <AuthContext.Provider

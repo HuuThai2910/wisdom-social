@@ -264,9 +264,65 @@ export function useMessagesController() {
     const currentUserId = Number(currentUser?.id ?? 0);
 
     const currentUserIdRef = useRef(currentUserId);
+    const presenceHydratedConversationIdsRef = useRef<Set<number>>(new Set());
     useEffect(() => {
         currentUserIdRef.current = currentUserId;
     }, [currentUserId]);
+
+    useEffect(() => {
+        if (!currentUserId) return;
+        const missingPresenceConversations = conversations.filter(
+            (conversation) =>
+                conversation.type === "DIRECT" &&
+                !conversation.directPartnerId &&
+                (!conversation.members || conversation.members.length === 0) &&
+                !presenceHydratedConversationIdsRef.current.has(conversation.id),
+        );
+
+        if (missingPresenceConversations.length === 0) return;
+
+        // Sidebar cũ có thể thiếu members/directPartnerId, hydrate nền để chấm xanh hiện ngay trên list.
+        missingPresenceConversations.forEach((conversation) =>
+            presenceHydratedConversationIdsRef.current.add(conversation.id),
+        );
+
+        let cancelled = false;
+        Promise.all(
+            missingPresenceConversations.map((conversation) =>
+                chatService
+                    .getConversation(conversation.id, currentUserId)
+                    .then((response) => response.data ?? null)
+                    .catch(() => null),
+            ),
+        ).then((details) => {
+            if (cancelled) return;
+            const detailMap = new Map(
+                details
+                    .filter((detail): detail is Conversation => Boolean(detail))
+                    .map((detail) => [detail.id, detail]),
+            );
+            if (detailMap.size === 0) return;
+
+            setConversations((prev) =>
+                prev.map((conversation) => {
+                    const detail = detailMap.get(conversation.id);
+                    if (!detail) return conversation;
+                    const next = {
+                        ...conversation,
+                        ...detail,
+                        lastMessage: conversation.lastMessage ?? detail.lastMessage,
+                        unreadCount: conversation.unreadCount ?? detail.unreadCount,
+                    };
+                    chatRuntimeStore.setConversation(conversation.id, next);
+                    return next;
+                }),
+            );
+        });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [conversations, currentUserId]);
 
     const loadConversations = useCallback(async () => {
         try {

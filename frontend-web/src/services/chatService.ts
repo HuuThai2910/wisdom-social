@@ -154,6 +154,7 @@ export interface ConversationSidebar {
     name?: string;
     type: "DIRECT" | "GROUP";
     imageUrl?: string;
+    directPartnerId?: number;
     updatedAt: string;
     lastMessage?: LastMessage;
     unreadCount?: number;

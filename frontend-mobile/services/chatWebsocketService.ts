@@ -172,6 +172,16 @@ function resolveSockJsHttpUrl(): string {
     return `${apiRoot}/ws`;
 }
 
+const normalizePresencePhone = (phone?: string | null): string | null => {
+    if (!phone) return null;
+    const normalized = phone.trim().replace(/\s+/g, "");
+    if (!normalized) return null;
+    if (normalized.startsWith("+84")) return normalized;
+    if (normalized.startsWith("0")) return `+84${normalized.substring(1)}`;
+    if (normalized.startsWith("84")) return `+${normalized}`;
+    return `+84${normalized}`;
+};
+
 const WS_DEBUG_PREFIX = "[RECALL_DEBUG][mobile][chatWebsocketService]";
 
 class ChatWebsocketService {
@@ -191,6 +201,42 @@ class ChatWebsocketService {
         Map<UserConversationUpdateHandler, UserConversationListener>
     >();
     private nextUniqueSubscriptionId = 0;
+    private presenceLoginPhone: string | null = null;
+    private presenceHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
+    private presenceEventListeners = new Map<
+        number,
+        Set<(event: { userId: number; online: boolean; lastActiveAt?: string | null }) => void>
+    >();
+
+    setPresenceIdentity(phone?: string | null): void {
+        // Phone duoc gui qua STOMP CONNECT header "login" de backend gan session voi user.
+        this.presenceLoginPhone = normalizePresencePhone(phone);
+    }
+
+    private getPresenceConnectHeaders(): Record<string, string> | undefined {
+        return this.presenceLoginPhone ? { login: this.presenceLoginPhone } : undefined;
+    }
+
+    private startPresenceHeartbeat(): void {
+        this.stopPresenceHeartbeat();
+        if (!this.presenceLoginPhone) return;
+
+        // Heartbeat presence di tren WebSocket dang mo, khong spam REST dinh ky.
+        this.presenceHeartbeatTimer = setInterval(() => {
+            if (!this.client?.connected) return;
+            this.client.publish({
+                destination: "/app/presence/heartbeat",
+                body: "{}",
+            });
+        }, 30000);
+    }
+
+    private stopPresenceHeartbeat(): void {
+        if (this.presenceHeartbeatTimer) {
+            clearInterval(this.presenceHeartbeatTimer);
+            this.presenceHeartbeatTimer = null;
+        }
+    }
 
     private syncSubscriptions(): void {
         if (!this.client?.connected) return;
@@ -261,6 +307,7 @@ class ChatWebsocketService {
                 reconnectDelay: 5000,
                 heartbeatIncoming: 4000,
                 heartbeatOutgoing: 4000,
+                connectHeaders: this.getPresenceConnectHeaders(),
                 debug: (message) => {
                     if (
                         message.includes("CONNECTED") ||
@@ -279,6 +326,7 @@ class ChatWebsocketService {
                         brokerURL,
                     });
 
+                    this.startPresenceHeartbeat();
                     this.syncSubscriptions();
                     resolve();
                 },
@@ -357,6 +405,7 @@ class ChatWebsocketService {
                 reconnectDelay: 5000,
                 heartbeatIncoming: 4000,
                 heartbeatOutgoing: 4000,
+                connectHeaders: this.getPresenceConnectHeaders(),
                 debug: (message) => {
                     if (
                         message.includes("CONNECTED") ||
@@ -379,6 +428,7 @@ class ChatWebsocketService {
                         mode: "sockjs",
                     });
 
+                    this.startPresenceHeartbeat();
                     this.syncSubscriptions();
                     resolve();
                 },
@@ -510,10 +560,12 @@ class ChatWebsocketService {
     }
 
     disconnect(): void {
+        this.stopPresenceHeartbeat();
         this.subscriptions.forEach((sub) => sub.unsubscribe());
         this.subscriptions.clear();
         this.subscriptionFactories.clear();
         this.callEventListeners.clear();
+        this.presenceEventListeners.clear();
 
         if (this.client) {
             void this.client.deactivate();
@@ -827,6 +879,66 @@ class ChatWebsocketService {
     unsubscribeFromConversationMembers(conversationId: number): void {
         const destination = `/topic/conversations/${conversationId}/members`;
         this.removeSubscription(destination);
+    }
+
+    subscribeToPresence(
+        currentUserId: number,
+        callback: (event: { userId: number; online: boolean; lastActiveAt?: string | null }) => void,
+    ): void {
+        const listeners =
+            this.presenceEventListeners.get(currentUserId) ??
+            new Set<(event: { userId: number; online: boolean; lastActiveAt?: string | null }) => void>();
+        listeners.add(callback);
+        this.presenceEventListeners.set(currentUserId, listeners);
+
+        const destination = `/topic/user/${currentUserId}/presence`;
+        if (this.subscriptionFactories.has(destination)) {
+            this.syncSubscriptions();
+            return;
+        }
+
+        this.registerSubscription(destination, () => {
+            const client = this.client;
+            if (!client?.connected) {
+                throw new Error("WebSocket not connected");
+            }
+
+            return client.subscribe(destination, (message: IMessage) => {
+                try {
+                    const raw = JSON.parse(message.body);
+                    const payload = raw?.payload ?? raw?.data ?? raw;
+                    const userId = Number(payload?.userId);
+                    if (!Number.isFinite(userId)) return;
+
+                    // Event realtime chi cap nhat UI; snapshot ban dau lay qua REST.
+                    const event = {
+                        userId,
+                        online: Boolean(payload?.online ?? payload?.isOnline),
+                        lastActiveAt: payload?.lastActiveAt ?? null,
+                    };
+                    this.presenceEventListeners
+                        .get(currentUserId)
+                        ?.forEach((listener) => listener(event));
+                } catch {
+                    // no-op
+                }
+            });
+        });
+    }
+
+    unsubscribeFromPresence(
+        currentUserId: number,
+        callback?: (event: { userId: number; online: boolean; lastActiveAt?: string | null }) => void,
+    ): void {
+        const listeners = this.presenceEventListeners.get(currentUserId);
+
+        if (callback && listeners) {
+            listeners.delete(callback);
+            if (listeners.size > 0) return;
+        }
+
+        this.presenceEventListeners.delete(currentUserId);
+        this.removeSubscription(`/topic/user/${currentUserId}/presence`);
     }
 
     subscribeToUserConversations(
