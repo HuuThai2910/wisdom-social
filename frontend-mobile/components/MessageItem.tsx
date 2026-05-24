@@ -18,6 +18,7 @@ type Props = {
     unreadCount?: number;
     isPinned?: boolean;
     hideMeta?: boolean;
+    online?: boolean;
     onPress: () => void;
     onLongPress?: (event: GestureResponderEvent) => void;
     delayLongPress?: number;
@@ -30,6 +31,7 @@ export default function MessageItem({
     unreadCount = 0,
     isPinned = false,
     hideMeta = false,
+    online = false,
     onPress,
     onLongPress,
     delayLongPress = 300,
@@ -43,7 +45,7 @@ export default function MessageItem({
             onLongPress={onLongPress}
             delayLongPress={delayLongPress}
         >
-            <UserAvatar uri={user.avatarUrl} name={user.username} size={52} />
+            <UserAvatar uri={user.avatarUrl} name={user.username} size={52} online={online} />
             <View style={styles.content}>
                 <View style={styles.nameRow}>
                     {isPinned ? (

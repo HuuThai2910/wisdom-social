@@ -20,6 +20,7 @@ import { useAppContext } from "@/context/AppContext";
 import blockService from "@/services/blockService";
 import friendService, { FriendUser } from "@/services/friendService";
 import { useFriendNotifications } from "@/hooks/useFriendNotifications";
+import { usePresenceStatus } from "@/hooks/usePresenceStatus";
 import { buildS3Url } from "@/utils/s3";
 
 type TabType = "friends" | "suggestions" | "requests" | "sent" | "blocked";
@@ -32,14 +33,18 @@ const TABS: { key: TabType; label: string }[] = [
     { key: "blocked",     label: "Đã chặn"   },
 ];
 
-function Avatar({ item }: { item: FriendUser }) {
+function Avatar({ item, online = false }: { item: FriendUser; online?: boolean }) {
     const uri = item.avatar || (item.avatarUrl ? buildS3Url(item.avatarUrl) : null);
-    if (uri) {
-        return <Image source={{ uri }} style={s.avatar} />;
-    }
     return (
-        <View style={[s.avatar, s.avatarFallback]}>
-            <Ionicons name="person" size={24} color="#AEAEB2" />
+        <View style={s.avatarWrap}>
+            {uri ? (
+                <Image source={{ uri }} style={s.avatar} />
+            ) : (
+                <View style={[s.avatar, s.avatarFallback]}>
+                    <Ionicons name="person" size={24} color="#AEAEB2" />
+                </View>
+            )}
+            {online ? <View style={s.onlineDot} /> : null}
         </View>
     );
 }
@@ -121,6 +126,9 @@ export default function FriendsTabScreen() {
             );
         })
         : list;
+    const presenceByUserId = usePresenceStatus(
+        tab === "friends" ? filtered.map((user) => user.id) : [],
+    );
 
     /* ── Navigate ────────────────────────────────────────────────── */
     const goProfile = (item: FriendUser) =>
@@ -131,7 +139,7 @@ export default function FriendsTabScreen() {
     // Tab: Bạn bè — avatar + tên + nút chat bên phải
     const renderFriend = (item: FriendUser) => (
         <TouchableOpacity style={s.row} activeOpacity={0.55} onPress={() => goProfile(item)}>
-            <Avatar item={item} />
+            <Avatar item={item} online={Boolean(presenceByUserId[item.id]?.online)} />
             <View style={s.info}>
                 <Text style={s.name} numberOfLines={1}>
                     {item.name || item.username || item.phone || `User ${item.id}`}
@@ -473,10 +481,27 @@ const s = StyleSheet.create({
         borderRadius: AVATAR_SIZE / 2,
         flexShrink: 0,
     },
+    avatarWrap: {
+        position: "relative",
+        width: AVATAR_SIZE,
+        height: AVATAR_SIZE,
+        flexShrink: 0,
+    },
     avatarFallback: {
         backgroundColor: "#E5E5EA",
         alignItems: "center",
         justifyContent: "center",
+    },
+    onlineDot: {
+        position: "absolute",
+        right: 0,
+        bottom: 0,
+        width: 14,
+        height: 14,
+        borderRadius: 7,
+        borderWidth: 2,
+        borderColor: "#FFFFFF",
+        backgroundColor: "#22C55E",
     },
 
     /* Text info */

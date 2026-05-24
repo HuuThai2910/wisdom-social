@@ -49,6 +49,8 @@ import AIConsentModal from "../../features/chat-ai/components/AIConsentModal";
 import AIActionPanel from "../../features/chat-ai/components/AIActionPanel";
 import AIResultPanel from "../../features/chat-ai/components/AIResultPanel";
 import type { MessagePreviewDTO } from "../../features/chat-ai/types/chatAI";
+import { usePresenceStatus } from "../../hooks/usePresenceStatus";
+import { formatLastActiveText } from "../../utils/presenceText";
 
 interface ChatWindowProps {
   conversationId: number;
@@ -240,6 +242,28 @@ export default function ChatWindow({
   const otherMember = useMemo(
     () => Object.values(membersById).find((m) => m.userId !== userId),
     [membersById, userId]
+  );
+  const otherMemberUserId = Number(otherMember?.userId);
+  const presenceByUserId = usePresenceStatus([otherMemberUserId]);
+  const otherMemberPresence = Number.isFinite(otherMemberUserId)
+    ? presenceByUserId[otherMemberUserId]
+    : undefined;
+  const otherMemberOnline = Boolean(
+    conversation?.type === "DIRECT" &&
+      Number.isFinite(otherMemberUserId) &&
+      otherMemberPresence?.online
+  );
+  const [presenceNow, setPresenceNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (otherMemberOnline || !otherMemberPresence?.lastActiveAt) return;
+
+    // Offline text tự nhảy phút/giờ ở client, không cần backend bắn event mỗi phút.
+    const timer = window.setInterval(() => setPresenceNow(Date.now()), 60000);
+    return () => window.clearInterval(timer);
+  }, [otherMemberOnline, otherMemberPresence?.lastActiveAt]);
+  const otherMemberLastActiveText = formatLastActiveText(
+    otherMemberPresence?.lastActiveAt,
+    presenceNow
   );
   const {
     status: friendshipStatus,
@@ -1247,17 +1271,27 @@ export default function ChatWindow({
       {/* Header */}
       <div className="flex items-center justify-between border-b border-gray-200/80 dark:border-gray-700 px-5 py-3.5 bg-white dark:bg-black backdrop-blur-sm">
         <div className="flex items-center gap-3">
-          <img
-            src={headerDisplayAvatar}
-            alt={headerDisplayName}
-            className="h-10 w-10 rounded-full object-cover ring-1 ring-gray-200 dark:ring-gray-700"
-          />
+          <div className="relative">
+            <img
+              src={headerDisplayAvatar}
+              alt={headerDisplayName}
+              className="h-10 w-10 rounded-full object-cover ring-1 ring-gray-200 dark:ring-gray-700"
+            />
+            {otherMemberOnline && (
+              <span
+                className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-green-500 dark:border-black"
+                title="Đang hoạt động"
+              />
+            )}
+          </div>
           <div className="min-w-0">
             <p className="text-sm font-semibold text-gray-900 dark:text-white">
               {headerDisplayName}
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              {resolvedRelationshipText || "Active now"}
+              {otherMemberOnline
+                ? "Đang hoạt động"
+                : otherMemberLastActiveText || resolvedRelationshipText || "Không hoạt động"}
             </p>
           </div>
         </div>

@@ -1,4 +1,5 @@
 import apiClient from "@/api/apiClient";
+import { buildS3Url } from "@/utils/s3";
 
 export type FriendUser = {
     id: number;
@@ -28,8 +29,13 @@ function toFriendUsers(payload: unknown): FriendUser[] | null {
                 if (!item || typeof item !== "object") return null;
 
                 const raw = item as Record<string, unknown>;
-                const id = Number(raw.id);
+                const id = Number(raw.userId ?? raw.id);
                 if (!Number.isFinite(id)) return null;
+                const avatarUrl = buildS3Url(
+                    (typeof raw.avatarUrl === "string" && raw.avatarUrl.trim()) ||
+                        (typeof raw.avatar === "string" && raw.avatar.trim()) ||
+                        undefined,
+                );
 
                 return {
                     id,
@@ -40,10 +46,8 @@ function toFriendUsers(payload: unknown): FriendUser[] | null {
                         (typeof raw.username === "string" &&
                             raw.username.trim()) ||
                         undefined,
-                    avatarUrl:
-                        (typeof raw.avatarUrl === "string" &&
-                            raw.avatarUrl.trim()) ||
-                        undefined,
+                    avatarUrl,
+                    avatar: avatarUrl,
                     phone:
                         (typeof raw.phone === "string" && raw.phone.trim()) ||
                         undefined,
@@ -61,8 +65,7 @@ class FriendService {
     async getFriends(userId: number): Promise<FriendUser[]> {
         try {
             const response = await apiClient.get(`/friends/${userId}`);
-            const data = response.data?.data ?? [];
-            return Array.isArray(data) ? data : [];
+            return toFriendUsers(response.data) ?? [];
         } catch {
             return [];
         }
@@ -71,8 +74,7 @@ class FriendService {
     async getSentRequests(userId: number): Promise<FriendUser[]> {
         try {
             const response = await apiClient.get(`/friends/sent-requests/${userId}`);
-            const data = response.data?.data ?? [];
-            return Array.isArray(data) ? data : [];
+            return toFriendUsers(response.data) ?? [];
         } catch {
             return [];
         }
@@ -81,8 +83,7 @@ class FriendService {
     async getFriendRequests(userId: number): Promise<FriendUser[]> {
         try {
             const response = await apiClient.get(`/friends/requests/${userId}`);
-            const data = response.data?.data ?? [];
-            return Array.isArray(data) ? data : [];
+            return toFriendUsers(response.data) ?? [];
         } catch {
             return [];
         }
@@ -129,8 +130,7 @@ class FriendService {
             const response = await apiClient.get(`/friends/suggestions/${userId}`, {
                 params: { limit },
             });
-            const data = response.data?.data ?? [];
-            return Array.isArray(data) ? data : [];
+            return toFriendUsers(response.data) ?? [];
         } catch {
             return [];
         }
@@ -139,13 +139,14 @@ class FriendService {
     async getFriendStatus(myId: number, targetId: number): Promise<"NONE" | "SENT" | "RECEIVED" | "FRIEND" | "BLOCKED"> {
         try {
             const [blockedList, myFriends, receivedRequests, sentRequests] = await Promise.all([
-                apiClient.get(`/auth/users/blocked/${myId}`).then((r) => r.data?.data ?? []).catch(() => []),
-                apiClient.get(`/friends/${myId}`).then((r) => r.data?.data ?? []).catch(() => []),
-                apiClient.get(`/friends/requests/${myId}`).then((r) => r.data?.data ?? []).catch(() => []),
-                apiClient.get(`/friends/sent-requests/${myId}`).then((r) => r.data?.data ?? []).catch(() => []),
+                apiClient.get(`/auth/users/blocked/${myId}`).then((r) => toFriendUsers(r.data) ?? []).catch(() => []),
+                apiClient.get(`/friends/${myId}`).then((r) => toFriendUsers(r.data) ?? []).catch(() => []),
+                apiClient.get(`/friends/requests/${myId}`).then((r) => toFriendUsers(r.data) ?? []).catch(() => []),
+                apiClient.get(`/friends/sent-requests/${myId}`).then((r) => toFriendUsers(r.data) ?? []).catch(() => []),
             ]);
 
-            const hasId = (list: Array<{ id?: number }>, id: number) => list.some((u) => Number(u.id) === id);
+            const hasId = (list: FriendUser[], id: number) =>
+                list.some((u) => Number(u.id) === id);
 
             if (hasId(blockedList, targetId)) return "BLOCKED";
             if (hasId(myFriends, targetId)) return "FRIEND";

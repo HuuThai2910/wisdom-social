@@ -16,6 +16,7 @@ import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationRespons
 
 import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationSidebarResponse;
 import iuh.fit.edu.backend.modules.chat.dto.response.LastMessageResponse;
+import iuh.fit.edu.backend.modules.user.entity.User;
 import iuh.fit.edu.backend.common.util.MediaUrlBuilder;
 import org.mapstruct.*;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -104,6 +105,7 @@ public abstract class ConversationMapper {
         if (response.getType() == ConversationType.DIRECT) {
             // Tái sử dụng hàm helper
             applyDirectChatPartnerInfo(currentMember.getConversation(), currentMember.getUser().getId(), response::setName, response::setImageUrl);
+            response.setDirectPartnerId(findDirectPartnerId(currentMember.getConversation(), currentMember.getUser().getId()));
         }
     }
 
@@ -190,6 +192,16 @@ public abstract class ConversationMapper {
                     setName.accept(displayName);
                     setImageUrl.accept(buildImageUrl(partner.getUser().getAvatarUrl()));
                 });
+    }
+
+    protected Long findDirectPartnerId(Conversation conversation, Long currentUserId) {
+        if (conversation.getMembers() == null) return null;
+        return conversation.getMembers().stream()
+                .map(ConversationMember::getUser)
+                .filter(user -> user != null && !user.getId().equals(currentUserId))
+                .map(User::getId)
+                .findFirst()
+                .orElse(null);
     }
 
     @Mapping(target = "lastMessageContent", source = "lastMessageContent")

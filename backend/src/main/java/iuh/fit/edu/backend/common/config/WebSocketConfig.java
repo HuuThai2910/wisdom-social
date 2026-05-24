@@ -4,6 +4,7 @@
  */
 package iuh.fit.edu.backend.common.config;
 
+import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
@@ -25,7 +26,10 @@ import org.springframework.web.socket.config.annotation.*;
  */
 @Configuration
 @EnableWebSocketMessageBroker
+@RequiredArgsConstructor
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
+
+    private final WebSocketAuthInterceptor webSocketAuthInterceptor;
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
@@ -44,6 +48,13 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         registry.setApplicationDestinationPrefixes("/app");
         registry.enableSimpleBroker("/topic", "/queue");
         registry.setUserDestinationPrefix("/user");
+    }
+
+    @Override
+    public void configureClientInboundChannel(ChannelRegistration registration) {
+        // Đăng ký interceptor có sẵn để gắn Principal cho STOMP session.
+        // Giữ nguyên quy ước hiện tại: principal.getName() là phone từ header "login".
+        registration.interceptors(webSocketAuthInterceptor);
     }
     
 //    @Override

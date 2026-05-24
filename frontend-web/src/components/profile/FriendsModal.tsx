@@ -6,6 +6,7 @@ import blockService from "../../services/blockService";
 import BlockUnblockButton from "../friend/BlockUnblockButton";
 import { buildS3Url } from "../../utils/s3";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
+import { usePresenceStatus } from "../../hooks/usePresenceStatus";
 import type { User } from "../../types";
 
 interface FriendsModalProps {
@@ -19,6 +20,7 @@ export default function FriendsModal({ userId, onClose }: FriendsModalProps) {
     const [blockedUserIds, setBlockedUserIds] = useState<Set<number>>(new Set());
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
+    const presenceByUserId = usePresenceStatus(friends.map((friend) => friend.id));
 
     const loadData = useCallback(async () => {
         if (!currentUser?.id) return;
@@ -114,11 +116,19 @@ export default function FriendsModal({ userId, onClose }: FriendsModalProps) {
                                         onClick={onClose}
                                         className="flex items-center gap-3 flex-1 min-w-0"
                                     >
-                                        <img
-                                            src={buildS3Url(friend.avatarUrl) || friend.avatarUrl || "https://i.pravatar.cc/150"}
-                                            alt={friend.username}
-                                            className="w-10 h-10 rounded-full object-cover flex-shrink-0"
-                                        />
+                                        <span className="relative flex-shrink-0">
+                                            <img
+                                                src={buildS3Url(friend.avatarUrl) || friend.avatarUrl || "https://i.pravatar.cc/150"}
+                                                alt={friend.username}
+                                                className="w-10 h-10 rounded-full object-cover"
+                                            />
+                                            {presenceByUserId[Number(friend.id)]?.online && (
+                                                <span
+                                                    className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-green-500 dark:border-[#262626]"
+                                                    title="Dang hoat dong"
+                                                />
+                                            )}
+                                        </span>
                                         <div className="flex-1 min-w-0">
                                             <p className="font-semibold dark:text-white text-sm truncate">
                                                 {friend.username}

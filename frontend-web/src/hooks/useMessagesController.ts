@@ -107,6 +107,7 @@ export function useMessagesController() {
     );
     const currentUserIdRef = useRef<number>(currentUserId);
     const refreshingConversationIdsRef = useRef<Set<number>>(new Set());
+    const presenceHydratedConversationIdsRef = useRef<Set<number>>(new Set());
 
     useEffect(() => {
         // Đồng bộ ref mỗi khi URL param đổi.
@@ -117,6 +118,63 @@ export function useMessagesController() {
         // Đồng bộ ref mỗi khi userId đổi.
         currentUserIdRef.current = currentUserId;
     }, [currentUserId]);
+
+    useEffect(() => {
+        if (!currentUserId) return;
+        const missingPresenceConversations = conversations.filter(
+            (conversation) =>
+                conversation.type === "DIRECT" &&
+                !conversation.directPartnerId &&
+                (!conversation.members || conversation.members.length === 0) &&
+                !presenceHydratedConversationIdsRef.current.has(conversation.id),
+        );
+
+        if (missingPresenceConversations.length === 0) return;
+
+        // Sidebar cũ có thể không trả members/directPartnerId, nên hydrate nền để presence hiện ngay không cần bấm detail.
+        missingPresenceConversations.forEach((conversation) =>
+            presenceHydratedConversationIdsRef.current.add(conversation.id),
+        );
+
+        let cancelled = false;
+        Promise.all(
+            missingPresenceConversations.map((conversation) =>
+                chatService
+                    .getConversation(conversation.id, currentUserId)
+                    .then((response) => response.data ?? null)
+                    .catch(() => null),
+            ),
+        ).then((details) => {
+            if (cancelled) return;
+            const detailMap = new Map(
+                details
+                    .filter((detail): detail is Conversation => Boolean(detail))
+                    .map((detail) => [detail.id, detail]),
+            );
+            if (detailMap.size === 0) return;
+
+            setConversations((prev) =>
+                prev.map((conversation) => {
+                    const detail = detailMap.get(conversation.id);
+                    if (!detail) return conversation;
+                    chatRuntimeStore.setConversation(conversation.id, {
+                        ...conversation,
+                        ...detail,
+                    });
+                    return {
+                        ...conversation,
+                        ...detail,
+                        lastMessage: conversation.lastMessage ?? detail.lastMessage,
+                        unreadCount: conversation.unreadCount ?? detail.unreadCount,
+                    };
+                }),
+            );
+        });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [conversations, currentUserId]);
 
     // ====== Data loading: danh sách hội thoại ======
     const loadConversations = useCallback(async () => {

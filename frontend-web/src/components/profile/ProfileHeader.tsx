@@ -11,6 +11,7 @@ import FriendActions from "../friend/FriendActions";
 import { NOTE_PLACEHOLDERS } from "./note-modal/NoteContentDefault";
 import { getUserPostsWithDetails } from "../../services/postService";
 import { useProfileNote } from "../../hooks/useProfileNote";
+import { usePresenceStatus } from "../../hooks/usePresenceStatus";
 
 interface ProfileHeaderProps {
   user: User;
@@ -37,6 +38,11 @@ export default function ProfileHeader({
   );
   const { note, showNoteModal, openNoteModal, closeNoteModal, setNote } =
     useProfileNote(user?.id);
+  const profileUserId = Number(user?.id);
+  const presenceByUserId = usePresenceStatus([profileUserId]);
+  const isUserOnline = Boolean(
+    Number.isFinite(profileUserId) && presenceByUserId[profileUserId]?.online,
+  );
 
   //
   useEffect(() => {
@@ -164,7 +170,12 @@ export default function ProfileHeader({
                   alt={user.username}
                   className="w-32 h-32 rounded-full object-cover border-4 border-gray-200 dark:border-[#363636]"
                 />
-                <div className="absolute bottom-2 right-2 w-5 h-5 bg-green-500 rounded-full border-3 border-white dark:border-[#1a1a1a]" />
+                {isUserOnline && (
+                  <div
+                    className="absolute bottom-2 right-2 w-5 h-5 bg-green-500 rounded-full border-3 border-white dark:border-[#1a1a1a]"
+                    title="Dang hoat dong"
+                  />
+                )}
               </div>
             </div>
 
