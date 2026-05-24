@@ -18,6 +18,7 @@ import friendService from "@/services/friendService";
 import blockService from "@/services/blockService";
 import userService from "@/services/userService";
 import { useFriendNotifications } from "@/hooks/useFriendNotifications";
+import { usePresenceStatus } from "@/hooks/usePresenceStatus";
 import type { User } from "@/services/userService";
 
 const S3_BASE = "https://cnmt-hk1-amz.s3.ap-southeast-1.amazonaws.com/";
@@ -42,6 +43,10 @@ export default function UserProfileScreen() {
 
     const myId = useMemo(() => Number(currentUser?.id), [currentUser?.id]);
     const targetId = useMemo(() => Number(userId), [userId]);
+    const presenceByUserId = usePresenceStatus([targetId]);
+    const isTargetOnline = Boolean(
+        Number.isFinite(targetId) && targetId > 0 && presenceByUserId[targetId]?.online,
+    );
 
     const isOwnProfile = useMemo(
         () => !!userId && !!currentUser?.id && Number(userId) === Number(currentUser.id),
@@ -300,6 +305,7 @@ export default function UserProfileScreen() {
                                         <Ionicons name="person" size={50} color={colors.primary} />
                                     </View>
                                 )}
+                                {isTargetOnline ? <View style={styles.onlineDot} /> : null}
                             </View>
 
                             <Text style={styles.name}>{profileUser?.name || profileUser?.fullName || profileUser?.username || "—"}</Text>
@@ -436,6 +442,17 @@ const styles = StyleSheet.create({
         borderRadius: 50,
         alignItems: "center",
         justifyContent: "center",
+    },
+    onlineDot: {
+        position: "absolute",
+        right: 6,
+        bottom: 6,
+        width: 18,
+        height: 18,
+        borderRadius: 9,
+        borderWidth: 3,
+        borderColor: colors.white,
+        backgroundColor: "#22C55E",
     },
     name: {
         fontSize: 18,

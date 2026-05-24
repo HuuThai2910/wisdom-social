@@ -10,6 +10,7 @@ import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.messaging.support.MessageHeaderAccessor;
+import org.springframework.stereotype.Component;
 
 import java.security.Principal;
 
@@ -18,6 +19,7 @@ import java.security.Principal;
  * @date: 2026-02-28
  * @version: 1.0
  */
+@Component
 public class WebSocketAuthInterceptor implements ChannelInterceptor {
 
     @Override

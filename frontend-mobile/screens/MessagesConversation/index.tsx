@@ -13,11 +13,13 @@ import { colors, spacing } from "@/constants";
 import { useChatWindowController } from "@/hooks/useChatWindowController";
 import { useFriendNotifications } from "@/hooks/useFriendNotifications";
 import { useGroupManagement } from "@/hooks/useGroupManagement";
+import { usePresenceStatus } from "@/hooks/usePresenceStatus";
 import chatService from "@/services/chatService";
 import friendService from "@/services/friendService";
 import type { FriendEvent } from "@/services/friendWebsocketService";
 import type { ChatUserSearchResult, ConversationSidebar, LocalUploadFile, Message } from "@/types/chat";
 import { formatRelativeTime } from "@/utils/format";
+import { formatLastActiveText } from "@/utils/presenceText";
 import { focusComposerInput } from "@/utils/focusComposerInput";
 import { buildConversationDisplayInfo } from "@/utils/conversationDisplayInfo";
 import { Ionicons } from "@expo/vector-icons";
@@ -420,6 +422,28 @@ export default function MessagesConversationScreen() {
             null
         );
     }, [currentUserId, membersById]);
+    const otherUserId = Number(otherUser?.userId);
+    const presenceByUserId = usePresenceStatus([otherUserId]);
+    const otherUserPresence = Number.isFinite(otherUserId)
+        ? presenceByUserId[otherUserId]
+        : undefined;
+    const otherUserOnline = Boolean(
+        conversation?.type === "DIRECT" &&
+            Number.isFinite(otherUserId) &&
+            otherUserPresence?.online,
+    );
+    const [presenceNow, setPresenceNow] = useState(() => Date.now());
+    useEffect(() => {
+        if (otherUserOnline || !otherUserPresence?.lastActiveAt) return;
+
+        // Offline text tự nhảy phút/giờ ở client, không cần backend bắn event mỗi phút.
+        const timer = setInterval(() => setPresenceNow(Date.now()), 60000);
+        return () => clearInterval(timer);
+    }, [otherUserOnline, otherUserPresence?.lastActiveAt]);
+    const otherUserLastActiveText = formatLastActiveText(
+        otherUserPresence?.lastActiveAt,
+        presenceNow,
+    );
 
     useFriendNotifications(
         useCallback(
@@ -1819,6 +1843,7 @@ export default function MessagesConversationScreen() {
                                 "Conversation"
                             }
                             size={40}
+                            online={otherUserOnline}
                         />
                         <View style={styles.headerMeta}>
                             <Text style={styles.headerName} numberOfLines={1}>
@@ -1828,7 +1853,11 @@ export default function MessagesConversationScreen() {
                                     "Conversation"}
                             </Text>
                             <Text style={styles.headerStatus} numberOfLines={1}>
-                                {peerRelationshipText || activityText}
+                                {otherUserOnline
+                                    ? "Đang hoạt động"
+                                    : otherUserLastActiveText ||
+                                      peerRelationshipText ||
+                                      (conversation?.type === "DIRECT" ? "Không hoạt động" : activityText)}
                             </Text>
                         </View>
                     </View>

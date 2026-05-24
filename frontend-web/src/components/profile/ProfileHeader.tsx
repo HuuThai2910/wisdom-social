@@ -1,7 +1,14 @@
 import { Link } from "react-router-dom";
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { User } from "../../types";
-import { Settings, LogOut, QrCode, MessageCircle, MapPin, Plus } from "lucide-react";
+import {
+  Settings,
+  LogOut,
+  QrCode,
+  MessageCircle,
+  MapPin,
+  Plus,
+} from "lucide-react";
 import { logout } from "../../utils/auth";
 import NoteModal from "./note-modal/NoteModal";
 import FriendsModal from "./FriendsModal";
@@ -14,6 +21,7 @@ import { useProfileNote } from "../../hooks/useProfileNote";
 import { useHasActiveStory } from "../../hooks/useHasActiveStory";
 import { fetchUserStories } from "../../services/storyService";
 import StoryViewerModal from "../story/StoryViewerModal";
+import { usePresenceStatus } from "../../hooks/usePresenceStatus";
 
 interface ProfileHeaderProps {
   user: User;
@@ -46,10 +54,15 @@ export default function ProfileHeader({
   const [postsCount, setPostsCount] = useState(0);
   const [notePlaceholder] = useState(
     () =>
-      NOTE_PLACEHOLDERS[Math.floor(Math.random() * NOTE_PLACEHOLDERS.length)],
+      NOTE_PLACEHOLDERS[Math.floor(Math.random() * NOTE_PLACEHOLDERS.length)]
   );
   const { note, showNoteModal, openNoteModal, closeNoteModal, setNote } =
     useProfileNote(user?.id);
+  const profileUserId = Number(user?.id);
+  const presenceByUserId = usePresenceStatus([profileUserId]);
+  const isUserOnline = Boolean(
+    Number.isFinite(profileUserId) && presenceByUserId[profileUserId]?.online
+  );
 
   //
   useEffect(() => {
@@ -63,10 +76,10 @@ export default function ProfileHeader({
   }, [user?.id]);
 
   // Check if user has an active story
-  const { 
-    hasStory: hasActiveStory, 
-    hasUnviewed: hasUnviewedStory, 
-    refresh: refreshActiveStory 
+  const {
+    hasStory: hasActiveStory,
+    hasUnviewed: hasUnviewedStory,
+    refresh: refreshActiveStory,
   } = useHasActiveStory(user?.id);
 
   const [activeStories, setActiveStories] = useState<any[]>([]);
@@ -199,26 +212,30 @@ export default function ProfileHeader({
                   </div>
                 </button>
               )}
-              <div 
+              <div
                 className={`relative mb-2 select-none ${
-                  hasActiveStory ? "cursor-pointer hover:scale-[1.02] active:scale-98 transition-all duration-200" : ""
+                  hasActiveStory
+                    ? "cursor-pointer hover:scale-[1.02] active:scale-98 transition-all duration-200"
+                    : ""
                 }`}
                 onClick={handleAvatarClick}
                 title={hasActiveStory ? "Xem tin" : undefined}
               >
-                <div className={`${
-                  hasActiveStory
-                    ? `p-[3px] rounded-full ${
-                        hasUnviewedStory
-                          ? `bg-gradient-to-tr ${
-                              isOwnProfile
-                                ? "from-green-400 to-emerald-500"
-                                : "from-blue-400 to-indigo-500"
-                            }`
-                          : "bg-gray-300 dark:bg-zinc-700"
-                      }`
-                    : ""
-                }`}>
+                <div
+                  className={`${
+                    hasActiveStory
+                      ? `p-[3px] rounded-full ${
+                          hasUnviewedStory
+                            ? `bg-gradient-to-tr ${
+                                isOwnProfile
+                                  ? "from-green-400 to-emerald-500"
+                                  : "from-blue-400 to-indigo-500"
+                              }`
+                            : "bg-gray-300 dark:bg-zinc-700"
+                        }`
+                      : ""
+                  }`}
+                >
                   <img
                     src={
                       buildS3Url(user.avatarUrl) ||
@@ -233,7 +250,12 @@ export default function ProfileHeader({
                     }`}
                   />
                 </div>
-                <div className="absolute bottom-2 right-2 w-5 h-5 bg-green-500 rounded-full border-3 border-white dark:border-[#1a1a1a]" />
+                {isUserOnline && (
+                  <div
+                    className="absolute bottom-2 right-2 w-5 h-5 bg-green-500 rounded-full border-3 border-white dark:border-[#1a1a1a]"
+                    title="Đang hoạt động"
+                  />
+                )}
               </div>
             </div>
 
@@ -410,7 +432,7 @@ export default function ProfileHeader({
                       />
                     </>
                   )}
-              </div>
+                </div>
               </div>
             </div>
           </div>
@@ -463,12 +485,14 @@ export default function ProfileHeader({
         <StoryViewerModal
           isOpen={isViewerOpen}
           onClose={handleCloseViewer}
-          groups={[{
-            userId: String(user.id),
-            username: user.username,
-            userAvatar: user.avatarUrl,
-            stories: activeStories
-          }]}
+          groups={[
+            {
+              userId: String(user.id),
+              username: user.username,
+              userAvatar: user.avatarUrl,
+              stories: activeStories,
+            },
+          ]}
           initialGroupIdx={0}
           initialStoryIdx={0}
           onStoryViewed={refreshActiveStory}

@@ -8,6 +8,7 @@ import {
 import { colors, spacing } from "@/constants";
 import { useGroupManagement } from "@/hooks/useGroupManagement";
 import { useMessagesController } from "@/hooks/useMessagesController";
+import { usePresenceStatus } from "@/hooks/usePresenceStatus";
 import { useAppContext } from "@/context/AppContext";
 import chatService from "@/services/chatService";
 import type { ChatUserSearchResult } from "@/types/chat";
@@ -187,6 +188,25 @@ export default function MessagesListScreen() {
         registerPinLimitCallback,
         maxPinnedConversations,
     } = useMessagesController();
+    const directPartnerIds = useMemo(
+        () =>
+            filteredConversations
+                .filter((conversation) => conversation.type === "DIRECT")
+                .map(
+                    (conversation) =>
+                        Number(
+                            conversation.directPartnerId ??
+                                conversation.members?.find(
+                                    (member) =>
+                                        Number(member.userId) !==
+                                        Number(currentUserId),
+                                )?.userId,
+                        ),
+                )
+                .filter((id): id is number => Number.isFinite(id) && id > 0),
+        [currentUserId, filteredConversations],
+    );
+    const presenceByUserId = usePresenceStatus(directPartnerIds);
 
     const {
         availableFriends,
@@ -682,6 +702,19 @@ export default function MessagesListScreen() {
                     const isPinned = pinnedConversations.some(
                         (pin) => pin.conversationId === item.id,
                     );
+                    const directPartnerId = Number(
+                        item.type === "DIRECT"
+                            ? item.directPartnerId ??
+                              item.members?.find(
+                                  (member) =>
+                                      Number(member.userId) !== Number(currentUserId),
+                              )?.userId
+                            : undefined,
+                    );
+                    const isDirectPartnerOnline = Boolean(
+                        Number.isFinite(directPartnerId) &&
+                            presenceByUserId[directPartnerId]?.online,
+                    );
 
                     return (
                         <MessageItem
@@ -698,6 +731,7 @@ export default function MessagesListScreen() {
                             hideMeta={Boolean(searchQuery.trim())}
                             unreadCount={item.unreadCount ?? 0}
                             isPinned={isPinned}
+                            online={isDirectPartnerOnline}
                             updatedAt={item.updatedAt}
                             onPress={() => {
                                 if (suppressNextPressRef.current) {
