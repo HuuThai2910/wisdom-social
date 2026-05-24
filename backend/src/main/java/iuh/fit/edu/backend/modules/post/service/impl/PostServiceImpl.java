@@ -377,16 +377,27 @@ public class PostServiceImpl implements PostService {
             throw new RuntimeException("Unauthorized: You can only edit your own posts");
         }
         
-        // Update post fields
-        post.setContent(request.getContent());
-        post.setPrivacy(request.getPrivacy());
+        // Update post fields only if provided (not null)
+        if (request.getContent() != null) {
+            post.setContent(request.getContent());
+            // Extract hashtags and mentions only when content changes
+            post.setHashtags(extractHashtags(request.getContent()));
+            post.setMentions(extractMentions(request.getContent()));
+        }
+        if (request.getPrivacy() != null) {
+            post.setPrivacy(request.getPrivacy());
+        }
         
         // Update location if provided
-        if (request.getLocation() != null && !request.getLocation().isEmpty()) {
-            Location location = Location.builder()
-                    .name(request.getLocation())
-                    .build();
-            post.setLocation(location);
+        if (request.getLocation() != null) {
+            if (request.getLocation().isEmpty()) {
+                post.setLocation(null);
+            } else {
+                Location location = Location.builder()
+                        .name(request.getLocation())
+                        .build();
+                post.setLocation(location);
+            }
         }
         
         // Update tagged users - convert usernames to IDs if provided
@@ -407,127 +418,136 @@ public class PostServiceImpl implements PostService {
         }
         
         // ====================================================================
-        // FIX 1 + FIX 4: HANDLE IMAGE DELETETION & NULL CHECK
+        // HANDLE MEDIA UPDATES & NULL CHECK (FIX FOR PARTIAL PRIVACY UPDATES)
         // ====================================================================
-        List<String> oldMediaUrls = post.getMedia() != null
-                ? post.getMedia().stream()
-                    .map(Media::getUrl)
-                    .collect(Collectors.toList())
-                : new ArrayList<>();
-        
-        // Determine which URLs to keep (FIX 4)
-        List<String> keepUrls;
-        if (request.getExistingMediaUrls() == null) {
-            // null = user did NOT touch images → keep all
-            keepUrls = oldMediaUrls;
-            log.info("📌 existingMediaUrls is NULL → keeping all {} existing images", oldMediaUrls.size());
-        } else {
-            // empty or not empty = user explicitly managing images
-            keepUrls = request.getExistingMediaUrls();
+        boolean hasMediaUpdates = request.getExistingMediaUrls() != null || (newImageUrls != null && !newImageUrls.isEmpty());
+        if (hasMediaUpdates) {
+            List<String> oldMediaUrls = post.getMedia() != null
+                    ? post.getMedia().stream()
+                        .map(Media::getUrl)
+                        .collect(Collectors.toList())
+                    : new ArrayList<>();
+            
+            // Determine which URLs to keep
+            List<String> keepUrls = request.getExistingMediaUrls() != null ? request.getExistingMediaUrls() : oldMediaUrls;
             log.info("📌 existingMediaUrls provided with {} items → using this list", keepUrls.size());
-        }
-        
-        // Find and DELETE removed images from S3 (FIX 1)
-        Set<String> keepNormalized = new HashSet<>();
-        for (String keepUrl : keepUrls) {
-            String normalizedKeep = normalizePostMediaKey(keepUrl, postId, null);
-            if (normalizedKeep != null && !normalizedKeep.isBlank()) {
-                keepNormalized.add(normalizedKeep);
-            }
-        }
-
-        List<String> removedUrls = oldMediaUrls.stream()
-                .filter(url -> {
-                    String normalizedOld = normalizePostMediaKey(url, postId, null);
-                    if (normalizedOld == null || normalizedOld.isBlank()) {
-                        return !keepUrls.contains(url);
-                    }
-                    return !keepNormalized.contains(normalizedOld);
-                })
-                .collect(Collectors.toList());
-        
-        if (!removedUrls.isEmpty()) {
-            log.warn("🗑️ Deleting {} removed images from S3...", removedUrls.size());
-            for (String removedUrl : removedUrls) {
-                try {
-                    String normalizedKey = normalizePostMediaKey(removedUrl, postId, null);
-                    log.info("   Deleting from S3: {} -> normalized: {}", removedUrl, normalizedKey);
-                    s3Service.deleteByKey(UploadModule.POST, normalizedKey);
-                    log.info("   ✅ Successfully deleted: {}", removedUrl);
-                } catch (Exception e) {
-                    log.error("   ❌ Failed to delete {}: {}", removedUrl, e.getMessage(), e);
-                    // Don't throw - continue deleting others
+            
+            // Find and DELETE removed images from S3
+            Set<String> keepNormalized = new HashSet<>();
+            for (String keepUrl : keepUrls) {
+                String normalizedKeep = normalizePostMediaKey(keepUrl, postId, null);
+                if (normalizedKeep != null && !normalizedKeep.isBlank()) {
+                    keepNormalized.add(normalizedKeep);
                 }
             }
-        } else {
-            log.info("ℹ️ No images to delete");
-        }
-        
-        // ====================================================================
-        // FIX 2: REBUILD MEDIA LIST CLEANLY (DO NOT MUTATE OLD LIST)
-        // ====================================================================
-        List<Media> updatedMediaList = new ArrayList<>();
-        
-        // Step 1: Add existing images in original order from frontend
-        log.info("📝 Step 1: Adding {} kept images (preserving order)...", keepUrls.size());
-        for (int i = 0; i < keepUrls.size(); i++) {
-            String url = keepUrls.get(i);
-            String canonicalUrl = canonicalizePostMediaKeyForStorage(url, postId, null);
-            Media media = Media.builder()
-                .order(i)
-                .url(canonicalUrl)
-                .type(resolveMediaTypeFromKey(canonicalUrl))
-                .build();
-            updatedMediaList.add(media);
-            log.info("   [{}] Added existing image: {}", i, canonicalUrl);
-        }
-        
-        // ====================================================================
-        // FIX 3: ADD NEW IMAGES (MOVE FROM TEMP → FINAL)
-        // ====================================================================
-        int startIndex = updatedMediaList.size();
-        if (newImageUrls != null && !newImageUrls.isEmpty()) {
-            log.info("📝 Step 2: Moving {} new images from TEMP to FINAL...", newImageUrls.size());
-            try {
-                for (int i = 0; i < newImageUrls.size(); i++) {
-                    String tempKey = newImageUrls.get(i);
-                    log.info("   [{}] Processing temp key: {}", i, tempKey);
 
-                    String finalKey;
-                    try {
-                        // Legacy flow: move from temp to final location
-                        finalKey = s3Service.moveUploadUrl("posts", postId, tempKey);
-                    } catch (Exception moveEx) {
-                        // Current presigned flow uploads directly to posts/{userId}/...
-                        String inferredType = resolveMediaTypeFromKey(tempKey);
-                        String sourceKey = buildPostMediaKeyFromUploadInput(tempKey, post.getAuthorId(), inferredType);
-                        try {
-                            finalKey = s3Service.relocatePostMediaKey(sourceKey, postId, inferredType);
-                        } catch (Exception relocateEx) {
-                            finalKey = sourceKey;
-                            log.warn("   [{}] Relocate failed ({}), keep source key: {}", i, relocateEx.getMessage(), sourceKey);
+            List<String> removedUrls = oldMediaUrls.stream()
+                    .filter(url -> {
+                        String normalizedOld = normalizePostMediaKey(url, postId, null);
+                        if (normalizedOld == null || normalizedOld.isBlank()) {
+                            return !keepUrls.contains(url);
                         }
-                        log.warn("   [{}] Move failed ({}), fallback to key: {}", i, moveEx.getMessage(), finalKey);
+                        return !keepNormalized.contains(normalizedOld);
+                    })
+                    .collect(Collectors.toList());
+            
+            if (!removedUrls.isEmpty()) {
+                log.warn("🗑️ Deleting {} removed images from S3...", removedUrls.size());
+                for (String removedUrl : removedUrls) {
+                    try {
+                        String normalizedKey = normalizePostMediaKey(removedUrl, postId, null);
+                        log.info("   Deleting from S3: {} -> normalized: {}", removedUrl, normalizedKey);
+                        s3Service.deleteByKey(UploadModule.POST, normalizedKey);
+                        log.info("   ✅ Successfully deleted: {}", removedUrl);
+                    } catch (Exception e) {
+                        log.error("   ❌ Failed to delete {}: {}", removedUrl, e.getMessage(), e);
                     }
-                    String canonicalFinalKey = canonicalizePostMediaKeyForStorage(finalKey, postId, null);
-                    
-                            Media media = buildMediaWithMetadata(startIndex + i, canonicalFinalKey, request, i);
-                    updatedMediaList.add(media);
-                        log.info("   [{}] ✅ Final media key: {} -> canonical: {}", startIndex + i, finalKey, canonicalFinalKey);
                 }
-            } catch (Exception e) {
-                log.error("❌ Error moving images: {}", e.getMessage(), e);
-                throw new RuntimeException("Failed to move images from temp to final: " + e.getMessage(), e);
+            } else {
+                log.info("ℹ️ No images to delete");
             }
-        } else {
-            log.info("No new images to process");
+            
+            // REBUILD MEDIA LIST CLEANLY
+            List<Media> updatedMediaList = new ArrayList<>();
+            
+            // Step 1: Add existing images in original order from frontend, preserving metadata if possible
+            log.info("📝 Step 1: Adding {} kept images (preserving order)...", keepUrls.size());
+            for (int i = 0; i < keepUrls.size(); i++) {
+                String url = keepUrls.get(i);
+                String canonicalUrl = canonicalizePostMediaKeyForStorage(url, postId, null);
+                
+                // Try to find the original Media object to preserve all of its metadata
+                Media originalMedia = null;
+                if (post.getMedia() != null) {
+                    String normCanonical = normalizePostMediaKey(canonicalUrl, postId, null);
+                    for (Media m : post.getMedia()) {
+                        String normM = normalizePostMediaKey(m.getUrl(), postId, null);
+                        if (normCanonical != null && normCanonical.equals(normM)) {
+                            originalMedia = m;
+                            break;
+                        }
+                    }
+                }
+                
+                Media media;
+                if (originalMedia != null) {
+                    media = Media.builder()
+                        .order(i)
+                        .url(originalMedia.getUrl())
+                        .type(originalMedia.getType())
+                        .duration(originalMedia.getDuration())
+                        .width(originalMedia.getWidth())
+                        .height(originalMedia.getHeight())
+                        .metadata(originalMedia.getMetadata())
+                        .build();
+                } else {
+                    media = Media.builder()
+                        .order(i)
+                        .url(canonicalUrl)
+                        .type(resolveMediaTypeFromKey(canonicalUrl))
+                        .build();
+                }
+                updatedMediaList.add(media);
+                log.info("   [{}] Added existing image: {}", i, canonicalUrl);
+            }
+            
+            // Step 2: ADD NEW IMAGES (MOVE FROM TEMP → FINAL)
+            int startIndex = updatedMediaList.size();
+            if (newImageUrls != null && !newImageUrls.isEmpty()) {
+                log.info("📝 Step 2: Moving {} new images from TEMP to FINAL...", newImageUrls.size());
+                try {
+                    for (int i = 0; i < newImageUrls.size(); i++) {
+                        String tempKey = newImageUrls.get(i);
+                        log.info("   [{}] Processing temp key: {}", i, tempKey);
+
+                        String finalKey;
+                        try {
+                            finalKey = s3Service.moveUploadUrl("posts", postId, tempKey);
+                        } catch (Exception moveEx) {
+                            String inferredType = resolveMediaTypeFromKey(tempKey);
+                            String sourceKey = buildPostMediaKeyFromUploadInput(tempKey, post.getAuthorId(), inferredType);
+                            try {
+                                finalKey = s3Service.relocatePostMediaKey(sourceKey, postId, inferredType);
+                            } catch (Exception relocateEx) {
+                                finalKey = sourceKey;
+                                log.warn("   [{}] Relocate failed ({}), keep source key: {}", i, relocateEx.getMessage(), sourceKey);
+                            }
+                            log.warn("   [{}] Move failed ({}), fallback to key: {}", i, moveEx.getMessage(), finalKey);
+                        }
+                        String canonicalFinalKey = canonicalizePostMediaKeyForStorage(finalKey, postId, null);
+                        
+                        Media media = buildMediaWithMetadata(startIndex + i, canonicalFinalKey, request, i);
+                        updatedMediaList.add(media);
+                        log.info("   [{}] ✅ Final media key: {} -> canonical: {}", startIndex + i, finalKey, canonicalFinalKey);
+                    }
+                } catch (Exception e) {
+                    log.error("❌ Error moving images: {}", e.getMessage(), e);
+                    throw new RuntimeException("Failed to move images from temp to final: " + e.getMessage(), e);
+                }
+            }
+            
+            post.setMedia(updatedMediaList);
         }
-        
-        post.setMedia(updatedMediaList);
-        
-        // Extract hashtags and mentions
-        post.setHashtags(extractHashtags(request.getContent()));
-        post.setMentions(extractMentions(request.getContent()));
         
         // Update interaction settings
         if (request.getAllowComments() != null) {

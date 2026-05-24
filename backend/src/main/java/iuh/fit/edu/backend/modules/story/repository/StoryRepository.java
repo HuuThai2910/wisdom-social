@@ -19,34 +19,63 @@ import java.util.Optional;
 @Repository
 public interface StoryRepository extends MongoRepository<Story, String> {
     
-    // Get user's stories (all, for owner)
-    List<Story> findByUserIdOrderByCreatedAtDesc(String userId);
+    // Get user's stories (all ACTIVE, for owner) — excludes soft-deleted
+    List<Story> findByUserIdAndStatusOrderByCreatedAtDesc(String userId, StatusType status);
+
+    // Get active user's stories (within 24h)
+    List<Story> findByUserIdAndStatusAndCreatedAtGreaterThanEqualOrderByCreatedAtDesc(
+            String userId, StatusType status, Instant since
+    );
     
-    // Get public stories from user (within 24h or archived)
+    // Get public stories from user (within 24h)
     @Query("""
         {
             'userId': ?0,
-            'status': 'ACTIVE',
+            'status': ?1,
+            'createdAt': { $gte: ?2 },
             $or: [
-                { 'createdAt': { $gte: ?1 } },
-                { 'isArchived': true }
+                { 'privacy': { $exists: false } },
+                { 'privacy': null },
+                { 'privacy': 'PUBLIC' }
             ]
         }
         """)
-    List<Story> findUserStoriesPublic(String userId, Instant twentyFourHoursAgo);
-    
-    // Get feed stories from multiple users (within 24h or archived)
+    List<Story> findUserStoriesPublic(String userId, StatusType status, Instant twentyFourHoursAgo);
+
+    // Get stories from user for friends (within 24h)
     @Query("""
         {
-            'userId': { $in: ?0 },
-            'status': 'ACTIVE',
+            'userId': ?0,
+            'status': ?1,
+            'createdAt': { $gte: ?2 },
             $or: [
-                { 'createdAt': { $gte: ?1 } },
-                { 'isArchived': true }
+                { 'privacy': { $exists: false } },
+                { 'privacy': null },
+                { 'privacy': { $in: ['PUBLIC', 'FRIENDS'] } }
             ]
         }
         """)
-    Page<Story> findFeedStories(List<String> userIds, Instant twentyFourHoursAgo, Pageable pageable);
+    List<Story> findUserStoriesFriends(String userId, StatusType status, Instant twentyFourHoursAgo);
+    
+    // Get feed stories from multiple users (within 24h)
+    @Query(value = """
+        {
+            'status': ?1,
+            'createdAt': { $gte: ?2 },
+            $or: [
+                { 'userId': ?3 },
+                {
+                    'userId': { $in: ?0 },
+                    $or: [
+                        { 'privacy': { $exists: false } },
+                        { 'privacy': null },
+                        { 'privacy': { $in: ['PUBLIC', 'FRIENDS'] } }
+                    ]
+                }
+            ]
+        }
+        """)
+    Page<Story> findFeedStories(List<String> userIds, StatusType status, Instant twentyFourHoursAgo, String currentUserId, Pageable pageable);
     
     // Find story by ID and status
     Optional<Story> findByIdAndStatus(String storyId, StatusType status);
@@ -61,8 +90,15 @@ public interface StoryRepository extends MongoRepository<Story, String> {
             Instant createdAfter
     );
     
-    // Count user's active stories
+    // Count user's active stories (within 24h, not archived)
     long countByUserIdAndStatusAndCreatedAtGreaterThan(
+            String userId,
+            StatusType status,
+            Instant since
+    );
+
+    // Check if user has any active story (for avatar blue border)
+    boolean existsByUserIdAndStatusAndCreatedAtGreaterThanEqual(
             String userId,
             StatusType status,
             Instant since

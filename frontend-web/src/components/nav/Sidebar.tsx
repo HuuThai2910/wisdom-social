@@ -18,6 +18,8 @@ import {
   Flag,
   ChevronLeft,
   ChevronRight,
+  FileText,
+  Sparkles,
 } from "lucide-react";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
@@ -25,6 +27,7 @@ import { buildS3Url } from "../../utils/s3";
 import { useFriendDataSafe } from "../../contexts/FriendDataContext";
 import { useSidebarLayout } from "../../hooks/useSidebarLayout";
 import { useNotificationContext } from "../../contexts/NotificationContext";
+import { useHasActiveStory } from "../../hooks/useHasActiveStory";
 import { useChatUnread } from "../../contexts/ChatUnreadContext";
 
 export default function Sidebar() {
@@ -32,11 +35,15 @@ export default function Sidebar() {
   const { isDark, toggleTheme } = useTheme();
   const currentUser = useCurrentUser();
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [showCreateMenu, setShowCreateMenu] = useState(false);
   const { sidebarCollapsed, toggleSidebarCollapsed } = useSidebarLayout();
   const showLabels = !sidebarCollapsed;
 
   const { unreadCount } = useNotificationContext();
   const { unreadCount: chatUnreadCount } = useChatUnread();
+
+  // Check if current user has an active story
+  const { hasStory: hasActiveStory } = useHasActiveStory(currentUser?.id);
 
   // Get friend requests count for badge (safe - returns 0 if not in provider)
   const { friendRequests } = useFriendDataSafe();
@@ -47,12 +54,17 @@ export default function Sidebar() {
     { icon: Search, label: "Search", path: "/search" },
     { icon: Compass, label: "Explore", path: "/explore" },
     { icon: Clapperboard, label: "Reels", path: "/reels" },
-    { icon: MessageCircle, label: "Messages", path: "/messages", badge: chatUnreadCount },
-    { 
-      icon: Heart, 
-      label: "Notifications", 
+    {
+      icon: MessageCircle,
+      label: "Messages",
+      path: "/messages",
+      badge: chatUnreadCount,
+    },
+    {
+      icon: Heart,
+      label: "Notifications",
       path: "/notifications",
-      badge: unreadCount 
+      badge: unreadCount,
     },
     {
       icon: UserPlus,
@@ -61,7 +73,6 @@ export default function Sidebar() {
       badge: friendRequestsCount,
     },
     { icon: Flag, label: "Pages", path: "/pages" },
-    { icon: PlusSquare, label: "Create", path: "/create" },
   ];
 
   const isActive = (path: string) => {
@@ -142,6 +153,66 @@ export default function Sidebar() {
             );
           })}
 
+          {/* Create Button with Dropdown */}
+          <li className="relative">
+            <button
+              onClick={() => setShowCreateMenu(!showCreateMenu)}
+              className={`flex w-full items-center rounded-lg py-3 transition-all hover:bg-gray-100 dark:hover:bg-[#262626] ${
+                showLabels ? "gap-4 px-3" : "justify-center px-2"
+              } ${
+                location.pathname === "/create" ||
+                location.pathname === "/create-story"
+                  ? "font-bold"
+                  : "font-normal"
+              } dark:text-white`}
+            >
+              <PlusSquare
+                className={
+                  location.pathname === "/create" ||
+                  location.pathname === "/create-story"
+                    ? "fill-current"
+                    : ""
+                }
+                size={26}
+                strokeWidth={
+                  location.pathname === "/create" ||
+                  location.pathname === "/create-story"
+                    ? 2.5
+                    : 1.5
+                }
+              />
+              {showLabels && <span className="text-[16px]">Create</span>}
+            </button>
+
+            {showCreateMenu && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setShowCreateMenu(false)}
+                />
+                <div className="absolute left-full bottom-0 ml-2 w-56 bg-white dark:bg-[#262626] border border-gray-200 dark:border-[#363636] rounded-2xl shadow-xl overflow-hidden z-50">
+                  <Link
+                    to="/create"
+                    onClick={() => setShowCreateMenu(false)}
+                    className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-gray-100 dark:hover:bg-[#363636] dark:text-white transition-colors"
+                  >
+                    <FileText size={20} />
+                    <span className="text-sm font-medium">Tạo bài viết</span>
+                  </Link>
+                  <div className="border-t border-gray-200 dark:border-[#363636]" />
+                  <Link
+                    to="/create-story"
+                    onClick={() => setShowCreateMenu(false)}
+                    className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-gray-100 dark:hover:bg-[#363636] dark:text-white transition-colors"
+                  >
+                    <Sparkles size={20} />
+                    <span className="text-sm font-medium">Tạo tin</span>
+                  </Link>
+                </div>
+              </>
+            )}
+          </li>
+
           {/* Profile */}
           {currentUser && (
             <li>
@@ -155,13 +226,25 @@ export default function Sidebar() {
                     : "font-normal"
                 } dark:text-white`}
               >
-                <img
-                  src={
-                    buildS3Url(currentUser.avatarUrl) || currentUser.avatarUrl
-                  }
-                  alt={currentUser.username}
-                  className="w-6.5 h-6.5 rounded-full object-cover"
-                />
+                <div
+                  className={`relative shrink-0 ${
+                    hasActiveStory
+                      ? "p-[2px] rounded-full bg-gradient-to-tr from-green-400 to-emerald-500"
+                      : ""
+                  }`}
+                >
+                  <img
+                    src={
+                      buildS3Url(currentUser.avatarUrl) || currentUser.avatarUrl
+                    }
+                    alt={currentUser.username}
+                    className={`w-6.5 h-6.5 rounded-full object-cover ${
+                      hasActiveStory
+                        ? "border-2 border-white dark:border-black"
+                        : ""
+                    }`}
+                  />
+                </div>
                 {showLabels && <span className="text-[16px]">Profile</span>}
               </Link>
             </li>

@@ -85,10 +85,9 @@ interface PostCommentsProps {
   viewerId: string;
   allowComments?: boolean;
   post: PostData;
-  author: UserData | null;
 }
 
-const PostComments: React.FC<PostCommentsProps> = ({ postId, viewerId, allowComments, post, author }) => {
+const PostComments: React.FC<PostCommentsProps> = ({ postId, viewerId, allowComments, post }) => {
   const location = useLocation();
   const commentInputRef = useRef<HTMLInputElement>(null);
 
@@ -427,10 +426,10 @@ const PostComments: React.FC<PostCommentsProps> = ({ postId, viewerId, allowComm
   return (
     <>
       {/* Comments List Section */}
-      <div className="flex-1 overflow-y-auto p-4 border-b dark:border-[#363636]">
+      <div className="flex-1 overflow-y-auto p-4">
         <div className="space-y-4">
           {/* Post Caption as the first "Comment" */}
-          <div className="flex flex-col gap-3 pb-4 border-b border-gray-50 dark:border-[#363636]">
+          <div className="flex flex-col gap-3 pb-4">
             <div className="flex-1 space-y-2">
               <div className="text-sm">
                 <span className="dark:text-gray-200 whitespace-pre-wrap">{post.content}</span>

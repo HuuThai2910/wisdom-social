@@ -24,6 +24,16 @@ public class StoryResponse {
     // Identifiers
     private String id;
     private String userId;
+    private UserSummary user;
+    
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class UserSummary {
+        private String username;
+        private String avatarUrl;
+    }
     
     // Content
     private Story.StoryMedia media;
@@ -46,6 +56,10 @@ public class StoryResponse {
     
     // Archive and lifecycle
     private boolean isArchived;
+    
+    @com.fasterxml.jackson.annotation.JsonProperty("isViewed")
+    private boolean isViewed;
+    
     private String highlightCategory;
     
     // Timestamps

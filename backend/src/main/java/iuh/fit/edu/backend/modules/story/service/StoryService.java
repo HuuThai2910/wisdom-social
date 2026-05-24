@@ -33,7 +33,7 @@ public interface StoryService {
      * - Created within 24h OR archived
      * - Respects privacy settings
      */
-    Page<Story> getFeedStories(List<String> userIds, Pageable pageable);
+    Page<Story> getFeedStories(List<String> userIds, String currentUserId, Pageable pageable);
 
     /**
      * Get user's stories (for profile view)
@@ -58,7 +58,7 @@ public interface StoryService {
     /**
      * Add reaction to story
      */
-    void reactToStory(String storyId);
+    void reactToStory(String storyId, String viewerId, String emoji);
 
     /**
      * Archive story (add to highlights)
@@ -105,4 +105,10 @@ public interface StoryService {
      * Save story to repository
      */
     Story saveStory(Story story, String userId);
+
+    /**
+     * Check if user has at least one active story (within 24h)
+     * Used for showing story ring/border on avatar
+     */
+    boolean hasActiveStory(String userId);
 }

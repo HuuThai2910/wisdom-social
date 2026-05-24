@@ -16,7 +16,7 @@ import java.time.Instant;
  * @date: 2026-03-23
  * @version: 1.0
  */
-@Document(collection = "music_metadata")
+@Document(collection = "musics")
 @Data
 @Builder
 @NoArgsConstructor

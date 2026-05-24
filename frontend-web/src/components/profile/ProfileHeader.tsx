@@ -1,7 +1,14 @@
 import { Link } from "react-router-dom";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import type { User } from "../../types";
-import { Settings, LogOut, QrCode, MessageCircle, MapPin } from "lucide-react";
+import {
+  Settings,
+  LogOut,
+  QrCode,
+  MessageCircle,
+  MapPin,
+  Plus,
+} from "lucide-react";
 import { logout } from "../../utils/auth";
 import NoteModal from "./note-modal/NoteModal";
 import FriendsModal from "./FriendsModal";
@@ -11,6 +18,9 @@ import FriendActions from "../friend/FriendActions";
 import { NOTE_PLACEHOLDERS } from "./note-modal/NoteContentDefault";
 import { getUserPostsWithDetails } from "../../services/postService";
 import { useProfileNote } from "../../hooks/useProfileNote";
+import { useHasActiveStory } from "../../hooks/useHasActiveStory";
+import { fetchUserStories } from "../../services/storyService";
+import StoryViewerModal from "../story/StoryViewerModal";
 import { usePresenceStatus } from "../../hooks/usePresenceStatus";
 
 interface ProfileHeaderProps {
@@ -25,6 +35,16 @@ const GENDER_LABELS: Record<string, string> = {
   OTHER: "Khác",
 };
 
+const stripHtml = (text: string | undefined | null): string => {
+  if (!text) return "";
+  try {
+    const doc = new DOMParser().parseFromString(text, "text/html");
+    return doc.body.textContent || "";
+  } catch (e) {
+    return text.replace(/<(?:[^>=]|='[^']*'|="[^"]*"|=[^'"][^\s>]*)*>/g, "");
+  }
+};
+
 export default function ProfileHeader({
   user,
   isOwnProfile = false,
@@ -34,14 +54,14 @@ export default function ProfileHeader({
   const [postsCount, setPostsCount] = useState(0);
   const [notePlaceholder] = useState(
     () =>
-      NOTE_PLACEHOLDERS[Math.floor(Math.random() * NOTE_PLACEHOLDERS.length)],
+      NOTE_PLACEHOLDERS[Math.floor(Math.random() * NOTE_PLACEHOLDERS.length)]
   );
   const { note, showNoteModal, openNoteModal, closeNoteModal, setNote } =
     useProfileNote(user?.id);
   const profileUserId = Number(user?.id);
   const presenceByUserId = usePresenceStatus([profileUserId]);
   const isUserOnline = Boolean(
-    Number.isFinite(profileUserId) && presenceByUserId[profileUserId]?.online,
+    Number.isFinite(profileUserId) && presenceByUserId[profileUserId]?.online
   );
 
   //
@@ -55,10 +75,42 @@ export default function ProfileHeader({
       .catch(() => setPostsCount(0));
   }, [user?.id]);
 
+  // Check if user has an active story
+  const {
+    hasStory: hasActiveStory,
+    hasUnviewed: hasUnviewedStory,
+    refresh: refreshActiveStory,
+  } = useHasActiveStory(user?.id);
+
+  const [activeStories, setActiveStories] = useState<any[]>([]);
+  const [isViewerOpen, setIsViewerOpen] = useState(false);
+
+  const handleAvatarClick = async () => {
+    if (!hasActiveStory || !user?.id) return;
+    try {
+      const data = (await fetchUserStories(String(user.id))) as any;
+      const items = Array.isArray(data?.data)
+        ? data.data
+        : Array.isArray(data)
+        ? data
+        : [];
+      if (items.length > 0) {
+        setActiveStories(items);
+        setIsViewerOpen(true);
+      }
+    } catch (err) {
+      console.error("Error fetching user stories for header:", err);
+    }
+  };
+
   const handleLogout = async () => {
     await logout();
     window.location.href = "/login";
   };
+
+  const handleCloseViewer = useCallback(() => {
+    setIsViewerOpen(false);
+  }, []);
 
   return (
     <div className="bg-white dark:bg-black px-6 md:px-8 py-8 md:py-12">
@@ -117,7 +169,7 @@ export default function ProfileHeader({
                         <div className="space-y-0.5 mt-0.5">
                           {note.content?.trim() && (
                             <p className="text-xs font-semibold text-gray-900 dark:text-gray-100 line-clamp-1 wrap-break-word">
-                              {note.content}
+                              {stripHtml(note.content)}
                             </p>
                           )}
 
@@ -160,20 +212,48 @@ export default function ProfileHeader({
                   </div>
                 </button>
               )}
-              <div className="relative mb-2">
-                <img
-                  src={
-                    buildS3Url(user.avatarUrl) ||
-                    user.avatarUrl ||
-                    "https://i.pravatar.cc/150"
-                  }
-                  alt={user.username}
-                  className="w-32 h-32 rounded-full object-cover border-4 border-gray-200 dark:border-[#363636]"
-                />
+              <div
+                className={`relative mb-2 select-none ${
+                  hasActiveStory
+                    ? "cursor-pointer hover:scale-[1.02] active:scale-98 transition-all duration-200"
+                    : ""
+                }`}
+                onClick={handleAvatarClick}
+                title={hasActiveStory ? "Xem tin" : undefined}
+              >
+                <div
+                  className={`${
+                    hasActiveStory
+                      ? `p-[3px] rounded-full ${
+                          hasUnviewedStory
+                            ? `bg-gradient-to-tr ${
+                                isOwnProfile
+                                  ? "from-green-400 to-emerald-500"
+                                  : "from-blue-400 to-indigo-500"
+                              }`
+                            : "bg-gray-300 dark:bg-zinc-700"
+                        }`
+                      : ""
+                  }`}
+                >
+                  <img
+                    src={
+                      buildS3Url(user.avatarUrl) ||
+                      user.avatarUrl ||
+                      "https://i.pravatar.cc/150"
+                    }
+                    alt={user.username}
+                    className={`w-32 h-32 rounded-full object-cover ${
+                      hasActiveStory
+                        ? "border-4 border-white dark:border-[#1a1a1a]"
+                        : "border-4 border-gray-200 dark:border-[#363636]"
+                    }`}
+                  />
+                </div>
                 {isUserOnline && (
                   <div
                     className="absolute bottom-2 right-2 w-5 h-5 bg-green-500 rounded-full border-3 border-white dark:border-[#1a1a1a]"
-                    title="Dang hoat dong"
+                    title="Đang hoạt động"
                   />
                 )}
               </div>
@@ -261,7 +341,7 @@ export default function ProfileHeader({
                 {/* Name and username */}
                 <div className="mb-4">
                   <h1 className="text-2xl font-bold dark:text-white">
-                    {user.fullName || user.username}
+                    {stripHtml(user.fullName || user.username)}
                   </h1>
                   {user.username && (
                     <p className="text-gray-600 dark:text-gray-400 text-base">
@@ -273,7 +353,7 @@ export default function ProfileHeader({
                 {/* Bio */}
                 {user.bio && (
                   <p className="text-base dark:text-gray-300 mb-4 leading-relaxed">
-                    {user.bio}
+                    {stripHtml(user.bio)}
                   </p>
                 )}
 
@@ -356,6 +436,30 @@ export default function ProfileHeader({
               </div>
             </div>
           </div>
+
+          {/* Story Highlights Section - Full width */}
+          {isOwnProfile && (
+            <div className="mt-6 pt-6 border-t border-gray-200 dark:border-[#262626]">
+              <div className="flex gap-5 overflow-x-auto pb-2">
+                {/* Create New Story Highlight Button */}
+                <Link
+                  to="/create-story"
+                  className="flex flex-col items-center gap-2 shrink-0 group"
+                >
+                  <div className="w-[72px] h-[72px] rounded-full border-2 border-dashed border-gray-300 dark:border-[#363636] flex items-center justify-center group-hover:border-blue-400 dark:group-hover:border-blue-500 transition-colors bg-gray-50 dark:bg-[#1a1a1a] group-hover:bg-blue-50 dark:group-hover:bg-blue-900/10">
+                    <Plus
+                      size={28}
+                      strokeWidth={1.5}
+                      className="text-gray-400 group-hover:text-blue-500 transition-colors"
+                    />
+                  </div>
+                  <span className="text-xs text-gray-600 dark:text-gray-400 font-medium group-hover:text-blue-500 transition-colors">
+                    Mới
+                  </span>
+                </Link>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -374,6 +478,24 @@ export default function ProfileHeader({
         <FriendsModal
           userId={user.id}
           onClose={() => setShowFriendsModal(false)}
+        />
+      )}
+
+      {isViewerOpen && activeStories.length > 0 && (
+        <StoryViewerModal
+          isOpen={isViewerOpen}
+          onClose={handleCloseViewer}
+          groups={[
+            {
+              userId: String(user.id),
+              username: user.username,
+              userAvatar: user.avatarUrl,
+              stories: activeStories,
+            },
+          ]}
+          initialGroupIdx={0}
+          initialStoryIdx={0}
+          onStoryViewed={refreshActiveStory}
         />
       )}
     </div>

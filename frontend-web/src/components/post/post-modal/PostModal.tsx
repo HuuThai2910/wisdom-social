@@ -444,7 +444,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
         />
 
         {/* Right: Details */}
-        <div className="w-full md:w-[450px] flex flex-col bg-white dark:bg-gray-900 border-l dark:border-[#363636]">
+        <div className="w-full md:w-[450px] flex flex-col bg-white dark:bg-gray-900">
           {/* Header */}
           <PostHeader
             post={post}
@@ -460,6 +460,8 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
             onDelete={handleDelete}
             onCopyLink={handleCopyLink}
             taggedUsers={taggedUsers}
+            musicScopeId={`post-modal-music-${post.id}`}
+            musicAutoPlayEnabled={true}
           />
 
           {/* Comments */}
@@ -468,7 +470,6 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
             viewerId={viewerId} 
             allowComments={post.allowComments}
             post={post}
-            author={author}
           />
 
           {/* Actions & Reactions */}

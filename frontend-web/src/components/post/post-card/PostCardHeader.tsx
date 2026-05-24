@@ -7,6 +7,9 @@ import {
   Edit2,
   Trash2,
   Link as LinkIcon,
+  Music,
+  Pause,
+  Play,
 } from "lucide-react";
 import type { Post } from "../../../types";
 import type { PrivacyDisplay } from "./privacy";
@@ -27,6 +30,10 @@ interface PostCardHeaderProps {
   onCopyLink: () => void;
   onChangePrivacy: (privacy: string) => void;
   taggedUsers?: any[];
+  musicContainerRef?: React.RefObject<HTMLDivElement | null>;
+  musicPlayingUrl?: string | null;
+  musicAudioUrl?: string;
+  onToggleMusic?: (e: React.MouseEvent) => void;
 }
 
 export default function PostCardHeader({
@@ -45,6 +52,10 @@ export default function PostCardHeader({
   onCopyLink,
   onChangePrivacy,
   taggedUsers = [],
+  musicContainerRef,
+  musicPlayingUrl,
+  musicAudioUrl,
+  onToggleMusic,
 }: PostCardHeaderProps) {
   return (
     <div className="flex items-center justify-between px-4 py-3.5">
@@ -118,6 +129,39 @@ export default function PostCardHeader({
               </div>
             )}
           </div>
+          {!!displayPost.music && (
+            <div ref={musicContainerRef} className="mt-0.5">
+              <button
+                onClick={onToggleMusic}
+                className="flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 transition-colors group"
+              >
+                <div className="relative flex items-center justify-center">
+                  <Music
+                    size={12}
+                    className={`shrink-0 ${
+                      musicPlayingUrl === musicAudioUrl
+                        ? "text-blue-500 animate-pulse"
+                        : ""
+                    }`}
+                  />
+                  {musicPlayingUrl === musicAudioUrl && (
+                    <div className="absolute -inset-1 bg-blue-500/10 rounded-full animate-ping" />
+                  )}
+                </div>
+                <span className="truncate max-w-[170px]">
+                  {displayPost.music?.title} • {displayPost.music?.artist}
+                </span>
+                {musicPlayingUrl === musicAudioUrl ? (
+                  <Pause size={10} className="fill-current" />
+                ) : (
+                  <Play
+                    size={10}
+                    className="fill-current opacity-0 group-hover:opacity-100 transition-opacity"
+                  />
+                )}
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

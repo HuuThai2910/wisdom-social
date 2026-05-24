@@ -4,6 +4,7 @@ import * as postApi from "../../../services/postService";
 import { buildS3Url } from "../../../utils/s3";
 import { useCurrentUser } from "../../../hooks/useCurrentUser";
 import useVideoAutoplay from "../../../hooks/useVideoAutoplay";
+import useMusicAutoplay from "../../../hooks/useMusicAutoplay";
 import useCommentsNormalized from "../../../hooks/useCommentsNormalized";
 import useRealtimeComments from "../../../hooks/useRealtimeComments";
 import useRealtimeReactions from "../../../hooks/useRealtimeReactions";
@@ -63,10 +64,7 @@ export default function PostCard({ post }: PostCardProps) {
   }, [displayPost.images?.length]);
 
   useEffect(() => {
-    if (
-      (post as any).taggedUserIds &&
-      (post as any).taggedUserIds.length > 0
-    ) {
+    if ((post as any).taggedUserIds && (post as any).taggedUserIds.length > 0) {
       const fetchTaggedUsers = async () => {
         try {
           const taggedUsersResponses = await Promise.all(
@@ -133,13 +131,13 @@ export default function PostCard({ post }: PostCardProps) {
       if (event.userId === currentUser?.id?.toString()) return;
 
       if (event.targetType === "POST" && event.targetId === post.id) {
-        setLikesCount((prev) => 
+        setLikesCount((prev) =>
           event.action === "REACT" ? prev + 1 : Math.max(0, prev - 1)
         );
       } else if (event.targetType === "COMMENT") {
         handleCommentReactionUpdate(event.targetId, event.action);
       }
-    }
+    },
   });
 
   const commentsCount =
@@ -155,6 +153,9 @@ export default function PostCard({ post }: PostCardProps) {
     currentMediaUrl,
     currentMedia?.type
   );
+  const shouldMuteOriginal =
+    displayPost.music?.muteOriginal === true ||
+    Boolean(displayPost.music?.audioUrl);
   const currentMediaDuration =
     typeof currentMedia?.duration === "number" ? currentMedia.duration : null;
   const videoInstanceId = `${displayPost.id}-${currentImageIndex}`;
@@ -164,6 +165,19 @@ export default function PostCard({ post }: PostCardProps) {
     enabled: isCurrentMediaVideo,
     focusRatio: 0.7,
     maxPlaySeconds: 15,
+  });
+
+  const musicUniqueId = `post-card-music-${displayPost.id}`;
+  const {
+    containerRef: musicContainerRef,
+    playingUrl: musicPlayingUrl,
+    audioUrl: musicAudioUrl,
+    togglePlay: handleToggleMusic,
+  } = useMusicAutoplay({
+    musicId: musicUniqueId,
+    audioPath: displayPost.music?.audioUrl,
+    enabled: Boolean(displayPost.music?.audioUrl) && shouldMuteOriginal,
+    focusRatio: 0.65,
   });
 
   useEffect(() => {
@@ -298,11 +312,8 @@ export default function PostCard({ post }: PostCardProps) {
     e.preventDefault();
     e.stopPropagation();
 
-    if (currentReaction) {
-      handleReaction(currentReaction);
-    } else {
-      handleReaction("LIKE");
-    }
+    // Like button should always toggle LIKE specifically
+    handleReaction("LIKE");
   };
 
   const handleSave = async (e: React.MouseEvent) => {
@@ -504,6 +515,10 @@ export default function PostCard({ post }: PostCardProps) {
         onCopyLink={handleCopyLink}
         onChangePrivacy={handleChangePrivacy}
         taggedUsers={taggedUsers}
+        musicContainerRef={musicContainerRef}
+        musicPlayingUrl={musicPlayingUrl}
+        musicAudioUrl={musicAudioUrl}
+        onToggleMusic={handleToggleMusic}
       />
 
       {displayPost.caption || (displayPost as any).content ? (
@@ -586,8 +601,8 @@ export default function PostCard({ post }: PostCardProps) {
         )}
 
         <p className="text-[10px] text-gray-500 uppercase tracking-wide mt-3">
-          {post.createdAt && !isNaN(Date.parse(post.createdAt)) 
-            ? new Date(post.createdAt).toLocaleString("vi-VN") 
+          {post.createdAt && !isNaN(Date.parse(post.createdAt))
+            ? new Date(post.createdAt).toLocaleString("vi-VN")
             : post.createdAt || "Vừa xong"}
         </p>
       </div>
