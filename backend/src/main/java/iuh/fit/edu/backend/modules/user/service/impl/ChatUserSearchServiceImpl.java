@@ -62,8 +62,7 @@ public class ChatUserSearchServiceImpl implements ChatUserSearchService {
     private Optional<ChatUserSearchResponse> buildResponse(User user, Long currentUserId) {
         boolean isFriend = friendRepository.countAcceptedFriendship(
                 currentUserId,
-                user.getId(),
-                FriendStatus.ACCEPTED.ordinal()
+                user.getId()
         ) > 0;
         boolean blocked = blockUserRepository.existsByBlocker_IdAndBlocked_Id(currentUserId, user.getId())
                 || blockUserRepository.existsByBlocker_IdAndBlocked_Id(user.getId(), currentUserId);
