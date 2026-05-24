@@ -840,8 +840,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
         for (Long targetId : targetIds) {
             if (friendRepository.countAcceptedFriendship(
                     currentUserId,
-                    targetId,
-                    FriendStatus.ACCEPTED.ordinal()
+                    targetId
             ) == 0) {
                 throw new IllegalArgumentException(message);
             }
@@ -855,8 +854,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
             }
             if (friendRepository.countAcceptedFriendship(
                     currentUserId,
-                    inviteeUserId,
-                    FriendStatus.ACCEPTED.ordinal()
+                    inviteeUserId
             ) > 0) {
                 throw new IllegalArgumentException("Ban be nen duoc them truc tiep vao nhom");
             }
