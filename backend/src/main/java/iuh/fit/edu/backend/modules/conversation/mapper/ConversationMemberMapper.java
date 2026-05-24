@@ -30,6 +30,7 @@ public abstract class ConversationMemberMapper {
 
     // 2. Map dữ liệu
     @Mapping(target = "userId", source = "user.id")
+    @Mapping(target = "blockedById", source = "blockedBy.id")
     // Gắn qualifiedByName để MapStruct gọi đúng hàm build URL cho Avatar
     @Mapping(target = "avatar", source = "user.avatarUrl", qualifiedByName = "buildAvatarUrl")
     @Mapping(target = "lastReadMessageId", source = "lastReadMessageId")

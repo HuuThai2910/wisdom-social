@@ -5,6 +5,7 @@
 package iuh.fit.edu.backend.modules.chat.service.impl;
 
 import iuh.fit.edu.backend.common.dto.response.CursorResponse;
+import iuh.fit.edu.backend.modules.chat.constant.MessageType;
 import iuh.fit.edu.backend.modules.chat.entity.Message;
 import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationMemberResponse;
 import iuh.fit.edu.backend.modules.chat.dto.response.MessageResponse;
@@ -12,6 +13,7 @@ import iuh.fit.edu.backend.modules.chat.mapper.MessageMapper;
 import iuh.fit.edu.backend.modules.chat.repository.MessageRepository;
 import iuh.fit.edu.backend.modules.conversation.service.ConversationMemberService;
 import iuh.fit.edu.backend.modules.chat.service.MessageCacheService;
+import iuh.fit.edu.backend.modules.chat.service.PollService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
@@ -39,6 +41,22 @@ public class MessageQueryService {
     private final ConversationMemberService conversationMemberService;
     private final MessageCacheService messageCacheService;
     private final MessageMapper messageMapper;
+    private final PollService pollService;
+
+    public MessageResponse getMessageById(String messageId, Long userId) {
+        Message message = messageRepository.findById(messageId)
+                .orElseThrow(() -> new RuntimeException("Tin nhắn không tồn tại"));
+
+        conversationMemberService.getMemberInfo(message.getConversationId(), userId);
+        if (message.getDeletedFor() != null && message.getDeletedFor().contains(userId)) {
+            throw new RuntimeException("Không thể tìm thấy tin nhắn");
+        }
+
+        MessageResponse response = messageMapper.toMessageResponse(message);
+        enrichPoll(response, userId);
+        response.setDeletedFor(null);
+        return response;
+    }
 
     /**
      * Lấy ra tin nhắn trong cuộc hội thoại
@@ -119,6 +137,7 @@ public class MessageQueryService {
         List<MessageResponse> ascResponseList = new ArrayList<>(filteredList);
         Collections.reverse(ascResponseList);
 
+        enrichPolls(ascResponseList, userId);
         ascResponseList.forEach(msg -> msg.setDeletedFor(null));
 
 
@@ -161,6 +180,7 @@ public class MessageQueryService {
         // Xác định nextCursor cho lần cuộn xuống tiếp theo (Là phần tử cuối mảng)
         Instant nextCursor = responseList.isEmpty() ? null : responseList.getLast().getCreatedAt();
 
+        enrichPolls(responseList, userId);
         responseList.forEach(msg -> msg.setDeletedFor(null));
 
 
@@ -180,6 +200,11 @@ public class MessageQueryService {
         ConversationMemberResponse member = conversationMemberService.getMemberInfo(conversationId, userId);
         Message targetMsg = messageRepository.findById(targetMessageId)
                 .orElseThrow(() -> new RuntimeException("Tin nhắn không tồn tại"));
+        Instant clearedAt = member.getClearedAt();
+        if (clearedAt != null &&
+                targetMsg.getCreatedAt().toEpochMilli() <= clearedAt.toEpochMilli()) {
+            throw new RuntimeException("Không thể tìm thấy tin nhắn");
+        }
         if (targetMsg.getDeletedFor() != null &&
                 targetMsg.getDeletedFor().contains(userId)) {
             throw new RuntimeException("Không thể tìm thấy tin nhắn");
@@ -230,7 +255,13 @@ public class MessageQueryService {
         }
 
 
+        resultList = resultList.stream()
+                .filter(msg -> clearedAt == null || msg.getCreatedAt().toEpochMilli() > clearedAt.toEpochMilli())
+                .filter(msg -> msg.getDeletedFor() == null || !msg.getDeletedFor().contains(userId))
+                .collect(Collectors.toCollection(ArrayList::new));
+
         // Xóa cờ deletedFor trước khi trả về
+        enrichPolls(resultList, userId);
         resultList.forEach(msg -> msg.setDeletedFor(null));
 
         return CursorResponse.<List<MessageResponse>>builder()
@@ -254,5 +285,31 @@ public class MessageQueryService {
             return messageRepository.findByConversationIdAndCreatedAtLessThanOrderByCreatedAtDesc(
                     conversationId, before, pageable);
         }
+    }
+
+    private void enrichPolls(List<MessageResponse> messages, Long userId) {
+        if (messages == null || messages.isEmpty()) {
+            return;
+        }
+        messages.forEach(message -> enrichPoll(message, userId));
+    }
+
+    private void enrichPoll(MessageResponse message, Long userId) {
+        if (message == null || message.getPollId() == null) {
+            return;
+        }
+        if (message.getType() == MessageType.POLL) {
+            message.setPoll(pollService.getPoll(message.getPollId(), userId));
+            return;
+        }
+        if (isAnonymousPollActorMessage(message.getType())
+                && pollService.getPoll(message.getPollId(), userId).isAnonymous()) {
+            message.setSenderId(0L);
+        }
+    }
+
+    private boolean isAnonymousPollActorMessage(MessageType type) {
+        return type == MessageType.SYSTEM_POLL_VOTED
+                || type == MessageType.SYSTEM_POLL_CHANGED;
     }
 }

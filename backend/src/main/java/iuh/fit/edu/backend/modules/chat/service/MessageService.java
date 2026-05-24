@@ -16,12 +16,18 @@ import org.springframework.transaction.annotation.Transactional;
 
 import iuh.fit.edu.backend.common.dto.response.CursorResponse;
 import iuh.fit.edu.backend.modules.chat.dto.request.SendCallMessageRequest;
+import iuh.fit.edu.backend.modules.chat.dto.request.ForwardMessageRequest;
 import iuh.fit.edu.backend.modules.chat.dto.request.SendMessageRequest;
+import iuh.fit.edu.backend.modules.chat.dto.request.poll.CreatePollRequest;
 import iuh.fit.edu.backend.modules.chat.dto.response.MessageRecalledResponse;
 import iuh.fit.edu.backend.modules.chat.dto.response.MessageResponse;
 
 public interface MessageService {
     MessageResponse sendMessage(SendMessageRequest sendMessageRequest, Long userId);
+
+    MessageResponse createPoll(CreatePollRequest createPollRequest, Long userId);
+
+    List<MessageResponse> forwardMessage(ForwardMessageRequest forwardMessageRequest, Long userId);
 
     MessageResponse sendCallMessage(SendCallMessageRequest sendCallMessageRequest, Long userId);
 
@@ -33,6 +39,10 @@ public interface MessageService {
     void pinMessage(String messageId, Long userId);
 
     void unpinMessage(String messageId, Long userId);
+
+    MessageResponse addReaction(String messageId, Long userId, String emoji);
+
+    MessageResponse getMessageById(String messageId, Long userId);
 
     CursorResponse<List<MessageResponse>> getMessagesByConversation(
             Long conversationId,

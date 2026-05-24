@@ -1,5 +1,7 @@
 import { colors, spacing } from "@/constants";
 import type { FriendUser } from "@/services/friendService";
+import chatService from "@/services/chatService";
+import type { ChatUserSearchResult } from "@/types/chat";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useEffect, useMemo, useState } from "react";
 import {
@@ -23,7 +25,7 @@ interface SelectGroupMembersModalProps {
     submitting: boolean;
     error: string | null;
     onClose: () => void;
-    onSubmit: (memberIds: number[]) => Promise<boolean>;
+    onSubmit: (memberIds: number[], inviteeUserIds?: number[]) => Promise<boolean>;
 }
 
 function getDisplayName(friend: FriendUser): string {
@@ -43,11 +45,17 @@ export default function SelectGroupMembersModal({
 }: SelectGroupMembersModalProps) {
     const [searchKeyword, setSearchKeyword] = useState("");
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
+    const [selectedInvitees, setSelectedInvitees] = useState<ChatUserSearchResult[]>([]);
+    const [phoneSearchResult, setPhoneSearchResult] = useState<ChatUserSearchResult | null>(null);
+    const [phoneSearchLoading, setPhoneSearchLoading] = useState(false);
 
     useEffect(() => {
         if (!open) {
             setSearchKeyword("");
             setSelectedIds([]);
+            setSelectedInvitees([]);
+            setPhoneSearchResult(null);
+            setPhoneSearchLoading(false);
         }
     }, [open]);
 
@@ -70,6 +78,30 @@ export default function SelectGroupMembersModal({
         });
     }, [addableFriends, searchKeyword]);
 
+    const phoneSearchDigits = searchKeyword.replace(/\D/g, "");
+    useEffect(() => {
+        if (phoneSearchDigits.length !== 10) {
+            setPhoneSearchResult(null);
+            setPhoneSearchLoading(false);
+            return;
+        }
+        let cancelled = false;
+        setPhoneSearchLoading(true);
+        chatService.searchChatUserByPhone(phoneSearchDigits)
+            .then((result) => {
+                if (!cancelled) setPhoneSearchResult(result);
+            })
+            .catch(() => {
+                if (!cancelled) setPhoneSearchResult(null);
+            })
+            .finally(() => {
+                if (!cancelled) setPhoneSearchLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [phoneSearchDigits]);
+
     const handleToggle = (userId: number) => {
         setSelectedIds((prev) =>
             prev.includes(userId)
@@ -78,12 +110,39 @@ export default function SelectGroupMembersModal({
         );
     };
 
+    const clearSearch = () => {
+        setSearchKeyword("");
+        setPhoneSearchResult(null);
+        setPhoneSearchLoading(false);
+    };
+
+    const selectedInviteeIds = selectedInvitees.map((user) => user.userId);
+
+    const togglePhoneSearchResult = (result: ChatUserSearchResult) => {
+        if (existingMemberIds.has(Number(result.userId))) return;
+        if (result.friendStatus === "FRIEND") {
+            handleToggle(result.userId);
+            clearSearch();
+            return;
+        }
+        setSelectedInvitees((prev) =>
+            prev.some((user) => user.userId === result.userId)
+                ? prev.filter((user) => user.userId !== result.userId)
+                : [...prev, result],
+        );
+        clearSearch();
+    };
+
+    const removeInvitee = (userId: number) => {
+        setSelectedInvitees((prev) => prev.filter((user) => user.userId !== userId));
+    };
+
     const handleSubmit = async () => {
-        if (selectedIds.length === 0 || submitting) {
+        if ((selectedIds.length === 0 && selectedInviteeIds.length === 0) || submitting) {
             return;
         }
 
-        await onSubmit(selectedIds);
+        await onSubmit(selectedIds, selectedInviteeIds);
     };
 
     return (
@@ -128,7 +187,76 @@ export default function SelectGroupMembersModal({
                             placeholderTextColor={colors.textMuted}
                             style={styles.searchInput}
                         />
+                        {searchKeyword.length > 0 ? (
+                            <Pressable onPress={clearSearch} style={styles.clearSearchBtn}>
+                                <Ionicons name="close" size={16} color={colors.textMuted} />
+                            </Pressable>
+                        ) : null}
                     </View>
+
+                    {phoneSearchLoading ? (
+                        <Text style={styles.statusText}>
+                            Dang tim nguoi dung theo so dien thoai...
+                        </Text>
+                    ) : null}
+
+                    {phoneSearchResult && !existingMemberIds.has(Number(phoneSearchResult.userId)) ? (
+                        <Pressable
+                            style={[styles.memberRow, styles.memberRowSelected]}
+                            onPress={() => togglePhoneSearchResult(phoneSearchResult)}
+                        >
+                            <UserAvatar
+                                uri={buildS3Url(phoneSearchResult.avatarUrl)}
+                                name={phoneSearchResult.name}
+                                size={38}
+                            />
+                            <View style={styles.memberMeta}>
+                                <Text style={styles.memberName} numberOfLines={1}>
+                                    {phoneSearchResult.name}
+                                </Text>
+                                <Text style={styles.memberUsername} numberOfLines={1}>
+                                    {phoneSearchResult.friendStatus === "FRIEND"
+                                        ? "Ban be - them truc tiep"
+                                        : "Nguoi la - gui link moi"}
+                                </Text>
+                            </View>
+                            <Text style={styles.resultActionText}>
+                                {phoneSearchResult.friendStatus === "FRIEND"
+                                    ? selectedIds.includes(phoneSearchResult.userId)
+                                        ? "Da chon"
+                                        : "Chon"
+                                    : selectedInviteeIds.includes(phoneSearchResult.userId)
+                                      ? "Da moi"
+                                      : "Moi link"}
+                            </Text>
+                        </Pressable>
+                    ) : null}
+
+                    {selectedInvitees.length > 0 ? (
+                        <View style={styles.inviteeSection}>
+                            <Text style={styles.inviteeSectionTitle}>Nguoi la se nhan link moi</Text>
+                            <View style={styles.inviteeChips}>
+                                {selectedInvitees.map((user) => (
+                                    <View key={user.userId} style={styles.inviteeChip}>
+                                        <UserAvatar
+                                            uri={buildS3Url(user.avatarUrl)}
+                                            name={user.name}
+                                            size={34}
+                                        />
+                                        <Text style={styles.inviteeChipName} numberOfLines={1}>
+                                            {user.name}
+                                        </Text>
+                                        <Pressable
+                                            onPress={() => removeInvitee(user.userId)}
+                                            style={styles.inviteeRemoveBtn}
+                                        >
+                                            <Ionicons name="close" size={14} color="#64748B" />
+                                        </Pressable>
+                                    </View>
+                                ))}
+                            </View>
+                        </View>
+                    ) : null}
 
                     <ScrollView style={styles.listWrap}>
                         {loadingFriends ? (
@@ -196,7 +324,7 @@ export default function SelectGroupMembersModal({
 
                     <View style={styles.footer}>
                         <Text style={styles.selectedText}>
-                            Da chon {selectedIds.length} nguoi
+                            Da chon {selectedIds.length} thanh vien, {selectedInviteeIds.length} nguoi nhan link
                         </Text>
                         <View style={styles.actions}>
                             <Pressable
@@ -208,12 +336,12 @@ export default function SelectGroupMembersModal({
                             <Pressable
                                 style={[
                                     styles.confirmBtn,
-                                    (selectedIds.length === 0 || submitting) &&
+                                    ((selectedIds.length === 0 && selectedInviteeIds.length === 0) || submitting) &&
                                         styles.confirmBtnDisabled,
                                 ]}
                                 onPress={() => void handleSubmit()}
                                 disabled={
-                                    selectedIds.length === 0 || submitting
+                                    (selectedIds.length === 0 && selectedInviteeIds.length === 0) || submitting
                                 }
                             >
                                 <Text style={styles.confirmBtnText}>
@@ -287,6 +415,55 @@ const styles = StyleSheet.create({
         minHeight: 38,
         color: colors.text,
     },
+    clearSearchBtn: {
+        width: 28,
+        height: 28,
+        borderRadius: 14,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#F3F4F6",
+    },
+    inviteeSection: {
+        gap: spacing.xs,
+    },
+    inviteeSectionTitle: {
+        fontSize: 12,
+        fontWeight: "700",
+        color: colors.textMuted,
+    },
+    inviteeChips: {
+        flexDirection: "row",
+        flexWrap: "wrap",
+        gap: spacing.xs,
+    },
+    inviteeChip: {
+        maxWidth: "48%",
+        flexDirection: "row",
+        alignItems: "center",
+        gap: spacing.xs,
+        borderWidth: 1,
+        borderColor: "#CBD5E1",
+        backgroundColor: "#F8FAFC",
+        borderRadius: 18,
+        paddingVertical: 4,
+        paddingLeft: 4,
+        paddingRight: 6,
+    },
+    inviteeChipName: {
+        flex: 1,
+        minWidth: 0,
+        fontSize: 12,
+        fontWeight: "700",
+        color: colors.text,
+    },
+    inviteeRemoveBtn: {
+        width: 22,
+        height: 22,
+        borderRadius: 11,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#E2E8F0",
+    },
     listWrap: {
         maxHeight: 320,
     },
@@ -341,6 +518,11 @@ const styles = StyleSheet.create({
         marginTop: 2,
         fontSize: 12,
         color: colors.textMuted,
+    },
+    resultActionText: {
+        fontSize: 12,
+        fontWeight: "700",
+        color: "#2563EB",
     },
     footer: {
         gap: spacing.sm,

@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
     View,
     Text,
@@ -8,6 +8,7 @@ import {
     Alert,
     SafeAreaView,
     ActivityIndicator,
+    DeviceEventEmitter,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -55,16 +56,48 @@ export function ManageMembersScreen() {
         return sortMembers(list);
     }, [selectedConversation?.members]);
 
-    if (!selectedConversation) return null;
-
     const isOwner = groupManagement.currentMemberRole === "OWNER";
     const isDeputy = groupManagement.currentMemberRole === "DEPUTY";
     const canReviewJoinRequests = isOwner || isDeputy;
     const pendingRequests = canReviewJoinRequests
-        ? (selectedConversation.pendingRequests ?? []).filter(
+        ? (selectedConversation?.pendingRequests ?? []).filter(
               (request) => request.status === "PENDING",
           )
         : [];
+    const [showBlockedList, setShowBlockedList] = useState(false);
+    const [blockedMembers, setBlockedMembers] = useState<ConversationMember[]>([]);
+    const [blockedLoading, setBlockedLoading] = useState(false);
+
+    const loadBlockedMembers = useCallback(async () => {
+        if (!canReviewJoinRequests) return;
+        setBlockedLoading(true);
+        try {
+            setBlockedMembers(await groupManagement.getBlockedMembers());
+        } finally {
+            setBlockedLoading(false);
+        }
+    }, [canReviewJoinRequests, groupManagement.getBlockedMembers]);
+
+    useEffect(() => {
+        if (showBlockedList) void loadBlockedMembers();
+    }, [loadBlockedMembers, showBlockedList]);
+
+    useEffect(() => {
+        if (!showBlockedList) return;
+
+        const subscription = DeviceEventEmitter.addListener(
+            "conversation-blocked-members-updated",
+            (event: { conversationId?: number }) => {
+                if (Number(event?.conversationId) === id) {
+                    void loadBlockedMembers();
+                }
+            },
+        );
+
+        return () => subscription.remove();
+    }, [id, loadBlockedMembers, showBlockedList]);
+
+    if (!selectedConversation) return null;
 
     const handleDisbandGroup = () => {
         Alert.alert(
@@ -145,6 +178,14 @@ export function ManageMembersScreen() {
             });
         }
 
+        if (isOwner || (groupManagement.currentMemberRole === "DEPUTY" && member.role === "MEMBER")) {
+            options.push({
+                text: "Chặn khỏi nhóm",
+                style: "destructive",
+                onPress: () => groupManagement.blockMember(member.userId),
+            });
+        }
+
         if (options.length > 1) {
             Alert.alert(label, "Chọn hành động", options);
         }
@@ -177,6 +218,46 @@ export function ManageMembersScreen() {
                                     </View>
                                     <Text style={styles.addMemberText}>Thêm thành viên</Text>
                                 </Pressable>
+                            </View>
+                        )}
+                        {canReviewJoinRequests && (
+                            <View style={styles.topActionSection}>
+                                <Pressable
+                                    style={styles.blockedBtn}
+                                    onPress={() => {
+                                        const next = !showBlockedList;
+                                        setShowBlockedList(next);
+                                        if (next) void loadBlockedMembers();
+                                    }}
+                                >
+                                    <View style={styles.addIconWrap}>
+                                        <Ionicons name="ban" size={20} color={colors.danger} />
+                                    </View>
+                                    <Text style={styles.blockedText}>Danh sách chặn</Text>
+                                </Pressable>
+                            </View>
+                        )}
+                        {showBlockedList && (
+                            <View style={styles.requestSection}>
+                                <Text style={styles.requestTitle}>
+                                    Danh sách chặn ({blockedMembers.length})
+                                </Text>
+                                {blockedLoading ? (
+                                    <ActivityIndicator color={colors.primary} />
+                                ) : blockedMembers.length === 0 ? (
+                                    <Text style={styles.requestMeta}>Chưa có ai bị chặn khỏi nhóm.</Text>
+                                ) : (
+                                    blockedMembers.map((member) => (
+                                        <BlockedMemberItem
+                                            key={member.userId}
+                                            member={member}
+                                            onUnblock={async () => {
+                                                const ok = await groupManagement.unblockMember(member.userId);
+                                                if (ok) void loadBlockedMembers();
+                                            }}
+                                        />
+                                    ))
+                                )}
                             </View>
                         )}
                         {pendingRequests.length > 0 && (
@@ -374,6 +455,35 @@ function JoinRequestItem({
     );
 }
 
+function BlockedMemberItem({
+    member,
+    onUnblock,
+}: {
+    member: ConversationMember;
+    onUnblock: () => void;
+}) {
+    return (
+        <View style={styles.requestItem}>
+            <UserAvatar
+                uri={buildS3Url(member.avatar)}
+                name={member.nickname || member.username || "?"}
+                size={44}
+            />
+            <View style={styles.requestBody}>
+                <Text style={styles.memberName} numberOfLines={1}>
+                    {member.nickname || member.username || "Thành viên"}
+                </Text>
+                <Pressable
+                    style={[styles.requestButton, styles.rejectButton, { marginTop: 8 }]}
+                    onPress={onUnblock}
+                >
+                    <Text style={styles.rejectButtonText}>Bỏ chặn</Text>
+                </Pressable>
+            </View>
+        </View>
+    );
+}
+
 function sortMembers(members: ConversationMember[]): ConversationMember[] {
     const roleOrder: Record<MemberRole, number> = {
         OWNER: 0,
@@ -490,6 +600,19 @@ const styles = StyleSheet.create({
         fontSize: 15,
         fontWeight: "600",
         color: colors.text,
+    },
+    blockedBtn: {
+        flexDirection: "row",
+        alignItems: "center",
+        backgroundColor: "#fef2f2",
+        padding: 12,
+        borderRadius: 8,
+        gap: 12,
+    },
+    blockedText: {
+        fontSize: 15,
+        fontWeight: "600",
+        color: colors.danger,
     },
     listHeaderRow: {
         flexDirection: "row",

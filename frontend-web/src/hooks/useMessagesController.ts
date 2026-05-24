@@ -2,13 +2,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import chatService, {
     type Conversation,
+    type ConversationPin,
     type MessageType,
+    isMaxPinLimitError,
 } from "../services/chatService";
 import websocketService, {
     type ConversationSnapshot,
     type LastMessageUpdate,
 } from "../services/websocket";
 import { useAuth } from "../contexts/AuthContext";
+import { useChatUnread } from "../contexts/ChatUnreadContext";
 import chatRuntimeStore from "../stores/chatRuntimeStore";
 import {
     formatConversationTime,
@@ -24,11 +27,41 @@ import {
 const PRESERVE_EMPTY_PENDING_REQUEST_TYPES = new Set<MessageType>([
     "SYSTEM_ADD_MEMBER",
     "SYSTEM_KICK_MEMBER",
+    "SYSTEM_BLOCK_MEMBER",
+    "SYSTEM_MEMBER_BLOCKED_FROM_JOIN",
     "SYSTEM_UPDATE_ROLE",
     "SYSTEM_UPDATE_SETTING",
     "SYSTEM_REQUIRE_APPROVAL",
     "SYSTEM_JOIN_VIA_LINK",
+    "SYSTEM_GROUP_INVITE_LINK_SENT",
 ]);
+
+const MAX_PINNED_CONVERSATIONS = 4;
+const MAX_PIN_LIMIT_TITLE = "Bạn đã đạt tối đa 4 cuộc hội thoại được ghim";
+const MAX_PIN_LIMIT_HINT = "Hãy bỏ ghim 1 cuộc hội thoại trước";
+
+function sortWithPinnedConversations(
+    conversations: Conversation[],
+    pinnedConversations: ConversationPin[],
+): Conversation[] {
+    const pinnedOrder = new Map(
+        pinnedConversations.map((pin, index) => [pin.conversationId, index]),
+    );
+
+    return [...conversations].sort((left, right) => {
+        const leftPinnedOrder = pinnedOrder.get(left.id);
+        const rightPinnedOrder = pinnedOrder.get(right.id);
+
+        if (leftPinnedOrder !== undefined && rightPinnedOrder !== undefined) {
+            return leftPinnedOrder - rightPinnedOrder;
+        }
+
+        if (leftPinnedOrder !== undefined) return -1;
+        if (rightPinnedOrder !== undefined) return 1;
+
+        return 0;
+    });
+}
 
 /**
  * useMessagesController
@@ -46,6 +79,9 @@ export function useMessagesController() {
     // ====== UI State (render) ======
     const [searchQuery, setSearchQuery] = useState("");
     const [conversations, setConversations] = useState<Conversation[]>([]);
+    const [pinnedConversations, setPinnedConversations] = useState<
+        ConversationPin[]
+    >([]);
     const [conversationReadOnlyNotices, setConversationReadOnlyNotices] =
         useState<Record<number, string>>({});
     const [loading, setLoading] = useState(true);
@@ -61,6 +97,7 @@ export function useMessagesController() {
 
     // currentUserId: lấy từ AuthContext (security integration)
     const { currentUser } = useAuth();
+    const { clearConversationUnread } = useChatUnread();
     const currentUserId = currentUser?.id ?? 0;
 
     // ====== Refs chống stale-closure (đặc biệt cho websocket callbacks) ======
@@ -87,13 +124,19 @@ export function useMessagesController() {
             setLoading(true);
             setError(null);
 
-            const convs = await chatService.getConversations(currentUserId);
+            const [convs, pins] = await Promise.all([
+                chatService.getConversations(currentUserId),
+                chatService.fetchPinnedConversations(),
+            ]);
+            setPinnedConversations(pins);
             if (convs.success) {
                 const conversationData = Array.isArray(convs.data)
                     ? convs.data
                     : [];
                 // API trả về ok: set list hội thoại.
-                setConversations(conversationData);
+                setConversations(
+                    sortWithPinnedConversations(conversationData, pins),
+                );
                 setConversationReadOnlyNotices(() => {
                     const next: Record<number, string> = {};
                     for (const conv of conversationData) {
@@ -133,6 +176,173 @@ export function useMessagesController() {
         }
     }, [conversations]);
 
+    const fetchPinnedConversations = useCallback(async () => {
+        const pins = await chatService.fetchPinnedConversations();
+        setPinnedConversations(pins);
+        setConversations((prev) => sortWithPinnedConversations(prev, pins));
+        return pins;
+    }, []);
+
+    const showMaxPinLimitPopup = useCallback(() => {
+        window.alert(`${MAX_PIN_LIMIT_TITLE}\n${MAX_PIN_LIMIT_HINT}`);
+    }, []);
+
+    const pinConversation = useCallback(
+        async (conversationId: number) => {
+            const conversation = conversations.find(
+                (conv) => conv.id === conversationId,
+            );
+            if (!conversation) return false;
+
+            if (
+                pinnedConversations.length >= MAX_PINNED_CONVERSATIONS &&
+                !pinnedConversations.some(
+                    (pin) => pin.conversationId === conversationId,
+                )
+            ) {
+                showMaxPinLimitPopup();
+                return false;
+            }
+
+            const optimisticPin: ConversationPin = {
+                conversationId,
+                pinnedAt: new Date().toISOString(),
+                conversation,
+            };
+            const previousPins = pinnedConversations;
+            const nextPins = [
+                optimisticPin,
+                ...previousPins.filter(
+                    (pin) => pin.conversationId !== conversationId,
+                ),
+            ];
+
+            setPinnedConversations(nextPins);
+            setConversations((prev) =>
+                sortWithPinnedConversations(prev, nextPins),
+            );
+
+            try {
+                const savedPin =
+                    await chatService.pinConversation(conversationId);
+                setPinnedConversations((currentPins) => {
+                    const syncedPins = [
+                        savedPin,
+                        ...currentPins.filter(
+                            (pin) => pin.conversationId !== conversationId,
+                        ),
+                    ];
+                    setConversations((prev) =>
+                        sortWithPinnedConversations(prev, syncedPins),
+                    );
+                    return syncedPins;
+                });
+                return true;
+            } catch (error) {
+                setPinnedConversations(previousPins);
+                setConversations((prev) =>
+                    sortWithPinnedConversations(prev, previousPins),
+                );
+                if (isMaxPinLimitError(error)) {
+                    showMaxPinLimitPopup();
+                }
+                return false;
+            }
+        },
+        [conversations, pinnedConversations, showMaxPinLimitPopup],
+    );
+
+    const unpinConversation = useCallback(
+        async (conversationId: number) => {
+            const previousPins = pinnedConversations;
+            const nextPins = previousPins.filter(
+                (pin) => pin.conversationId !== conversationId,
+            );
+
+            setPinnedConversations(nextPins);
+            setConversations((prev) =>
+                sortWithPinnedConversations(prev, nextPins),
+            );
+
+            try {
+                await chatService.unpinConversation(conversationId);
+                return true;
+            } catch {
+                setPinnedConversations(previousPins);
+                setConversations((prev) =>
+                    sortWithPinnedConversations(prev, previousPins),
+                );
+                return false;
+            }
+        },
+        [pinnedConversations],
+    );
+
+    const replacePinnedConversation = useCallback(
+        async (conversationIdToUnpin: number, conversationIdToPin: number) => {
+            if (conversationIdToUnpin === conversationIdToPin) return true;
+
+            const conversation = conversations.find(
+                (conv) => conv.id === conversationIdToPin,
+            );
+            if (!conversation) return false;
+
+            const previousPins = pinnedConversations;
+            const optimisticPin: ConversationPin = {
+                conversationId: conversationIdToPin,
+                pinnedAt: new Date().toISOString(),
+                conversation,
+            };
+            const nextPins = [
+                optimisticPin,
+                ...previousPins.filter(
+                    (pin) =>
+                        pin.conversationId !== conversationIdToUnpin &&
+                        pin.conversationId !== conversationIdToPin,
+                ),
+            ];
+
+            setPinnedConversations(nextPins);
+            setConversations((prev) =>
+                sortWithPinnedConversations(prev, nextPins),
+            );
+
+            try {
+                await chatService.unpinConversation(conversationIdToUnpin);
+                const savedPin =
+                    await chatService.pinConversation(conversationIdToPin);
+                const syncedPins = [
+                    savedPin,
+                    ...nextPins.filter(
+                        (pin) => pin.conversationId !== conversationIdToPin,
+                    ),
+                ];
+                setPinnedConversations(syncedPins);
+                setConversations((prev) =>
+                    sortWithPinnedConversations(prev, syncedPins),
+                );
+                return true;
+            } catch (error) {
+                const pins = await chatService
+                    .fetchPinnedConversations()
+                    .catch(() => previousPins);
+                setPinnedConversations(pins);
+                setConversations((prev) =>
+                    sortWithPinnedConversations(prev, pins),
+                );
+                if (isMaxPinLimitError(error)) {
+                    showMaxPinLimitPopup();
+                }
+                return false;
+            }
+        },
+        [
+            conversations,
+            pinnedConversations,
+            showMaxPinLimitPopup,
+        ],
+    );
+
     // ====== Clear unreadCount khi user mở hội thoại ======
     // Optimistic update: UI phản hồi ngay, API thực tế được gọi từ ChatWindow (có lastMessageId)
     useEffect(() => {
@@ -146,7 +356,8 @@ export function useMessagesController() {
                 conv.id === convId ? { ...conv, unreadCount: 0 } : conv,
             ),
         );
-    }, [selectedConversationId]);
+        clearConversationUnread(convId);
+    }, [clearConversationUnread, selectedConversationId]);
 
     // Hydrate chi tiết hội thoại sau khi chọn item từ sidebar response mới
     // (GET /conversations đã tối ưu và không còn members/pinnedMessages).
@@ -298,7 +509,8 @@ export function useMessagesController() {
                 conv.id === conversationId ? { ...conv, unreadCount: 0 } : conv,
             ),
         );
-    }, []);
+        clearConversationUnread(conversationId);
+    }, [clearConversationUnread]);
 
     const refreshConversationById = useCallback(
         (
@@ -680,7 +892,10 @@ export function useMessagesController() {
 
         return () => {
             // Cleanup để tránh leak subscribe khi userId đổi/unmount.
-            websocketService.unsubscribeFromUserConversations(currentUserId);
+            websocketService.unsubscribeFromUserConversations(
+                currentUserId,
+                handleConversationUpdate,
+            );
         };
     }, [currentUserId, handleConversationUpdate]);
 
@@ -702,18 +917,29 @@ export function useMessagesController() {
         navigate(`/messages`);
     }, [navigate]);
 
+    const normalizeSearchValue = useCallback((value: string) => {
+        return value
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .toLowerCase();
+    }, []);
+
     const filteredConversations = useMemo(() => {
         // Filter theo searchQuery trên displayName.
-        const trimmed = searchQuery.trim().toLowerCase();
-        if (!trimmed) return conversations;
-        return conversations.filter((conv) => {
+        const trimmed = normalizeSearchValue(searchQuery.trim());
+        const source = sortWithPinnedConversations(
+            conversations,
+            pinnedConversations,
+        );
+        if (!trimmed) return source;
+        return source.filter((conv) => {
             const displayName =
                 conv.name?.trim() ||
                 (conv.type === "GROUP" ? "Nhóm chat" : "Người dùng");
 
-            return displayName?.toLowerCase().includes(trimmed);
+            return normalizeSearchValue(displayName || "").includes(trimmed);
         });
-    }, [conversations, searchQuery]);
+    }, [conversations, normalizeSearchValue, pinnedConversations, searchQuery]);
 
     const getDisplayInfo = useCallback(
         (conv: Conversation) => {
@@ -758,6 +984,33 @@ export function useMessagesController() {
         [currentUserId, navigate, selectedConversationId],
     );
 
+    const handleHideConversationForMe = useCallback(
+        async (conversationId: number) => {
+            try {
+                await chatService.hideConversationForMe(
+                    conversationId,
+                    currentUserId,
+                );
+                setConversations((prev) =>
+                    prev.filter((conv) => conv.id !== conversationId),
+                );
+                setConversationReadOnlyNotices((prev) => {
+                    if (!(conversationId in prev)) return prev;
+                    const next = { ...prev };
+                    delete next[conversationId];
+                    return next;
+                });
+
+                if (selectedConversationId === conversationId) {
+                    navigate(`/messages`);
+                }
+            } catch {
+                console.error("Không thể ẩn cuộc trò chuyện");
+            }
+        },
+        [currentUserId, navigate, selectedConversationId],
+    );
+
     const selectedConversationReadOnlyNotice =
         selectedConversationId != null
             ? (conversationReadOnlyNotices[selectedConversationId] ?? null)
@@ -772,14 +1025,22 @@ export function useMessagesController() {
         selectedConversationId,
         currentUserId,
         conversations,
+        pinnedConversations,
+        isPinLimitReached:
+            pinnedConversations.length >= MAX_PINNED_CONVERSATIONS,
 
         filteredConversations,
         handleSelectConversation,
         clearSelectedConversation,
         handleDeleteConversationForMe,
+        handleHideConversationForMe,
         getDisplayInfo,
         formatTime,
         clearUnreadCount,
+        pinConversation,
+        unpinConversation,
+        replacePinnedConversation,
+        fetchPinnedConversations,
         selectedConversationReadOnlyNotice,
 
         reload: loadConversations,

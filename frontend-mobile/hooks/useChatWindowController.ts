@@ -15,8 +15,10 @@ import type {
     LocalUploadFile,
     MemberStatus,
     Message,
+    MessageReactionEvent,
     MessageSeenEvent,
     PinnedMessageDetail,
+    PollResponse,
     TypingEvent,
 } from "@/types/chat";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -41,11 +43,14 @@ const GROUP_SYSTEM_MEMBER_SYNC_TYPES = new Set<Message["type"]>([
     "SYSTEM_ADD_MEMBER",
     "SYSTEM_UPDATE_ROLE",
     "SYSTEM_KICK_MEMBER",
+    "SYSTEM_BLOCK_MEMBER",
+    "SYSTEM_MEMBER_BLOCKED_FROM_JOIN",
     "SYSTEM_LEAVE_GROUP",
     "SYSTEM_DISBAND_GROUP",
     "SYSTEM_UPDATE_SETTING",
     "SYSTEM_REQUIRE_APPROVAL",
     "SYSTEM_JOIN_VIA_LINK",
+    "SYSTEM_GROUP_INVITE_LINK_SENT",
 ]);
 
 export interface ReadReceipt {
@@ -108,6 +113,61 @@ function normalizeReplyPreviewContent(message: Message): Message {
 
 function normalizeMessagesForUi(messages: Message[]): Message[] {
     return messages.map(normalizeReplyPreviewContent);
+}
+
+function incrementMessageReaction(
+    message: Message,
+    emoji: string,
+    userId: number,
+): Message {
+    const reactions = message.iconName ?? [];
+    const reactionIndex = reactions.findIndex((reaction) => reaction.name === emoji);
+
+    if (reactionIndex < 0) {
+        return {
+            ...message,
+            iconName: [
+                ...reactions,
+                {
+                    name: emoji,
+                    user: [{ userId, quantity: 1 }],
+                },
+            ],
+        };
+    }
+
+    const nextReactions = reactions.map((reaction, index) => {
+        if (index !== reactionIndex) return reaction;
+
+        const users = reaction.user ?? [];
+        const userIndex = users.findIndex(
+            (reactionUser) => Number(reactionUser.userId) === Number(userId),
+        );
+
+        if (userIndex < 0) {
+            return {
+                ...reaction,
+                user: [...users, { userId, quantity: 1 }],
+            };
+        }
+
+        return {
+            ...reaction,
+            user: users.map((reactionUser, reactionUserIndex) =>
+                reactionUserIndex === userIndex
+                    ? {
+                          ...reactionUser,
+                          quantity: reactionUser.quantity + 1,
+                      }
+                    : reactionUser,
+            ),
+        };
+    });
+
+    return {
+        ...message,
+        iconName: nextReactions,
+    };
 }
 
 function isImageFile(file: LocalUploadFile): boolean {
@@ -189,6 +249,11 @@ function resolveReadOnlyReasonFromApiMessage(message: string): string | null {
     ) {
         return "Bạn đã bị xóa khỏi nhóm.";
     }
+    if (
+        normalized.includes("chan khoi nhom") 
+    ) {
+        return "Bạn đã bị chặn khỏi nhóm";
+    }
 
     if (
         normalized.includes("roi nhom") ||
@@ -268,6 +333,9 @@ function resolveReadOnlyReasonFromConversation(
     );
     if (!currentMember) return null;
 
+    if (currentMember.status === "BLOCKED") {
+        return "Bạn đã bị chặn khỏi nhóm.";
+    }
     if (currentMember.status === "KICKED") {
         return "Bạn đã bị xóa khỏi nhóm.";
     }
@@ -306,6 +374,12 @@ function resolveReadOnlyReasonFromSystemMessage(
         const targetIds = safeParseMemberIds(message.content);
         if (targetIds.some((id) => Number(id) === Number(currentUserId))) {
             return "Ban da bi xoa khoi nhom.";
+        }
+    }
+     if (message.type === "SYSTEM_BLOCK_MEMBER") {
+        const targetIds = safeParseMemberIds(message.content);
+        if (targetIds.some((id) => Number(id) === Number(currentUserId))) {
+            return "Ban da bi chan khoi nhom.";
         }
     }
 
@@ -357,11 +431,14 @@ function resolveReadOnlyReasonFromCachedConversation(
         return "Ban da roi khoi nhom.";
     }
 
-    if (lastMessage.lastMessageType === "SYSTEM_KICK_MEMBER") {
+    if (lastMessage.lastMessageType === "SYSTEM_KICK_MEMBER" || lastMessage.lastMessageType === "SYSTEM_BLOCK_MEMBER") {
         const targetIds = safeParseMemberIds(
             lastMessage.lastMessageContent ?? "",
         );
         if (targetIds.some((id) => Number(id) === Number(currentUserId))) {
+            if (lastMessage.lastMessageType === "SYSTEM_BLOCK_MEMBER") {
+                return "Ban da bi chan khoi nhom.";
+            }
             return "Ban da bi xoa khoi nhom.";
         }
     }
@@ -910,6 +987,44 @@ if (token !== loadTokenRef.current) return;
         [conversationId],
     );
 
+    const handleMessageReactionEvent = useCallback(
+        (updatedMessage: Message) => {
+            setMessages((prev) => {
+                const nextMessages = prev.map((message) =>
+                    message.id === updatedMessage.id ? updatedMessage : message,
+                );
+                chatRuntimeStore.setMessages(conversationId, nextMessages);
+                return nextMessages;
+            });
+        },
+        [conversationId],
+    );
+
+    const handlePollUpdatedEvent = useCallback(
+        (poll: PollResponse) => {
+            setMessages((prev) => {
+                const nextMessages = prev.map((message) =>
+                    message.id === poll.messageId || message.pollId === poll.id
+                        ? {
+                              ...message,
+                              pollId: poll.id,
+                              poll: {
+                                  ...poll,
+                                  currentUserOptionIds:
+                                      message.poll?.currentUserOptionIds ??
+                                      poll.currentUserOptionIds ??
+                                      [],
+                              },
+                          }
+                        : message,
+                );
+                chatRuntimeStore.setMessages(conversationId, nextMessages);
+                return nextMessages;
+            });
+        },
+        [conversationId],
+    );
+
     const handleNewMessage = useCallback(
         (incomingMessage: Message) => {
             const normalizedIncoming =
@@ -1172,6 +1287,9 @@ if (token !== loadTokenRef.current) return;
 
         let disposed = false;
         let retryTimeout: ReturnType<typeof setTimeout> | null = null;
+        let handleUserConversationUpdate:
+            | ((updatedConversationId: number) => void)
+            | null = null;
 
         const setup = async () => {
             try {
@@ -1195,6 +1313,8 @@ if (token !== loadTokenRef.current) return;
                     applyRecallDomino,
                     handleMessageSeen,
                     handleTyping,
+                    handleMessageReactionEvent,
+                    handlePollUpdatedEvent,
                 );
 
                 chatWebsocketService.subscribeToConversationPins(
@@ -1246,6 +1366,21 @@ if (token !== loadTokenRef.current) return;
                     () => {
                         setReadOnlyNotice("Nhóm đã bị giải tán.");
                     },
+                );
+
+                handleUserConversationUpdate = (
+                    updatedConversationId: number,
+                ) => {
+                    if (Number(updatedConversationId) !== Number(conversationId)) {
+                        return;
+                    }
+                    const token = ++loadTokenRef.current;
+                    void loadInitialDataRef.current(token);
+                };
+
+                chatWebsocketService.subscribeToUserConversations(
+                    currentUserId,
+                    handleUserConversationUpdate,
                 );
 
                 console.log(
@@ -1319,6 +1454,12 @@ if (token !== loadTokenRef.current) return;
                 currentUserId,
                 conversationId,
             );
+            if (handleUserConversationUpdate) {
+                chatWebsocketService.unsubscribeFromUserConversations(
+                    currentUserId,
+                    handleUserConversationUpdate,
+                );
+            }
         };
     }, [
         applyRecallDomino,
@@ -1326,6 +1467,8 @@ if (token !== loadTokenRef.current) return;
         currentUserId,
         executeMarkAsRead,
         handleMessageSeen,
+        handleMessageReactionEvent,
+        handlePollUpdatedEvent,
         handleNewMessage,
         handleTyping,
         isScreenFocused,
@@ -1774,6 +1917,39 @@ if (token !== loadTokenRef.current) return;
             }
         },
         [currentUserId],
+    );
+
+    const addReaction = useCallback(
+        async (messageId: string, emoji: string) => {
+            let previousMessages: Message[] = [];
+
+            setMessages((prev) => {
+                previousMessages = prev;
+                const next = prev.map((message) =>
+                    message.id === messageId
+                        ? incrementMessageReaction(message, emoji, currentUserId)
+                        : message,
+                );
+                chatRuntimeStore.setMessages(conversationId, next);
+                return next;
+            });
+
+            try {
+                const updatedMessage = await chatService.addReaction(messageId, emoji);
+                setMessages((prev) => {
+                    const next = prev.map((message) =>
+                        message.id === messageId ? updatedMessage : message,
+                    );
+                    chatRuntimeStore.setMessages(conversationId, next);
+                    return next;
+                });
+            } catch {
+                setMessages(previousMessages);
+                chatRuntimeStore.setMessages(conversationId, previousMessages);
+                setError("Khong the tha reaction");
+            }
+        },
+        [conversationId, currentUserId],
     );
 
     const sendTypingSignal = useCallback(
@@ -2269,6 +2445,7 @@ if (token !== loadTokenRef.current) return;
         handleDeleteForMe,
         handlePinMessage,
         handleUnpinMessage,
+        addReaction,
         sendTypingSignal,
         loadOlderMessages,
         loadNewerMessages,

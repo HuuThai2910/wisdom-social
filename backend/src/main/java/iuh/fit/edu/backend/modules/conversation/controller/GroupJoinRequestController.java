@@ -34,6 +34,14 @@ public class GroupJoinRequestController {
         return ResponseEntity.ok().build();
     }
 
+    @DeleteMapping("/me")
+    public ResponseEntity<Void> cancelMyJoinRequest(
+            @PathVariable Long conversationId) {
+        Long userId = userService.getCurrentUser().getId();
+        joinRequestService.cancelMyPendingRequest(conversationId, userId);
+        return ResponseEntity.noContent().build();
+    }
+
     @PatchMapping("/{requestId}")
     public ResponseEntity<?> processJoinRequest(
             @PathVariable Long conversationId,

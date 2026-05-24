@@ -32,5 +32,9 @@ public class ConversationMemberResponse {
     private Instant joinedAt;
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private Instant leftAt;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Instant blockedAt;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Long blockedById;
 
 }

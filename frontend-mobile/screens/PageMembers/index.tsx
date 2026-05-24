@@ -7,14 +7,14 @@ import {
     Image,
     Platform,
     Pressable,
-    SafeAreaView,
     StyleSheet,
     Text,
+    TouchableOpacity,
     View,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { AppHeader } from "@/components";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, spacing } from "@/constants";
 import { useAppContext } from "@/context/AppContext";
 import pageService, { type PageMemberData, type PageRole } from "@/services/pageService";
@@ -26,14 +26,15 @@ const ROLE_LABELS: Record<PageRole, string> = {
     USER: "Thành viên",
 };
 
-const ROLE_COLORS: Record<PageRole, string> = {
-    ADMIN: colors.danger,
-    MODERATOR: colors.primary,
-    USER: colors.textMuted,
+const ROLE_BADGE_STYLES: Record<PageRole, { bg: string; color: string }> = {
+    ADMIN: { bg: "#FEE2E2", color: "#991B1B" },
+    MODERATOR: { bg: "#DBEAFE", color: "#1E40AF" },
+    USER: { bg: colors.zalo50, color: colors.primary },
 };
 
 export default function PageMembersScreen() {
     const router = useRouter();
+    const insets = useSafeAreaInsets();
     const { pageId } = useLocalSearchParams<{ pageId?: string }>();
     const { currentUser } = useAppContext();
 
@@ -72,7 +73,12 @@ export default function PageMembersScreen() {
 
     const wsRefresh = usePageEvents({ pageId: numericPageId || undefined });
     useEffect(() => {
-        if (wsRefresh > 0) void load();
+        if (wsRefresh > 0) {
+            const timer = setTimeout(() => {
+                void load();
+            }, 500);
+            return () => clearTimeout(timer);
+        }
     }, [wsRefresh, load]);
 
     const onRefresh = () => {
@@ -180,9 +186,10 @@ export default function PageMembersScreen() {
 
     const renderMember = ({ item }: { item: PageMemberData }) => {
         const isMe = item.user.id === numericUserId;
+        const badgeStyle = ROLE_BADGE_STYLES[item.role];
         return (
             <Pressable
-                style={styles.memberRow}
+                style={styles.memberCard}
                 onLongPress={() => openMemberActions(item)}
                 onPress={() => canManage && !isMe ? openMemberActions(item) : undefined}
             >
@@ -191,7 +198,7 @@ export default function PageMembersScreen() {
                         <Image source={{ uri: item.user.avatarUrl }} style={styles.avatar} />
                     ) : (
                         <View style={[styles.avatar, styles.avatarPlaceholder]}>
-                            <Ionicons name="person-outline" size={20} color={colors.textMuted} />
+                            <Ionicons name="person-outline" size={20} color={colors.primary} />
                         </View>
                     )}
                 </View>
@@ -199,22 +206,29 @@ export default function PageMembersScreen() {
                     <Text style={styles.memberName}>{item.user?.name ?? item.user?.username ?? "Người dùng"}</Text>
                     {!!item.user?.username && <Text style={styles.memberUsername}>@{item.user.username}</Text>}
                 </View>
-                <View style={[styles.roleBadge, { borderColor: ROLE_COLORS[item.role] }]}>
-                    <Text style={[styles.roleText, { color: ROLE_COLORS[item.role] }]}>{ROLE_LABELS[item.role]}</Text>
+                <View style={[styles.roleBadge, { backgroundColor: badgeStyle.bg }]}>
+                    <Text style={[styles.roleText, { color: badgeStyle.color }]}>{ROLE_LABELS[item.role]}</Text>
                 </View>
                 {canManage && !isMe && item.role !== "ADMIN" && (
-                    <Ionicons name="ellipsis-vertical" size={18} color={colors.textMuted} style={styles.moreIcon} />
+                    <TouchableOpacity style={styles.moreBtn} onPress={() => openMemberActions(item)}>
+                        <Ionicons name="ellipsis-vertical" size={18} color={colors.textMuted} />
+                    </TouchableOpacity>
                 )}
             </Pressable>
         );
     };
 
     return (
-        <SafeAreaView style={styles.container}>
-            <AppHeader
-                title={`Thành viên (${members.length})`}
-                leftAction={{ icon: "arrow-back", onPress: () => router.back() }}
-            />
+        <View style={[styles.container, { paddingTop: insets.top }]}>
+            <View style={styles.header}>
+                <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+                    <Ionicons name="arrow-back" size={24} color={colors.text} />
+                </TouchableOpacity>
+                <Text style={styles.headerTitle}>Thanh vien</Text>
+                <View style={styles.countBadge}>
+                    <Text style={styles.countBadgeText}>{members.length}</Text>
+                </View>
+            </View>
 
             {loading ? (
                 <View style={styles.center}>
@@ -230,44 +244,85 @@ export default function PageMembersScreen() {
                     contentContainerStyle={members.length === 0 ? styles.emptyContainer : styles.listContent}
                     ListEmptyComponent={
                         <View style={styles.empty}>
-                            <Ionicons name="people-outline" size={48} color={colors.border} />
-                            <Text style={styles.emptyText}>Chưa có thành viên nào</Text>
+                            <View style={styles.emptyIconCircle}>
+                                <Ionicons name="people-outline" size={36} color={colors.primary} />
+                            </View>
+                            <Text style={styles.emptyText}>Chua co thanh vien nao</Text>
                         </View>
                     }
                 />
             )}
-        </SafeAreaView>
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.white },
+    container: { flex: 1, backgroundColor: "#F5F5F5" },
     center: { flex: 1, justifyContent: "center", alignItems: "center" },
-    listContent: { paddingVertical: spacing.sm },
-    emptyContainer: { flex: 1 },
-    empty: { flex: 1, justifyContent: "center", alignItems: "center", paddingTop: 80, gap: spacing.md },
-    emptyText: { color: colors.textMuted, fontSize: 15 },
-
-    memberRow: {
+    header: {
         flexDirection: "row",
         alignItems: "center",
-        paddingHorizontal: spacing.lg,
-        paddingVertical: spacing.md,
+        paddingHorizontal: 14,
+        paddingVertical: 12,
+        backgroundColor: colors.white,
         borderBottomWidth: 1,
-        borderColor: colors.border,
+        borderBottomColor: colors.border,
+        gap: 12,
+    },
+    backBtn: { padding: 4 },
+    headerTitle: { flex: 1, fontSize: 18, fontWeight: "700", color: colors.text },
+    countBadge: {
+        backgroundColor: colors.zalo50,
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 12,
+    },
+    countBadgeText: { fontSize: 13, fontWeight: "700", color: colors.primary },
+    listContent: { padding: 14, paddingTop: 8 },
+    emptyContainer: { flex: 1 },
+    empty: { flex: 1, justifyContent: "center", alignItems: "center", paddingTop: 80, gap: spacing.md },
+    emptyIconCircle: {
+        width: 80,
+        height: 80,
+        borderRadius: 40,
+        backgroundColor: colors.zalo50,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    emptyText: { color: colors.textMuted, fontSize: 15 },
+
+    memberCard: {
+        flexDirection: "row",
+        alignItems: "center",
+        padding: 14,
+        marginBottom: 8,
+        backgroundColor: colors.white,
+        borderRadius: 16,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 8,
+        elevation: 3,
     },
     avatarWrap: { marginRight: spacing.md },
-    avatar: { width: 46, height: 46, borderRadius: 23 },
-    avatarPlaceholder: { backgroundColor: colors.surface, justifyContent: "center", alignItems: "center" },
+    avatar: { width: 48, height: 48, borderRadius: 24 },
+    avatarPlaceholder: { backgroundColor: colors.zalo50, justifyContent: "center", alignItems: "center" },
     memberInfo: { flex: 1 },
     memberName: { fontSize: 14, fontWeight: "600", color: colors.text },
     memberUsername: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
     roleBadge: {
-        borderWidth: 1,
         borderRadius: 12,
         paddingHorizontal: spacing.sm,
-        paddingVertical: 2,
+        paddingVertical: 3,
     },
     roleText: { fontSize: 11, fontWeight: "600" },
-    moreIcon: { marginLeft: spacing.sm },
+    moreBtn: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        backgroundColor: "#F5F5F5",
+        alignItems: "center",
+        justifyContent: "center",
+        marginLeft: 6,
+    },
 });

@@ -49,6 +49,11 @@ public class GroupJoinRequestServiceImpl implements GroupJoinRequestService {
     public void createRequest(Long conversationId, Long userId, Long inviterId) {
         // Kiểm tra xem đã là thành viên chưa hoặc đã có yêu cầu PENDING chưa
         if (memberRepository.findByConversation_IdAndUser_IdAndStatus(conversationId, userId, ConversationMemberStatus.ACTIVE).isPresent()) return;
+        ConversationMember existingMember = memberRepository.findByConversation_IdAndUser_Id(conversationId, userId)
+                .orElse(null);
+        if (existingMember != null && existingMember.getStatus() == ConversationMemberStatus.BLOCKED) {
+            throw new ConversationAccessDeniedException("Bạn đã bị chặn khỏi nhóm.");
+        }
         if (requestRepository.existsByConversationIdAndUserIdAndStatus(conversationId, userId, JoinRequestStatus.PENDING)) {
             throw new RuntimeException("Yêu cầu tham gia của bạn đang chờ được xử lý.");
         }
@@ -71,6 +76,34 @@ public class GroupJoinRequestServiceImpl implements GroupJoinRequestService {
             }
         }
 
+    }
+
+    @Transactional
+    @Override
+    public void cancelMyPendingRequest(Long conversationId, Long userId) {
+        GroupJoinRequest request = requestRepository
+                .findByConversationIdAndUserIdAndStatus(
+                        conversationId,
+                        userId,
+                        JoinRequestStatus.PENDING
+                )
+                .orElse(null);
+
+        if (request == null) return;
+
+        request.setStatus(JoinRequestStatus.CANCELLED);
+        request.setProcessedAt(Instant.now());
+        request.setProcessorId(userId);
+        requestRepository.save(request);
+
+        Set<Long> adminIds = memberRepository.findAdminIdsByConversationId(conversationId);
+        if (!adminIds.isEmpty()) {
+            eventPublisher.publishEvent(new JoinRequestProcessedEvent(
+                    conversationId,
+                    request.getId(),
+                    adminIds
+            ));
+        }
     }
 
     private void persistLinkJoinRequestSystemMessage(GroupJoinRequest request, Set<Long> adminIds) {
@@ -113,6 +146,10 @@ public class GroupJoinRequestServiceImpl implements GroupJoinRequestService {
     public void processRequest(Long requestId, Long adminId, boolean isApproved) {
         GroupJoinRequest request = requestRepository.findById(requestId)
                 .orElseThrow(() -> new RuntimeException("Yêu cầu không tồn tại"));
+
+        if (request.getStatus() != JoinRequestStatus.PENDING) {
+            throw new RuntimeException("Yeu cau tham gia da duoc xu ly.");
+        }
 
         ConversationMember admin = memberRepository.findByConversation_IdAndUser_IdAndStatus(request.getConversation().getId(), adminId, ConversationMemberStatus.ACTIVE)
                 .orElseThrow(() -> new ConversationAccessDeniedException("Bạn không ở trong nhóm này"));

@@ -101,6 +101,7 @@ export const contextActions = [
     { key: "copy", label: "Copy tin nhan", icon: "copy-outline" },
     { key: "pin", label: "Ghim tin nhan", icon: "attach-outline" },
     { key: "reply", label: "Tra loi", icon: "return-up-back-outline" },
+    { key: "forward", label: "Chuyen tiep", icon: "return-up-forward-outline" },
     { key: "divider-1", divider: true },
     {
         key: "unsend",

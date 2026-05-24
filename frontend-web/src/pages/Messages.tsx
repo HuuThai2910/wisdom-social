@@ -1,60 +1,122 @@
-import { useState, useRef, useEffect, useCallback } from "react";
 import {
-    Search,
-    Edit,
+    Bell,
     MailOpen,
     BellOff,
-    User,
     Ban,
-    Archive,
     Trash2,
     Flag,
     MoreHorizontal,
+    ChevronLeft,
     ChevronDown,
     ChevronUp,
     CircleUserRound,
-    Bell,
-    Pin,
-    Palette,
-    ThumbsUp,
-    Type,
-    Images,
-    FileText,
-    Eye,
-    Lock,
-    TimerReset,
     EyeOff,
-    X,
-    Settings,
-    LogOut,
+    FileText,
+    Images,
     Link2,
-    UserPlus,
-    Users,
-    Users2,
-    UserPlus2,
+    ListChecks,
+    Lock,
+    LogOut,
     LucideUserPlus2,
-   
+    Pin,
+    Plus,
+    Search,
+    Settings,
+    User,
+    X,
 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ChatWindow from "../components/message/ChatWindow";
+import ConfirmModal from "../components/message/ConfirmModal";
+import ConversationAvatar from "../components/message/ConversationAvatar";
 import CreateGroupModal from "../components/message/CreateGroupModal";
 import GroupConversationPanel from "../components/message/GroupConversationPanel";
-import IncomingCallModal from "../components/message/IncomingCallModal";
 import GroupSettingsModal from "../components/message/GroupSettingsModal";
 import InviteLinkModal from "../components/message/InviteLinkModal";
-import ConfirmModal from "../components/message/ConfirmModal";
 import SelectGroupMembersModal from "../components/message/SelectGroupMembersModal";
-import ConversationAvatar from "../components/message/ConversationAvatar";
-import { useMessagesController } from "../hooks/useMessagesController";
 import { useGroupManagement } from "../hooks/useGroupManagement";
-import chatService from "../services/chatService";
+import { useMessagesController } from "../hooks/useMessagesController";
 import { useSidebarLayout } from "../hooks/useSidebarLayout";
+import { useAuth } from "../contexts/AuthContext";
+import chatService, { type ChatUserSearchResult, type Message } from "../services/chatService";
+import chatRuntimeStore from "../stores/chatRuntimeStore";
 import { buildConversationLastMessagePreview } from "../utils/conversationLastMessagePreview";
 
 type DetailSectionKey = "chatInfo" | "customize" | "media" | "privacy";
+type InfoPanelView = "main" | "polls";
+
+function safeParseMemberIds(content?: string | null): number[] {
+    if (!content) return [];
+
+    try {
+        const parsed = JSON.parse(content);
+        if (!Array.isArray(parsed)) return [];
+        return parsed
+            .map((value) => {
+                if (typeof value === "object" && value !== null && "id" in value) {
+                    return Number(value.id);
+                }
+                return Number(value);
+            })
+            .filter((value) => Number.isFinite(value));
+    } catch {
+        return [];
+    }
+}
+
+function isCurrentUserRemovedFromConversation(
+    conversation: {
+        members?: Array<{ userId: number; status?: string }>;
+        lastMessage?: {
+            lastMessageType?: string;
+            lastMessageContent?: string | null;
+            lastSenderId?: number;
+        } | null;
+    },
+    currentUserId: number,
+): boolean {
+    const currentMember = conversation.members?.find(
+        (member) => Number(member.userId) === Number(currentUserId),
+    );
+    if (
+        currentMember?.status === "LEFT" ||
+        currentMember?.status === "KICKED" ||
+        currentMember?.status === "BLOCKED" ||
+        currentMember?.status === "GROUP_DISBANDED"
+    ) {
+        return true;
+    }
+
+    const lastMessage = conversation.lastMessage;
+    if (!lastMessage) return false;
+
+    if (lastMessage.lastMessageType === "SYSTEM_DISBAND_GROUP") {
+        return true;
+    }
+
+    if (
+        lastMessage.lastMessageType === "SYSTEM_LEAVE_GROUP" &&
+        Number(lastMessage.lastSenderId) === Number(currentUserId)
+    ) {
+        return true;
+    }
+
+    if (
+        lastMessage.lastMessageType === "SYSTEM_KICK_MEMBER" ||
+        lastMessage.lastMessageType === "SYSTEM_BLOCK_MEMBER"
+    ) {
+        return safeParseMemberIds(lastMessage.lastMessageContent).some(
+            (id) => Number(id) === Number(currentUserId),
+        );
+    }
+
+    return false;
+}
 
 export default function Messages() {
     const INFO_PANEL_WIDTH = 352;
     const { sidebarWidth } = useSidebarLayout();
+    const { currentUser } = useAuth();
     const {
         searchQuery,
         setSearchQuery,
@@ -63,10 +125,16 @@ export default function Messages() {
         selectedConversationId,
         currentUserId,
         conversations,
+        pinnedConversations,
+        isPinLimitReached,
         filteredConversations,
         handleSelectConversation,
         clearSelectedConversation,
         handleDeleteConversationForMe,
+        pinConversation,
+        unpinConversation,
+        replacePinnedConversation,
+        handleHideConversationForMe,
         getDisplayInfo,
         formatTime,
         clearUnreadCount,
@@ -77,8 +145,30 @@ export default function Messages() {
     const [openMenuConvId, setOpenMenuConvId] = useState<number | null>(null);
     const [showInfoPanel, setShowInfoPanel] = useState(false);
     const [isInfoPanelRendered, setIsInfoPanelRendered] = useState(false);
-    const [isGroupSettingsModalOpen, setIsGroupSettingsModalOpen] = useState(false);
+    const [infoPanelView, setInfoPanelView] = useState<InfoPanelView>("main");
+    const [isGroupSettingsModalOpen, setIsGroupSettingsModalOpen] =
+        useState(false);
     const [isInviteLinkModalOpen, setIsInviteLinkModalOpen] = useState(false);
+    const [pendingPinConversationId, setPendingPinConversationId] = useState<
+        number | null
+    >(null);
+    const [selectedUnpinConversationId, setSelectedUnpinConversationId] =
+        useState<number | null>(null);
+    const [isReplacingPin, setIsReplacingPin] = useState(false);
+    const [isCreatePollModalOpen, setIsCreatePollModalOpen] = useState(false);
+    const [pollTitle, setPollTitle] = useState("");
+    const [pollOptions, setPollOptions] = useState(["", ""]);
+    const [pollCreateSettingsOpen, setPollCreateSettingsOpen] = useState(false);
+    const [pollAllowMultipleChoices, setPollAllowMultipleChoices] = useState(true);
+    const [pollAllowAddOption, setPollAllowAddOption] = useState(true);
+    const [pollPinToTop, setPollPinToTop] = useState(false);
+    const [pollHideVoters, setPollHideVoters] = useState(false);
+    const [pollExpiresAt, setPollExpiresAt] = useState("");
+    const [isCreatingPoll, setIsCreatingPoll] = useState(false);
+    const [pollMessages, setPollMessages] = useState<Message[]>([]);
+    const [isLoadingPollMessages, setIsLoadingPollMessages] = useState(false);
+    const [openPollMessageId, setOpenPollMessageId] = useState<string | null>(null);
+    const [openPollModalToken, setOpenPollModalToken] = useState(0);
     const [expandedSections, setExpandedSections] = useState<
         Record<DetailSectionKey, boolean>
     >({
@@ -88,11 +178,124 @@ export default function Messages() {
         privacy: true,
     });
     const menuRef = useRef<HTMLDivElement>(null);
+    const [chatUserSearchResult, setChatUserSearchResult] =
+        useState<ChatUserSearchResult | null>(null);
+    const [chatUserSearchLoading, setChatUserSearchLoading] = useState(false);
+    const [selectedChatUserPreview, setSelectedChatUserPreview] =
+        useState<ChatUserSearchResult | null>(null);
+    const [selectedChatUserMeta, setSelectedChatUserMeta] =
+        useState<ChatUserSearchResult | null>(null);
+    const [previewMessageText, setPreviewMessageText] = useState("");
+    const [previewSending, setPreviewSending] = useState(false);
 
     const selectedConversation =
         conversations.find((conv) => conv.id === selectedConversationId) ||
+        (selectedConversationId
+            ? chatRuntimeStore.getConversation(selectedConversationId)
+            : null) ||
         null;
     const isGroupConversation = selectedConversation?.type === "GROUP";
+    const phoneSearchDigits = useMemo(
+        () => searchQuery.replace(/\D/g, ""),
+        [searchQuery],
+    );
+    useEffect(() => {
+        if (phoneSearchDigits.length !== 10) {
+            setChatUserSearchResult(null);
+            setChatUserSearchLoading(false);
+            return;
+        }
+
+        let cancelled = false;
+        setChatUserSearchLoading(true);
+        chatService
+            .searchChatUserByPhone(phoneSearchDigits)
+            .then((result) => {
+                if (cancelled) return;
+                setChatUserSearchResult(result);
+            })
+            .catch(() => {
+                if (!cancelled) setChatUserSearchResult(null);
+            })
+            .finally(() => {
+                if (!cancelled) setChatUserSearchLoading(false);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [phoneSearchDigits]);
+
+    const handleSelectChatUserSearchResult = useCallback(
+        async (result: ChatUserSearchResult) => {
+            const existingLocalDirectConversationId =
+                result.existingDirectConversationId ??
+                conversations.find(
+                    (conversation) =>
+                        conversation.type === "DIRECT" &&
+                        conversation.members?.some(
+                            (member) =>
+                                Number(member.userId) === Number(result.userId),
+                        ),
+                )?.id;
+
+            if (existingLocalDirectConversationId) {
+                setSelectedChatUserPreview(null);
+                setSelectedChatUserMeta(result);
+                setSearchQuery("");
+                handleSelectConversation(existingLocalDirectConversationId);
+                return;
+            }
+            try {
+                const conversation = await chatService.resolveDirectConversation(
+                    result.userId,
+                );
+                chatRuntimeStore.setConversation(conversation.id, conversation);
+                setSelectedChatUserPreview(null);
+                setSelectedChatUserMeta(result);
+                setShowInfoPanel(false);
+                setSearchQuery("");
+                handleSelectConversation(conversation.id);
+                void reload();
+            } catch {
+                window.alert("Khong the mo cuoc tro chuyen");
+            }
+        },
+        [conversations, handleSelectConversation, reload],
+    );
+
+    const handleSendPreviewMessage = useCallback(async () => {
+        if (!selectedChatUserPreview || !previewMessageText.trim()) return;
+        setPreviewSending(true);
+        try {
+            const message = await chatService.sendMessage(
+                {
+                    receiverId: selectedChatUserPreview.userId,
+                    content: previewMessageText.trim(),
+                    type: "TEXT",
+                },
+                currentUserId,
+            );
+            setPreviewMessageText("");
+            setSelectedChatUserPreview(null);
+            if (message.conversation) {
+                chatRuntimeStore.setConversation(message.conversation.id, message.conversation);
+            }
+            setSearchQuery("");
+            handleSelectConversation(message.conversationId);
+            void reload();
+        } catch {
+            window.alert("Khong the gui tin nhan");
+        } finally {
+            setPreviewSending(false);
+        }
+    }, [
+        currentUserId,
+        handleSelectConversation,
+        previewMessageText,
+        reload,
+        selectedChatUserPreview,
+    ]);
 
     const {
         selectedGroupConversation,
@@ -132,6 +335,9 @@ export default function Messages() {
         addMembersToGroup,
         updateMemberRole,
         kickMember,
+        getBlockedMembers,
+        blockMember,
+        unblockMember,
         leaveGroup,
         transferOwnershipAndLeave,
         executeLeaveGroup,
@@ -169,9 +375,159 @@ export default function Messages() {
     const selectedStatus = selectedConversation?.lastMessage?.lastMessageAt
         ? `Hoạt động ${formatTime(selectedConversation.lastMessage.lastMessageAt)} trước`
         : "Đang hoạt động gần đây";
+    const pendingPinConversation =
+        pendingPinConversationId != null
+            ? conversations.find((conv) => conv.id === pendingPinConversationId)
+            : null;
+    const pendingPinDisplayInfo = pendingPinConversation
+        ? getDisplayInfo(pendingPinConversation)
+        : null;
+    const canCreatePoll =
+        Boolean(selectedConversationId) && !selectedConversationReadOnlyNotice;
+    const normalizedPollOptions = useMemo(
+        () => pollOptions.map((option) => option.trim()).filter(Boolean),
+        [pollOptions],
+    );
+    const duplicatePollOptionIndexes = useMemo(() => {
+        const seen = new Set<string>();
+        const duplicates = new Set<number>();
+        pollOptions.forEach((option, index) => {
+            const normalized = option.trim().toLocaleLowerCase("vi-VN");
+            if (!normalized) return;
+            if (seen.has(normalized)) {
+                duplicates.add(index);
+                return;
+            }
+            seen.add(normalized);
+        });
+        return duplicates;
+    }, [pollOptions]);
+    const hasDuplicatePollOptions = duplicatePollOptionIndexes.size > 0;
+    const canSubmitPoll =
+        pollTitle.trim().length > 0 &&
+        normalizedPollOptions.length >= 2 &&
+        !hasDuplicatePollOptions &&
+        !isCreatingPoll;
 
     const toggleDetailSection = useCallback((key: DetailSectionKey) => {
         setExpandedSections((prev) => ({ ...prev, [key]: !prev[key] }));
+    }, []);
+
+    const loadPollMessages = useCallback(async () => {
+        if (!selectedConversationId || !currentUserId) {
+            setPollMessages([]);
+            return;
+        }
+
+        setIsLoadingPollMessages(true);
+        try {
+            const response = await chatService.getMessages(
+                selectedConversationId,
+                currentUserId,
+                null,
+                100,
+            );
+            const items = response.data?.data ?? [];
+            setPollMessages(items.filter((message) => message.type === "POLL"));
+        } catch {
+            setPollMessages([]);
+        } finally {
+            setIsLoadingPollMessages(false);
+        }
+    }, [currentUserId, selectedConversationId]);
+
+    useEffect(() => {
+        if (!showInfoPanel || !selectedConversationId) return;
+        void loadPollMessages();
+    }, [loadPollMessages, selectedConversationId, showInfoPanel]);
+
+    useEffect(() => {
+        setOpenPollMessageId(null);
+    }, [selectedConversationId]);
+
+    const resetCreatePollForm = useCallback(() => {
+        setPollTitle("");
+        setPollOptions(["", ""]);
+        setPollCreateSettingsOpen(false);
+        setPollAllowMultipleChoices(true);
+        setPollAllowAddOption(true);
+        setPollPinToTop(false);
+        setPollHideVoters(false);
+        setPollExpiresAt("");
+    }, []);
+
+    const closeCreatePollModal = useCallback(() => {
+        if (isCreatingPoll) return;
+        setIsCreatePollModalOpen(false);
+        resetCreatePollForm();
+    }, [isCreatingPoll, resetCreatePollForm]);
+
+    const handlePollOptionChange = useCallback((index: number, value: string) => {
+        setPollOptions((previous) =>
+            previous.map((option, optionIndex) =>
+                optionIndex === index ? value : option,
+            ),
+        );
+    }, []);
+
+    const handleAddPollOption = useCallback(() => {
+        setPollOptions((previous) => [...previous, ""]);
+    }, []);
+
+    const handleSubmitPoll = useCallback(async () => {
+        if (!selectedConversationId || !canSubmitPoll) return;
+
+        setIsCreatingPoll(true);
+        try {
+            const createdPollMessage = await chatService.createPoll({
+                conversationId: selectedConversationId,
+                title: pollTitle.trim(),
+                options: normalizedPollOptions,
+                allowMultipleChoices: pollAllowMultipleChoices,
+                allowAddOption: pollAllowAddOption,
+                anonymous: pollHideVoters,
+                expiresAt: pollExpiresAt
+                    ? new Date(pollExpiresAt).toISOString()
+                    : null,
+            });
+            if (pollPinToTop && currentUserId) {
+                try {
+                    await chatService.pinMessage(createdPollMessage.id, currentUserId);
+                } catch {
+                    window.alert("Đã tạo bình chọn nhưng không thể ghim lên đầu trò chuyện");
+                }
+            }
+            setIsCreatePollModalOpen(false);
+            resetCreatePollForm();
+            void loadPollMessages();
+        } catch {
+            window.alert("Không thể tạo bình chọn");
+        } finally {
+            setIsCreatingPoll(false);
+        }
+    }, [
+        canSubmitPoll,
+        loadPollMessages,
+        normalizedPollOptions,
+        pollAllowAddOption,
+        pollAllowMultipleChoices,
+        pollExpiresAt,
+        pollHideVoters,
+        pollPinToTop,
+        pollTitle,
+        currentUserId,
+        resetCreatePollForm,
+        selectedConversationId,
+    ]);
+
+    const openPollsView = useCallback(() => {
+        setInfoPanelView("polls");
+        void loadPollMessages();
+    }, [loadPollMessages]);
+
+    const openPollMessageDetail = useCallback((messageId: string) => {
+        setOpenPollMessageId(messageId);
+        setOpenPollModalToken((token) => token + 1);
     }, []);
 
     const handleChangeNickname = useCallback(async () => {
@@ -207,8 +563,11 @@ export default function Messages() {
     }, [currentUserId, selectedConversation, selectedConversationId]);
 
     // Click outside để đóng menu
+    void handleChangeNickname;
+
     useEffect(() => {
         if (!openMenuConvId) return;
+
         function handleOutside(e: MouseEvent) {
             if (
                 menuRef.current &&
@@ -237,6 +596,7 @@ export default function Messages() {
     useEffect(() => {
         if (!selectedConversationId) {
             setShowInfoPanel(false);
+            setInfoPanelView("main");
         }
     }, [selectedConversationId]);
 
@@ -274,6 +634,69 @@ export default function Messages() {
         [handleDeleteConversationForMe],
     );
 
+    const openReplacePinModal = useCallback((conversationId: number) => {
+        setPendingPinConversationId(conversationId);
+        setSelectedUnpinConversationId(null);
+    }, []);
+
+    const closeReplacePinModal = useCallback(() => {
+        if (isReplacingPin) return;
+        setPendingPinConversationId(null);
+        setSelectedUnpinConversationId(null);
+    }, [isReplacingPin]);
+
+    const handleToggleConversationPin = useCallback(
+        (conversationId: number, isPinnedConversation: boolean) => {
+            setOpenMenuConvId(null);
+
+            if (isPinnedConversation) {
+                void unpinConversation(conversationId);
+                return;
+            }
+
+            if (isPinLimitReached) {
+                openReplacePinModal(conversationId);
+                return;
+            }
+
+            void pinConversation(conversationId);
+        },
+        [
+            isPinLimitReached,
+            openReplacePinModal,
+            pinConversation,
+            unpinConversation,
+        ],
+    );
+
+    const handleConfirmReplacePin = useCallback(async () => {
+        if (!pendingPinConversationId || !selectedUnpinConversationId) return;
+
+        setIsReplacingPin(true);
+        const success = await replacePinnedConversation(
+            selectedUnpinConversationId,
+            pendingPinConversationId,
+        );
+        setIsReplacingPin(false);
+
+        if (success) {
+            setPendingPinConversationId(null);
+            setSelectedUnpinConversationId(null);
+        }
+    }, [
+        pendingPinConversationId,
+        replacePinnedConversation,
+        selectedUnpinConversationId,
+    ]);
+
+    const handleHideConversation = useCallback(
+        (convId: number) => {
+            setOpenMenuConvId(null);
+            void handleHideConversationForMe(convId);
+        },
+        [handleHideConversationForMe],
+    );
+
     const handleToggleInfoPanel = useCallback(() => {
         if (!selectedConversationId) {
             return;
@@ -283,6 +706,7 @@ export default function Messages() {
 
     const handleCloseInfoPanel = useCallback(() => {
         setShowInfoPanel(false);
+        setInfoPanelView("main");
     }, []);
 
     const menuItemBase =
@@ -294,7 +718,88 @@ export default function Messages() {
     const detailActionButtonClass =
         "flex w-full items-center gap-3 rounded-md px-1.5 py-3 text-left text-gray-800 transition-colors hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-gray-800";
 
-    const infoPanelContent = (
+    const pollPanelContent = (
+        <>
+            <div className="flex items-center gap-2 border-b border-gray-200/90 px-4 py-4 dark:border-[#262626]">
+                <button
+                    type="button"
+                    onClick={() => setInfoPanelView("main")}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-full text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white"
+                    title="Quay lại"
+                >
+                    <ChevronLeft size={18} />
+                </button>
+                <p className="min-w-0 flex-1 text-sm font-semibold text-gray-800 dark:text-gray-100">
+                    Bình chọn
+                </p>
+                <button
+                    type="button"
+                    onClick={handleCloseInfoPanel}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"
+                    title="Đóng bảng thông tin"
+                >
+                    <X size={16} />
+                </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-5">
+                {pollMessages.length > 0 ? (
+                    <div className="space-y-2">
+                        {pollMessages.map((message) => (
+                            <button
+                                type="button"
+                                key={message.id}
+                                onClick={() => openPollMessageDetail(message.id)}
+                                className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-left transition-colors hover:border-blue-200 hover:bg-blue-50/50 dark:border-[#303030] dark:bg-[#111111] dark:hover:border-blue-900 dark:hover:bg-blue-950/20"
+                            >
+                                <div className="flex items-start gap-2">
+                                    <ListChecks
+                                        size={18}
+                                        className="mt-0.5 shrink-0 text-blue-600 dark:text-blue-400"
+                                    />
+                                    <div className="min-w-0 flex-1">
+                                        <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">
+                                            {message.poll?.title ||
+                                                message.content ||
+                                                "Bình chọn"}
+                                        </p>
+                                        <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                                            {message.poll
+                                                ? `${message.poll.options.length} lựa chọn · ${message.poll.totalVoteCount} lượt chọn`
+                                                : "Bình chọn trong đoạn chat"}
+                                        </p>
+                                    </div>
+                                </div>
+                            </button>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="flex min-h-[360px] flex-col items-center justify-center px-3 text-center">
+                        <div className="mb-5 flex h-40 w-44 items-center justify-center rounded-md border border-blue-100 bg-blue-50 text-blue-500 dark:border-blue-950 dark:bg-blue-950/20">
+                            <ListChecks size={54} />
+                        </div>
+                        <p className="text-sm font-medium text-gray-800 dark:text-gray-100">
+                            {isLoadingPollMessages
+                                ? "Đang tải bình chọn..."
+                                : "Chưa có bình chọn"}
+                        </p>
+                    </div>
+                )}
+            </div>
+            <div className="border-t border-gray-200 px-5 py-4 dark:border-[#262626]">
+                <button
+                    type="button"
+                    onClick={() => setIsCreatePollModalOpen(true)}
+                    disabled={!canCreatePoll}
+                    className="flex w-full items-center justify-center gap-2 rounded-md bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-950/30 dark:text-blue-300 dark:hover:bg-blue-950/50"
+                >
+                    <ListChecks size={16} />
+                    <span>Tạo bình chọn</span>
+                </button>
+            </div>
+        </>
+    );
+
+    const mainInfoPanelContent = (
         <>
             <div className="flex items-center justify-between border-b border-gray-200/90 px-5 py-4 dark:border-[#262626]">
                 <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">
@@ -361,9 +866,11 @@ export default function Messages() {
                             Tìm kiếm
                         </button>
                         {isGroupConversation && (
-                            <button 
+                            <button
                                 type="button"
-                                onClick={() => setIsGroupSettingsModalOpen(true)}
+                                onClick={() =>
+                                    setIsGroupSettingsModalOpen(true)
+                                }
                                 className="flex flex-col items-center gap-1.5 rounded-md px-2 py-2 text-xs text-gray-700 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-gray-800 dark:hover:text-white"
                             >
                                 <span className="flex h-8 w-8 items-center justify-center rounded-md bg-gray-100 dark:bg-gray-900">
@@ -401,7 +908,9 @@ export default function Messages() {
                             onTransferOwnershipAndLeave={
                                 transferOwnershipAndLeave
                             }
-                            onKickMember={kickMember}
+                            onGetBlockedMembers={getBlockedMembers}
+                            onBlockMember={blockMember}
+                            onUnblockMember={unblockMember}
                             onUpdateMemberRole={updateMemberRole}
                             onProcessJoinRequest={processJoinRequest}
                             isConfirmLeaveModalOpen={isConfirmLeaveModalOpen}
@@ -423,7 +932,9 @@ export default function Messages() {
                             <section className="py-2">
                                 <button
                                     type="button"
-                                    onClick={() => setIsInviteLinkModalOpen(true)}
+                                    onClick={() =>
+                                        setIsInviteLinkModalOpen(true)
+                                    }
                                     className={detailActionButtonClass}
                                 >
                                     <Link2 size={18} />
@@ -434,8 +945,24 @@ export default function Messages() {
                         </>
                     )}
 
-                    <div className="h-px bg-gray-300 dark:bg-[#262626]" />
-                    
+                    {isGroupConversation && (
+                        <>
+                            <div className="h-px bg-gray-300 dark:bg-[#262626]" />
+
+                            <section className="py-2">
+                                <button
+                                    type="button"
+                                    onClick={openPollsView}
+                                    className={detailActionButtonClass}
+                                >
+                                    <ListChecks size={18} />
+                                    <span>Bình chọn</span>
+                                </button>
+                            </section>
+
+                            <div className="h-px bg-gray-300 dark:bg-[#262626]" />
+                        </>
+                    )}
 
                     <section className="py-2">
                         <button
@@ -468,7 +995,7 @@ export default function Messages() {
                                     <FileText size={18} />
                                     <span>File</span>
                                 </button>
-                                 <button className={detailActionButtonClass}>
+                                <button className={detailActionButtonClass}>
                                     <Link2 size={18} />
                                     <span>Link</span>
                                 </button>
@@ -477,8 +1004,6 @@ export default function Messages() {
                     </section>
 
                     <div className="h-px bg-gray-400 dark:bg-[#262626]" />
-                
-
 
                     <section className="py-2">
                         <button
@@ -507,7 +1032,7 @@ export default function Messages() {
                                     <BellOff size={18} />
                                     <span>Tắt thông báo</span>
                                 </button>
-                              
+
                                 <button className={detailActionButtonClass}>
                                     <EyeOff size={18} />
                                     <span>Hạn chế</span>
@@ -584,6 +1109,9 @@ export default function Messages() {
         </>
     );
 
+    const infoPanelContent =
+        infoPanelView === "polls" ? pollPanelContent : mainInfoPanelContent;
+
     return (
         <>
             <div
@@ -623,18 +1151,76 @@ export default function Messages() {
                                 placeholder="Tìm kiếm"
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                className="w-full rounded-xl border border-transparent bg-gray-100 py-2.5 pl-10 pr-3 text-sm text-gray-900 outline-none transition-colors focus:border-blue-200 focus:bg-white dark:bg-gray-900 dark:text-white dark:placeholder-gray-400 dark:focus:border-blue-900 dark:focus:bg-black"
+                                className="w-full rounded-xl border border-transparent bg-gray-100 py-2.5 pl-10 pr-10 text-sm text-gray-900 outline-none transition-colors focus:border-blue-200 focus:bg-white dark:bg-gray-900 dark:text-white dark:placeholder-gray-400 dark:focus:border-blue-900 dark:focus:bg-black"
                             />
                             <Search
                                 size={16}
                                 className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
                             />
+                            {searchQuery && (
+                                <button
+                                    type="button"
+                                    onClick={() => setSearchQuery("")}
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+                                    aria-label="Xóa tìm kiếm"
+                                >
+                                    <X size={15} />
+                                </button>
+                            )}
                         </div>
                     </div>
 
                     {/* Chat List */}
                     <div className="flex-1 space-y-1 overflow-y-auto px-2 py-2">
-                        {loading ? (
+                        {phoneSearchDigits.length === 10 && chatUserSearchLoading ? (
+                            <div className="flex items-center justify-center py-8">
+                                <p className="text-gray-500">Đang tìm người dùng...</p>
+                            </div>
+                        ) : phoneSearchDigits.length === 10 && chatUserSearchResult ? (
+                            <button
+                                type="button"
+                                onClick={() =>
+                                    void handleSelectChatUserSearchResult(
+                                        chatUserSearchResult,
+                                    )
+                                }
+                                className={`flex w-full items-center gap-3 rounded-lg border px-3 py-3 text-left transition-colors ${
+                                    selectedChatUserPreview?.userId ===
+                                    chatUserSearchResult.userId
+                                        ? "border-blue-100 bg-blue-50/90 shadow-sm dark:border-[#262626] dark:bg-gray-900"
+                                        : "border-transparent hover:border-gray-200 hover:bg-gray-50 dark:hover:border-[#242424] dark:hover:bg-[#131313]"
+                                }`}
+                            >
+                                <ConversationAvatar
+                                    name={chatUserSearchResult.name}
+                                    avatarUrl={chatUserSearchResult.avatarUrl}
+                                    fallbackAvatarUrl={chatUserSearchResult.avatarUrl || ""}
+                                    sizeClassName="h-14 w-14"
+                                    ringClassName="ring-1 ring-gray-200 dark:ring-[#2a2a2a]"
+                                />
+                                <div className="min-w-0 flex-1">
+                                    <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">
+                                        {chatUserSearchResult.name}
+                                    </p>
+                                    <p className="hidden">
+                                        {chatUserSearchResult.friendStatus ===
+                                        "FRIEND"
+                                            ? "Bạn bè"
+                                            : "Người lạ"}
+                                        {chatUserSearchResult.mutualGroupsCount >
+                                        0
+                                            ? ` · Nhóm chung (${chatUserSearchResult.mutualGroupsCount})`
+                                            : ""}
+                                    </p>
+                                </div>
+                            </button>
+                        ) : phoneSearchDigits.length === 10 && !chatUserSearchLoading ? (
+                            <div className="flex items-center justify-center px-4 py-8">
+                                <p className="text-center text-sm text-gray-500">
+                                    Không tìm thấy người dùng với số này
+                                </p>
+                            </div>
+                        ) : loading ? (
                             <div className="flex items-center justify-center py-8">
                                 <p className="text-gray-500">Đang tải...</p>
                             </div>
@@ -656,6 +1242,16 @@ export default function Messages() {
                                 const isActive =
                                     selectedConversationId === conv.id;
                                 const isMenuOpen = openMenuConvId === conv.id;
+                                const isPinnedConversation =
+                                    pinnedConversations.some(
+                                        (pin) =>
+                                            pin.conversationId === conv.id,
+                                    );
+                                const isRemovedConversation =
+                                    isCurrentUserRemovedFromConversation(
+                                        conv,
+                                        currentUserId,
+                                    );
                                 const messagePreview =
                                     buildConversationLastMessagePreview({
                                         conversation: conv,
@@ -668,11 +1264,14 @@ export default function Messages() {
                                         className="group/item relative"
                                     >
                                         <div
-                                            onClick={() =>
+                                            onClick={() => {
+                                                setSelectedChatUserPreview(null);
+                                                setSelectedChatUserMeta(null);
+                                                setSearchQuery("");
                                                 handleSelectConversation(
                                                     conv.id,
-                                                )
-                                            }
+                                                );
+                                            }}
                                             className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-3 transition-colors ${
                                                 isActive
                                                     ? "border-blue-100 bg-blue-50/90 shadow-sm dark:border-[#262626] dark:bg-gray-900"
@@ -699,11 +1298,20 @@ export default function Messages() {
                                             </div>
 
                                             <div className="flex-1 min-w-0">
-                                                <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">
-                                                    {displayInfo.name}
-                                                </p>
+                                                <div className="flex min-w-0 items-center gap-1.5">
+                                                    {isPinnedConversation && (
+                                                        <Pin
+                                                            size={13}
+                                                            className="shrink-0 fill-red-500 text-red-500"
+                                                            aria-label="Đã ghim"
+                                                        />
+                                                    )}
+                                                    <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">
+                                                        {displayInfo.name}
+                                                    </p>
+                                                </div>
                                                 <p
-                                                    className={`truncate text-sm ${
+                                                    className={`${searchQuery.trim() ? "hidden" : "truncate"} text-sm ${
                                                         conv.unreadCount &&
                                                         conv.unreadCount > 0
                                                             ? "font-semibold text-gray-900 dark:text-white"
@@ -724,7 +1332,7 @@ export default function Messages() {
                                                 </p>
                                             </div>
 
-                                            <div className="flex flex-col items-end gap-1.5">
+                                            <div className={`${searchQuery.trim() ? "hidden" : "flex"} flex-col items-end gap-1.5`}>
                                                 <span className="text-[11px] text-gray-500 dark:text-gray-400">
                                                     {conv.lastMessage
                                                         ?.lastMessageAt
@@ -780,20 +1388,42 @@ export default function Messages() {
                                                     {/* Mũi tên chỉ lên */}
                                                     <div className="absolute -top-2 right-2 h-4 w-4 rotate-45 border-l border-t border-gray-200 bg-white dark:border-[#363636] dark:bg-[#262626]" />
 
+                                                    {isRemovedConversation ? (
+                                                        <button
+                                                            onClick={() =>
+                                                                handleHideConversation(
+                                                                    conv.id,
+                                                                )
+                                                            }
+                                                            className={menuItemBase}
+                                                        >
+                                                            <Trash2
+                                                                size={20}
+                                                                className="text-red-500"
+                                                            />
+                                                            <span className="text-red-500">
+                                                                Xóa
+                                                            </span>
+                                                        </button>
+                                                    ) : (
+                                                        <>
                                                     <button
                                                         onClick={() =>
-                                                            setOpenMenuConvId(
-                                                                null,
+                                                            handleToggleConversationPin(
+                                                                conv.id,
+                                                                isPinnedConversation,
                                                             )
                                                         }
                                                         className={menuItemBase}
                                                     >
-                                                        <MailOpen
+                                                        <Pin
                                                             size={20}
                                                             className="text-gray-700 dark:text-gray-300"
                                                         />
                                                         <span className="dark:text-white">
-                                                            Đánh dấu là chưa đọc
+                                                            {isPinnedConversation
+                                                                ? "Bỏ ghim cuộc trò chuyện"
+                                                                : "Ghim cuộc trò chuyện"}
                                                         </span>
                                                     </button>
                                                     <button
@@ -819,14 +1449,17 @@ export default function Messages() {
                                                                     null,
                                                                 )
                                                             }
-                                                            className={menuItemBase}
+                                                            className={
+                                                                menuItemBase
+                                                            }
                                                         >
                                                             <User
                                                                 size={20}
                                                                 className="text-gray-700 dark:text-gray-300"
                                                             />
                                                             <span className="dark:text-white">
-                                                                Xem trang cá nhân
+                                                                Xem trang cá
+                                                                nhân
                                                             </span>
                                                         </button>
                                                     )}
@@ -852,18 +1485,18 @@ export default function Messages() {
                                                     </button>
                                                     <button
                                                         onClick={() =>
-                                                            setOpenMenuConvId(
-                                                                null,
+                                                            handleHideConversation(
+                                                                conv.id,
                                                             )
                                                         }
                                                         className={menuItemBase}
                                                     >
-                                                        <Archive
+                                                        <EyeOff
                                                             size={20}
                                                             className="text-gray-700 dark:text-gray-300"
                                                         />
                                                         <span className="dark:text-white">
-                                                            Lưu trữ đoạn chat
+                                                            Ẩn đoạn chat
                                                         </span>
                                                     </button>
                                                     <button
@@ -902,6 +1535,8 @@ export default function Messages() {
                                                             Báo cáo
                                                         </span>
                                                     </button>
+                                                        </>
+                                                    )}
                                                 </div>
                                             )}
                                         </div>
@@ -929,6 +1564,14 @@ export default function Messages() {
                                         selectedConversationReadOnlyNotice
                                     }
                                     onForbidden={handleConversationForbidden}
+                                    peerRelationshipInfo={
+                                        selectedChatUserMeta &&
+                                        selectedConversationId ===
+                                            (selectedChatUserMeta.existingDirectConversationId ??
+                                                selectedConversationId)
+                                            ? selectedChatUserMeta
+                                            : null
+                                    }
                                     name={selectedDisplayInfo?.name}
                                     avatarUrl={
                                         selectedDisplayInfo?.avatar ?? undefined
@@ -937,6 +1580,11 @@ export default function Messages() {
                                         selectedDisplayInfo?.hasCompositeAvatar
                                             ? selectedDisplayInfo.compositeAvatars
                                             : undefined
+                                    }
+                                    openPollMessageId={openPollMessageId}
+                                    openPollModalToken={openPollModalToken}
+                                    onPollModalClose={() =>
+                                        setOpenPollMessageId(null)
                                     }
                                 />
                             </div>
@@ -968,6 +1616,110 @@ export default function Messages() {
                                     {infoPanelContent}
                                 </aside>
                             )}
+                        </div>
+                    ) : selectedChatUserPreview ? (
+                        <div className="flex min-w-0 flex-1 flex-col bg-white dark:bg-black">
+                            <div className="flex h-23 items-center gap-3 border-b border-gray-200 px-6 dark:border-[#262626]">
+                                <ConversationAvatar
+                                    name={selectedChatUserPreview.name}
+                                    avatarUrl={selectedChatUserPreview.avatarUrl}
+                                    fallbackAvatarUrl={selectedChatUserPreview.avatarUrl || ""}
+                                    sizeClassName="h-12 w-12"
+                                    ringClassName="ring-1 ring-gray-200 dark:ring-[#2a2a2a]"
+                                />
+                                <div className="min-w-0 flex-1">
+                                    <h3 className="truncate text-base font-semibold text-gray-900 dark:text-white">
+                                        {selectedChatUserPreview.name}
+                                    </h3>
+                                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                                        <span className="rounded bg-gray-200 px-1.5 py-0.5 text-[11px] font-semibold uppercase text-gray-700 dark:bg-gray-800 dark:text-gray-200">
+                                            {selectedChatUserPreview.friendStatus ===
+                                            "FRIEND"
+                                                ? "Bạn bè"
+                                                : "Người lạ"}
+                                        </span>
+                                        {selectedChatUserPreview.mutualGroupsCount >
+                                            0 && (
+                                            <span>
+                                                Nhóm chung (
+                                                {
+                                                    selectedChatUserPreview.mutualGroupsCount
+                                                }
+                                                )
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                            {selectedChatUserPreview.friendStatus !==
+                                "FRIEND" && (
+                            <div className="border-b border-gray-200 bg-gray-50 px-4 py-3 dark:border-[#262626] dark:bg-[#080808]">
+                                <div className="flex items-center justify-between gap-3 rounded bg-white px-3 py-2 dark:bg-black">
+                                    <div className="flex min-w-0 items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+                                        <LucideUserPlus2 size={18} />
+                                        <span>
+                                            Gửi yêu cầu kết bạn tới người này
+                                        </span>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        className="rounded bg-gray-200 px-4 py-1.5 text-sm font-semibold text-gray-800 hover:bg-gray-300 dark:bg-gray-800 dark:text-gray-100"
+                                    >
+                                        Gửi kết bạn
+                                    </button>
+                                </div>
+                            </div>
+                            )}
+                            <div className="flex flex-1 items-center justify-center px-6 text-center">
+                                <p className="max-w-sm text-sm text-gray-500 dark:text-gray-400">
+                                    Chưa có cuộc trò chuyện. Tin nhắn đầu tiên sẽ
+                                    tạo cuộc hội thoại riêng giữa hai người.
+                                </p>
+                            </div>
+                            <div className="border-t border-gray-200 px-4 py-3 dark:border-[#262626]">
+                                <div className="flex items-center gap-2 rounded-full bg-gray-100 px-3 py-2 dark:bg-gray-900">
+                                    <input
+                                        value={previewMessageText}
+                                        onChange={(event) =>
+                                            setPreviewMessageText(
+                                                event.target.value,
+                                            )
+                                        }
+                                        onKeyDown={(event) => {
+                                            if (
+                                                event.key === "Enter" &&
+                                                !previewSending
+                                            ) {
+                                                void handleSendPreviewMessage();
+                                            }
+                                        }}
+                                        disabled={
+                                            previewSending ||
+                                            selectedChatUserPreview.blocked
+                                        }
+                                        placeholder={
+                                            selectedChatUserPreview.blocked
+                                                ? "Không thể nhắn tin với người dùng này"
+                                                : "Nhập tin nhắn..."
+                                        }
+                                        className="min-w-0 flex-1 bg-transparent px-2 py-1.5 text-sm text-gray-900 outline-none placeholder:text-gray-500 dark:text-white"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            void handleSendPreviewMessage()
+                                        }
+                                        disabled={
+                                            previewSending ||
+                                            !previewMessageText.trim() ||
+                                            selectedChatUserPreview.blocked
+                                        }
+                                        className="rounded-full p-1.5 text-gray-700 hover:bg-gray-200 disabled:opacity-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                                    >
+                                        <MailOpen size={20} />
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     ) : (
                         <div className="flex-1 flex items-center justify-center">
@@ -1003,6 +1755,340 @@ export default function Messages() {
                 </div>
             </div>
 
+            {pendingPinConversationId && (
+                <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/55 px-4 py-6">
+                    <div className="w-full max-w-lg overflow-hidden rounded-md border border-gray-200 bg-white shadow-2xl dark:border-[#303030] dark:bg-[#111111]">
+                        <div className="border-b border-gray-200 px-5 py-4 dark:border-[#2a2a2a]">
+                            <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+                                Ghim hội thoại
+                            </h2>
+                        </div>
+
+                        <div className="px-5 py-5">
+                            <p className="text-sm leading-6 text-gray-700 dark:text-gray-200">
+                                Bạn chỉ được ghim tối đa 4 trò chuyện.
+                                <br />
+                                Để ghim trò chuyện{" "}
+                                <span className="font-semibold">
+                                    {pendingPinDisplayInfo?.name ||
+                                        "này"}
+                                </span>
+                                , vui lòng bỏ ghim ít nhất 1 trò chuyện bên
+                                dưới.
+                            </p>
+
+                            <div className="mt-6 space-y-3">
+                                {pinnedConversations.map((pin) => {
+                                    const pinnedConversation =
+                                        conversations.find(
+                                            (conv) =>
+                                                conv.id ===
+                                                pin.conversationId,
+                                        ) ?? pin.conversation;
+                                    const pinnedDisplayInfo = pinnedConversation
+                                        ? getDisplayInfo(
+                                              pinnedConversation as Parameters<
+                                                  typeof getDisplayInfo
+                                              >[0],
+                                          )
+                                        : null;
+                                    const isSelected =
+                                        selectedUnpinConversationId ===
+                                        pin.conversationId;
+
+                                    return (
+                                        <div
+                                            key={pin.conversationId}
+                                            className={`flex items-center gap-3 rounded-md border px-1 py-2 transition-colors ${
+                                                isSelected
+                                                    ? "border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950/30"
+                                                    : "border-transparent"
+                                            }`}
+                                        >
+                                            {pinnedDisplayInfo && (
+                                                <ConversationAvatar
+                                                    name={
+                                                        pinnedDisplayInfo.name
+                                                    }
+                                                    avatarUrl={
+                                                        pinnedDisplayInfo.avatar
+                                                    }
+                                                    compositeAvatarUrls={
+                                                        pinnedDisplayInfo.hasCompositeAvatar
+                                                            ? pinnedDisplayInfo.compositeAvatars
+                                                            : undefined
+                                                    }
+                                                    fallbackAvatarUrl={
+                                                        pinnedDisplayInfo.fallbackAvatar
+                                                    }
+                                                    sizeClassName="h-11 w-11"
+                                                    ringClassName="ring-1 ring-gray-200 dark:ring-[#2a2a2a]"
+                                                />
+                                            )}
+                                            <p className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-900 dark:text-white">
+                                                {pinnedDisplayInfo?.name ||
+                                                    `Hội thoại ${pin.conversationId}`}
+                                            </p>
+                                            <button
+                                                type="button"
+                                                onClick={() =>
+                                                    setSelectedUnpinConversationId(
+                                                        pin.conversationId,
+                                                    )
+                                                }
+                                                disabled={isReplacingPin}
+                                                className={`rounded px-4 py-1.5 text-sm font-semibold transition-colors disabled:opacity-60 ${
+                                                    isSelected
+                                                        ? "bg-blue-600 text-white hover:bg-blue-700"
+                                                        : "bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-[#2a2a2a] dark:text-gray-100 dark:hover:bg-[#363636]"
+                                                }`}
+                                            >
+                                                {isSelected
+                                                    ? "Đã chọn"
+                                                    : "Bỏ ghim"}
+                                            </button>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-5 py-4 dark:border-[#2a2a2a]">
+                            <button
+                                type="button"
+                                onClick={closeReplacePinModal}
+                                disabled={isReplacingPin}
+                                className="rounded-md bg-gray-200 px-5 py-2 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-300 disabled:opacity-60 dark:bg-[#2a2a2a] dark:text-gray-100 dark:hover:bg-[#363636]"
+                            >
+                                Hủy
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => void handleConfirmReplacePin()}
+                                disabled={
+                                    isReplacingPin ||
+                                    !selectedUnpinConversationId
+                                }
+                                className="rounded-md bg-blue-500 px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:bg-blue-300"
+                            >
+                                {isReplacingPin
+                                    ? "Đang ghim..."
+                                    : "Ghim hội thoại"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {isCreatePollModalOpen && (
+                <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/55 px-4 py-6">
+                    <div
+                        className={`w-full overflow-hidden rounded-md bg-white shadow-2xl transition-[max-width] dark:bg-[#111111] ${
+                            pollCreateSettingsOpen ? "max-w-3xl" : "max-w-lg"
+                        }`}
+                    >
+                        <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4 dark:border-[#2a2a2a]">
+                            <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+                                Tạo bình chọn
+                            </h2>
+                            <button
+                                type="button"
+                                onClick={closeCreatePollModal}
+                                disabled={isCreatingPoll}
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white"
+                                aria-label="Đóng"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        <div
+                            className={`grid gap-6 px-5 py-5 ${
+                                pollCreateSettingsOpen
+                                    ? "grid-cols-[minmax(0,1fr)_245px]"
+                                    : "grid-cols-1"
+                            }`}
+                        >
+                            <div className="space-y-5">
+                            <label className="block">
+                                <span className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-200">
+                                    Chủ đề bình chọn
+                                </span>
+                                <textarea
+                                    value={pollTitle}
+                                    onChange={(event) =>
+                                        setPollTitle(event.target.value.slice(0, 200))
+                                    }
+                                    placeholder="Đặt câu hỏi bình chọn"
+                                    maxLength={200}
+                                    className="min-h-28 w-full resize-none rounded border border-blue-500 bg-white px-3 py-3 text-sm text-gray-900 outline-none placeholder:text-gray-500 dark:bg-black dark:text-white"
+                                />
+                                <p className="mt-1 text-right text-xs text-gray-500">
+                                    {pollTitle.length}/200
+                                </p>
+                            </label>
+
+                            <div>
+                                <p className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-200">
+                                    Các lựa chọn
+                                </p>
+                                <div className="space-y-2">
+                                    {pollOptions.map((option, index) => {
+                                        const duplicated =
+                                            duplicatePollOptionIndexes.has(index);
+                                        return (
+                                            <div key={index}>
+                                                <input
+                                                    value={option}
+                                                    onChange={(event) =>
+                                                        handlePollOptionChange(
+                                                            index,
+                                                            event.target.value,
+                                                        )
+                                                    }
+                                                    placeholder={`Lựa chọn ${index + 1}`}
+                                                    className={`h-10 w-full rounded-md border bg-white px-3 text-sm text-gray-900 outline-none transition-colors dark:bg-black dark:text-white ${
+                                                        duplicated
+                                                            ? "border-red-500 focus:border-red-500"
+                                                            : "border-gray-300 focus:border-blue-500 dark:border-[#303030]"
+                                                    }`}
+                                                    aria-invalid={duplicated}
+                                                />
+                                                {duplicated && (
+                                                    <p className="mt-1 text-xs font-medium text-red-500">
+                                                        Không được trùng lựa chọn
+                                                    </p>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={handleAddPollOption}
+                                    className="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                                >
+                                    <Plus size={18} />
+                                    <span>Thêm lựa chọn</span>
+                                </button>
+                            </div>
+                            </div>
+
+                            {pollCreateSettingsOpen && (
+                                <aside className="space-y-4 text-sm text-gray-700 dark:text-gray-200">
+                                    <div className="space-y-2">
+                                        <p className="font-semibold text-gray-900 dark:text-white">
+                                            Thời hạn bình chọn
+                                        </p>
+                                        <input
+                                            type="datetime-local"
+                                            value={pollExpiresAt}
+                                            onChange={(event) =>
+                                                setPollExpiresAt(event.target.value)
+                                            }
+                                            className="h-10 w-full rounded border border-gray-300 bg-white px-3 text-sm text-gray-700 outline-none focus:border-blue-500 dark:border-[#303030] dark:bg-black dark:text-gray-100"
+                                        />
+                                    </div>
+
+                                    <div className="border-t border-gray-200 pt-4 dark:border-[#303030]">
+                                        <p className="mb-2 font-semibold text-gray-900 dark:text-white">
+                                            Thiết lập nâng cao
+                                        </p>
+                                        <div className="flex items-center justify-between gap-4 py-1.5">
+                                            <span>Ghim lên đầu trò chuyện</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => setPollPinToTop((value) => !value)}
+                                                className={`flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition-colors ${pollPinToTop ? "bg-blue-600" : "bg-gray-300 dark:bg-gray-700"}`}
+                                                aria-pressed={pollPinToTop}
+                                            >
+                                                <span className={`h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${pollPinToTop ? "translate-x-5" : "translate-x-0"}`} />
+                                            </button>
+                                        </div>
+                                        <div className="flex items-center justify-between gap-4 py-1.5">
+                                            <span>Chọn nhiều phương án</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => setPollAllowMultipleChoices((value) => !value)}
+                                                className={`flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition-colors ${pollAllowMultipleChoices ? "bg-blue-600" : "bg-gray-300 dark:bg-gray-700"}`}
+                                                aria-pressed={pollAllowMultipleChoices}
+                                            >
+                                                <span className={`h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${pollAllowMultipleChoices ? "translate-x-5" : "translate-x-0"}`} />
+                                            </button>
+                                        </div>
+                                        <div className="flex items-center justify-between gap-4 py-1.5">
+                                            <span>Có thể thêm phương án</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => setPollAllowAddOption((value) => !value)}
+                                                className={`flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition-colors ${pollAllowAddOption ? "bg-blue-600" : "bg-gray-300 dark:bg-gray-700"}`}
+                                                aria-pressed={pollAllowAddOption}
+                                            >
+                                                <span className={`h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${pollAllowAddOption ? "translate-x-5" : "translate-x-0"}`} />
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="border-t border-gray-200 pt-4 dark:border-[#303030]">
+                                        <p className="mb-2 font-semibold text-gray-900 dark:text-white">
+                                            Bình chọn ẩn danh
+                                        </p>
+                                        
+                                        <div className="flex items-center justify-between gap-4 py-1.5">
+                                            <span>Ẩn người bình chọn</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => setPollHideVoters((value) => !value)}
+                                                className={`flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition-colors ${pollHideVoters ? "bg-blue-600" : "bg-gray-300 dark:bg-gray-700"}`}
+                                                aria-pressed={pollHideVoters}
+                                            >
+                                                <span className={`h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${pollHideVoters ? "translate-x-5" : "translate-x-0"}`} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                </aside>
+                            )}
+                        </div>
+
+                        <div className="flex items-center justify-between gap-3 border-t border-gray-200 px-5 py-3 dark:border-[#2a2a2a]">
+                            <div>
+                                <button
+                                    type="button"
+                                    onClick={() => setPollCreateSettingsOpen((open) => !open)}
+                                    disabled={isCreatingPoll}
+                                    className={`inline-flex h-10 w-10 items-center justify-center rounded-md transition-colors disabled:opacity-60 ${
+                                        pollCreateSettingsOpen
+                                            ? "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-200"
+                                            : "bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-950/30 dark:text-blue-300 dark:hover:bg-blue-950/50"
+                                    }`}
+                                    title="Cai dat nang cao"
+                                >
+                                    <Settings size={22} />
+                                </button>
+                            </div>
+                            <div className="flex items-center justify-end gap-3">
+                            <button
+                                type="button"
+                                onClick={closeCreatePollModal}
+                                disabled={isCreatingPoll}
+                                className="rounded-md bg-gray-200 px-5 py-2 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-300 disabled:opacity-60 dark:bg-[#2a2a2a] dark:text-gray-100 dark:hover:bg-[#363636]"
+                            >
+                                Hủy
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => void handleSubmitPoll()}
+                                disabled={!canSubmitPoll}
+                                className="rounded-md bg-blue-500 px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:bg-blue-300"
+                            >
+                                {isCreatingPoll ? "Đang tạo..." : "Tạo bình chọn"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                </div>
+            )}
+
             <CreateGroupModal
                 open={isCreateGroupModalOpen}
                 friends={friendsForCreateGroup}
@@ -1010,6 +2096,11 @@ export default function Messages() {
                 friendsError={friendsError}
                 submitting={isCreatingGroup}
                 error={actionError}
+                currentUserName={
+                    currentUser?.fullName ||
+                    currentUser?.name ||
+                    currentUser?.username
+                }
                 onClose={closeCreateGroupModal}
                 onSubmit={createGroup}
             />
@@ -1073,16 +2164,19 @@ export default function Messages() {
                 } khỏi nhóm?`}
                 confirmLabel="Đuổi khỏi nhóm"
                 isDanger={true}
-                onClose={closeConfirmKick}
+                onClose={() => {
+                    closeConfirmKick();
+                }}
                 onConfirm={() => {
                     if (kickTargetUserId) {
                         void kickMember(kickTargetUserId).then((success) => {
-                            if (success) closeConfirmKick();
+                            if (success) {
+                                closeConfirmKick();
+                            }
                         });
                     }
                 }}
             />
-
         </>
     );
 }

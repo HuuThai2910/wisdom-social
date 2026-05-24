@@ -17,4 +17,4 @@ export { default as SelectGroupMembersModal } from "./SelectGroupMembersModal";
 export { default as StoryBubble } from "./StoryBubble";
 export { default as TransferOwnershipModal } from "./TransferOwnershipModal";
 export { default as UserAvatar } from "./UserAvatar";
-
+export { ReactionDetailModal } from "./ReactionDetailModal";

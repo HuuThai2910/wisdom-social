@@ -1,5 +1,6 @@
 import { Client, type IMessage } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
+import { DeviceEventEmitter } from "react-native";
 import type {
     Conversation,
     ConversationCreatedEvent,
@@ -16,6 +17,9 @@ import type {
     NewJoinRequestEvent,
     PinUpdatedEvent,
     TypingEvent,
+    MessageReactionEvent,
+    PollResponse,
+    PollUpdatedEvent,
 } from "@/types/chat";
 import apiClient from "@/api/apiClient";
 
@@ -23,7 +27,9 @@ type ConversationEvent =
     | MessageCreatedEvent
     | MessageRecalledEvent
     | MessageSeenEvent
-    | TypingEvent;
+    | TypingEvent
+    | MessageReactionEvent
+    | PollUpdatedEvent;
 
 type ConversationSnapshot = Conversation & {
     processedJoinRequestId?: number;
@@ -525,6 +531,8 @@ class ChatWebsocketService {
         onRecall?: (messageId: string) => void,
         onSeen?: (event: MessageSeenEvent) => void,
         onTyping?: (event: TypingEvent) => void,
+        onReaction?: (message: Message) => void,
+        onPollUpdated?: (poll: PollResponse) => void,
     ): void {
         const destination = `/topic/conversation/${conversationId}`;
         console.log(`${WS_DEBUG_PREFIX} subscribeToConversation`, {
@@ -596,6 +604,24 @@ class ChatWebsocketService {
                         ).messageResponse;
                         if (createdMessage) {
                             onMessage(createdMessage);
+                        }
+                        return;
+                    }
+
+                    if (domainType === "MESSAGE_REACTION") {
+                        const payload = (
+                            container as { messageResponse?: Message }
+                        ).messageResponse;
+                        if (payload) {
+                            onReaction?.(payload);
+                        }
+                        return;
+                    }
+
+                    if (domainType === "POLL_UPDATED") {
+                        const payload = (container as { poll?: PollResponse }).poll;
+                        if (payload) {
+                            onPollUpdated?.(payload);
                         }
                         return;
                     }
@@ -836,6 +862,23 @@ class ChatWebsocketService {
                             .get(userId)
                             ?.values() ?? [],
                     );
+
+                    const blockedMembersPayload = payload as {
+                        domainEventType?: string;
+                        conversationId?: number;
+                    };
+                    if (
+                        blockedMembersPayload.domainEventType ===
+                            "CONVERSATION_BLOCKED_MEMBERS_UPDATED" &&
+                        typeof blockedMembersPayload.conversationId === "number"
+                    ) {
+                        DeviceEventEmitter.emit(
+                            "conversation-blocked-members-updated",
+                            blockedMembersPayload,
+                        );
+                        return;
+                    }
+
                     if (listeners.length === 0) return;
 
                     const createdConversation = (
@@ -845,6 +888,13 @@ class ChatWebsocketService {
                     if (createdConversation?.id) {
                         const lastMessageData =
                             toLastMessageUpdate(createdConversation);
+                        if (
+                            String(createdConversation.type).toUpperCase() ===
+                                "DIRECT" &&
+                            !lastMessageData
+                        ) {
+                            return;
+                        }
                         const resolvedLastMessage =
                             lastMessageData ??
                             buildFallbackLastMessageUpdate(createdConversation);

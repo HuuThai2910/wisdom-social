@@ -35,11 +35,14 @@ export const GROUP_SYSTEM_SYNC_TYPES = new Set<MessageType>([
     "SYSTEM_ADD_MEMBER",
     "SYSTEM_UPDATE_ROLE",
     "SYSTEM_KICK_MEMBER",
+    "SYSTEM_BLOCK_MEMBER",
+    "SYSTEM_MEMBER_BLOCKED_FROM_JOIN",
     "SYSTEM_LEAVE_GROUP",
     "SYSTEM_DISBAND_GROUP",
     "SYSTEM_UPDATE_SETTING",
     "SYSTEM_REQUIRE_APPROVAL",
     "SYSTEM_JOIN_VIA_LINK",
+    "SYSTEM_GROUP_INVITE_LINK_SENT",
 ]);
 
 export function safeParseMemberIds(content: string): number[] {
@@ -72,6 +75,9 @@ export function resolveReadOnlyNoticeFromConversation(
     );
     if (!currentMember) return null;
 
+    if (currentMember.status === "BLOCKED") {
+        return "Bạn đã bị chặn khỏi nhóm.";
+    }
     if (currentMember.status === "KICKED") {
         return "Bạn đã bị xóa khỏi nhóm.";
     }
@@ -104,9 +110,12 @@ export function resolveReadOnlyNoticeFromLastMessage(
         return null;
     }
 
-    if (lastMessage.lastMessageType === "SYSTEM_KICK_MEMBER") {
+    if (lastMessage.lastMessageType === "SYSTEM_KICK_MEMBER" || lastMessage.lastMessageType === "SYSTEM_BLOCK_MEMBER") {
         const targetIds = safeParseMemberIds(lastMessage.lastMessageContent);
         if (targetIds.some((id) => Number(id) === Number(currentUserId))) {
+            if (lastMessage.lastMessageType === "SYSTEM_BLOCK_MEMBER") {
+                return "Bạn đã bị chặn khỏi nhóm.";
+            }
             return "Bạn đã bị xóa khỏi nhóm.";
         }
     }

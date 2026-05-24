@@ -23,6 +23,7 @@ public class SendMessageRequest {
     private String content;
     private MessageType type;
     private Long conversationId;
+    private Long receiverId;
     private String replyToId;
     private List<AttachmentRequest> attachments;
 

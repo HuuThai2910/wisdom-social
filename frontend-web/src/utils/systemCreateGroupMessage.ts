@@ -8,11 +8,14 @@ type GroupSystemMessageType =
     | "SYSTEM_ADD_MEMBER"
     | "SYSTEM_UPDATE_ROLE"
     | "SYSTEM_KICK_MEMBER"
+    | "SYSTEM_BLOCK_MEMBER"
     | "SYSTEM_LEAVE_GROUP"
     | "SYSTEM_DISBAND_GROUP"
     | "SYSTEM_UPDATE_SETTING"
     | "SYSTEM_REQUIRE_APPROVAL"
-    | "SYSTEM_JOIN_VIA_LINK";
+    | "SYSTEM_JOIN_VIA_LINK"
+    | "SYSTEM_MEMBER_BLOCKED_FROM_JOIN"
+    | "SYSTEM_GROUP_INVITE_LINK_SENT";
 
 function formatCommaNameList(names: string[]): string {
     return names.join(", ");
@@ -280,6 +283,38 @@ function buildSystemKickMemberMessage(params: {
     return `${actorLabel} đã xóa ${targetLabel} khỏi nhóm`;
 }
 
+function buildSystemBlockMemberMessage(params: {
+    content: string;
+    isOwn: boolean;
+    actorLabel: string;
+    currentUserId: number;
+    membersById: Record<number, MemberLookup>;
+}): string {
+    const { content, isOwn, actorLabel, currentUserId, membersById } = params;
+    const entries = safeParseMemberEntries(content);
+    const names = entries
+        .map((entry) => {
+            if (entry.id === currentUserId) return "bạn";
+            return resolveMemberLabelFromSnapshot(entry, membersById);
+        })
+        .filter((name): name is string => Boolean(name));
+    const targetLabel = formatCommaNameList(names) || "thành viên này";
+    return isOwn
+        ? `Bạn đã chặn ${targetLabel} tham gia nhóm`
+        : `${actorLabel} đã chặn ${targetLabel} tham gia nhóm`;
+}
+
+function buildBlockedFromJoinMessage(params: {
+    content: string;
+    membersById: Record<number, MemberLookup>;
+}): string {
+    const names = safeParseMemberEntries(params.content)
+        .map((entry) => resolveMemberLabelFromSnapshot(entry, params.membersById))
+        .filter((name): name is string => Boolean(name));
+    const targetLabel = formatCommaNameList(names) || "Thành viên này";
+    return `${targetLabel} đã bị trưởng/phó nhóm chặn tham gia nhóm`;
+}
+
 function buildSystemLeaveGroupMessage(params: {
     isOwn: boolean;
     actorLabel: string;
@@ -361,6 +396,31 @@ export function buildSystemGroupMessage(params: {
             currentUserId,
             membersById,
         });
+    }
+
+    if (type === "SYSTEM_BLOCK_MEMBER") {
+        return buildSystemBlockMemberMessage({
+            content,
+            isOwn,
+            actorLabel,
+            currentUserId,
+            membersById,
+        });
+    }
+
+    if (type === "SYSTEM_MEMBER_BLOCKED_FROM_JOIN") {
+        return buildBlockedFromJoinMessage({
+            content,
+            membersById,
+        });
+    }
+
+    if (type === "SYSTEM_GROUP_INVITE_LINK_SENT") {
+        const memberNames = safeParseMemberEntries(content)
+            .map((entry) => resolveMemberLabelFromSnapshot(entry, membersById))
+            .filter((name): name is string => Boolean(name));
+        const joinedNames = formatCommaNameList(memberNames) || "Nguoi duoc moi";
+        return `${joinedNames} da nhan duoc link nhom va can xac nhan tham gia.`;
     }
 
     if (type === "SYSTEM_LEAVE_GROUP") {

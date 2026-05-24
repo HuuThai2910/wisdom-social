@@ -7,6 +7,8 @@ package iuh.fit.edu.backend.modules.chat.dto.response;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import iuh.fit.edu.backend.modules.chat.constant.MessageType;
+import iuh.fit.edu.backend.modules.chat.dto.response.poll.PollResponse;
+import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationResponse;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -33,11 +35,19 @@ public class MessageResponse {
     private MessageType type;
     private Instant createdAt;
     private Long senderId;
+    private String pollId;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private PollResponse poll;
     private ReplyInfo replyInfo;
     private boolean isActive;
     @JsonProperty("isRecalled")
     private boolean isRecalled = false;
     private List<MediaAttachmentResponse> attachments;
+    private List<IconNameResponse> iconName;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private ConversationResponse conversation;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Boolean newConversation;
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private Set<Long> deletedFor = new HashSet<>();
@@ -61,6 +71,24 @@ public class MessageResponse {
         private String type;
         private String fileName;
         private Long fileSize;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class IconNameResponse {
+        private String name;
+        private List<IconUserResponse> user;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class IconUserResponse {
+        private Long userId;
+        private int quantity;
     }
 
 }

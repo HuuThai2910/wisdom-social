@@ -15,20 +15,26 @@ const GROUP_SYSTEM_SYNC_TYPES = new Set<Message["type"]>([
     "SYSTEM_ADD_MEMBER",
     "SYSTEM_UPDATE_ROLE",
     "SYSTEM_KICK_MEMBER",
+    "SYSTEM_BLOCK_MEMBER",
+    "SYSTEM_MEMBER_BLOCKED_FROM_JOIN",
     "SYSTEM_LEAVE_GROUP",
     "SYSTEM_DISBAND_GROUP",
     "SYSTEM_UPDATE_SETTING",
     "SYSTEM_REQUIRE_APPROVAL",
     "SYSTEM_JOIN_VIA_LINK",
+    "SYSTEM_GROUP_INVITE_LINK_SENT",
 ]);
 
 const PRESERVE_EMPTY_PENDING_REQUEST_TYPES = new Set<Message["type"]>([
     "SYSTEM_ADD_MEMBER",
     "SYSTEM_KICK_MEMBER",
+    "SYSTEM_BLOCK_MEMBER",
+    "SYSTEM_MEMBER_BLOCKED_FROM_JOIN",
     "SYSTEM_UPDATE_ROLE",
     "SYSTEM_UPDATE_SETTING",
     "SYSTEM_REQUIRE_APPROVAL",
     "SYSTEM_JOIN_VIA_LINK",
+    "SYSTEM_GROUP_INVITE_LINK_SENT",
 ]);
 
 function toMembersByUserId(
@@ -79,7 +85,7 @@ function isCurrentUserRemovedByMessage(
         return Number(message.senderId) === Number(currentUserId);
     }
 
-    if (message.type === "SYSTEM_KICK_MEMBER") {
+    if (message.type === "SYSTEM_KICK_MEMBER" || message.type === "SYSTEM_BLOCK_MEMBER") {
         return safeParseMemberIds(message.content).some(
             (memberId) => Number(memberId) === Number(currentUserId),
         );

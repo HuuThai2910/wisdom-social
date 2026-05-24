@@ -7,6 +7,8 @@ import {
 import pageService from "../services/pageService";
 import { useCurrentUser } from "../hooks/useCurrentUser";
 import { buildS3Url } from "../utils/s3";
+import { useRealtimePagePosts } from "../hooks/useRealtimePagePosts";
+
 
 interface Post {
     _id: string;
@@ -77,6 +79,46 @@ export default function PagePosts() {
     useEffect(() => {
         loadPosts();
     }, [loadPosts]);
+
+    // Real-time: cập nhật bài viết khi có sự kiện WebSocket
+    // numericPageId chỉ được truyền vào sau khi isAdmin đã được xác nhận
+    const numericPageId = pageId ? Number(pageId) : null;
+    useRealtimePagePosts({
+        pageId: isAdmin && numericPageId ? numericPageId : null,
+        onPostSubmitted: (_postId, post) => {
+            // Bài viết mới được submit → thêm vào pending list
+            if (post) {
+                setPendingPosts(prev => {
+                    const newPost = { ...post, _id: (post as any)._id || (post as any).id || _postId } as unknown as Post;
+                    if (prev.some(p => p._id === newPost._id)) return prev;
+                    return [newPost, ...prev];
+                });
+            }
+        },
+        onPostApproved: (postId, post) => {
+            // Bài viết được duyệt → chuyển từ pending sang approved
+            setPendingPosts(prev => {
+                const found = prev.find(p => p._id === postId);
+                if (found || post) {
+                    const rawPost = post ? { ...post, _id: (post as any)._id || (post as any).id || postId } : null;
+                    const approvedPost = (rawPost as unknown as Post) || found;
+                    setApprovedPosts(ap => {
+                        if (ap.some(p => p._id === postId)) return ap;
+                        return [approvedPost, ...ap];
+                    });
+                }
+                return prev.filter(p => p._id !== postId);
+            });
+        },
+        onPostRejected: (postId) => {
+            // Bài viết bị từ chối → xóa khỏi pending
+            setPendingPosts(prev => prev.filter(p => p._id !== postId));
+        },
+        onPostRemoved: (postId) => {
+            // Bài viết bị xóa → xóa khỏi approved
+            setApprovedPosts(prev => prev.filter(p => p._id !== postId));
+        },
+    });
 
     const handleApprovePost = async (postId: string) => {
         if (!pageId || !currentUser?.id) return;

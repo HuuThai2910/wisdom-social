@@ -6,7 +6,7 @@
  */
 import { Client, type IMessage } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
-import type { Conversation, JoinRequest, Message, MessageType } from "./chatService";
+import type { Conversation, JoinRequest, Message, MessageType, PollResponse } from "./chatService";
 
 const resolveSockJsUrl = (): string => {
     const envUrl = import.meta.env.VITE_WS_URL;
@@ -51,6 +51,7 @@ export type DomainEventType =
     | "MESSAGE_CREATED" // Tin nhắn mới được tạo
     | "MESSAGE_RECALLED" // Tin nhắn bị thu hồi
     | "MESSAGE_SEEN" // Đánh dấu đã xem tin nhắn
+    | "MESSAGE_REACTION" // Cập nhật reaction của tin nhắn
     | "TYPING" // User đang soạn tin nhắn
     | "ROOM_CREATED" // Phòng chat mới
     | "ROOM_UPDATED" // Phòng chat được cập nhật
@@ -59,6 +60,7 @@ export type DomainEventType =
     | "MEMBER_ROLE_UPDATED"
     | "MEMBER_LEFT"
     | "MEMBER_KICKED"
+    | "CONVERSATION_BLOCKED_MEMBERS_UPDATED"
     | "GROUP_DISBANDED"
     | "PIN_MESSAGE"
     | "UPIN_MESSAGE"
@@ -82,7 +84,12 @@ export interface PinUpdatedEvent {
         | "AUDIO"
         | "CALL"
         | "SYSTEM_PIN"
-        | "SYSTEM_UPIN";
+        | "SYSTEM_UPIN"
+        | "SYSTEM_POLL_CREATED"
+        | "SYSTEM_POLL_VOTED"
+        | "SYSTEM_POLL_CHANGED"
+        | "SYSTEM_POLL_CLOSED"
+        | "SYSTEM_POLL_PINNED";
         content?: string;
     }>;
 }
@@ -156,6 +163,16 @@ export interface MessageSeenEvent {
         lastMessageId: string;
         seenAt: string;
     };
+}
+
+export interface MessageReactionEvent {
+    domainEventType: "MESSAGE_REACTION";
+    messageResponse: Message;
+}
+
+export interface PollUpdatedEvent {
+    domainEventType: "POLL_UPDATED";
+    poll: PollResponse;
 }
 
 /**
@@ -250,6 +267,13 @@ export interface JoinRequestProcessedEvent {
     domainEventType: "JOIN_REQUEST_PROCESSED";
     conversationId: number;
     requestId: number;
+}
+
+export interface BlockedMembersUpdatedEvent {
+    domainEventType: "CONVERSATION_BLOCKED_MEMBERS_UPDATED";
+    conversationId: number;
+    targetUserId: number;
+    blocked: boolean;
 }
 
 /**
@@ -376,6 +400,14 @@ class WebSocketService {
      * Value: subscription object để unsubscribe sau này
      */
     private subscriptions: Map<string, any> = new Map();
+    private userConversationCallbacks: Map<
+        number,
+        Set<(
+            conversationId: number,
+            lastMessage: LastMessageUpdate,
+            conversation?: ConversationSnapshot,
+        ) => void>
+    > = new Map();
     private profileUpdateListeners: Map<
         string,
         Set<(updatedUser: any) => void>
@@ -585,6 +617,8 @@ class WebSocketService {
         onRecall?: (messageId: string) => void,
         onMessageSeen?: (event: MessageSeenEvent) => void,
         onTyping?: (event: TypingEvent) => void,
+        onReaction?: (message: Message) => void,
+        onPollUpdated?: (poll: PollResponse) => void,
     ) {
         // BƯỚC 1: Kiểm tra client đã kết nối chưa
         // client.connected = true chỉ khi STOMP handshake hoàn tất
@@ -623,7 +657,9 @@ class WebSocketService {
                         | MessageCreatedEvent
                         | MessageRecalledEvent
                         | MessageSeenEvent
-                        | TypingEvent;
+                        | TypingEvent
+                        | MessageReactionEvent
+                        | PollUpdatedEvent;
 
                     console.log("Received conversation event:", event);
 
@@ -642,6 +678,13 @@ class WebSocketService {
                         const payload = (event as MessageCreatedEvent)
                             .messageResponse;
                         if (payload) callback(payload);
+                    } else if (event.domainEventType === "MESSAGE_REACTION") {
+                        const payload = (event as MessageReactionEvent)
+                            .messageResponse;
+                        if (payload) onReaction?.(payload);
+                    } else if (event.domainEventType === "POLL_UPDATED") {
+                        const payload = (event as PollUpdatedEvent).poll;
+                        if (payload) onPollUpdated?.(payload);
                     }
                 } catch (error) {
                     console.error("Error parsing message:", error);
@@ -802,6 +845,22 @@ class WebSocketService {
         // Format: /topic/user/{userId}/conversations
         // VD: /topic/user/1/conversations cho user có ID = 1
         const destination = `/topic/user/${userId}/conversations`;
+        const callbacks =
+            this.userConversationCallbacks.get(userId) ?? new Set();
+        callbacks.add(callback);
+        this.userConversationCallbacks.set(userId, callbacks);
+        const notifyCallbacks = (
+            conversationId: number,
+            lastMessage: LastMessageUpdate,
+            conversation?: ConversationSnapshot,
+        ) => {
+            const listeners = Array.from(
+                this.userConversationCallbacks.get(userId) ?? [],
+            );
+            listeners.forEach((listener) =>
+                listener(conversationId, lastMessage, conversation),
+            );
+        };
 
         // BƯỚC 3: Kiểm tra đã subscribe destination này chưa
         // Tránh tạo duplicate subscription cho cùng một destination
@@ -829,7 +888,8 @@ class WebSocketService {
                         | ConversationMembershipEvent
                         | GroupDisbandedEvent
                         | NewJoinRequestEvent
-                        | JoinRequestProcessedEvent;
+                        | JoinRequestProcessedEvent
+                        | BlockedMembersUpdatedEvent;
 
                     const createdConversation = (
                         payload as {
@@ -849,7 +909,7 @@ class WebSocketService {
                                 resolvedLastMessage,
                         };
 
-                        callback(
+                        notifyCallbacks(
                             createdConversation.id,
                             resolvedLastMessage,
                             conversationSnapshot,
@@ -862,7 +922,7 @@ class WebSocketService {
                         disbandPayload.domainEventType === "GROUP_DISBANDED" &&
                         typeof disbandPayload.conversationId === "number"
                     ) {
-                        callback(
+                        notifyCallbacks(
                             disbandPayload.conversationId,
                             disbandPayload.lastMessage ??
                                 buildSystemFallbackByDomainEvent(
@@ -887,7 +947,7 @@ class WebSocketService {
                                     name: request.userName,
                                 },
                             ]);
-                        callback(
+                        notifyCallbacks(
                             joinRequestPayload.conversationId,
                             {
                                 lastMessageContent:
@@ -927,7 +987,7 @@ class WebSocketService {
                         processedJoinRequestId !== null
                     ) {
                         const now = new Date().toISOString();
-                        callback(
+                        notifyCallbacks(
                             processedJoinConversationId,
                             {
                                 lastMessageContent: "",
@@ -948,12 +1008,27 @@ class WebSocketService {
                         return;
                     }
 
+                    const blockedMembersPayload =
+                        payload as BlockedMembersUpdatedEvent;
+                    if (
+                        blockedMembersPayload.domainEventType ===
+                            "CONVERSATION_BLOCKED_MEMBERS_UPDATED" &&
+                        typeof blockedMembersPayload.conversationId === "number"
+                    ) {
+                        window.dispatchEvent(
+                            new CustomEvent("conversation-blocked-members-updated", {
+                                detail: blockedMembersPayload,
+                            }),
+                        );
+                        return;
+                    }
+
                     const updatedEvent = payload as ConversationUpdatedEvent;
                     if (
                         typeof updatedEvent.conversationId === "number" &&
                         updatedEvent.lastMessage
                     ) {
-                        callback(
+                        notifyCallbacks(
                             updatedEvent.conversationId,
                             updatedEvent.lastMessage,
                         );
@@ -986,7 +1061,24 @@ class WebSocketService {
      * 4. Xóa subscription khỏi Map
      * 5. Server ngừng gửi message tới client cho destination này
      */
-    unsubscribeFromUserConversations(userId: number) {
+    unsubscribeFromUserConversations(
+        userId: number,
+        callback?: (
+            conversationId: number,
+            lastMessage: LastMessageUpdate,
+            conversation?: ConversationSnapshot,
+        ) => void,
+    ) {
+        if (callback) {
+            const callbacks = this.userConversationCallbacks.get(userId);
+            callbacks?.delete(callback);
+            if (callbacks && callbacks.size > 0) {
+                return;
+            }
+            this.userConversationCallbacks.delete(userId);
+        } else {
+            this.userConversationCallbacks.delete(userId);
+        }
         // Tạo lại destination để tìm subscription
         const destination = `/topic/user/${userId}/conversations`;
         const subscription = this.subscriptions.get(destination);
@@ -1363,6 +1455,38 @@ class WebSocketService {
     }
 
     // ── Page realtime ─────────────────────────────────────────────────────
+
+    subscribeToPagePosts(pageId: number, onEvent: (event: Record<string, unknown>) => void) {
+        if (!this.client?.connected) return;
+        const destination = `/topic/page/${pageId}/posts`;
+        if (this.subscriptions.has(destination)) return;
+        const sub = this.client.subscribe(destination, (msg: IMessage) => {
+            try { onEvent(JSON.parse(msg.body) as Record<string, unknown>); } catch { /* ignore */ }
+        });
+        this.subscriptions.set(destination, sub);
+    }
+
+    unsubscribeFromPagePosts(pageId: number) {
+        const destination = `/topic/page/${pageId}/posts`;
+        this.subscriptions.get(destination)?.unsubscribe();
+        this.subscriptions.delete(destination);
+    }
+
+    subscribeToPageList(onEvent: (event: Record<string, unknown>) => void) {
+        if (!this.client?.connected) return;
+        const destination = `/topic/pages`;
+        if (this.subscriptions.has(destination)) return;
+        const sub = this.client.subscribe(destination, (msg: IMessage) => {
+            try { onEvent(JSON.parse(msg.body) as Record<string, unknown>); } catch { /* ignore */ }
+        });
+        this.subscriptions.set(destination, sub);
+    }
+
+    unsubscribeFromPageList() {
+        const destination = `/topic/pages`;
+        this.subscriptions.get(destination)?.unsubscribe();
+        this.subscriptions.delete(destination);
+    }
 
     subscribeToPageMembers(pageId: number, onEvent: (event: Record<string, unknown>) => void) {
         if (!this.client?.connected) return;

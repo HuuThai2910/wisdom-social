@@ -3,12 +3,13 @@ import { Alert } from "react-native";
 import chatService from "@/services/chatService";
 import friendService, { type FriendUser } from "@/services/friendService";
 import chatRuntimeStore from "@/stores/chatRuntimeStore";
-import type { Conversation, MemberRole } from "@/types/chat";
+import type { Conversation, ConversationMember, MemberRole } from "@/types/chat";
 
 interface CreateGroupPayload {
     name: string;
     imageUrl?: string;
     memberIds: number[];
+    inviteeUserIds?: number[];
 }
 
 interface UseGroupManagementParams {
@@ -228,7 +229,13 @@ export function useGroupManagement({
     const createGroup = useCallback(
         async (payload: CreateGroupPayload) => {
             const memberIds = Array.from(new Set(payload.memberIds));
-            if (memberIds.length < 2) {
+            const inviteeUserIds = Array.from(new Set(payload.inviteeUserIds ?? []));
+            const hasInvitees = inviteeUserIds.length > 0;
+            if (hasInvitees && memberIds.length === 0) {
+                setActionError("Vui long chon it nhat 1 ban be de tao nhom.");
+                return false;
+            }
+            if ((!hasInvitees && memberIds.length < 2) || (hasInvitees && memberIds.length + inviteeUserIds.length < 2)) {
                 setActionError(
                     "Vui lòng chọn ít nhất 2 thành viên để tạo nhóm.",
                 );
@@ -239,8 +246,14 @@ export function useGroupManagement({
                 setIsCreatingGroup(true);
                 setActionError(null);
 
-                const createdConversation =
-                    await chatService.createGroupConversation({
+                const createdConversation = hasInvitees
+                    ? await chatService.createGroupConversationWithInvites({
+                        name: payload.name.trim() || undefined,
+                        imageUrl: payload.imageUrl?.trim() || undefined,
+                        memberIds,
+                        inviteeUserIds,
+                    })
+                    : await chatService.createGroupConversation({
                         name: payload.name.trim() || undefined,
                         imageUrl: payload.imageUrl?.trim() || undefined,
                         memberIds,
@@ -267,7 +280,7 @@ export function useGroupManagement({
     );
 
     const addMembersToGroup = useCallback(
-        async (memberIds: number[]) => {
+        async (memberIds: number[], inviteeUserIds: number[] = []) => {
             if (!selectedConversationId || !selectedGroupConversation) {
                 setActionError("Không tìm thấy cuộc trò chuyện nhóm.");
                 return false;
@@ -282,8 +295,17 @@ export function useGroupManagement({
                     ),
                 ),
             );
+            const validInviteeIds = Array.from(
+                new Set(
+                    inviteeUserIds.filter(
+                        (memberId) =>
+                            Number(memberId) !== Number(currentUserId) &&
+                            !groupMemberIds.has(Number(memberId)),
+                    ),
+                ),
+            );
 
-            if (validIds.length === 0) {
+            if (validIds.length === 0 && validInviteeIds.length === 0) {
                 setActionError("Vui lòng chọn ít nhất 1 thành viên mới.");
                 return false;
             }
@@ -296,11 +318,18 @@ export function useGroupManagement({
                         selectedConversationId,
                     );
 
-                await chatService.addMembersToGroup(selectedConversationId, {
-                    newMemberIds: validIds,
-                });
+                if (validInviteeIds.length > 0) {
+                    await chatService.addMembersToGroupWithInvites(selectedConversationId, {
+                        newMemberIds: validIds,
+                        inviteeUserIds: validInviteeIds,
+                    });
+                } else {
+                    await chatService.addMembersToGroup(selectedConversationId, {
+                        newMemberIds: validIds,
+                    });
+                }
                 chatRuntimeStore.removePendingRequests(selectedConversationId, {
-                    userIds: validIds,
+                    userIds: [...validIds, ...validInviteeIds],
                 });
                 await reloadSelectedGroupConversation(memberSnapshotVersion);
                 setIsAddMembersModalOpen(false);
@@ -370,7 +399,7 @@ export function useGroupManagement({
     );
 
     const kickMember = useCallback(
-        async (targetUserId: number) => {
+        async (targetUserId: number, blockFromGroup = false) => {
             if (!selectedConversationId || !canManageMembers) {
                 return false;
             }
@@ -386,6 +415,7 @@ export function useGroupManagement({
                 await chatService.kickGroupMember(
                     selectedConversationId,
                     targetUserId,
+                    blockFromGroup,
                 );
                 chatRuntimeStore.removePendingRequests(selectedConversationId, {
                     userIds: [targetUserId],
@@ -595,6 +625,49 @@ export function useGroupManagement({
         [canManageSettings, reloadSelectedGroupConversation, selectedConversationId],
     );
 
+    const getBlockedMembers = useCallback(async (): Promise<ConversationMember[]> => {
+        if (!selectedConversationId || !canManageSettings) return [];
+        return chatService.getBlockedGroupMembers(selectedConversationId);
+    }, [canManageSettings, selectedConversationId]);
+
+    const blockMember = useCallback(
+        async (targetUserId: number) => {
+            if (!selectedConversationId || !canManageSettings) return false;
+            try {
+                setPendingKickUserId(targetUserId);
+                setActionError(null);
+                const memberSnapshotVersion = chatRuntimeStore.markMembersChanging(selectedConversationId);
+                await chatService.blockGroupMember(selectedConversationId, targetUserId);
+                await reloadSelectedGroupConversation(memberSnapshotVersion);
+                return true;
+            } catch (error) {
+                setActionError(normalizeErrorMessage(error, "Không thể chặn thành viên."));
+                return false;
+            } finally {
+                setPendingKickUserId(null);
+            }
+        },
+        [canManageSettings, reloadSelectedGroupConversation, selectedConversationId],
+    );
+
+    const unblockMember = useCallback(
+        async (targetUserId: number) => {
+            if (!selectedConversationId || !canManageSettings) return false;
+            try {
+                setPendingKickUserId(targetUserId);
+                setActionError(null);
+                await chatService.unblockGroupMember(selectedConversationId, targetUserId);
+                return true;
+            } catch (error) {
+                setActionError(normalizeErrorMessage(error, "Không thể bỏ chặn thành viên."));
+                return false;
+            } finally {
+                setPendingKickUserId(null);
+            }
+        },
+        [canManageSettings, selectedConversationId],
+    );
+
     const getPendingJoinRequestCount = useCallback(async () => {
         if (!selectedConversationId || !canManageSettings) {
             return 0;
@@ -698,6 +771,9 @@ export function useGroupManagement({
         addMembersToGroup,
         updateMemberRole,
         kickMember,
+        getBlockedMembers,
+        blockMember,
+        unblockMember,
         leaveGroup,
         transferOwnershipAndLeave,
         disbandGroup,

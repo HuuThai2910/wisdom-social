@@ -10,8 +10,10 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 
 import iuh.fit.edu.backend.common.dto.response.CursorResponse;
+import iuh.fit.edu.backend.modules.chat.dto.request.ForwardMessageRequest;
 import iuh.fit.edu.backend.modules.chat.dto.request.SendCallMessageRequest;
 import iuh.fit.edu.backend.modules.chat.dto.request.SendMessageRequest;
+import iuh.fit.edu.backend.modules.chat.dto.request.poll.CreatePollRequest;
 import iuh.fit.edu.backend.modules.chat.dto.response.MessageRecalledResponse;
 import iuh.fit.edu.backend.modules.chat.dto.response.MessageResponse;
 import iuh.fit.edu.backend.modules.chat.service.MessageService;
@@ -38,6 +40,16 @@ public class MessageServiceImpl implements MessageService{
     }
 
     @Override
+    public MessageResponse createPoll(CreatePollRequest createPollRequest, Long userId) {
+        return commandService.createPoll(createPollRequest, userId);
+    }
+
+    @Override
+    public List<MessageResponse> forwardMessage(ForwardMessageRequest forwardMessageRequest, Long userId) {
+        return commandService.forwardMessage(forwardMessageRequest, userId);
+    }
+
+    @Override
     public void pinMessage(String messageId, Long userId) {
         commandService.pinMessage(messageId, userId);
     }
@@ -45,6 +57,16 @@ public class MessageServiceImpl implements MessageService{
     @Override
     public void unpinMessage(String messageId, Long userId) {
         commandService.unpinMessage(messageId, userId);
+    }
+
+    @Override
+    public MessageResponse addReaction(String messageId, Long userId, String emoji) {
+        return commandService.addReaction(messageId, userId, emoji);
+    }
+
+    @Override
+    public MessageResponse getMessageById(String messageId, Long userId) {
+        return queryService.getMessageById(messageId, userId);
     }
 
     @Override

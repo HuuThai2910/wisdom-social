@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
     View,
     Text,
@@ -8,17 +8,27 @@ import {
     TouchableOpacity,
     Image,
     ActivityIndicator,
-    SafeAreaView,
+    ScrollView,
+    RefreshControl,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, useFocusEffect } from "expo-router";
-import { colors, spacing } from "@/constants";
+import { colors } from "@/constants";
 import { useAppContext } from "@/context/AppContext";
 import userService from "@/services/userService";
 import pageService from "@/services/pageService";
 import { useBlockNotifications } from "@/hooks/useBlockNotifications";
 import type { User } from "@/services/userService";
 import type { PageData } from "@/services/pageService";
+
+type TabType = "all" | "users" | "pages";
+
+const TABS: { key: TabType; label: string }[] = [
+    { key: "all",   label: "Tất cả"     },
+    { key: "users", label: "Người dùng" },
+    { key: "pages", label: "Trang"      },
+];
 
 type SearchItem =
     | { kind: "user"; data: User }
@@ -46,13 +56,12 @@ export default function InstagramSearchScreen() {
     const router = useRouter();
     const { currentUser } = useAppContext();
 
-    const [searchQuery, setSearchQuery] = useState("");
-    const [isLoading, setIsLoading] = useState(false);
-    const [allUsers, setAllUsers] = useState<User[]>([]);
-    const [allPages, setAllPages] = useState<PageData[]>([]);
-    const [results, setResults] = useState<SearchItem[]>([]);
-
-    const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const [tab,        setTab]        = useState<TabType>("all");
+    const [search,     setSearch]     = useState("");
+    const [isLoading,  setIsLoading]  = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
+    const [allUsers,   setAllUsers]   = useState<User[]>([]);
+    const [allPages,   setAllPages]   = useState<PageData[]>([]);
 
     const loadData = useCallback(async () => {
         const userId = currentUser?.id;
@@ -63,78 +72,77 @@ export default function InstagramSearchScreen() {
                 userService.getUsersForUser(userId),
                 pageService.getAllPages(),
             ]);
-            const filtered = users.filter((u) => String(u.id) !== String(userId));
-            setAllUsers(filtered);
+            setAllUsers(users.filter((u) => String(u.id) !== String(userId)));
             setAllPages(pages);
-            setResults(buildMixedList(filtered, pages));
         } catch {
         } finally {
             setIsLoading(false);
         }
     }, [currentUser?.id]);
 
-    // Reload khi screen lấy focus lại (vd: sau khi bỏ chặn ở profile rồi back)
     useFocusEffect(useCallback(() => { void loadData(); }, [loadData]));
 
-    // Reload realtime khi có block/unblock event qua WebSocket
     const blockTrigger = useBlockNotifications();
     useEffect(() => { void loadData(); }, [blockTrigger, loadData]);
 
-    const handleSearch = (text: string) => {
-        setSearchQuery(text);
-        if (debounceRef.current) clearTimeout(debounceRef.current);
-        debounceRef.current = setTimeout(() => {
-            const q = text.trim().toLowerCase();
-            if (!q) {
-                setResults(buildMixedList(allUsers, allPages));
-                return;
-            }
-            const matchedUsers = allUsers.filter(
-                (u) =>
-                    (u.name && u.name.toLowerCase().includes(q)) ||
-                    (u.username && u.username.toLowerCase().includes(q)) ||
-                    (u.phone && u.phone.includes(q))
-            );
-            const matchedPages = allPages.filter(
-                (p) =>
-                    (p.name && p.name.toLowerCase().includes(q)) ||
-                    (p.username && p.username?.toLowerCase().includes(q)) ||
-                    (p.category && p.category.toLowerCase().includes(q))
-            );
-            setResults(buildMixedList(matchedUsers, matchedPages));
-        }, 250);
-    };
+    const onRefresh = useCallback(async () => {
+        setRefreshing(true);
+        await loadData();
+        setRefreshing(false);
+    }, [loadData]);
 
+    /* ── Filtered results ── */
+    const q = search.trim().toLowerCase();
+    const matchedUsers = q
+        ? allUsers.filter(u =>
+            (u.name     && u.name.toLowerCase().includes(q))     ||
+            (u.username && u.username.toLowerCase().includes(q)) ||
+            (u.phone    && u.phone.includes(q))
+        )
+        : allUsers;
+    const matchedPages = q
+        ? allPages.filter(p =>
+            (p.name     && p.name.toLowerCase().includes(q))           ||
+            (p.username && p.username?.toLowerCase().includes(q))      ||
+            (p.category && p.category.toLowerCase().includes(q))
+        )
+        : allPages;
+
+    const results: SearchItem[] =
+        tab === "users" ? matchedUsers.map(u => ({ kind: "user", data: u })) :
+        tab === "pages" ? matchedPages.map(p => ({ kind: "page", data: p })) :
+        buildMixedList(matchedUsers, matchedPages);
+
+    /* ── Row renderers ── */
     const renderItem = ({ item }: { item: SearchItem }) => {
         if (item.kind === "user") {
             const u = item.data;
             return (
                 <TouchableOpacity
-                    style={styles.rowCard}
-                    activeOpacity={0.7}
-                    onPress={() => router.push({ pathname: "/(stack)/user-profile", params: { userId: u.id } })}
+                    style={s.row}
+                    activeOpacity={0.55}
+                    onPress={() => router.push({ pathname: "/(tabs)/user-profile", params: { userId: u.id } })}
                 >
                     {u.avatarUrl ? (
-                        <Image source={{ uri: toImageUrl(u.avatarUrl) }} style={styles.avatar} />
+                        <Image source={{ uri: toImageUrl(u.avatarUrl) }} style={s.avatar} />
                     ) : (
-                        <View style={styles.avatarFallback}>
-                            <Ionicons name="person" size={24} color={colors.textMuted} />
+                        <View style={[s.avatar, s.avatarFallback]}>
+                            <Ionicons name="person" size={24} color="#AEAEB2" />
                         </View>
                     )}
-                    <View style={styles.rowInfo}>
-                        <View style={styles.nameRow}>
-                            <Text style={styles.nameText} numberOfLines={1}>
-                                {u.name || u.fullName || u.username || u.phone}
-                            </Text>
+                    <View style={s.info}>
+                        <Text style={s.name} numberOfLines={1}>
+                            {u.name || u.fullName || u.username || u.phone}
+                        </Text>
+                        {u.username && (
+                            <Text style={s.sub} numberOfLines={1}>@{u.username}</Text>
+                        )}
+                    </View>
+                    {tab === "all" && (
+                        <View style={s.kindBadge}>
+                            <Ionicons name="person-outline" size={15} color="#636366" />
                         </View>
-                        {u.username && <Text style={styles.usernameText}>@{u.username}</Text>}
-                        {u.bio ? (
-                            <Text style={styles.subText} numberOfLines={1}>{u.bio}</Text>
-                        ) : null}
-                    </View>
-                    <View style={styles.kindBadge}>
-                        <Ionicons name="person" size={13} color={colors.textMuted} />
-                    </View>
+                    )}
                 </TouchableOpacity>
             );
         }
@@ -142,195 +150,290 @@ export default function InstagramSearchScreen() {
         const p = item.data;
         return (
             <TouchableOpacity
-                style={styles.rowCard}
-                activeOpacity={0.7}
+                style={s.row}
+                activeOpacity={0.55}
                 onPress={() => router.push({ pathname: "/(stack)/page-detail", params: { pageId: String(p.id) } })}
             >
                 {p.avatarUrl ? (
-                    <Image source={{ uri: toImageUrl(p.avatarUrl) }} style={styles.avatar} />
+                    <Image source={{ uri: toImageUrl(p.avatarUrl) }} style={s.avatar} />
                 ) : (
-                    <View style={styles.avatarFallback}>
-                        <Ionicons name="flag" size={24} color={colors.textMuted} />
+                    <View style={[s.avatar, s.avatarFallback]}>
+                        <Ionicons name="flag" size={24} color="#AEAEB2" />
                     </View>
                 )}
-                <View style={styles.rowInfo}>
-                    <View style={styles.nameRow}>
-                        <Text style={styles.nameText} numberOfLines={1}>{p.name}</Text>
+                <View style={s.info}>
+                    <View style={s.nameRow}>
+                        <Text style={s.name} numberOfLines={1}>{p.name}</Text>
                         {p.isVerified && (
                             <Ionicons name="checkmark-circle" size={14} color="#3B82F6" style={{ marginLeft: 4 }} />
                         )}
                     </View>
-                    {p.username && <Text style={styles.usernameText}>@{p.username}</Text>}
-                    {p.category && (
-                        <View style={styles.categoryChip}>
-                            <Text style={styles.categoryText}>{p.category}</Text>
-                        </View>
-                    )}
+                    {p.username ? (
+                        <Text style={s.sub} numberOfLines={1}>@{p.username}</Text>
+                    ) : p.category ? (
+                        <Text style={s.sub} numberOfLines={1}>{p.category}</Text>
+                    ) : null}
                 </View>
-                <View style={styles.kindBadge}>
-                    <Ionicons name="flag" size={13} color={colors.textMuted} />
-                </View>
+                {tab === "all" && (
+                    <View style={s.kindBadge}>
+                        <Ionicons name="flag-outline" size={15} color="#636366" />
+                    </View>
+                )}
             </TouchableOpacity>
         );
     };
 
+    /* ── Empty states ── */
+    const EMPTY: Record<TabType, { icon: keyof typeof Ionicons.glyphMap; text: string }> = {
+        all:   { icon: "compass-outline", text: search ? "Không tìm thấy kết quả"   : "Chưa có dữ liệu"    },
+        users: { icon: "people-outline",  text: search ? "Không tìm thấy người dùng" : "Chưa có người dùng" },
+        pages: { icon: "flag-outline",    text: search ? "Không tìm thấy trang"      : "Chưa có trang nào"  },
+    };
+
+    /* ── Render ── */
     return (
-        <SafeAreaView style={styles.container}>
-            <View style={styles.searchBar}>
-                <Ionicons name="search" size={20} color={colors.textMuted} />
-                <TextInput
-                    style={styles.searchInput}
-                    placeholder="Tìm kiếm người dùng, trang..."
-                    placeholderTextColor={colors.textMuted}
-                    value={searchQuery}
-                    onChangeText={handleSearch}
-                    autoCapitalize="none"
-                    returnKeyType="search"
-                />
-                {searchQuery.length > 0 && (
-                    <TouchableOpacity onPress={() => handleSearch("")} hitSlop={8}>
-                        <Ionicons name="close-circle" size={20} color={colors.textMuted} />
-                    </TouchableOpacity>
-                )}
+        <SafeAreaView style={s.screen} edges={["top"]}>
+
+            {/* ── Header ── */}
+            <View style={s.header}>
+                <Text style={s.headerTitle}>Khám phá</Text>
             </View>
 
-            {!isLoading && results.length > 0 && (
-                <Text style={styles.resultCount}>
-                    {results.length} kết quả{searchQuery ? ` cho "${searchQuery}"` : ""}
-                </Text>
-            )}
+            {/* ── Tab chips ── */}
+            <View style={s.tabWrap}>
+                <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={s.tabScroll}
+                >
+                    {TABS.map(t => (
+                        <TouchableOpacity
+                            key={t.key}
+                            style={[s.chip, tab === t.key && s.chipActive]}
+                            onPress={() => { setTab(t.key); setSearch(""); }}
+                            activeOpacity={0.7}
+                        >
+                            <Text style={[s.chipText, tab === t.key && s.chipTextActive]}>
+                                {t.label}
+                            </Text>
+                        </TouchableOpacity>
+                    ))}
+                </ScrollView>
+            </View>
 
-            {isLoading ? (
-                <View style={styles.centerWrap}>
-                    <ActivityIndicator size="large" color={colors.primary} />
-                    <Text style={styles.loadingText}>Đang tải...</Text>
+            {/* ── Search bar ── */}
+            <View style={s.searchWrap}>
+                <View style={s.searchBar}>
+                    <Ionicons name="search-outline" size={16} color="#8E8E93" />
+                    <TextInput
+                        style={s.searchInput}
+                        value={search}
+                        onChangeText={setSearch}
+                        placeholder={
+                            tab === "users" ? "Tìm kiếm người dùng..." :
+                            tab === "pages" ? "Tìm kiếm trang..."      :
+                            "Tìm kiếm người dùng, trang..."
+                        }
+                        placeholderTextColor="#8E8E93"
+                        clearButtonMode="while-editing"
+                        returnKeyType="search"
+                        autoCapitalize="none"
+                    />
+                    {search.length > 0 && (
+                        <TouchableOpacity onPress={() => setSearch("")}>
+                            <Ionicons name="close-circle" size={16} color="#8E8E93" />
+                        </TouchableOpacity>
+                    )}
                 </View>
-            ) : results.length === 0 ? (
-                <View style={styles.centerWrap}>
-                    <View style={styles.emptyCircle}>
-                        <Ionicons
-                            name={searchQuery ? "search-outline" : "people-outline"}
-                            size={40}
-                            color={colors.textMuted}
-                        />
-                    </View>
-                    <Text style={styles.emptyTitle}>
-                        {searchQuery ? "Không tìm thấy kết quả" : "Chưa có dữ liệu"}
-                    </Text>
-                    {searchQuery ? (
-                        <Text style={styles.emptySub}>Thử từ khóa khác</Text>
-                    ) : null}
+            </View>
+
+            {/* ── List ── */}
+            {isLoading ? (
+                <View style={s.center}>
+                    <ActivityIndicator color={colors.primary} size="large" />
                 </View>
             ) : (
                 <FlatList
                     data={results}
-                    renderItem={renderItem}
                     keyExtractor={(item, idx) => `${item.kind}-${item.data.id}-${idx}`}
-                    contentContainerStyle={styles.listContent}
+                    renderItem={renderItem}
+                    ItemSeparatorComponent={() => <View style={s.sep} />}
+                    refreshControl={
+                        <RefreshControl
+                            refreshing={refreshing}
+                            onRefresh={onRefresh}
+                            tintColor={colors.primary}
+                            colors={[colors.primary]}
+                        />
+                    }
+                    contentContainerStyle={results.length === 0 ? s.emptyContainer : { paddingBottom: 32 }}
                     showsVerticalScrollIndicator={false}
                     keyboardShouldPersistTaps="handled"
+                    ListEmptyComponent={
+                        <View style={s.center}>
+                            <Ionicons name={EMPTY[tab].icon} size={56} color="#D1D1D6" />
+                            <Text style={s.emptyText}>{EMPTY[tab].text}</Text>
+                        </View>
+                    }
                 />
             )}
         </SafeAreaView>
     );
 }
 
-const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.white },
+/* ── Styles ── */
+const AVATAR_SIZE = 50;
 
+const s = StyleSheet.create({
+    screen: {
+        flex: 1,
+        backgroundColor: "#FFFFFF",
+    },
+
+    /* Header */
+    header: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        backgroundColor: "#FFFFFF",
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: "#E5E5EA",
+    },
+    headerTitle: {
+        fontSize: 20,
+        fontWeight: "700",
+        color: "#1C1C1E",
+        letterSpacing: -0.4,
+    },
+
+    /* Tab chips */
+    tabWrap: {
+        backgroundColor: "#FFFFFF",
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: "#E5E5EA",
+    },
+    tabScroll: {
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        gap: 8,
+    },
+    chip: {
+        paddingHorizontal: 16,
+        paddingVertical: 7,
+        borderRadius: 20,
+        backgroundColor: "#F2F2F7",
+    },
+    chipActive: {
+        backgroundColor: colors.primary,
+    },
+    chipText: {
+        fontSize: 14,
+        fontWeight: "500",
+        color: "#3A3A3C",
+    },
+    chipTextActive: {
+        color: "#FFFFFF",
+        fontWeight: "600",
+    },
+
+    /* Search */
+    searchWrap: {
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        backgroundColor: "#FFFFFF",
+    },
     searchBar: {
         flexDirection: "row",
         alignItems: "center",
         gap: 8,
-        marginHorizontal: 14,
-        marginTop: 10,
-        marginBottom: 4,
-        backgroundColor: colors.surface,
-        borderRadius: 14,
-        paddingHorizontal: 14,
-        paddingVertical: 10,
-        borderWidth: 1,
-        borderColor: colors.border,
+        backgroundColor: "#F2F2F7",
+        borderRadius: 10,
+        paddingHorizontal: 12,
+        height: 36,
     },
     searchInput: {
         flex: 1,
         fontSize: 15,
-        color: colors.text,
-        paddingVertical: 0,
+        color: "#1C1C1E",
+        padding: 0,
     },
 
-    resultCount: {
-        fontSize: 13,
-        color: colors.textMuted,
-        fontWeight: "500",
-        marginHorizontal: 18,
-        marginTop: 8,
-        marginBottom: 2,
-    },
-
-    listContent: { padding: 14, paddingBottom: 40 },
-    rowCard: {
+    /* Row */
+    row: {
         flexDirection: "row",
         alignItems: "center",
-        backgroundColor: colors.white,
-        borderRadius: 14,
-        padding: 14,
-        marginBottom: 10,
-        borderWidth: 1,
-        borderColor: colors.border,
-    },
-    avatar: {
-        width: 52,
-        height: 52,
-        borderRadius: 26,
-        borderWidth: 1.5,
-        borderColor: colors.border,
-    },
-    avatarFallback: {
-        width: 52,
-        height: 52,
-        borderRadius: 26,
-        backgroundColor: colors.surface,
-        alignItems: "center",
-        justifyContent: "center",
-        borderWidth: 1.5,
-        borderColor: colors.border,
-    },
-    rowInfo: { flex: 1, marginLeft: 12 },
-    nameRow: { flexDirection: "row", alignItems: "center" },
-    nameText: { fontSize: 15, fontWeight: "600", color: colors.text, flex: 1 },
-    usernameText: { fontSize: 13, color: colors.textMuted, marginTop: 2 },
-    subText: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
-    categoryChip: {
-        alignSelf: "flex-start",
-        backgroundColor: colors.primary + "15",
-        paddingHorizontal: 8,
-        paddingVertical: 2,
-        borderRadius: 8,
-        marginTop: 4,
-    },
-    categoryText: { fontSize: 11, color: colors.primary, fontWeight: "500" },
-    kindBadge: {
-        width: 28,
-        height: 28,
-        borderRadius: 14,
-        backgroundColor: colors.surface,
-        alignItems: "center",
-        justifyContent: "center",
-        marginLeft: 8,
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        backgroundColor: "#FFFFFF",
+        gap: 12,
     },
 
-    centerWrap: { flex: 1, justifyContent: "center", alignItems: "center", gap: 10 },
-    loadingText: { fontSize: 14, color: colors.textMuted },
-    emptyCircle: {
-        width: 80,
-        height: 80,
-        borderRadius: 40,
-        backgroundColor: colors.surface,
+    /* Avatar */
+    avatar: {
+        width: AVATAR_SIZE,
+        height: AVATAR_SIZE,
+        borderRadius: AVATAR_SIZE / 2,
+        flexShrink: 0,
+    },
+    avatarFallback: {
+        backgroundColor: "#E5E5EA",
         alignItems: "center",
         justifyContent: "center",
-        marginBottom: 8,
     },
-    emptyTitle: { fontSize: 16, fontWeight: "600", color: colors.textMuted },
-    emptySub: { fontSize: 13, color: colors.textMuted, marginTop: 4 },
+
+    /* Text info */
+    info: {
+        flex: 1,
+        justifyContent: "center",
+    },
+    nameRow: {
+        flexDirection: "row",
+        alignItems: "center",
+    },
+    name: {
+        fontSize: 15,
+        fontWeight: "600",
+        color: "#1C1C1E",
+        letterSpacing: -0.2,
+    },
+    sub: {
+        fontSize: 13,
+        color: "#8E8E93",
+        marginTop: 2,
+    },
+
+    /* Separator */
+    sep: {
+        height: StyleSheet.hairlineWidth,
+        backgroundColor: "#E5E5EA",
+        marginLeft: 16 + AVATAR_SIZE + 12,
+    },
+
+    /* Kind badge (only shown in "Tất cả" tab) */
+    kindBadge: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: "#F2F2F7",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+
+    /* Empty / loading */
+    emptyContainer: {
+        flexGrow: 1,
+    },
+    center: {
+        flex: 1,
+        alignItems: "center",
+        justifyContent: "center",
+        paddingBottom: 40,
+    },
+    emptyText: {
+        marginTop: 12,
+        fontSize: 15,
+        color: "#8E8E93",
+    },
 });

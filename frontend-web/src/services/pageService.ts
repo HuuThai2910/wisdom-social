@@ -276,9 +276,15 @@ export const pageService = {
         return response.data.data;
     },
 
-    // Get posts waiting for approval
+    // Get posts waiting for approval (admin/owner only)
     async getPostsWaitingForApproval(pageId: number): Promise<any[]> {
         const response = await axiosClient.get(`page/post/waiting-approve/${pageId}`);
+        return response.data.data;
+    },
+
+    // Get my own pending posts in a page (for regular members)
+    async getMyPendingPosts(pageId: number): Promise<any[]> {
+        const response = await axiosClient.get(`page/post/my-pending/${pageId}`);
         return response.data.data;
     },
 

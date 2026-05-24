@@ -3,26 +3,36 @@ import axiosClient from "../api/axiosClient";
 
 export type MessageType =
     | "TEXT"
+    | "LINK"
     | "IMAGE"
     | "VIDEO"
     | "FILE"
     | "AUDIO"
     | "CALL"
+    | "POLL"
     | "SYSTEM_PIN"
     | "SYSTEM_UPIN"
+    | "SYSTEM_POLL_CREATED"
+    | "SYSTEM_POLL_VOTED"
+    | "SYSTEM_POLL_CHANGED"
+    | "SYSTEM_POLL_CLOSED"
+    | "SYSTEM_POLL_PINNED"
     | "SYSTEM_CREATE_GROUP"
     | "SYSTEM_ADD_MEMBER"
     | "SYSTEM_LEAVE_GROUP"
     | "SYSTEM_KICK_MEMBER"
+    | "SYSTEM_BLOCK_MEMBER"
     | "SYSTEM_UPDATE_ROLE"
     | "SYSTEM_DISBAND_GROUP"
     | "SYSTEM_UPDATE_SETTING"
     | "SYSTEM_REQUIRE_APPROVAL"
-    | "SYSTEM_JOIN_VIA_LINK";
+    | "SYSTEM_JOIN_VIA_LINK"
+    | "SYSTEM_MEMBER_BLOCKED_FROM_JOIN"
+    | "SYSTEM_GROUP_INVITE_LINK_SENT";
 
 export type MemberRole = "OWNER" | "DEPUTY" | "MEMBER";
 
-export type MemberStatus = "ACTIVE" | "LEFT" | "KICKED" | "GROUP_DISBANDED";
+export type MemberStatus = "ACTIVE" | "LEFT" | "KICKED" | "BLOCKED" | "GROUP_DISBANDED";
 
 export interface ReplyInfo {
     messageId: string;
@@ -40,12 +50,55 @@ export interface Message {
     senderId: number;
     senderName?: string;
     senderAvatar?: string;
+    pollId?: string;
+    poll?: PollResponse;
     replyInfo?: ReplyInfo;
     active?: boolean;
     isActive?: boolean;
     isRecalled?: boolean;
     attachments?: MessageAttachment[];
     deletedFor?: number[];
+    iconName?: MessageReaction[];
+    conversation?: Conversation;
+    newConversation?: boolean;
+}
+
+export interface PollOptionResponse {
+    id: string;
+    text: string;
+    voteCount: number;
+    selectedByCurrentUser: boolean;
+    voterIds?: number[];
+}
+
+export interface PollResponse {
+    id: string;
+    messageId: string;
+    conversationId: number;
+    creatorId: number;
+    title: string;
+    allowMultipleChoices: boolean;
+    allowAddOption: boolean;
+    anonymous: boolean;
+    closed: boolean;
+    recalled: boolean;
+    expiresAt?: string | null;
+    createdAt: string;
+    updatedAt: string;
+    totalVoterCount?: number;
+    totalVoteCount: number;
+    currentUserOptionIds: string[];
+    options: PollOptionResponse[];
+}
+
+export interface CreatePollRequest {
+    conversationId: number;
+    title: string;
+    options: string[];
+    allowMultipleChoices?: boolean;
+    allowAddOption?: boolean;
+    anonymous?: boolean;
+    expiresAt?: string | null;
 }
 
 export interface MessageAttachment {
@@ -53,6 +106,16 @@ export interface MessageAttachment {
     type?: string;
     fileName?: string;
     fileSize?: number;
+}
+
+export interface MessageReactionUser {
+    userId: number;
+    quantity: number;
+}
+
+export interface MessageReaction {
+    name: string;
+    user: MessageReactionUser[];
 }
 
 export interface ReferenceUser {
@@ -94,6 +157,13 @@ export interface ConversationSidebar {
     updatedAt: string;
     lastMessage?: LastMessage;
     unreadCount?: number;
+    members?: ConversationMember[];
+}
+
+export interface ConversationPin {
+    conversationId: number;
+    pinnedAt: string;
+    conversation?: ConversationSidebar;
 }
 
 export interface Conversation extends ConversationSidebar {
@@ -116,7 +186,7 @@ export interface ConversationPreview {
     userStatus: InviteUserStatus;
 }
 
-export type JoinRequestStatus = "PENDING" | "APPROVED" | "REJECTED";
+export type JoinRequestStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
 
 export interface JoinRequest {
     id: number;
@@ -146,12 +216,15 @@ export interface ConversationMember {
     status?: MemberStatus;
     joinedAt?: string;
     leftAt?: string;
+    blockedAt?: string;
+    blockedById?: number;
 }
 
 export interface SendMessageRequest {
     content: string;
     type: MessageType;
-    conversationId: number;
+    conversationId?: number;
+    receiverId?: number;
     replyToId?: string;
     attachments?: Array<{
         url: string;
@@ -159,6 +232,23 @@ export interface SendMessageRequest {
         fileName: string;
         fileSize: number;
     }>;
+}
+
+export interface ChatUserSearchResult {
+    userId: number;
+    name: string;
+    username?: string;
+    phone?: string;
+    avatarUrl?: string;
+    friendStatus: "FRIEND" | "STRANGER";
+    mutualGroupsCount: number;
+    existingDirectConversationId?: number | null;
+    blocked?: boolean;
+}
+
+export interface ForwardMessageRequest {
+    sourceMessageId: string;
+    targetConversationIds: number[];
 }
 
 export interface SendCallMessageRequest {
@@ -203,8 +293,16 @@ export interface CreateGroupRequest {
     memberIds: number[];
 }
 
+export interface CreateGroupWithInvitesRequest extends CreateGroupRequest {
+    inviteeUserIds: number[];
+}
+
 export interface AddGroupMembersRequest {
     newMemberIds: number[];
+}
+
+export interface AddGroupMembersWithInvitesRequest extends AddGroupMembersRequest {
+    inviteeUserIds: number[];
 }
 
 function normalizeMembersPayload(
@@ -243,11 +341,40 @@ function unwrapApiData<T>(payload: ApiResponse<T> | T): T {
     return payload as T;
 }
 
+export function isMaxPinLimitError(error: unknown): boolean {
+    const responseData =
+        error &&
+        typeof error === "object" &&
+        "response" in error
+            ? (error as { response?: { data?: unknown } }).response?.data
+            : undefined;
+
+    if (!responseData || typeof responseData !== "object") return false;
+
+    const payload = responseData as {
+        errors?: unknown;
+        data?: unknown;
+        message?: unknown;
+    };
+    const errors = payload.errors;
+    const nestedCode =
+        errors && typeof errors === "object" && "code" in errors
+            ? (errors as { code?: unknown }).code
+            : undefined;
+
+    return nestedCode === "MAX_PIN_LIMIT";
+}
+
 const chatService = {
     async getConversations(
         userId: number,
     ): Promise<ApiResponse<ConversationSidebar[]>> {
         const response = await axiosClient.get("/conversations");
+        return response.data;
+    },
+
+    async getForwardableConversations(): Promise<ApiResponse<ConversationSidebar[]>> {
+        const response = await axiosClient.get("/conversations/forward-targets");
         return response.data;
     },
 
@@ -305,6 +432,64 @@ const chatService = {
         return response.data;
     },
 
+    async searchChatUserByPhone(phone: string): Promise<ChatUserSearchResult | null> {
+        const response = await axiosClient.get("/chat-users/search-by-phone", {
+            params: { phone },
+        });
+        return unwrapApiData(
+            response.data as ApiResponse<ChatUserSearchResult | null> | ChatUserSearchResult | null,
+        );
+    },
+
+    async getChatUserRelationship(userId: number): Promise<ChatUserSearchResult | null> {
+        const response = await axiosClient.get(`/chat-users/${userId}/relationship`);
+        return unwrapApiData(
+            response.data as ApiResponse<ChatUserSearchResult | null> | ChatUserSearchResult | null,
+        );
+    },
+
+    async resolveDirectConversation(receiverId: number): Promise<Conversation> {
+        const response = await axiosClient.post("/conversations/direct/resolve", {
+            receiverId,
+        });
+        return unwrapApiData(response.data as ApiResponse<Conversation> | Conversation);
+    },
+
+    async createPoll(request: CreatePollRequest): Promise<Message> {
+        const response = await axiosClient.post("/messages/polls", request);
+        return unwrapApiData(response.data as ApiResponse<Message> | Message);
+    },
+
+    async votePoll(pollId: string, optionIds: string[]): Promise<PollResponse> {
+        const response = await axiosClient.post(`/polls/${pollId}/vote`, {
+            optionIds,
+        });
+        return unwrapApiData(response.data as ApiResponse<PollResponse> | PollResponse);
+    },
+
+    async removePollVote(pollId: string): Promise<PollResponse> {
+        const response = await axiosClient.delete(`/polls/${pollId}/vote`);
+        return unwrapApiData(response.data as ApiResponse<PollResponse> | PollResponse);
+    },
+
+    async addPollOption(pollId: string, text: string): Promise<PollResponse> {
+        const response = await axiosClient.post(`/polls/${pollId}/options`, {
+            text,
+        });
+        return unwrapApiData(response.data as ApiResponse<PollResponse> | PollResponse);
+    },
+
+    async closePoll(pollId: string): Promise<PollResponse> {
+        const response = await axiosClient.patch(`/polls/${pollId}/close`);
+        return unwrapApiData(response.data as ApiResponse<PollResponse> | PollResponse);
+    },
+
+    async forwardMessage(request: ForwardMessageRequest): Promise<Message[]> {
+        const response = await axiosClient.post("/messages/forward", request);
+        const payload = response.data as ApiResponse<Message[]> | Message[];
+        return unwrapApiData(payload);
+    },
+
     async sendCallMessage(
         request: SendCallMessageRequest,
         userId: number,
@@ -321,6 +506,24 @@ const chatService = {
             `/conversations/${conversationId}`,
         );
         return response.data;
+    },
+
+    async fetchPinnedConversations(): Promise<ConversationPin[]> {
+        const response = await axiosClient.get("/pins");
+        return unwrapApiData(
+            response.data as ApiResponse<ConversationPin[]> | ConversationPin[],
+        );
+    },
+
+    async pinConversation(conversationId: number): Promise<ConversationPin> {
+        const response = await axiosClient.post("/pins", { conversationId });
+        return unwrapApiData(
+            response.data as ApiResponse<ConversationPin> | ConversationPin,
+        );
+    },
+
+    async unpinConversation(conversationId: number): Promise<void> {
+        await axiosClient.delete(`/pins/${conversationId}`);
     },
 
     async markAsRead(
@@ -356,12 +559,37 @@ const chatService = {
         );
     },
 
+    async createGroupConversationWithInvites(
+        request: CreateGroupWithInvitesRequest,
+    ): Promise<Conversation> {
+        const response = await axiosClient.post(
+            "/conversations/group-with-invites",
+            request,
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
     async addMembersToGroup(
         conversationId: number,
         request: AddGroupMembersRequest,
     ): Promise<Conversation> {
         const response = await axiosClient.post(
             `/conversations/${conversationId}/members`,
+            request,
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async addMembersToGroupWithInvites(
+        conversationId: number,
+        request: AddGroupMembersWithInvitesRequest,
+    ): Promise<Conversation> {
+        const response = await axiosClient.post(
+            `/conversations/${conversationId}/members-with-invites`,
             request,
         );
         return unwrapApiData(
@@ -381,9 +609,50 @@ const chatService = {
     async kickGroupMember(
         conversationId: number,
         targetUserId: number,
+        blockFromGroup: boolean = false,
     ): Promise<Conversation> {
         const response = await axiosClient.delete(
             `/conversations/${conversationId}/members/${targetUserId}`,
+            {
+                params: {
+                    blockFromGroup,
+                },
+            },
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async getBlockedGroupMembers(
+        conversationId: number,
+    ): Promise<ConversationMember[]> {
+        const response = await axiosClient.get(
+            `/conversations/${conversationId}/blocked-members`,
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<ConversationMember[]> | ConversationMember[],
+        );
+    },
+
+    async blockGroupMember(
+        conversationId: number,
+        targetUserId: number,
+    ): Promise<Conversation> {
+        const response = await axiosClient.post(
+            `/conversations/${conversationId}/blocked-members/${targetUserId}`,
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async unblockGroupMember(
+        conversationId: number,
+        targetUserId: number,
+    ): Promise<Conversation> {
+        const response = await axiosClient.delete(
+            `/conversations/${conversationId}/blocked-members/${targetUserId}`,
         );
         return unwrapApiData(
             response.data as ApiResponse<Conversation> | Conversation,
@@ -511,6 +780,12 @@ const chatService = {
         );
     },
 
+    async cancelMyJoinRequest(conversationId: number): Promise<void> {
+        await axiosClient.delete(
+            `/conversations/${conversationId}/join-requests/me`,
+        );
+    },
+
     async updateConversationMemberNickname(
         request: UpdateNicknameRequest,
     ): Promise<void> {
@@ -535,6 +810,14 @@ const chatService = {
 
     async unpinMessage(messageId: string, userId: number): Promise<void> {
         await axiosClient.delete(`/messages/${messageId}/pin`);
+    },
+
+    async addReaction(messageId: string, emoji: string): Promise<Message> {
+        const response = await axiosClient.post(
+            `/messages/${messageId}/reactions`,
+            { emoji },
+        );
+        return unwrapApiData(response.data as ApiResponse<Message> | Message);
     },
 
     // Bước 1: Xin presigned URL từ BE để upload file lên S3
@@ -629,6 +912,13 @@ const chatService = {
         await axiosClient.delete(
             `/conversations/${conversationId}/delete-for-me`,
         );
+    },
+
+    async hideConversationForMe(
+        conversationId: number,
+        _userId: number,
+    ): Promise<void> {
+        await axiosClient.patch(`/conversations/${conversationId}/hide-for-me`);
     },
 };
 

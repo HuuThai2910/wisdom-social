@@ -17,11 +17,23 @@ type GroupSystemPreviewType =
     | "SYSTEM_ADD_MEMBER"
     | "SYSTEM_UPDATE_ROLE"
     | "SYSTEM_KICK_MEMBER"
+    | "SYSTEM_BLOCK_MEMBER"
+    | "SYSTEM_MEMBER_BLOCKED_FROM_JOIN"
     | "SYSTEM_LEAVE_GROUP"
     | "SYSTEM_DISBAND_GROUP"
     | "SYSTEM_UPDATE_SETTING"
     | "SYSTEM_REQUIRE_APPROVAL"
-    | "SYSTEM_JOIN_VIA_LINK";
+    | "SYSTEM_JOIN_VIA_LINK"
+    | "SYSTEM_GROUP_INVITE_LINK_SENT";
+
+type PollSystemPreviewType =
+    | "SYSTEM_POLL_CREATED"
+    | "SYSTEM_POLL_VOTED"
+    | "SYSTEM_POLL_CHANGED"
+    | "SYSTEM_POLL_CLOSED"
+    | "SYSTEM_POLL_PINNED";
+
+type PinSystemPreviewType = "SYSTEM_PIN" | "SYSTEM_UPIN";
 
 const DEFAULT_PREVIEW_TEXT = "Bắt đầu trò chuyện";
 
@@ -30,11 +42,27 @@ const GROUP_SYSTEM_PREVIEW_TYPES = new Set<GroupSystemPreviewType>([
     "SYSTEM_ADD_MEMBER",
     "SYSTEM_UPDATE_ROLE",
     "SYSTEM_KICK_MEMBER",
+    "SYSTEM_BLOCK_MEMBER",
+    "SYSTEM_MEMBER_BLOCKED_FROM_JOIN",
     "SYSTEM_LEAVE_GROUP",
     "SYSTEM_DISBAND_GROUP",
     "SYSTEM_UPDATE_SETTING",
     "SYSTEM_REQUIRE_APPROVAL",
     "SYSTEM_JOIN_VIA_LINK",
+    "SYSTEM_GROUP_INVITE_LINK_SENT",
+]);
+
+const POLL_SYSTEM_PREVIEW_TYPES = new Set<PollSystemPreviewType>([
+    "SYSTEM_POLL_CREATED",
+    "SYSTEM_POLL_VOTED",
+    "SYSTEM_POLL_CHANGED",
+    "SYSTEM_POLL_CLOSED",
+    "SYSTEM_POLL_PINNED",
+]);
+
+const PIN_SYSTEM_PREVIEW_TYPES = new Set<PinSystemPreviewType>([
+    "SYSTEM_PIN",
+    "SYSTEM_UPIN",
 ]);
 
 function isGroupSystemPreviewType(
@@ -47,8 +75,76 @@ function isGroupSystemPreviewType(
     return GROUP_SYSTEM_PREVIEW_TYPES.has(type as GroupSystemPreviewType);
 }
 
+function isPollSystemPreviewType(type: unknown): type is PollSystemPreviewType {
+    return POLL_SYSTEM_PREVIEW_TYPES.has(type as PollSystemPreviewType);
+}
+
+function isPinSystemPreviewType(type: unknown): type is PinSystemPreviewType {
+    return PIN_SYSTEM_PREVIEW_TYPES.has(type as PinSystemPreviewType);
+}
+
 function isSystemMessageType(type: unknown): type is string {
     return typeof type === "string" && type.startsWith("SYSTEM_");
+}
+
+function isAnonymousPollActorMessage(type: unknown): boolean {
+    return type === "SYSTEM_POLL_VOTED" || type === "SYSTEM_POLL_CHANGED";
+}
+
+function extractPollTitle(content: string): string {
+    const colonIndex = content.indexOf(":");
+    return colonIndex >= 0 ? content.slice(colonIndex + 1).trim() : content;
+}
+
+function getPollSystemAction(type: unknown): string {
+    switch (type) {
+        case "SYSTEM_POLL_CREATED":
+            return "đã tạo cuộc bình chọn";
+        case "SYSTEM_POLL_VOTED":
+            return "đã tham gia cuộc bình chọn";
+        case "SYSTEM_POLL_CHANGED":
+            return "đã đổi lựa chọn trong cuộc bình chọn";
+        case "SYSTEM_POLL_CLOSED":
+            return "đã khóa bình chọn";
+        case "SYSTEM_POLL_PINNED":
+            return "đã ghim bình chọn";
+        default:
+            return "đã cập nhật bình chọn";
+    }
+}
+
+function buildPollSystemPreview(
+    lastMessage: NonNullable<Conversation["lastMessage"]>,
+    currentUserId: number,
+): string {
+    const content = lastMessage.lastMessageContent?.trim() || DEFAULT_PREVIEW_TEXT;
+    const title = extractPollTitle(content);
+    const actorLabel =
+        isAnonymousPollActorMessage(lastMessage.lastMessageType) && Number(lastMessage.lastSenderId) <= 0
+            ? "Một thành viên"
+            : Number(lastMessage.lastSenderId) === Number(currentUserId)
+              ? "Bạn"
+              : lastMessage.lastSenderName?.trim() || "Người dùng";
+
+    return title
+        ? `${actorLabel} ${getPollSystemAction(lastMessage.lastMessageType)}: ${title}`
+        : `${actorLabel} ${getPollSystemAction(lastMessage.lastMessageType)}`;
+}
+
+function buildPinSystemPreview(
+    lastMessage: NonNullable<Conversation["lastMessage"]>,
+    currentUserId: number,
+): string {
+    const actorLabel =
+        Number(lastMessage.lastSenderId) === Number(currentUserId)
+            ? "Bạn"
+            : lastMessage.lastSenderName?.trim() || "Người dùng";
+    const action =
+        lastMessage.lastMessageType === "SYSTEM_UPIN"
+            ? "đã bỏ ghim một tin nhắn"
+            : "đã ghim một tin nhắn";
+
+    return `${actorLabel} ${action}`;
 }
 
 export function buildConversationLastMessagePreview({
@@ -89,6 +185,22 @@ export function buildConversationLastMessagePreview({
 
             return {
                 text: DEFAULT_PREVIEW_TEXT,
+                showSenderPrefix: false,
+                senderLabel: "",
+            };
+        }
+
+        if (isPollSystemPreviewType(lastMessage.lastMessageType)) {
+            return {
+                text: buildPollSystemPreview(lastMessage, currentUserId),
+                showSenderPrefix: false,
+                senderLabel: "",
+            };
+        }
+
+        if (isPinSystemPreviewType(lastMessage.lastMessageType)) {
+            return {
+                text: buildPinSystemPreview(lastMessage, currentUserId),
                 showSenderPrefix: false,
                 senderLabel: "",
             };

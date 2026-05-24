@@ -6,7 +6,10 @@ package iuh.fit.edu.backend.modules.conversation.controller;
 
 import iuh.fit.edu.backend.modules.conversation.constant.MemberRole;
 import iuh.fit.edu.backend.modules.conversation.dto.request.AddMemberRequest;
+import iuh.fit.edu.backend.modules.conversation.dto.request.AddMemberWithInvitesRequest;
 import iuh.fit.edu.backend.modules.conversation.dto.request.CreateGroupRequest;
+import iuh.fit.edu.backend.modules.conversation.dto.request.CreateGroupWithInvitesRequest;
+import iuh.fit.edu.backend.modules.conversation.dto.request.ResolveDirectConversationRequest;
 import iuh.fit.edu.backend.common.dto.response.CursorResponse;
 import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationMemberResponse;
 import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationPreviewResponse;
@@ -15,6 +18,7 @@ import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationSidebar
 import iuh.fit.edu.backend.modules.chat.dto.response.MessageResponse;
 import iuh.fit.edu.backend.modules.conversation.service.ConversationMemberService;
 import iuh.fit.edu.backend.modules.conversation.service.ConversationService;
+import iuh.fit.edu.backend.modules.conversation.service.DirectConversationService;
 import iuh.fit.edu.backend.modules.chat.service.MessageService;
 import iuh.fit.edu.backend.modules.user.service.UserService;
 import jakarta.validation.Valid;
@@ -41,11 +45,18 @@ public class ConversationController {
     private final MessageService messageService;
     private final ConversationMemberService memberService;
     private final UserService userService;
+    private final DirectConversationService directConversationService;
 
     @GetMapping
     public ResponseEntity<List<ConversationSidebarResponse>> getConversationsByUser(){
         Long userId = this.userService.getCurrentUser().getId();
         return ResponseEntity.ok(conversationService.getConversationsByUser(userId));
+    }
+
+    @GetMapping("/forward-targets")
+    public ResponseEntity<List<ConversationSidebarResponse>> getForwardableConversationsByUser(){
+        Long userId = this.userService.getCurrentUser().getId();
+        return ResponseEntity.ok(conversationService.getForwardableConversationsByUser(userId));
     }
 
     @GetMapping("/{conversationId}")
@@ -110,6 +121,13 @@ public class ConversationController {
         return ResponseEntity.ok().build();
     }
 
+    @PatchMapping("/{conversationId}/hide-for-me")
+    public ResponseEntity<Void> hideConversationForMe(@PathVariable Long conversationId){
+        Long userId = this.userService.getCurrentUser().getId();
+        this.conversationService.hideConversationForMe(conversationId, userId);
+        return ResponseEntity.ok().build();
+    }
+
     @GetMapping("/{conversationId}/members")
     public ResponseEntity<Map<Long, ConversationMemberResponse>> getConversationMembers(
             @PathVariable Long conversationId) {
@@ -123,10 +141,38 @@ public class ConversationController {
         ConversationResponse response = this.conversationService.createGroup(request, userId);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
+
+    @PostMapping("/group-with-invites")
+    public ResponseEntity<ConversationResponse> createConversationWithInvites(
+            @Valid @RequestBody CreateGroupWithInvitesRequest request) {
+        Long userId = this.userService.getCurrentUser().getId();
+        ConversationResponse response = this.conversationService.createGroupWithInvites(request, userId);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @PostMapping("/direct/resolve")
+    public ResponseEntity<ConversationResponse> resolveDirectConversation(
+            @Valid @RequestBody ResolveDirectConversationRequest request) {
+        Long userId = this.userService.getCurrentUser().getId();
+        Long conversationId = directConversationService
+                .getOrCreateDirectConversation(userId, request.getReceiverId())
+                .conversation()
+                .getId();
+        return ResponseEntity.ok(conversationService.getConversationById(conversationId, userId));
+    }
     @PostMapping("/{conversationId}/members")
     public ResponseEntity<ConversationResponse> addMembers(@PathVariable Long conversationId, @Valid @RequestBody AddMemberRequest request){
         Long userId = this.userService.getCurrentUser().getId();
         ConversationResponse response = this.memberService.addMembers(conversationId, request, userId);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/{conversationId}/members-with-invites")
+    public ResponseEntity<ConversationResponse> addMembersWithInvites(
+            @PathVariable Long conversationId,
+            @Valid @RequestBody AddMemberWithInvitesRequest request) {
+        Long userId = this.userService.getCurrentUser().getId();
+        ConversationResponse response = this.memberService.addMembersWithInvites(conversationId, request, userId);
         return ResponseEntity.ok(response);
     }
     @DeleteMapping("/{conversationId}/leave")
@@ -145,6 +191,28 @@ public class ConversationController {
         Long requesterId = this.userService.getCurrentUser().getId();
         ConversationResponse response = memberService.kickMember(conversationId, targetId, requesterId);
         return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/{conversationId}/blocked-members")
+    public ResponseEntity<List<ConversationMemberResponse>> getBlockedMembers(@PathVariable Long conversationId) {
+        Long requesterId = this.userService.getCurrentUser().getId();
+        return ResponseEntity.ok(memberService.getBlockedMembers(conversationId, requesterId));
+    }
+
+    @PostMapping("/{conversationId}/blocked-members/{targetId}")
+    public ResponseEntity<ConversationResponse> blockMember(
+            @PathVariable Long conversationId,
+            @PathVariable Long targetId) {
+        Long requesterId = this.userService.getCurrentUser().getId();
+        return ResponseEntity.ok(memberService.blockMember(conversationId, targetId, requesterId));
+    }
+
+    @DeleteMapping("/{conversationId}/blocked-members/{targetId}")
+    public ResponseEntity<ConversationResponse> unblockMember(
+            @PathVariable Long conversationId,
+            @PathVariable Long targetId) {
+        Long requesterId = this.userService.getCurrentUser().getId();
+        return ResponseEntity.ok(memberService.unblockMember(conversationId, targetId, requesterId));
     }
 
     @PatchMapping("/{conversationId}/members/{targetId}/role")

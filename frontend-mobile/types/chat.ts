@@ -9,26 +9,36 @@ export interface ApiResponse<T> {
 
 export type MessageType =
     | "TEXT"
+    | "LINK"
     | "IMAGE"
     | "VIDEO"
     | "FILE"
     | "AUDIO"
     | "CALL"
+    | "POLL"
     | "SYSTEM_PIN"
     | "SYSTEM_UPIN"
+    | "SYSTEM_POLL_CREATED"
+    | "SYSTEM_POLL_VOTED"
+    | "SYSTEM_POLL_CHANGED"
+    | "SYSTEM_POLL_CLOSED"
+    | "SYSTEM_POLL_PINNED"
     | "SYSTEM_CREATE_GROUP"
     | "SYSTEM_ADD_MEMBER"
     | "SYSTEM_LEAVE_GROUP"
     | "SYSTEM_KICK_MEMBER"
+    | "SYSTEM_BLOCK_MEMBER"
     | "SYSTEM_UPDATE_ROLE"
     | "SYSTEM_DISBAND_GROUP"
     | "SYSTEM_UPDATE_SETTING"
     | "SYSTEM_REQUIRE_APPROVAL"
-    | "SYSTEM_JOIN_VIA_LINK";
+    | "SYSTEM_JOIN_VIA_LINK"
+    | "SYSTEM_MEMBER_BLOCKED_FROM_JOIN"
+    | "SYSTEM_GROUP_INVITE_LINK_SENT";
 
 export type MemberRole = "OWNER" | "DEPUTY" | "MEMBER";
 
-export type MemberStatus = "ACTIVE" | "LEFT" | "KICKED" | "GROUP_DISBANDED";
+export type MemberStatus = "ACTIVE" | "LEFT" | "KICKED" | "BLOCKED" | "GROUP_DISBANDED";
 
 export interface ReplyInfo {
     messageId: string;
@@ -53,12 +63,65 @@ export interface Message {
     senderId: number;
     senderName?: string;
     senderAvatar?: string;
+    pollId?: string;
+    poll?: PollResponse;
     replyInfo?: ReplyInfo;
     active?: boolean;
     isActive?: boolean;
     isRecalled?: boolean;
     attachments?: MessageAttachment[];
     deletedFor?: number[];
+    iconName?: MessageReaction[];
+    conversation?: Conversation;
+    newConversation?: boolean;
+}
+
+export interface PollOptionResponse {
+    id: string;
+    text: string;
+    voteCount: number;
+    selectedByCurrentUser: boolean;
+    voterIds?: number[];
+}
+
+export interface PollResponse {
+    id: string;
+    messageId: string;
+    conversationId: number;
+    creatorId: number;
+    title: string;
+    allowMultipleChoices: boolean;
+    allowAddOption: boolean;
+    anonymous: boolean;
+    closed: boolean;
+    recalled: boolean;
+    expiresAt?: string | null;
+    createdAt: string;
+    updatedAt: string;
+    totalVoterCount?: number;
+    totalVoteCount: number;
+    currentUserOptionIds: string[];
+    options: PollOptionResponse[];
+}
+
+export interface CreatePollRequest {
+    conversationId: number;
+    title: string;
+    options: string[];
+    allowMultipleChoices?: boolean;
+    allowAddOption?: boolean;
+    anonymous?: boolean;
+    expiresAt?: string | null;
+}
+
+export interface MessageReactionUser {
+    userId: number;
+    quantity: number;
+}
+
+export interface MessageReaction {
+    name: string;
+    user: MessageReactionUser[];
 }
 
 export interface ReferenceUser {
@@ -105,6 +168,8 @@ export interface ConversationMember {
     status?: MemberStatus;
     joinedAt?: string;
     leftAt?: string;
+    blockedAt?: string;
+    blockedById?: number;
 }
 
 export interface ConversationSidebar {
@@ -115,10 +180,17 @@ export interface ConversationSidebar {
     updatedAt: string;
     lastMessage?: LastMessage;
     unreadCount?: number;
+    members?: ConversationMember[];
     isMessageRestricted?: boolean;
     isJoinApprovalRequired?: boolean;
     pendingRequests?: JoinRequest[] | null;
     inviteToken?: string | null;
+}
+
+export interface ConversationPin {
+    conversationId: number;
+    pinnedAt: string;
+    conversation?: ConversationSidebar;
 }
 
 export interface Conversation extends ConversationSidebar {
@@ -126,7 +198,7 @@ export interface Conversation extends ConversationSidebar {
     pinnedMessages?: PinnedMessageDetail[];
 }
 
-export type JoinRequestStatus = "PENDING" | "APPROVED" | "REJECTED";
+export type JoinRequestStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
 
 export interface JoinRequest {
     id: number;
@@ -161,7 +233,8 @@ export interface ConversationPreview {
 export interface SendMessageRequest {
     content: string;
     type: MessageType;
-    conversationId: number;
+    conversationId?: number;
+    receiverId?: number;
     replyToId?: string;
     attachments?: Array<{
         url: string;
@@ -170,6 +243,24 @@ export interface SendMessageRequest {
         fileSize: number;
     }>;
 }
+
+export interface ChatUserSearchResult {
+    userId: number;
+    name: string;
+    username?: string;
+    phone?: string;
+    avatarUrl?: string;
+    friendStatus: "FRIEND" | "STRANGER";
+    mutualGroupsCount: number;
+    existingDirectConversationId?: number | null;
+    blocked?: boolean;
+}
+
+export interface ForwardMessageRequest {
+    sourceMessageId: string;
+    targetConversationIds: number[];
+}
+
 export interface SendCallMessageRequest {
     conversationId: number;
     callType: "audio" | "video";
@@ -189,8 +280,16 @@ export interface CreateGroupRequest {
     memberIds: number[];
 }
 
+export interface CreateGroupWithInvitesRequest extends CreateGroupRequest {
+    inviteeUserIds: number[];
+}
+
 export interface AddGroupMembersRequest {
     newMemberIds: number[];
+}
+
+export interface AddGroupMembersWithInvitesRequest extends AddGroupMembersRequest {
+    inviteeUserIds: number[];
 }
 
 export interface PresignedUrlResponse {
@@ -281,7 +380,8 @@ export interface ConversationMembershipEvent {
         | "MEMBER_ADDED"
         | "MEMBER_ROLE_UPDATED"
         | "MEMBER_LEFT"
-        | "MEMBER_KICKED";
+        | "MEMBER_KICKED"
+        | "CONVERSATION_BLOCKED_MEMBERS_UPDATED";
     conversationResponse?: Conversation | ConversationSidebar;
 }
 
@@ -300,4 +400,14 @@ export interface JoinRequestProcessedEvent {
     domainEventType: "JOIN_REQUEST_PROCESSED";
     conversationId: number;
     requestId: number;
+}
+
+export interface MessageReactionEvent {
+    domainEventType: "MESSAGE_REACTION";
+    messageResponse: Message;
+}
+
+export interface PollUpdatedEvent {
+    domainEventType: "POLL_UPDATED";
+    poll: PollResponse;
 }

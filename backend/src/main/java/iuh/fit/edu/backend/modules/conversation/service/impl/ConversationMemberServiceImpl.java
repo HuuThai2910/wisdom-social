@@ -4,10 +4,12 @@
  */
 package iuh.fit.edu.backend.modules.conversation.service.impl;
 
+import iuh.fit.edu.backend.common.exception.ConversationAccessDeniedException;
 import iuh.fit.edu.backend.modules.conversation.dto.response.JoinRequestResponse;
 import iuh.fit.edu.backend.modules.conversation.entity.Conversation;
 import iuh.fit.edu.backend.modules.conversation.entity.ConversationMember;
 import iuh.fit.edu.backend.modules.conversation.entity.FrozenLastMessage;
+import iuh.fit.edu.backend.modules.conversation.dto.request.AddMemberWithInvitesRequest;
 import iuh.fit.edu.backend.modules.conversation.dto.request.AddMemberRequest;
 import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationMemberResponse;
 import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationResponse;
@@ -28,6 +30,8 @@ import iuh.fit.edu.backend.modules.conversation.service.ConversationMemberServic
 import iuh.fit.edu.backend.modules.chat.service.InternalMessageService;
 import iuh.fit.edu.backend.common.util.TransactionUtil;
 import iuh.fit.edu.backend.common.util.heplper.ChatSnapshotHelper;
+import iuh.fit.edu.backend.modules.user.constant.FriendStatus;
+import iuh.fit.edu.backend.modules.user.repository.FriendRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -59,6 +63,7 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
     private final ConversationMemberCacheService conversationMemberCacheService;
     private final ChatSnapshotHelper chatSnapshotHelper;
     private final GroupJoinRequestService joinRequestService;
+    private final FriendRepository friendRepository;
 
     /**
      * Lấy danh sách toàn bộ thành viên. Ưu tiên lấy từ Cache, nếu rỗng thì gọi DB.
@@ -108,17 +113,36 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
         // Kiểm tra phòng chat
         Conversation conv = validateGroupAndInviter(conversationId, inviterId);
         ConversationMember inviter = getActiveMember(conversationId, inviterId);
+        Set<Long> targetIds = normalizeTargetIds(request.getNewMemberIds(), inviterId);
+        Set<Long> blockedRejectedIds = findBlockedRejectedIds(conv.getId(), targetIds, inviter);
 
         // LUỒNG DUYỆT THÀNH VIÊN
         if (conv.isJoinApprovalRequired() && inviter.getRole() == MemberRole.MEMBER) {
-            for (Long targetUserId : request.getNewMemberIds()) {
+            Set<Long> requestableIds = new HashSet<>(targetIds);
+            requestableIds.removeAll(blockedRejectedIds);
+            for (Long targetUserId : requestableIds) {
                 joinRequestService.createRequest(conversationId, targetUserId, inviterId);
             }
 
-            String targetIdsJson = chatSnapshotHelper.buildMemberSnapshotContent(request.getNewMemberIds());
+            String targetIdsJson = chatSnapshotHelper.buildMemberSnapshotContent(requestableIds);
 
-            ConversationResponse response = executeSystemActionAndBuildResponse(
+            ConversationResponse response = requestableIds.isEmpty()
+                    ? null
+                    : executeSystemActionAndBuildResponse(
                     conv, inviterId, MessageType.SYSTEM_REQUIRE_APPROVAL, targetIdsJson, now);
+
+            if (!blockedRejectedIds.isEmpty()) {
+                response = executeSystemActionAndBuildResponse(
+                        conv,
+                        inviterId,
+                        MessageType.SYSTEM_MEMBER_BLOCKED_FROM_JOIN,
+                        chatSnapshotHelper.buildMemberSnapshotContent(blockedRejectedIds),
+                        Instant.now().truncatedTo(ChronoUnit.MILLIS));
+            }
+
+            if (response == null) {
+                return conversationMapper.toConversationResponse(conv, inviterId);
+            }
 
             Set<Long> allActiveMemberIds = conversationMemberRepository
                     .findUserIdsByConversationIdAndStatus(conversationId, ConversationMemberStatus.ACTIVE);
@@ -128,15 +152,16 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
             return response;
         }
 
-        Set<Long> actuallyAddedIds = new HashSet<>();
-        List<ConversationMember> membersToSave = prepareMembersForAddition(
-                conv, request.getNewMemberIds(), inviterId, actuallyAddedIds, now);
+        MemberAdditionResult additionResult = prepareMembersForAddition(
+                conv, targetIds, inviter, now);
 
         // Nếu tất cả ID gửi lên đều đã nằm trong nhóm (ACTIVE) rồi thì dừng luôn
-        if (actuallyAddedIds.isEmpty()) {
+        if (additionResult.actuallyAddedIds().isEmpty() && additionResult.blockedRejectedIds().isEmpty()) {
             return conversationMapper.toConversationResponse(conv, inviterId);
         }
-        List<ConversationMember> conversationMembers = conversationMemberRepository.saveAll(membersToSave);
+        List<ConversationMember> conversationMembers = additionResult.membersToSave().isEmpty()
+                ? Collections.emptyList()
+                : conversationMemberRepository.saveAll(additionResult.membersToSave());
 
         // Cập nhật thông tin cho redis
         TransactionUtil.executeAfterCommit(() -> {
@@ -146,20 +171,81 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
         });
 
         // Nếu danh sách add chỉ có 1 người, và người đó chính là người mời -> Là luồng bấm Link!
-        boolean isJoinViaLink = actuallyAddedIds.size() == 1 && actuallyAddedIds.contains(inviterId);
+        boolean isJoinViaLink = additionResult.actuallyAddedIds().size() == 1 && additionResult.actuallyAddedIds().contains(inviterId);
         MessageType msgType = isJoinViaLink ? MessageType.SYSTEM_JOIN_VIA_LINK : MessageType.SYSTEM_ADD_MEMBER;
 
         // Ghi Log vào MongoDB qua MessageFacade
-        String targetIdsJson = chatSnapshotHelper.buildMemberSnapshotContent(actuallyAddedIds);
+        String targetIdsJson = chatSnapshotHelper.buildMemberSnapshotContent(additionResult.actuallyAddedIds());
 
-        ConversationResponse response = executeSystemActionAndBuildResponse(
+        ConversationResponse response = additionResult.actuallyAddedIds().isEmpty()
+                ? null
+                : executeSystemActionAndBuildResponse(
                 conv, inviterId, msgType, targetIdsJson, now);
+
+        if (!additionResult.blockedRejectedIds().isEmpty()) {
+            response = executeSystemActionAndBuildResponse(
+                    conv,
+                    inviterId,
+                    MessageType.SYSTEM_MEMBER_BLOCKED_FROM_JOIN,
+                    chatSnapshotHelper.buildMemberSnapshotContent(additionResult.blockedRejectedIds()),
+                    Instant.now().truncatedTo(ChronoUnit.MILLIS));
+        }
 
         Set<Long> allActiveMemberIds = conversationMemberRepository
                 .findUserIdsByConversationIdAndStatus(conversationId, ConversationMemberStatus.ACTIVE);
 
         eventPublisher.publishEvent(new MemberAddedEvent(response, allActiveMemberIds));
+        additionResult.unblockedByAdminIds().forEach(userId ->
+                publishBlockedMembersUpdated(conversationId, userId, false));
         return response;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    @Override
+    public ConversationResponse addMembersWithInvites(Long conversationId, AddMemberWithInvitesRequest request, Long inviterId) {
+        Conversation conv = validateGroupAndInviter(conversationId, inviterId);
+        Set<Long> directMemberIds = normalizeTargetIds(request.getNewMemberIds(), inviterId);
+        Set<Long> inviteeUserIds = normalizeTargetIds(request.getInviteeUserIds(), inviterId);
+        inviteeUserIds.removeAll(directMemberIds);
+
+        if (directMemberIds.isEmpty() && inviteeUserIds.isEmpty()) {
+            throw new IllegalArgumentException("Vui long chon it nhat 1 nguoi de them vao nhom");
+        }
+
+        validateAcceptedFriends(inviterId, directMemberIds, "Chi co the them truc tiep ban be vao nhom");
+        validateStrangerInvitees(inviterId, inviteeUserIds);
+        removeExistingActiveMembers(conversationId, inviteeUserIds);
+
+        ConversationResponse response = null;
+        if (!directMemberIds.isEmpty()) {
+            AddMemberRequest addMemberRequest = new AddMemberRequest();
+            addMemberRequest.setNewMemberIds(directMemberIds);
+            response = addMembers(conversationId, addMemberRequest, inviterId);
+        }
+
+        if (!inviteeUserIds.isEmpty()) {
+            String inviteToken = ensureInviteToken(conv);
+            String content = chatSnapshotHelper.buildMemberSnapshotContent(inviteeUserIds);
+            response = executeSystemActionAndBuildResponse(
+                    conv,
+                    inviterId,
+                    MessageType.SYSTEM_GROUP_INVITE_LINK_SENT,
+                    content,
+                    Instant.now().truncatedTo(ChronoUnit.MILLIS)
+            );
+
+            Set<Long> activeMemberIds = conversationMemberRepository
+                    .findUserIdsByConversationIdAndStatus(conversationId, ConversationMemberStatus.ACTIVE);
+            eventPublisher.publishEvent(new ConversationUpdatedEvent(conversationId, response.getLastMessage(), activeMemberIds));
+            eventPublisher.publishEvent(new GroupInviteLinkDispatchEvent(
+                    inviterId,
+                    conversationId,
+                    inviteToken,
+                    inviteeUserIds
+            ));
+        }
+
+        return response != null ? response : conversationMapper.toConversationResponse(conv, inviterId);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -169,6 +255,14 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
 
         Conversation conv = conversationRepository.findById(conversationId)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy cuộc trò chuyện"));
+
+        if (conv.getType() != ConversationType.GROUP
+                && conv.getInviteToken() != null
+                && !conv.getInviteToken().isBlank()) {
+            conv.setType(ConversationType.GROUP);
+            conv.setDirectKey(null);
+            conv = conversationRepository.save(conv);
+        }
 
         if (conv.getType() != ConversationType.GROUP) {
             throw new IllegalArgumentException("Chỉ nhóm chat mới có thể tham gia bằng link");
@@ -180,6 +274,10 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
 
         if (member != null && member.getStatus() == ConversationMemberStatus.ACTIVE) {
             return conversationMapper.toConversationResponse(conv, userId);
+        }
+
+        if (member != null && member.getStatus() == ConversationMemberStatus.BLOCKED) {
+            throw new ConversationAccessDeniedException("Bạn đã bị chặn khỏi nhóm.");
         }
 
 //        if (member != null && member.getStatus() == ConversationMemberStatus.KICKED) {
@@ -196,6 +294,8 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
         member.setStatus(ConversationMemberStatus.ACTIVE);
         member.setJoinedAt(now);
         member.setLeftAt(null);
+        member.setBlockedAt(null);
+        member.setBlockedBy(null);
         member.setClearedAt(null);
         member.setHidden(false);
 
@@ -239,8 +339,10 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
 
         // Gọi hàm lõi dùng chung
         return processMemberRemoval(conv, targetId, requesterId,
-            ConversationMemberStatus.KICKED, MessageType.SYSTEM_KICK_MEMBER, chatSnapshotHelper.buildKickSnapshotContent(targetId), DomainEventType.MEMBER_KICKED);
+                ConversationMemberStatus.KICKED, MessageType.SYSTEM_KICK_MEMBER, chatSnapshotHelper.buildKickSnapshotContent(targetId), DomainEventType.MEMBER_KICKED);
     }
+
+
 
     /**
      * Hàm dùng để đồng bộ dữ liệu vào Redis ngay sau khi DB vừa cập nhật.
@@ -337,6 +439,100 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
         eventPublisher.publishEvent(new MemberRoleUpdatedEvent(response, allNotifyIds));
 
         return response;
+    }
+
+    @Override
+    public List<ConversationMemberResponse> getBlockedMembers(Long conversationId, Long requesterId) {
+        validateGroupAdmin(conversationId, requesterId);
+        return conversationMemberRepository
+                .findByConversationIdAndStatusOrderByBlockedAtDesc(conversationId, ConversationMemberStatus.BLOCKED)
+                .stream()
+                .map(conversationMemberMapper::toConversationMemberResponse)
+                .toList();
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    @Override
+    public ConversationResponse blockMember(Long conversationId, Long targetId, Long requesterId) {
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        Conversation conv = conversationRepository.findById(conversationId)
+                .orElseThrow(() -> new RuntimeException("Khong tim thay cuoc tro chuyen"));
+        if (conv.getType() != ConversationType.GROUP) {
+            throw new IllegalArgumentException("Chi co the ap dung cho nhom chat");
+        }
+        ConversationMember requester = getActiveMember(conversationId, requesterId);
+        if (!isGroupAdmin(requester)) {
+            throw new RuntimeException("Ban khong co quyen thuc hien hanh dong nay");
+        }
+
+        ConversationMember target = conversationMemberRepository.findByConversation_IdAndUser_Id(conversationId, targetId)
+                .orElse(null);
+        boolean targetWasActive = target != null && target.getStatus() == ConversationMemberStatus.ACTIVE;
+        if (targetWasActive) {
+            validateKickPermission(conversationId, targetId, requesterId);
+        }
+
+        if (target == null) {
+            target = new ConversationMember();
+            target.setConversation(conv);
+            target.setUser(userRepository.getReferenceById(targetId));
+            target.setRole(MemberRole.MEMBER);
+        }
+
+        target.setStatus(ConversationMemberStatus.BLOCKED);
+        target.setRole(MemberRole.MEMBER);
+        target.setBlockedAt(now);
+        target.setBlockedBy(userRepository.getReferenceById(requesterId));
+        target.setLeftAt(now);
+        target.setFrozenLastMessage(new FrozenLastMessage(
+                chatSnapshotHelper.buildKickSnapshotContent(targetId),
+                requesterId,
+                chatSnapshotHelper.resolveActorDisplayName(conv, requesterId),
+                MessageType.SYSTEM_BLOCK_MEMBER,
+                now
+        ));
+        ConversationMember savedMember = conversationMemberRepository.save(target);
+        updateMemberStateInCache(conversationId, targetId, savedMember);
+
+        ConversationResponse response = executeSystemActionAndBuildResponse(
+                conv,
+                requesterId,
+                MessageType.SYSTEM_BLOCK_MEMBER,
+                chatSnapshotHelper.buildKickSnapshotContent(targetId),
+                now);
+
+        Set<Long> notifyIds = conversationMemberRepository
+                .findUserIdsByConversationIdAndStatus(conversationId, ConversationMemberStatus.ACTIVE);
+        if (targetWasActive) {
+            notifyIds.add(targetId);
+            eventPublisher.publishEvent(new MemberStatusChangedEvent(response, DomainEventType.MEMBER_KICKED, notifyIds));
+        } else {
+            eventPublisher.publishEvent(new ConversationUpdatedEvent(conversationId, response.getLastMessage(), notifyIds));
+        }
+        publishBlockedMembersUpdated(conversationId, targetId, true);
+
+        return response;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    @Override
+    public ConversationResponse unblockMember(Long conversationId, Long targetId, Long requesterId) {
+        Conversation conv = validateGroupAdmin(conversationId, requesterId);
+        ConversationMember target = conversationMemberRepository.findByConversation_IdAndUser_Id(conversationId, targetId)
+                .orElseThrow(() -> new RuntimeException("Thanh vien khong ton tai trong nhom"));
+
+        if (target.getStatus() != ConversationMemberStatus.BLOCKED) {
+            return conversationMapper.toConversationResponse(conv, requesterId);
+        }
+
+        target.setStatus(ConversationMemberStatus.KICKED);
+        target.setBlockedAt(null);
+        target.setBlockedBy(null);
+        ConversationMember savedMember = conversationMemberRepository.save(target);
+        updateMemberStateInCache(conversationId, targetId, savedMember);
+        publishBlockedMembersUpdated(conversationId, targetId, false);
+
+        return conversationMapper.toConversationResponse(conv, requesterId);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -495,6 +691,14 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
         target.setStatus(newStatus);
         target.setRole(MemberRole.MEMBER);
         target.setLeftAt(now);
+        target.setUnreadCount(0);
+        if (newStatus == ConversationMemberStatus.BLOCKED) {
+            target.setBlockedAt(now);
+            target.setBlockedBy(userRepository.getReferenceById(requesterId));
+        } else {
+            target.setBlockedAt(null);
+            target.setBlockedBy(null);
+        }
         target.setFrozenLastMessage(
                 new FrozenLastMessage(
                         sysMsgContent,
@@ -521,6 +725,9 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
                 conv, requesterId, sysMsgType, sysMsgContent, now);
 
         eventPublisher.publishEvent(new MemberStatusChangedEvent(response, eventType, allNotifyIds));
+        if (newStatus == ConversationMemberStatus.BLOCKED) {
+            publishBlockedMembersUpdated(convId, targetId, true);
+        }
         return response;
     }
 
@@ -541,13 +748,27 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
         return conv;
     }
 
-    private List<ConversationMember> prepareMembersForAddition(
-            Conversation conv, Set<Long> rawIds, Long inviterId,
-            Set<Long> actuallyAddedIds, Instant now) {
+    private Conversation validateGroupAdmin(Long conversationId, Long requesterId) {
+        Conversation conv = conversationRepository.findById(conversationId)
+                .orElseThrow(() -> new RuntimeException("Khong tim thay cuoc tro chuyen"));
+
+        if (conv.getType() != ConversationType.GROUP) {
+            throw new IllegalArgumentException("Chi co the ap dung cho nhom chat");
+        }
+
+        ConversationMember requester = getActiveMember(conversationId, requesterId);
+        if (!isGroupAdmin(requester)) {
+            throw new RuntimeException("Ban khong co quyen thuc hien hanh dong nay");
+        }
+        return conv;
+    }
+
+    private MemberAdditionResult prepareMembersForAddition(
+            Conversation conv, Set<Long> rawIds, ConversationMember inviter, Instant now) {
 
         // Lọc danh sách được mời (Bỏ ID của chính người mời nếu FE gửi nhầm)
         Set<Long> targetIds = new HashSet<>(rawIds);
-        targetIds.remove(inviterId);
+        targetIds.remove(inviter.getUser().getId());
 
         // Thêm mới hoặc Cập nhật người cũ
         // Lấy tất cả record của những người này trong nhóm (kể cả đã LEFT/KICKED)
@@ -558,17 +779,28 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
                 .collect(Collectors.toMap(m -> m.getUser().getId(), m -> m));
 
         List<ConversationMember> membersToSave = new ArrayList<>();
+        Set<Long> actuallyAddedIds = new HashSet<>();
+        Set<Long> blockedRejectedIds = new HashSet<>();
+        Set<Long> unblockedByAdminIds = new HashSet<>();
+        boolean inviterCanUnblock = isGroupAdmin(inviter);
 
         for (Long tId : targetIds) {
             if (existingMap.containsKey(tId)) {
                 // Trường hợp 1: Người cũ (Đã Left/Kicked)
                 ConversationMember em = existingMap.get(tId);
-                if (em.getStatus() != ConversationMemberStatus.ACTIVE) {
+                if (em.getStatus() == ConversationMemberStatus.BLOCKED && !inviterCanUnblock) {
+                    blockedRejectedIds.add(tId);
+                } else if (em.getStatus() != ConversationMemberStatus.ACTIVE) {
+                    if (em.getStatus() == ConversationMemberStatus.BLOCKED) {
+                        unblockedByAdminIds.add(tId);
+                    }
                     em.setStatus(ConversationMemberStatus.ACTIVE);
                     em.setJoinedAt(now);
                     em.setLeftAt(null); // Xóa mốc thời gian rời đi
                     em.setClearedAt(null); // Reset lại mốc xóa để xem được toàn bộ tin nhắn
                     em.setHidden(false); // Đảm bảo hiện lại hội thoại nếu trước đó đã ẩn/xóa
+                    em.setBlockedAt(null);
+                    em.setBlockedBy(null);
                     membersToSave.add(em);
                     actuallyAddedIds.add(tId);
                 }
@@ -584,7 +816,90 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
                 actuallyAddedIds.add(tId);
             }
         }
-        return membersToSave;
+        return new MemberAdditionResult(membersToSave, actuallyAddedIds, blockedRejectedIds, unblockedByAdminIds);
+    }
+
+    private Set<Long> normalizeTargetIds(Set<Long> rawIds, Long inviterId) {
+        Set<Long> targetIds = new HashSet<>(rawIds);
+        targetIds.remove(inviterId);
+        return targetIds;
+    }
+
+    private Set<Long> findBlockedRejectedIds(Long conversationId, Set<Long> targetIds, ConversationMember inviter) {
+        if (targetIds.isEmpty() || isGroupAdmin(inviter)) {
+            return Collections.emptySet();
+        }
+        return conversationMemberRepository.findByConversationIdAndUserIdIn(conversationId, targetIds)
+                .stream()
+                .filter(member -> member.getStatus() == ConversationMemberStatus.BLOCKED)
+                .map(member -> member.getUser().getId())
+                .collect(Collectors.toSet());
+    }
+
+    private void validateAcceptedFriends(Long currentUserId, Set<Long> targetIds, String message) {
+        for (Long targetId : targetIds) {
+            if (friendRepository.countAcceptedFriendship(
+                    currentUserId,
+                    targetId,
+                    FriendStatus.ACCEPTED.ordinal()
+            ) == 0) {
+                throw new IllegalArgumentException(message);
+            }
+        }
+    }
+
+    private void validateStrangerInvitees(Long currentUserId, Set<Long> inviteeUserIds) {
+        for (Long inviteeUserId : inviteeUserIds) {
+            if (!userRepository.existsById(inviteeUserId)) {
+                throw new IllegalArgumentException("Nguoi nhan link moi khong ton tai");
+            }
+            if (friendRepository.countAcceptedFriendship(
+                    currentUserId,
+                    inviteeUserId,
+                    FriendStatus.ACCEPTED.ordinal()
+            ) > 0) {
+                throw new IllegalArgumentException("Ban be nen duoc them truc tiep vao nhom");
+            }
+        }
+    }
+
+    private void removeExistingActiveMembers(Long conversationId, Set<Long> userIds) {
+        if (userIds.isEmpty()) {
+            return;
+        }
+        Set<Long> activeIds = conversationMemberRepository
+                .findByConversationIdAndUserIdIn(conversationId, userIds)
+                .stream()
+                .filter(member -> member.getStatus() == ConversationMemberStatus.ACTIVE)
+                .map(member -> member.getUser().getId())
+                .collect(Collectors.toSet());
+        userIds.removeAll(activeIds);
+    }
+
+    private String ensureInviteToken(Conversation conversation) {
+        if (conversation.getInviteToken() == null || conversation.getInviteToken().isBlank()) {
+            conversation.setInviteToken(java.util.UUID.randomUUID().toString().replace("-", ""));
+            conversationRepository.save(conversation);
+        }
+        return conversation.getInviteToken();
+    }
+
+    private void publishBlockedMembersUpdated(Long conversationId, Long targetUserId, boolean blocked) {
+        Set<Long> adminIds = conversationMemberRepository.findAdminIdsByConversationId(conversationId);
+        if (!adminIds.isEmpty()) {
+            eventPublisher.publishEvent(new BlockedMembersUpdatedEvent(conversationId, targetUserId, blocked, adminIds));
+        }
+    }
+
+    private boolean isGroupAdmin(ConversationMember member) {
+        return member.getRole() == MemberRole.OWNER || member.getRole() == MemberRole.DEPUTY;
+    }
+
+    private record MemberAdditionResult(
+            List<ConversationMember> membersToSave,
+            Set<Long> actuallyAddedIds,
+            Set<Long> blockedRejectedIds,
+            Set<Long> unblockedByAdminIds) {
     }
 
 }

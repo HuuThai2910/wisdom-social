@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface GroupJoinRequestRepository extends JpaRepository<GroupJoinRequest, Long> {
@@ -17,4 +18,10 @@ public interface GroupJoinRequestRepository extends JpaRepository<GroupJoinReque
 
     // Kiểm tra xem user đã có yêu cầu nào đang chờ duyệt ở nhóm này chưa
     boolean existsByConversationIdAndUserIdAndStatus(Long conversationId, Long userId, JoinRequestStatus status);
+
+    Optional<GroupJoinRequest> findByConversationIdAndUserIdAndStatus(
+            Long conversationId,
+            Long userId,
+            JoinRequestStatus status
+    );
 }

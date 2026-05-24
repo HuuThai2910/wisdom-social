@@ -24,6 +24,7 @@ import chatRuntimeStore from "@/stores/chatRuntimeStore";
 import chatService from "@/services/chatService";
 import chatWebsocketService from "@/services/chatWebsocketService";
 import { buildConversationDisplayInfo } from "@/utils/conversationDisplayInfo";
+import type { Conversation } from "@/types/chat";
 
 export function ConversationDetailsScreen() {
     const { conversationId } = useLocalSearchParams<{ conversationId: string }>();
@@ -36,10 +37,16 @@ export function ConversationDetailsScreen() {
         clearUnreadCount,
         reload,
     } = useMessagesController();
+    const [fetchedConversation, setFetchedConversation] =
+        useState<Conversation | null>(null);
 
     const selectedConversation = useMemo(
-        () => conversations.find((c) => c.id === id) || null,
-        [conversations, id]
+        () =>
+            conversations.find((c) => c.id === id) ||
+            fetchedConversation ||
+            chatRuntimeStore.getConversation(id) ||
+            null,
+        [conversations, fetchedConversation, id]
     );
 
     const groupManagement = useGroupManagement({
@@ -73,8 +80,10 @@ export function ConversationDetailsScreen() {
             void chatService
                 .getConversation(id, currentUserId)
                 .then((response) => {
+                    if (disposed) return;
                     if (response.success && response.data) {
                         chatRuntimeStore.setConversation(id, response.data);
+                        setFetchedConversation(response.data);
                     }
                 })
                 .catch(() => undefined);
@@ -293,6 +302,18 @@ export function ConversationDetailsScreen() {
                                 )
                             }
                         />
+                        <View style={styles.divider} />
+                    </>
+                )}
+
+                {isGroup && (
+                    <>
+                        <DetailItem
+                            icon="stats-chart-outline"
+                            label="Bình chọn"
+                            onPress={() => router.push(`/messages/details/polls/${id}`)}
+                        />
+
                         <View style={styles.divider} />
                     </>
                 )}

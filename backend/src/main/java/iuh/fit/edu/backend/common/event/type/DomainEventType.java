@@ -15,6 +15,8 @@ public enum DomainEventType {
     MESSAGE_CREATED,
     MESSAGE_RECALLED,
     MESSAGE_SEEN,
+    MESSAGE_REACTION,
+    POLL_UPDATED,
     TYPING,
     PIN_MESSAGE,
     UPIN_MESSAGE,
@@ -32,6 +34,7 @@ public enum DomainEventType {
     MEMBER_UPDATED,
     MEMBER_LEFT,
     MEMBER_KICKED,
+    CONVERSATION_BLOCKED_MEMBERS_UPDATED,
     GROUP_DISBANDED,
     NEW_JOIN_REQUEST,
     JOIN_REQUEST_PROCESSED,
@@ -46,6 +49,17 @@ public enum DomainEventType {
     PAGE_JOIN_APPROVED,
     PAGE_JOIN_REJECTED,
     PAGE_JOIN_CANCELLED,
+
+    // Page post events
+    PAGE_POST_SUBMITTED,
+    PAGE_POST_APPROVED,
+    PAGE_POST_REJECTED,
+    PAGE_POST_REMOVED,
+
+    // Page list events
+    PAGE_CREATED,
+    PAGE_UPDATED,
+    PAGE_DELETED,
 
     // Post, Comment, Reaction, Notification
     POST,

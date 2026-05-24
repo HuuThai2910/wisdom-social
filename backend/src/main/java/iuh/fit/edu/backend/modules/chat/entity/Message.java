@@ -21,7 +21,6 @@ import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
 
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
@@ -48,6 +47,8 @@ public class Message {
     private Instant modifiedAt;
     @Field(name = "conversation_id")
     private Long conversationId;
+    @Field(name = "poll_id")
+    private String pollId;
 
     private boolean isRecalled = false;
 
@@ -59,7 +60,7 @@ public class Message {
     private Long senderId;
 
     private ReplyInfo replyInfo;
-    private IconName iconName;
+    private List<IconName> iconName;
 
     private List<MediaAttachment> attachments ;
 
@@ -77,15 +78,23 @@ public class Message {
         private String fileName; // Tên gốc
         private Long fileSize;   // Dung lượng (bytes)
     }
-}
 
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class IconName {
+        private String name;
+        private List<IconUser> user;
+    }
 
-class IconName{
-    private  String name;
-    private ArrayList<IconUser> user;
-}
-class  IconUser{
-    private Long userId;
-    private int quantity;
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class IconUser {
+        private Long userId;
+        private int quantity;
+    }
 }
 

@@ -10,6 +10,7 @@ package iuh.fit.edu.backend.modules.conversation.service;/*
  */
 
 import iuh.fit.edu.backend.modules.conversation.dto.request.CreateGroupRequest;
+import iuh.fit.edu.backend.modules.conversation.dto.request.CreateGroupWithInvitesRequest;
 import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationPreviewResponse;
 import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationResponse;
 import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationSidebarResponse;
@@ -23,11 +24,17 @@ public interface ConversationService {
 
     ConversationResponse createGroup(CreateGroupRequest request, Long creatorId);
 
+    ConversationResponse createGroupWithInvites(CreateGroupWithInvitesRequest request, Long creatorId);
+
     List<ConversationSidebarResponse> getConversationsByUser(Long userId);
+
+    List<ConversationSidebarResponse> getForwardableConversationsByUser(Long userId);
 
     ConversationResponse getConversationById(Long conversationId, Long userId);
 
     void deleteConversationForMe(Long conversationId, Long userId);
+
+    void hideConversationForMe(Long conversationId, Long userId);
 
     @Transactional
     void markAsRead(Long conversationId, Long userId, String lastMessageId);

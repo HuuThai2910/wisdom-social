@@ -8,6 +8,7 @@ import {
 } from "react";
 import {
   Send,
+  CheckCircle2,
   Phone,
   Video,
   Info,
@@ -32,7 +33,15 @@ import EmojiPicker, {
 } from "emoji-picker-react";
 import { useChatWindowController } from "../../hooks/useChatWindowController";
 import { MessageBubble } from "./MessageBubble";
+import chatService, {
+  type ChatUserSearchResult,
+  type ConversationSidebar,
+  type Message,
+} from "../../services/chatService";
+import { buildConversationDisplayInfo } from "../../utils/conversationDisplayInfo";
 import { useCall } from "../../hooks/useCall";
+import { useFriendStatus } from "../../hooks/useFriendStatus";
+import { useFriendDataSafe } from "../../contexts/FriendDataContext";
 import IncomingCallModal from "./IncomingCallModal";
 import CallScreen from "./CallScreen";
 import { useChatAI } from "../../features/chat-ai/hooks/useChatAI";
@@ -52,6 +61,13 @@ interface ChatWindowProps {
   name?: string;
   avatarUrl?: string;
   compositeAvatarUrls?: string[];
+  openPollMessageId?: string | null;
+  openPollModalToken?: number;
+  onPollModalClose?: () => void;
+  peerRelationshipInfo?: {
+    friendStatus?: string | null;
+    mutualGroupsCount?: number | null;
+  } | null;
 }
 
 function createClientFileId(): string {
@@ -65,11 +81,36 @@ function isAccessBlockedNotice(value?: string | null): boolean {
   if (!value) return false;
   const normalized = value.toLowerCase();
   return (
+    normalized.includes("chặn khỏi nhóm") ||
+    normalized.includes("chan khoi nhom") ||
     normalized.includes("bị xóa khỏi nhóm") ||
     normalized.includes("đã rời khỏi nhóm") ||
     normalized.includes("nhóm đã bị giải tán") ||
     normalized.includes("không có quyền truy cập")
   );
+}
+
+const FORWARD_BLOCKED_MEMBER_STATUSES = new Set([
+  "LEFT",
+  "KICKED",
+  "BLOCKED",
+  "GROUP_DISBANDED",
+]);
+
+function canForwardToConversation(
+  conversation: ConversationSidebar,
+  currentUserId: number
+): boolean {
+  if (conversation.lastMessage?.lastMessageType === "SYSTEM_DISBAND_GROUP") {
+    return false;
+  }
+
+  const currentMember = conversation.members?.find(
+    (member) => Number(member.userId) === Number(currentUserId)
+  );
+
+  if (!currentMember) return true;
+  return !FORWARD_BLOCKED_MEMBER_STATUSES.has(String(currentMember.status));
 }
 
 function AccessBlockedState({ message }: { message: string }) {
@@ -96,9 +137,33 @@ export default function ChatWindow({
   onForbidden,
   name,
   avatarUrl,
-  compositeAvatarUrls,
+  openPollMessageId = null,
+  openPollModalToken = 0,
+  onPollModalClose,
+  peerRelationshipInfo = null,
 }: ChatWindowProps) {
   const [isAiPanelOpen, setIsAiPanelOpen] = useState(false);
+  const [internalOpenPollMessageId, setInternalOpenPollMessageId] = useState<string | null>(null);
+  const [internalOpenPollModalToken, setInternalOpenPollModalToken] = useState(0);
+  const [loadedRelationshipInfo, setLoadedRelationshipInfo] =
+    useState<ChatUserSearchResult | null>(null);
+  const [friendRequestSending, setFriendRequestSending] = useState(false);
+  const [friendRequestSent, setFriendRequestSent] = useState(false);
+  const effectiveRelationshipInfo =
+    peerRelationshipInfo ?? loadedRelationshipInfo;
+  const relationshipText = useMemo(() => {
+    if (!effectiveRelationshipInfo) return null;
+    const parts = [
+      effectiveRelationshipInfo.friendStatus === "FRIEND"
+        ? "Bạn bè"
+        : "Người lạ",
+    ];
+    const mutualGroupsCount = Number(effectiveRelationshipInfo.mutualGroupsCount ?? 0);
+    if (mutualGroupsCount > 0) {
+      parts.push(`Nhóm chung (${mutualGroupsCount})`);
+    }
+    return parts.join(" · ");
+  }, [effectiveRelationshipInfo]);
 
   const {
     conversation,
@@ -138,6 +203,7 @@ export default function ChatWindow({
     handleRecall,
     canRecallOwnMessages,
     handleDeleteMessageForMe,
+    addReaction,
     appendRealtimeMessage,
     scrollToBottom,
     recallToast,
@@ -164,6 +230,8 @@ export default function ChatWindow({
     readOnlyNotice,
   } = useChatWindowController({ conversationId, onMarkAsRead, forcedReadOnlyNotice, onForbidden });
 
+  const headerDisplayName = displayName || name || "Conversation";
+  const headerDisplayAvatar = displayAvatar || avatarUrl || defaultAvatarUrl;
   const isConversationReadOnly = Boolean(readOnlyNotice);
   const isAccessBlocked =
     isAccessBlockedNotice(error) || isAccessBlockedNotice(readOnlyNotice);
@@ -173,6 +241,122 @@ export default function ChatWindow({
     () => Object.values(membersById).find((m) => m.userId !== userId),
     [membersById, userId]
   );
+  const {
+    status: friendshipStatus,
+    loading: friendActionLoading,
+    sendRequest: sendFriendRequest,
+    cancelRequest: cancelFriendRequest,
+  } = useFriendStatus(otherMember?.userId);
+  const { friends: contextFriends, sentRequests: contextSentRequests } =
+    useFriendDataSafe();
+  const isFriendInContext = useMemo(
+    () =>
+      contextFriends.some(
+        (friend: any) => String(friend.id) === String(otherMember?.userId)
+      ),
+    [contextFriends, otherMember?.userId]
+  );
+  const isSentRequestInContext = useMemo(
+    () =>
+      contextSentRequests.some(
+        (request: any) => String(request.id) === String(otherMember?.userId)
+      ),
+    [contextSentRequests, otherMember?.userId]
+  );
+  const isFriend = friendshipStatus === "friends" || isFriendInContext;
+  const isPendingSent =
+    friendshipStatus === "pending_sent" ||
+    friendRequestSent ||
+    isSentRequestInContext;
+  const resolvedRelationshipText = useMemo(() => {
+    if (!effectiveRelationshipInfo || !isFriend) {
+      return relationshipText;
+    }
+
+    const mutualGroupsCount = Number(
+      effectiveRelationshipInfo.mutualGroupsCount ?? 0
+    );
+    return mutualGroupsCount > 0
+      ? `Bạn bè · Nhóm chung (${mutualGroupsCount})`
+      : "Bạn bè";
+  }, [effectiveRelationshipInfo, isFriend, relationshipText]);
+  const canShowFriendBanner =
+    Boolean(effectiveRelationshipInfo) &&
+    !isFriend &&
+    effectiveRelationshipInfo?.friendStatus !== "FRIEND";
+
+  useEffect(() => {
+    setFriendRequestSent(false);
+    setFriendRequestSending(false);
+  }, [otherMember?.userId]);
+
+  useEffect(() => {
+    if (friendshipStatus !== "pending_sent") {
+      setFriendRequestSent(false);
+    }
+  }, [friendshipStatus]);
+
+  const handleSendFriendRequest = useCallback(async () => {
+    if (!userId || !otherMember?.userId || friendRequestSending) {
+      return;
+    }
+
+    setFriendRequestSending(true);
+    try {
+      if (isPendingSent) {
+        setFriendRequestSent(false);
+        const ok = await cancelFriendRequest();
+        if (!ok) throw new Error("cancel failed");
+      } else {
+        const ok = await sendFriendRequest();
+        if (!ok) throw new Error("send failed");
+        setFriendRequestSent(true);
+      }
+    } catch {
+      if (isPendingSent) {
+        setFriendRequestSent(true);
+      }
+      window.alert(
+        isPendingSent
+          ? "Không thể hủy lời mời kết bạn. Vui lòng thử lại."
+          : "Không thể gửi lời mời kết bạn. Vui lòng thử lại.",
+      );
+    } finally {
+      setFriendRequestSending(false);
+    }
+  }, [
+    cancelFriendRequest,
+    friendRequestSending,
+    isPendingSent,
+    otherMember?.userId,
+    sendFriendRequest,
+    userId,
+  ]);
+
+  useEffect(() => {
+    if (peerRelationshipInfo) {
+      setLoadedRelationshipInfo(null);
+      return;
+    }
+    if (conversation?.type !== "DIRECT" || !otherMember?.userId) {
+      setLoadedRelationshipInfo(null);
+      return;
+    }
+
+    let cancelled = false;
+    chatService
+      .getChatUserRelationship(otherMember.userId)
+      .then((result) => {
+        if (!cancelled) setLoadedRelationshipInfo(result);
+      })
+      .catch(() => {
+        if (!cancelled) setLoadedRelationshipInfo(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [conversation?.type, otherMember?.userId, peerRelationshipInfo]);
 
   const targetMemberIds = useMemo(
     () =>
@@ -238,7 +422,7 @@ export default function ChatWindow({
       .filter((member) => callMemberIds.has(member.userId))
       .map((member) => ({
         userId: member.userId,
-        name: member.nickname || member.username,
+        name: member.nickname || member.username || "NgÆ°á»i dÃ¹ng",
         avatar: member.avatar,
       }));
   }, [activeCall, conversation?.type, membersById, userId]);
@@ -345,6 +529,12 @@ export default function ChatWindow({
     Record<string, string>
   >({});
   const selectedImagePreviewUrlsRef = useRef<Record<string, string>>({});
+  const [forwardSourceMessage, setForwardSourceMessage] = useState<Message | null>(null);
+  const [forwardConversations, setForwardConversations] = useState<ConversationSidebar[]>([]);
+  const [forwardSelectedIds, setForwardSelectedIds] = useState<Set<number>>(new Set());
+  const [forwardLoading, setForwardLoading] = useState(false);
+  const [forwardSubmitting, setForwardSubmitting] = useState(false);
+  const [forwardError, setForwardError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!plusMenuOpen) return;
@@ -498,6 +688,67 @@ export default function ChatWindow({
     [getMessagePreviewText, membersById]
   );
 
+  const openForwardModal = useCallback(
+    async (message: Message) => {
+      setForwardSourceMessage(message);
+      setForwardSelectedIds(new Set());
+      setForwardError(null);
+      setForwardLoading(true);
+
+      try {
+        const response = await chatService.getForwardableConversations();
+        setForwardConversations(
+          (response.data ?? []).filter((item) =>
+            canForwardToConversation(item, userId)
+          )
+        );
+      } catch {
+        setForwardError("Khong the tai danh sach hoi thoai");
+      } finally {
+        setForwardLoading(false);
+      }
+    },
+    [userId]
+  );
+
+  const closeForwardModal = useCallback(() => {
+    if (forwardSubmitting) return;
+    setForwardSourceMessage(null);
+    setForwardSelectedIds(new Set());
+    setForwardError(null);
+  }, [forwardSubmitting]);
+
+  const toggleForwardTarget = useCallback((targetId: number) => {
+    setForwardSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(targetId)) next.delete(targetId);
+      else next.add(targetId);
+      return next;
+    });
+  }, []);
+
+  const submitForwardMessage = useCallback(async () => {
+    if (!forwardSourceMessage || forwardSelectedIds.size === 0) return;
+
+    try {
+      setForwardSubmitting(true);
+      setForwardError(null);
+      await chatService.forwardMessage({
+        sourceMessageId: forwardSourceMessage.id,
+        targetConversationIds: Array.from(forwardSelectedIds),
+      });
+      setForwardSourceMessage(null);
+      setForwardSelectedIds(new Set());
+    } catch (error) {
+      const message =
+        (error as { response?: { data?: { message?: string } } })?.response
+          ?.data?.message || "Khong the chuyen tiep tin nhan";
+      setForwardError(message);
+    } finally {
+      setForwardSubmitting(false);
+    }
+  }, [forwardSelectedIds, forwardSourceMessage]);
+
   const focusAndHighlightMessage = useCallback((messageId: string): boolean => {
     const tryHighlight = (attempt: number) => {
       const target = messageElementRefs.current[messageId];
@@ -508,7 +759,7 @@ export default function ChatWindow({
         return;
       }
 
-      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      target.scrollIntoView({ behavior: "auto", block: "center" });
       setHighlightedMessageId(messageId);
 
       setTimeout(() => {
@@ -542,6 +793,28 @@ export default function ChatWindow({
     },
     [requestJumpToMessage]
   );
+
+  const requestOpenPollMessage = useCallback(
+    (messageId: string) => {
+      setInternalOpenPollMessageId(messageId);
+      setInternalOpenPollModalToken((token) => token + 1);
+      if (!messageElementRefs.current[messageId]) {
+        void requestJumpToMessage(messageId);
+      }
+    },
+    [requestJumpToMessage]
+  );
+
+  const activeOpenPollMessageId = openPollMessageId ?? internalOpenPollMessageId;
+  const activeOpenPollModalToken = openPollMessageId
+    ? openPollModalToken
+    : internalOpenPollModalToken;
+
+  useEffect(() => {
+    if (!activeOpenPollMessageId || !activeOpenPollModalToken) return;
+    if (messageElementRefs.current[activeOpenPollMessageId]) return;
+    void requestJumpToMessage(activeOpenPollMessageId);
+  }, [activeOpenPollMessageId, activeOpenPollModalToken, requestJumpToMessage]);
 
   // Focus vào input khi component mount hoặc chuyển conversation
   useEffect(() => {
@@ -809,12 +1082,22 @@ export default function ChatWindow({
             onPin={(messageId) => void handlePinMessage(messageId)}
             onUnpin={(messageId) => void handleUnpinMessage(messageId)}
             onReply={handleReplyMessage}
+            onForward={openForwardModal}
             onJumpToMessage={requestJumpToMessage}
             onRecall={handleRecall}
             canRecallOwnMessages={canRecallOwnMessages}
             onRecallCall={(callType) => void startCall(callType)}
             onDeleteForMe={handleDeleteMessageForMe}
+            onReaction={addReaction}
             onOpenRequireApprovalDetails={onToggleInfoPanel}
+            onOpenPollMessage={requestOpenPollMessage}
+            openPollModalToken={
+              activeOpenPollMessageId === message.id ? activeOpenPollModalToken : undefined
+            }
+            onPollModalClose={() => {
+              setInternalOpenPollMessageId(null);
+              onPollModalClose?.();
+            }}
             onMediaLoad={() => {
               stabilizeMediaLayoutOnMediaLoad();
               // Chỉ cuộn xuống cuối khi:
@@ -833,6 +1116,7 @@ export default function ChatWindow({
             isHighlighted={highlightedMessageId === message.id}
             isFirstInGroup={isFirstInGroup}
             isLastInGroup={isLastInGroup}
+            membersById={membersById}
           />
 
           {/* Read Receipt Avatars - hiển thị avatar "đã xem" bên dưới tin nhắn */}
@@ -864,6 +1148,7 @@ export default function ChatWindow({
     handlePinMessage,
     handleDeleteMessageForMe,
     handleReplyMessage,
+    openForwardModal,
     handleRecall,
     highlightedMessageId,
     isInitialLoad,
@@ -963,16 +1248,16 @@ export default function ChatWindow({
       <div className="flex items-center justify-between border-b border-gray-200/80 dark:border-gray-700 px-5 py-3.5 bg-white dark:bg-black backdrop-blur-sm">
         <div className="flex items-center gap-3">
           <img
-            src={displayAvatar || defaultAvatarUrl}
-            alt={displayName}
+            src={headerDisplayAvatar}
+            alt={headerDisplayName}
             className="h-10 w-10 rounded-full object-cover ring-1 ring-gray-200 dark:ring-gray-700"
           />
-          <div>
+          <div className="min-w-0">
             <p className="text-sm font-semibold text-gray-900 dark:text-white">
-              {displayName}
+              {headerDisplayName}
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              Active now
+              {resolvedRelationshipText || "Active now"}
             </p>
           </div>
         </div>
@@ -1007,6 +1292,31 @@ export default function ChatWindow({
           </button>
         </div>
       </div>
+
+      {canShowFriendBanner && (
+        <div className="border-b border-gray-200 bg-gray-50 px-4 py-2.5 dark:border-[#262626] dark:bg-[#080808]">
+          <div className="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2 shadow-sm dark:bg-black">
+            <div className="flex min-w-0 items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+              <Plus size={18} />
+              <span>Gửi yêu cầu kết bạn tới người này</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleSendFriendRequest()}
+              disabled={friendRequestSending || friendActionLoading}
+              className="rounded-lg bg-gray-200 px-3.5 py-1.5 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-300 disabled:cursor-default disabled:opacity-70 dark:bg-gray-800 dark:text-gray-100"
+            >
+              {isPendingSent
+                ? friendRequestSending || friendActionLoading
+                  ? "Đang hủy..."
+                  : "Hủy yêu cầu"
+                : friendRequestSending || friendActionLoading
+                  ? "Đang gửi..."
+                  : "Gửi kết bạn"}
+            </button>
+          </div>
+        </div>
+      )}
 
       {pinnedBannerItems.length > 0 && (
         <div className="bg-gray-50 px-2.5 py-2 border-b border-gray-200 dark:bg-black dark:border-[#262626]">
@@ -1691,6 +2001,103 @@ export default function ChatWindow({
           </div>
         )}
       </div>
+
+      {forwardSourceMessage && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/45 px-4 py-6">
+          <div className="w-full max-w-md overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-gray-200 dark:bg-gray-900 dark:ring-gray-700">
+            <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3 dark:border-gray-800">
+              <div className="min-w-0">
+                <h3 className="text-base font-semibold text-gray-950 dark:text-white">
+                  Chuyen tiep tin nhan
+                </h3>
+                <p className="mt-0.5 truncate text-xs text-gray-500 dark:text-gray-400">
+                  {getMessagePreviewText(forwardSourceMessage)}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeForwardModal}
+                className="rounded-full p-1.5 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="max-h-[55vh] overflow-y-auto px-2 py-2">
+              {forwardLoading ? (
+                <div className="flex h-36 items-center justify-center">
+                  <span className="h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-gray-800 dark:border-gray-700 dark:border-t-white" />
+                </div>
+              ) : forwardConversations.length === 0 ? (
+                <p className="px-3 py-8 text-center text-sm text-gray-500">
+                  Khong co hoi thoai phu hop
+                </p>
+              ) : (
+                forwardConversations.map((item) => {
+                  const selected = forwardSelectedIds.has(item.id);
+                  const displayInfo = buildConversationDisplayInfo({
+                    conversation: item,
+                    currentUserId: userId,
+                  });
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => toggleForwardTarget(item.id)}
+                      className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-gray-800"
+                    >
+                      <img
+                        src={displayInfo.avatarUrl || defaultAvatarSmallUrl}
+                        alt={displayInfo.name}
+                        className="h-10 w-10 rounded-full object-cover"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
+                          {displayInfo.name}
+                        </span>
+                      </span>
+                      <span
+                        className={`flex h-5 w-5 items-center justify-center rounded-full border ${
+                          selected
+                            ? "border-blue-600 bg-blue-600 text-white"
+                            : "border-gray-300 dark:border-gray-600"
+                        }`}
+                      >
+                        {selected ? <CheckCircle2 size={14} /> : null}
+                      </span>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+
+            {forwardError && (
+              <p className="border-t border-gray-100 px-4 py-2 text-sm text-red-500 dark:border-gray-800">
+                {forwardError}
+              </p>
+            )}
+
+            <div className="flex items-center justify-end gap-2 border-t border-gray-100 px-4 py-3 dark:border-gray-800">
+              <button
+                type="button"
+                onClick={closeForwardModal}
+                disabled={forwardSubmitting}
+                className="rounded-md px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-60 dark:text-gray-200 dark:hover:bg-gray-800"
+              >
+                Huy
+              </button>
+              <button
+                type="button"
+                onClick={() => void submitForwardMessage()}
+                disabled={forwardSelectedIds.size === 0 || forwardSubmitting}
+                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {forwardSubmitting ? "Dang gui..." : "Chuyen tiep"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <IncomingCallModal
         open={Boolean(incomingCall)}

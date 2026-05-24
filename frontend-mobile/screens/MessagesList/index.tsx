@@ -8,6 +8,9 @@ import {
 import { colors, spacing } from "@/constants";
 import { useGroupManagement } from "@/hooks/useGroupManagement";
 import { useMessagesController } from "@/hooks/useMessagesController";
+import { useAppContext } from "@/context/AppContext";
+import chatService from "@/services/chatService";
+import type { ChatUserSearchResult } from "@/types/chat";
 import { buildConversationDisplayInfo } from "@/utils/conversationDisplayInfo";
 import { buildConversationLastMessagePreview } from "@/utils/conversationLastMessagePreview";
 import { Ionicons } from "@expo/vector-icons";
@@ -18,14 +21,17 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
     Alert,
     Animated,
+    ActivityIndicator,
     Dimensions,
     FlatList,
     GestureResponderEvent,
+    Image,
     Modal,
     Pressable,
     SafeAreaView,
     StyleSheet,
     Text,
+    TextInput,
     View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -70,11 +76,92 @@ const menuActions = [
     { key: "report", label: "Báo cáo", icon: "flag-outline" },
 ] as const;
 
+const removedConversationMenuActions = [
+    {
+        key: "delete",
+        label: "Xóa",
+        icon: "trash-outline",
+        destructive: true,
+    },
+] as const;
+
 type MenuActionKey = (typeof menuActions)[number]["key"];
+
+function safeParseMemberIds(content?: string | null): number[] {
+    if (!content) return [];
+
+    try {
+        const parsed = JSON.parse(content);
+        if (!Array.isArray(parsed)) return [];
+        return parsed
+            .map((value: unknown) => {
+                if (typeof value === "object" && value !== null && "id" in value) {
+                    return Number((value as { id?: unknown }).id);
+                }
+                return Number(value);
+            })
+            .filter((value) => Number.isFinite(value));
+    } catch {
+        return [];
+    }
+}
+
+function isCurrentUserRemovedFromConversation(
+    conversation:
+        | {
+              members?: Array<{ userId: number; status?: string }>;
+              lastMessage?: {
+                  lastMessageType?: string;
+                  lastMessageContent?: string | null;
+                  lastSenderId?: number;
+              } | null;
+          }
+        | null
+        | undefined,
+    currentUserId: number,
+): boolean {
+    const currentMember = conversation?.members?.find(
+        (member) => Number(member.userId) === Number(currentUserId),
+    );
+    if (
+        currentMember?.status === "LEFT" ||
+        currentMember?.status === "KICKED" ||
+        currentMember?.status === "BLOCKED" ||
+        currentMember?.status === "GROUP_DISBANDED"
+    ) {
+        return true;
+    }
+
+    const lastMessage = conversation?.lastMessage;
+    if (!lastMessage) return false;
+
+    if (lastMessage.lastMessageType === "SYSTEM_DISBAND_GROUP") {
+        return true;
+    }
+
+    if (
+        lastMessage.lastMessageType === "SYSTEM_LEAVE_GROUP" &&
+        Number(lastMessage.lastSenderId) === Number(currentUserId)
+    ) {
+        return true;
+    }
+
+    if (
+        lastMessage.lastMessageType === "SYSTEM_KICK_MEMBER" ||
+        lastMessage.lastMessageType === "SYSTEM_BLOCK_MEMBER"
+    ) {
+        return safeParseMemberIds(lastMessage.lastMessageContent).some(
+            (id) => Number(id) === Number(currentUserId),
+        );
+    }
+
+    return false;
+}
 
 export default function MessagesListScreen() {
     const router = useRouter();
     const segments = useSegments();
+    const { currentUser } = useAppContext();
     const { refreshAt, pendingJoinNotice } = useLocalSearchParams<{
         refreshAt?: string;
         pendingJoinNotice?: string;
@@ -84,12 +171,21 @@ export default function MessagesListScreen() {
         searchQuery,
         setSearchQuery,
         filteredConversations,
+        pinnedConversations,
+        isPinLimitReached,
         loading,
         error,
         currentUserId,
         clearUnreadCount,
+        pinConversation,
+        unpinConversation,
+        replacePinnedConversation,
+        fetchPinnedConversations,
         deleteConversationForMe,
+        hideConversationForMe,
         reload,
+        registerPinLimitCallback,
+        maxPinnedConversations,
     } = useMessagesController();
 
     const {
@@ -115,9 +211,50 @@ export default function MessagesListScreen() {
         },
     });
     const [menuState, setMenuState] = useState<MenuState | null>(null);
+    const [chatUserSearchResult, setChatUserSearchResult] =
+        useState<ChatUserSearchResult | null>(null);
+    const [chatUserSearchLoading, setChatUserSearchLoading] = useState(false);
+    const [selectedChatUserPreview, setSelectedChatUserPreview] =
+        useState<ChatUserSearchResult | null>(null);
+    const [previewMessageText, setPreviewMessageText] = useState("");
+    const [previewSending, setPreviewSending] = useState(false);
     const suppressNextPressRef = useRef(false);
     const menuProgress = useRef(new Animated.Value(0)).current;
     const menuSoundRef = useRef<Audio.Sound | null>(null);
+
+    // --- Pin-limit modal state ---
+    const [pinLimitModal, setPinLimitModal] = useState<{
+        visible: boolean;
+        pendingConversationId: number | null;
+        unpinIds: number[];
+    }>({ visible: false, pendingConversationId: null, unpinIds: [] });
+
+    // Register callback so the hook calls our modal instead of Alert
+    useEffect(() => {
+        registerPinLimitCallback((conversationId) => {
+            setPinLimitModal({ visible: true, pendingConversationId: conversationId, unpinIds: [] });
+        });
+        return () => registerPinLimitCallback(null);
+    }, [registerPinLimitCallback]);
+
+    const closePinLimitModal = () =>
+        //@ts-ignore
+        setPinLimitModal({ visible: false, pendingConversationId: null });
+
+    const handleUnpinAndPin = async (unpinId: number, pendingId: number | null) => {
+        setPinLimitModal((prev) => ({ ...prev, visible: false }));
+        await unpinConversation(unpinId);
+        if (pendingId !== null) {
+            // Delay slightly to ensure sequential API processing if needed
+            setTimeout(async () => {
+                await pinConversation(pendingId);
+                await fetchPinnedConversations();
+            }, 100);
+        } else {
+            await fetchPinnedConversations();
+        }
+    };
+
     const selectedConversation = useMemo(
         () =>
             menuState
@@ -145,6 +282,18 @@ export default function MessagesListScreen() {
             ? `${selectedConversationPreviewInfo.senderLabel}: ${selectedConversationPreviewInfo.text}`
             : selectedConversationPreviewInfo.text
         : "";
+    const selectedConversationPinned = selectedConversation
+        ? pinnedConversations.some(
+              (pin) => pin.conversationId === selectedConversation.id,
+          )
+        : false;
+    const selectedConversationRemoved = isCurrentUserRemovedFromConversation(
+        selectedConversation,
+        currentUserId,
+    );
+    const effectiveMenuActions = selectedConversationRemoved
+        ? removedConversationMenuActions
+        : menuActions;
 
     useEffect(() => {
         if (!menuState) return;
@@ -201,6 +350,108 @@ export default function MessagesListScreen() {
         }
     }, [pendingJoinNotice, refreshAt, reload]);
 
+    const phoneSearchDigits = useMemo(
+        () => searchQuery.replace(/\D/g, ""),
+        [searchQuery],
+    );
+
+    useEffect(() => {
+        if (phoneSearchDigits.length !== 10) {
+            setChatUserSearchResult(null);
+            setChatUserSearchLoading(false);
+            return;
+        }
+
+        let cancelled = false;
+        setChatUserSearchLoading(true);
+        chatService
+            .searchChatUserByPhone(phoneSearchDigits)
+            .then((result) => {
+                if (!cancelled) setChatUserSearchResult(result);
+            })
+            .catch(() => {
+                if (!cancelled) setChatUserSearchResult(null);
+            })
+            .finally(() => {
+                if (!cancelled) setChatUserSearchLoading(false);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [phoneSearchDigits]);
+
+    const openChatUserSearchResult = async (result: ChatUserSearchResult) => {
+        const existingLocalDirectConversationId =
+            result.existingDirectConversationId ??
+            filteredConversations.find(
+                (conversation) =>
+                    conversation.type === "DIRECT" &&
+                    conversation.members?.some(
+                        (member) => Number(member.userId) === Number(result.userId),
+                    ),
+            )?.id;
+
+        if (existingLocalDirectConversationId) {
+            setSearchQuery("");
+            await reload();
+            router.push({
+                pathname: "/(stack)/messages/[conversationId]",
+                params: {
+                    conversationId: String(existingLocalDirectConversationId),
+                    peerFriendStatus: result.friendStatus,
+                    peerMutualGroupsCount: String(result.mutualGroupsCount ?? 0),
+                },
+            });
+            return;
+        }
+        try {
+            const conversation = await chatService.resolveDirectConversation(
+                result.userId,
+            );
+            setSelectedChatUserPreview(null);
+            setSearchQuery("");
+            await reload();
+            router.push({
+                pathname: "/(stack)/messages/[conversationId]",
+                params: {
+                    conversationId: String(conversation.id),
+                    peerFriendStatus: result.friendStatus,
+                    peerMutualGroupsCount: String(result.mutualGroupsCount ?? 0),
+                },
+            });
+        } catch {
+            Alert.alert("Thong bao", "Khong the mo cuoc tro chuyen");
+        }
+    };
+
+    const sendPreviewMessage = async () => {
+        if (!selectedChatUserPreview || !previewMessageText.trim()) return;
+        setPreviewSending(true);
+        try {
+            const message = await chatService.sendMessage(
+                {
+                    receiverId: selectedChatUserPreview.userId,
+                    content: previewMessageText.trim(),
+                    type: "TEXT",
+                },
+                currentUserId,
+            );
+            setPreviewMessageText("");
+            setSelectedChatUserPreview(null);
+            setSearchQuery("");
+            await reload();
+            router.push({
+                pathname: "/(stack)/messages/[conversationId]",
+                params: { conversationId: String(message.conversationId) },
+            });
+        } catch {
+            Alert.alert("Thong bao", "Khong the gui tin nhan");
+        } finally {
+            setPreviewSending(false);
+        }
+    };
+
     const closeMenu = () => setMenuState(null);
 
     const handleItemLongPress = (
@@ -210,13 +461,22 @@ export default function MessagesListScreen() {
         suppressNextPressRef.current = true;
         const { width, height } = Dimensions.get("window");
         const y = event.nativeEvent.pageY;
+        const pressedConversation = filteredConversations.find(
+            (conversation) => String(conversation.id) === conversationId,
+        );
+        const menuHeight = isCurrentUserRemovedFromConversation(
+            pressedConversation,
+            currentUserId,
+        )
+            ? 56
+            : MENU_HEIGHT;
         const menuWidth = Math.min(MAX_MENU_WIDTH, width - MENU_MARGIN * 2);
         const left = Math.max(MENU_MARGIN, width - menuWidth - MENU_MARGIN);
         const top = Math.min(
             Math.max(insets.top + MENU_MARGIN, y - PREVIEW_HEIGHT - PREVIEW_GAP),
             height -
                 insets.bottom -
-                MENU_HEIGHT -
+                menuHeight -
                 PREVIEW_HEIGHT -
                 PREVIEW_GAP -
                 MENU_MARGIN,
@@ -228,9 +488,25 @@ export default function MessagesListScreen() {
     const handleMenuAction = (actionKey: MenuActionKey) => {
         if (!menuState) return;
 
-        if (actionKey === "delete") {
-            const conversationId = Number(menuState.conversationId);
+        const conversationId = Number(menuState.conversationId);
+
+        if (actionKey === "hidden") {
             if (Number.isFinite(conversationId)) {
+                void hideConversationForMe(conversationId);
+            }
+
+            closeMenu();
+            return;
+        }
+
+        if (actionKey === "delete") {
+            if (Number.isFinite(conversationId)) {
+                if (selectedConversationRemoved) {
+                    void hideConversationForMe(conversationId);
+                    closeMenu();
+                    return;
+                }
+
                 Alert.alert(
                     "Xóa đoạn chat",
                     "Bạn có chắc muốn xóa đoạn chat này chỉ ở phía bạn?",
@@ -248,6 +524,17 @@ export default function MessagesListScreen() {
             }
 
             closeMenu();
+            return;
+        }
+
+        if (actionKey === "pin") {
+            const conversationId = Number(menuState.conversationId);
+            closeMenu();
+            if (!Number.isFinite(conversationId)) return;
+
+            void (selectedConversationPinned
+                ? unpinConversation(conversationId).then(() => reload())
+                : pinConversation(conversationId).then(() => reload()));
             return;
         }
 
@@ -289,9 +576,76 @@ export default function MessagesListScreen() {
             </View>
 
             <FlatList
-                data={filteredConversations}
+                keyboardShouldPersistTaps="always"
+                keyboardDismissMode="on-drag"
+                data={
+                    phoneSearchDigits.length === 10 && chatUserSearchResult
+                        ? []
+                        : filteredConversations
+                }
                 keyExtractor={(item) => String(item.id)}
+                ListHeaderComponent={
+                    phoneSearchDigits.length === 10 ? (
+                        <View style={styles.searchResultWrap}>
+                            {chatUserSearchLoading ? (
+                                <ActivityIndicator color="#2563EB" />
+                            ) : chatUserSearchResult ? (
+                                <Pressable
+                                    style={styles.searchUserRow}
+                                    onPress={() =>
+                                        void openChatUserSearchResult(
+                                            chatUserSearchResult,
+                                        )
+                                    }
+                                >
+                                    {chatUserSearchResult.avatarUrl ? (
+                                        <Image
+                                            source={{
+                                                uri: chatUserSearchResult.avatarUrl,
+                                            }}
+                                            style={styles.searchUserAvatar}
+                                        />
+                                    ) : (
+                                        <View style={styles.searchUserFallback}>
+                                            <Ionicons
+                                                name="person"
+                                                size={22}
+                                                color="#64748B"
+                                            />
+                                        </View>
+                                    )}
+                                    <View style={styles.searchUserTextWrap}>
+                                        <Text
+                                            style={styles.searchUserName}
+                                            numberOfLines={1}
+                                        >
+                                            {chatUserSearchResult.name}
+                                        </Text>
+                                        <Text
+                                            style={[styles.searchUserMeta, { display: "none" }]}
+                                            numberOfLines={1}
+                                        >
+                                            {chatUserSearchResult.friendStatus ===
+                                            "FRIEND"
+                                                ? "Ban be"
+                                                : "Nguoi la"}
+                                            {chatUserSearchResult.mutualGroupsCount >
+                                            0
+                                                ? ` · Nhom chung (${chatUserSearchResult.mutualGroupsCount})`
+                                                : ""}
+                                        </Text>
+                                    </View>
+                                </Pressable>
+                            ) : (
+                                <Text style={styles.searchUserEmpty}>
+                                    Khong tim thay nguoi dung voi so nay
+                                </Text>
+                            )}
+                        </View>
+                    ) : null
+                }
                 ListEmptyComponent={
+                    phoneSearchDigits.length === 10 && chatUserSearchResult ? null :
                     <EmptyState
                         title={
                             loading
@@ -325,6 +679,9 @@ export default function MessagesListScreen() {
                     const preview = previewInfo.showSenderPrefix
                         ? `${previewInfo.senderLabel}: ${previewInfo.text}`
                         : previewInfo.text;
+                    const isPinned = pinnedConversations.some(
+                        (pin) => pin.conversationId === item.id,
+                    );
 
                     return (
                         <MessageItem
@@ -333,12 +690,14 @@ export default function MessagesListScreen() {
                                 username: displayInfo.name,
                                 fullName: displayInfo.name,
                                 bio: "",
-                                avatar: displayInfo.avatarUrl || "",
+                                avatarUrl: displayInfo.avatarUrl || "",
                                 followers: 0,
                                 following: 0,
                             }}
-                            preview={preview}
+                            preview={searchQuery.trim() ? "" : preview}
+                            hideMeta={Boolean(searchQuery.trim())}
                             unreadCount={item.unreadCount ?? 0}
+                            isPinned={isPinned}
                             updatedAt={item.updatedAt}
                             onPress={() => {
                                 if (suppressNextPressRef.current) {
@@ -347,6 +706,7 @@ export default function MessagesListScreen() {
                                 }
 
                                 clearUnreadCount(item.id);
+                                setSearchQuery("");
                                 router.push({
                                     pathname:
                                         "/(stack)/messages/[conversationId]",
@@ -369,9 +729,270 @@ export default function MessagesListScreen() {
                 friendsError={friendsError}
                 submitting={isCreatingGroup}
                 error={actionError}
+                currentUserName={
+                    currentUser?.fullName ||
+                    currentUser?.name ||
+                    currentUser?.username
+                }
                 onClose={closeCreateGroupModal}
                 onSubmit={createGroup}
             />
+
+            <Modal
+                visible={Boolean(selectedChatUserPreview)}
+                transparent
+                animationType="slide"
+                onRequestClose={() => setSelectedChatUserPreview(null)}
+            >
+                <View style={styles.previewModalOverlay}>
+                    <View style={styles.previewSheet}>
+                        <View style={styles.previewHeader}>
+                            {selectedChatUserPreview?.avatarUrl ? (
+                                <Image
+                                    source={{
+                                        uri: selectedChatUserPreview.avatarUrl,
+                                    }}
+                                    style={styles.previewAvatar}
+                                />
+                            ) : (
+                                <View style={styles.previewAvatarFallback}>
+                                    <Ionicons
+                                        name="person"
+                                        size={24}
+                                        color="#64748B"
+                                    />
+                                </View>
+                            )}
+                            <View style={styles.previewTitleWrap}>
+                                <Text style={styles.previewName} numberOfLines={1}>
+                                    {selectedChatUserPreview?.name}
+                                </Text>
+                                <Text style={styles.previewMeta} numberOfLines={1}>
+                                    {selectedChatUserPreview?.friendStatus ===
+                                    "FRIEND"
+                                        ? "Ban be"
+                                        : "Nguoi la"}
+                                    {selectedChatUserPreview &&
+                                    selectedChatUserPreview.mutualGroupsCount > 0
+                                        ? ` · Nhom chung (${selectedChatUserPreview.mutualGroupsCount})`
+                                        : ""}
+                                </Text>
+                            </View>
+                            <Pressable
+                                style={styles.previewCloseBtn}
+                                onPress={() => setSelectedChatUserPreview(null)}
+                            >
+                                <Ionicons name="close" size={20} color="#64748B" />
+                            </Pressable>
+                        </View>
+
+                        {selectedChatUserPreview?.friendStatus !== "FRIEND" ? (
+                        <View style={styles.previewFriendBar}>
+                            <Ionicons
+                                name="person-add-outline"
+                                size={18}
+                                color="#334155"
+                            />
+                            <Text style={styles.previewFriendText}>
+                                Gui yeu cau ket ban toi nguoi nay
+                            </Text>
+                            <Pressable style={styles.previewFriendBtn}>
+                                <Text style={styles.previewFriendBtnText}>
+                                    Gui ket ban
+                                </Text>
+                            </Pressable>
+                        </View>
+                        ) : null}
+
+                        <Text style={styles.previewHint}>
+                            Tin nhan dau tien se tao cuoc hoi thoai rieng.
+                        </Text>
+
+                        <View style={styles.previewComposer}>
+                            <TextInput
+                                value={previewMessageText}
+                                onChangeText={setPreviewMessageText}
+                                placeholder={
+                                    selectedChatUserPreview?.blocked
+                                        ? "Khong the nhan tin voi nguoi dung nay"
+                                        : "Nhap tin nhan..."
+                                }
+                                editable={
+                                    !previewSending &&
+                                    !selectedChatUserPreview?.blocked
+                                }
+                                style={styles.previewInput}
+                                onSubmitEditing={() => void sendPreviewMessage()}
+                            />
+                            <Pressable
+                                style={[
+                                    styles.previewSendBtn,
+                                    (!previewMessageText.trim() ||
+                                        previewSending ||
+                                        selectedChatUserPreview?.blocked) &&
+                                        styles.previewSendBtnDisabled,
+                                ]}
+                                disabled={
+                                    !previewMessageText.trim() ||
+                                    previewSending ||
+                                    selectedChatUserPreview?.blocked
+                                }
+                                onPress={() => void sendPreviewMessage()}
+                            >
+                                {previewSending ? (
+                                    <ActivityIndicator color="#fff" />
+                                ) : (
+                                    <Ionicons
+                                        name="send"
+                                        size={18}
+                                        color={colors.white}
+                                    />
+                                )}
+                            </Pressable>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* --- Pin limit modal --- */}
+            <Modal
+                visible={pinLimitModal.visible}
+                transparent
+                animationType="slide"
+                onRequestClose={closePinLimitModal}
+            >
+                <Pressable style={styles.pinModalOverlay} onPress={closePinLimitModal}>
+                    <Pressable style={styles.pinModalSheet} onPress={() => undefined}>
+                        <View style={styles.pinModalHandle} />
+                        <Text style={styles.pinModalTitle}>
+                            Ghim tối đa {maxPinnedConversations} trò chuyện
+                        </Text>
+                        <Text style={styles.pinModalSubtitle}>
+                            Để có thể ghim trò chuyện{" "}
+                            <Text style={styles.pinModalSubtitleBold}>
+                                {(() => {
+                                    const conv = filteredConversations.find(
+                                        (c) => c.id === pinLimitModal.pendingConversationId,
+                                    );
+                                    if (!conv) return "này";
+                                    const info = buildConversationDisplayInfo({
+                                        conversation: conv,
+                                        currentUserId,
+                                    });
+                                    return info.name;
+                                })()}
+                            </Text>
+                            , vui lòng bỏ ghim ít nhất 1 trò chuyện bên dưới
+                        </Text>
+
+                        <View style={styles.pinModalList}>
+                            {pinnedConversations.map((pin) => {
+                                const info = pin.conversation
+                                    ? buildConversationDisplayInfo({
+                                          conversation: pin.conversation as any,
+                                          currentUserId,
+                                      })
+                                    : null;
+                                const displayName = info?.name ?? `Hội thoại ${pin.conversationId}`;
+                                const avatarUrl = info?.avatarUrl;
+                                
+                                const isSelectedToUnpin = pinLimitModal.unpinIds?.includes(pin.conversationId);
+
+                                return (
+                                    <View key={pin.conversationId} style={styles.pinModalItem}>
+                                        <View style={styles.pinModalItemLeft}>
+                                            {avatarUrl ? (
+                                                <Image
+                                                    source={{ uri: avatarUrl }}
+                                                    style={styles.pinModalAvatar}
+                                                />
+                                            ) : (
+                                                <View style={[styles.pinModalAvatar, styles.pinModalAvatarFallback]}>
+                                                    <Text style={styles.pinModalAvatarFallbackText}>
+                                                        {displayName.charAt(0).toUpperCase()}
+                                                    </Text>
+                                                </View>
+                                            )}
+                                            <Text style={styles.pinModalItemName} numberOfLines={1}>
+                                                {displayName}
+                                            </Text>
+                                        </View>
+                                        <Pressable
+                                            style={[
+                                                styles.pinModalUnpinBtn,
+                                                isSelectedToUnpin && styles.pinModalUnpinBtnSelected
+                                            ]}
+                                            onPress={() => {
+                                                setPinLimitModal(prev => {
+                                                    const unpinIds = prev.unpinIds || [];
+                                                    const nextUnpinIds = unpinIds.includes(pin.conversationId)
+                                                        ? unpinIds.filter((id: number) => id !== pin.conversationId)
+                                                        : [...unpinIds, pin.conversationId];
+                                                    return { ...prev, unpinIds: nextUnpinIds };
+                                                });
+                                            }}
+                                        >
+                                            <Text style={[
+                                                styles.pinModalUnpinBtnText,
+                                                isSelectedToUnpin && styles.pinModalUnpinBtnTextSelected
+                                            ]}>
+                                                {isSelectedToUnpin ? "Ghim lại" : "Bỏ ghim"}
+                                            </Text>
+                                        </Pressable>
+                                    </View>
+                                );
+                            })}
+                        </View>
+
+                        <Pressable
+                            style={[
+                                styles.pinModalActionBtn,
+                                !(pinLimitModal.unpinIds?.length > 0) && styles.pinModalActionBtnDisabled,
+                                (pinLimitModal.unpinIds?.length > 0) && styles.pinModalActionBtnActive
+                            ]}
+                            disabled={!(pinLimitModal.unpinIds?.length > 0)}
+                            onPress={async () => {
+                                const unpinIds = pinLimitModal.unpinIds || [];
+                                const pendingId = pinLimitModal.pendingConversationId;
+                                
+                                setPinLimitModal({ visible: false, pendingConversationId: null, unpinIds: [] });
+                                
+                                if (pendingId !== null && unpinIds.length > 0) {
+                                    // Use replacePinnedConversation for the first unpin + pin
+                                    const firstToUnpin = unpinIds[0];
+                                    const othersToUnpin = unpinIds.slice(1);
+                                    
+                                    // Unpin others first
+                                    for (const id of othersToUnpin) {
+                                        await unpinConversation(id);
+                                    }
+                                    
+                                    // Swap the last one
+                                    await replacePinnedConversation(firstToUnpin, pendingId);
+                                    await reload();
+                                } else if (unpinIds.length > 0) {
+                                    // Only unpinning
+                                    for (const id of unpinIds) {
+                                        await unpinConversation(id);
+                                    }
+                                    await reload();
+                                }
+                            }}
+                        >
+                            <Text style={[
+                                styles.pinModalActionBtnText,
+                                (pinLimitModal.unpinIds?.length > 0) && styles.pinModalActionBtnTextActive
+                            ]}>
+                                Ghim trò chuyện
+                            </Text>
+                        </Pressable>
+
+                        <Pressable style={styles.pinModalCancelBtn} onPress={closePinLimitModal}>
+                            <Text style={styles.pinModalCancelBtnText}>Hủy</Text>
+                        </Pressable>
+                    </Pressable>
+                </Pressable>
+            </Modal>
 
             <Modal
                 visible={Boolean(menuState)}
@@ -423,7 +1044,7 @@ export default function MessagesListScreen() {
                                             fullName:
                                                 selectedConversationDisplayInfo.name,
                                             bio: "",
-                                            avatar:
+                                            avatarUrl:
                                                 selectedConversationDisplayInfo.avatarUrl ||
                                                 "",
                                             followers: 0,
@@ -433,6 +1054,7 @@ export default function MessagesListScreen() {
                                         unreadCount={
                                             selectedConversation?.unreadCount ?? 0
                                         }
+                                        isPinned={selectedConversationPinned}
                                         updatedAt={
                                             selectedConversation?.updatedAt ?? ""
                                         }
@@ -470,7 +1092,7 @@ export default function MessagesListScreen() {
                                     },
                                 ]}
                             >
-                                {menuActions.map((action) => {
+                                {effectiveMenuActions.map((action) => {
                                     if ("divider" in action) {
                                         return (
                                             <View
@@ -483,11 +1105,23 @@ export default function MessagesListScreen() {
                                     const isDestructive =
                                         "destructive" in action &&
                                         Boolean(action.destructive);
+                                    const isPinAction = action.key === "pin";
+                                    const isDisabled = false; // Luôn cho phép nhấn Ghim để kích hoạt modal đổi ghim khi đạt giới hạn
+                                    const label = isPinAction
+                                        ? selectedConversationPinned
+                                            ? "Bỏ ghim"
+                                            : action.label
+                                        : action.label;
 
                                     return (
                                         <Pressable
                                             key={action.key}
-                                            style={styles.menuItem}
+                                            style={[
+                                                styles.menuItem,
+                                                isDisabled &&
+                                                    styles.menuItemDisabled,
+                                            ]}
+                                            disabled={isDisabled}
                                             onPress={() =>
                                                 handleMenuAction(action.key)
                                             }
@@ -506,9 +1140,11 @@ export default function MessagesListScreen() {
                                                     styles.menuLabel,
                                                     isDestructive &&
                                                         styles.menuLabelDanger,
+                                                    isDisabled &&
+                                                        styles.menuLabelDisabled,
                                                 ]}
                                             >
-                                                {action.label}
+                                                {label}
                                             </Text>
                                         </Pressable>
                                     );
@@ -532,6 +1168,164 @@ const styles = StyleSheet.create({
         paddingVertical: spacing.sm,
         borderBottomWidth: 1,
         borderBottomColor: colors.border,
+    },
+    searchResultWrap: {
+        paddingHorizontal: spacing.lg,
+        paddingVertical: spacing.sm,
+    },
+    searchUserRow: {
+        minHeight: 68,
+        flexDirection: "row",
+        alignItems: "center",
+        borderRadius: 14,
+        paddingHorizontal: 10,
+        backgroundColor: "#F8FAFC",
+    },
+    searchUserAvatar: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: "#E5E7EB",
+    },
+    searchUserFallback: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#E5E7EB",
+    },
+    searchUserTextWrap: {
+        flex: 1,
+        minWidth: 0,
+        marginLeft: 12,
+    },
+    searchUserName: {
+        fontSize: 15,
+        fontWeight: "700",
+        color: colors.text,
+    },
+    searchUserMeta: {
+        marginTop: 3,
+        fontSize: 12,
+        color: colors.textMuted,
+    },
+    searchUserEmpty: {
+        paddingVertical: 18,
+        textAlign: "center",
+        color: colors.textMuted,
+        fontSize: 13,
+    },
+    previewModalOverlay: {
+        flex: 1,
+        backgroundColor: colors.white,
+    },
+    previewSheet: {
+        flex: 1,
+        paddingTop: 12,
+        padding: 16,
+        backgroundColor: colors.white,
+    },
+    previewHeader: {
+        minHeight: 58,
+        flexDirection: "row",
+        alignItems: "center",
+    },
+    previewAvatar: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: "#E5E7EB",
+    },
+    previewAvatarFallback: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#E5E7EB",
+    },
+    previewTitleWrap: {
+        flex: 1,
+        minWidth: 0,
+        marginLeft: 12,
+    },
+    previewName: {
+        fontSize: 16,
+        fontWeight: "800",
+        color: colors.text,
+    },
+    previewMeta: {
+        marginTop: 3,
+        fontSize: 12,
+        color: colors.textMuted,
+    },
+    previewCloseBtn: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#F3F4F6",
+    },
+    previewFriendBar: {
+        marginTop: 14,
+        minHeight: 44,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        borderRadius: 12,
+        paddingHorizontal: 10,
+        backgroundColor: "#F8FAFC",
+    },
+    previewFriendText: {
+        flex: 1,
+        fontSize: 13,
+        color: "#334155",
+    },
+    previewFriendBtn: {
+        borderRadius: 10,
+        paddingHorizontal: 12,
+        paddingVertical: 7,
+        backgroundColor: "#E5E7EB",
+    },
+    previewFriendBtnText: {
+        fontSize: 12,
+        fontWeight: "700",
+        color: "#1F2937",
+    },
+    previewHint: {
+        paddingVertical: 18,
+        textAlign: "center",
+        fontSize: 13,
+        color: colors.textMuted,
+    },
+    previewComposer: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        borderRadius: 22,
+        paddingLeft: 12,
+        paddingRight: 6,
+        paddingVertical: 6,
+        backgroundColor: "#F3F4F6",
+    },
+    previewInput: {
+        flex: 1,
+        minHeight: 36,
+        fontSize: 14,
+        color: colors.text,
+    },
+    previewSendBtn: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#2563EB",
+    },
+    previewSendBtnDisabled: {
+        opacity: 0.5,
     },
     modalRoot: {
         flex: 1,
@@ -570,6 +1364,9 @@ const styles = StyleSheet.create({
         alignItems: "center",
         paddingHorizontal: 16,
     },
+    menuItemDisabled: {
+        opacity: 0.45,
+    },
     menuLabel: {
         marginLeft: 12,
         fontSize: 15,
@@ -579,9 +1376,138 @@ const styles = StyleSheet.create({
     menuLabelDanger: {
         color: "#EF4444",
     },
+    menuLabelDisabled: {
+        color: "#9CA3AF",
+    },
     menuDivider: {
         height: 1,
         backgroundColor: "#EEF0F3",
         marginVertical: 6,
+    },
+    // --- Pin limit modal styles ---
+    pinModalOverlay: {
+        flex: 1,
+        backgroundColor: "rgba(0,0,0,0.45)",
+        justifyContent: "flex-end",
+    },
+    pinModalSheet: {
+        backgroundColor: "#fff",
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        paddingHorizontal: 20,
+        paddingBottom: 32,
+        paddingTop: 12,
+    },
+    pinModalHandle: {
+        width: 40,
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: "#D1D5DB",
+        alignSelf: "center",
+        marginBottom: 16,
+    },
+    pinModalTitle: {
+        fontSize: 17,
+        fontWeight: "700",
+        color: "#111827",
+        textAlign: "center",
+        marginBottom: 8,
+    },
+    pinModalSubtitle: {
+        fontSize: 13,
+        color: "#6B7280",
+        textAlign: "center",
+        marginBottom: 20,
+        lineHeight: 19,
+    },
+    pinModalSubtitleBold: {
+        fontWeight: "600",
+        color: "#111827",
+    },
+    pinModalItem: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        paddingVertical: 10,
+    },
+    pinModalItemLeft: {
+        flexDirection: "row",
+        alignItems: "center",
+        flex: 1,
+        marginRight: 12,
+    },
+    pinModalAvatar: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        marginRight: 12,
+    },
+    pinModalAvatarFallback: {
+        backgroundColor: "#3B82F6",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    pinModalAvatarFallbackText: {
+        color: "#fff",
+        fontWeight: "700",
+        fontSize: 18,
+    },
+    pinModalItemName: {
+        fontSize: 15,
+        fontWeight: "500",
+        color: "#111827",
+        flex: 1,
+    },
+    pinModalUnpinBtn: {
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        borderRadius: 20,
+        backgroundColor: "#F3F4F6",
+    },
+    pinModalUnpinBtnSelected: {
+        backgroundColor: "#EBF5FF",
+        borderWidth: 1,
+        borderColor: "#3B82F6",
+    },
+    pinModalUnpinBtnText: {
+        fontSize: 13,
+        fontWeight: "600",
+        color: "#374151",
+    },
+    pinModalUnpinBtnTextSelected: {
+        color: "#3B82F6",
+    },
+    pinModalActionBtn: {
+        marginTop: 16,
+        borderRadius: 24,
+        paddingVertical: 14,
+        alignItems: "center",
+    },
+    pinModalActionBtnDisabled: {
+        backgroundColor: "#E5E7EB",
+    },
+    pinModalActionBtnActive: {
+        backgroundColor: "#006AF5",
+    },
+    pinModalActionBtnText: {
+        fontSize: 15,
+        fontWeight: "600",
+        color: "#9CA3AF",
+    },
+    pinModalActionBtnTextActive: {
+        color: "#fff",
+    },
+    pinModalCancelBtn: {
+        marginTop: 10,
+        paddingVertical: 12,
+        alignItems: "center",
+    },
+    pinModalCancelBtnText: {
+        fontSize: 15,
+        color: "#374151",
+        fontWeight: "500",
+    },
+    pinModalList: {
+        marginVertical: 10,
     },
 });

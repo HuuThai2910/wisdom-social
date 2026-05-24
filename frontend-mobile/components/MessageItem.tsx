@@ -1,6 +1,7 @@
 import { colors, spacing } from "@/constants";
 import { User } from "@/types";
 import { formatRelativeTime } from "@/utils/format";
+import { Ionicons } from "@expo/vector-icons";
 import {
     GestureResponderEvent,
     Pressable,
@@ -15,6 +16,8 @@ type Props = {
     preview: string;
     updatedAt: string;
     unreadCount?: number;
+    isPinned?: boolean;
+    hideMeta?: boolean;
     onPress: () => void;
     onLongPress?: (event: GestureResponderEvent) => void;
     delayLongPress?: number;
@@ -25,6 +28,8 @@ export default function MessageItem({
     preview,
     updatedAt,
     unreadCount = 0,
+    isPinned = false,
+    hideMeta = false,
     onPress,
     onLongPress,
     delayLongPress = 300,
@@ -38,30 +43,42 @@ export default function MessageItem({
             onLongPress={onLongPress}
             delayLongPress={delayLongPress}
         >
-            <UserAvatar uri={user.avatar} name={user.username} size={52} />
+            <UserAvatar uri={user.avatarUrl} name={user.username} size={52} />
             <View style={styles.content}>
-                <Text style={[styles.name, hasUnread && styles.nameUnread]}>
-                    {user.username}
-                </Text>
-                <Text
-                    numberOfLines={1}
-                    style={[styles.preview, hasUnread && styles.previewUnread]}
-                >
-                    {preview}
-                </Text>
-            </View>
-            <View style={styles.rightMeta}>
-                <Text style={[styles.time, hasUnread && styles.timeUnread]}>
-                    {formatRelativeTime(updatedAt)}
-                </Text>
-                {hasUnread ? (
-                    <View style={styles.unreadBadge}>
-                        <Text style={styles.unreadBadgeText}>
-                            {unreadCount > 99 ? "99+" : unreadCount}
-                        </Text>
-                    </View>
+                <View style={styles.nameRow}>
+                    {isPinned ? (
+                        <Ionicons name="pin" size={13} color="#2563EB" />
+                    ) : null}
+                    <Text
+                        numberOfLines={1}
+                        style={[styles.name, hasUnread && styles.nameUnread]}
+                    >
+                        {user.username}
+                    </Text>
+                </View>
+                {preview ? (
+                    <Text
+                        numberOfLines={1}
+                        style={[styles.preview, hasUnread && styles.previewUnread]}
+                    >
+                        {preview}
+                    </Text>
                 ) : null}
             </View>
+            {!hideMeta ? (
+                <View style={styles.rightMeta}>
+                    <Text style={[styles.time, hasUnread && styles.timeUnread]}>
+                        {formatRelativeTime(updatedAt)}
+                    </Text>
+                    {hasUnread ? (
+                        <View style={styles.unreadBadge}>
+                            <Text style={styles.unreadBadgeText}>
+                                {unreadCount > 99 ? "99+" : unreadCount}
+                            </Text>
+                        </View>
+                    ) : null}
+                </View>
+            ) : null}
         </Pressable>
     );
 }
@@ -79,7 +96,13 @@ const styles = StyleSheet.create({
         marginLeft: spacing.md,
         flex: 1,
     },
+    nameRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+    },
     name: {
+        flex: 1,
         fontWeight: "600",
         color: colors.text,
         fontSize: 15,

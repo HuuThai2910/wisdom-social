@@ -1,18 +1,25 @@
 import apiClient from "@/api/apiClient";
 import type {
+    AddGroupMembersWithInvitesRequest,
     AddGroupMembersRequest,
     ApiResponse,
     BulkPresignedRequest,
+    ChatUserSearchResult,
     Conversation,
     ConversationPreview,
+    ConversationPin,
     ConversationSidebar,
     ConversationMember,
+    CreatePollRequest,
+    CreateGroupWithInvitesRequest,
     CreateGroupRequest,
     CursorResponse,
     LocalUploadFile,
+    ForwardMessageRequest,
     JoinRequest,
     MemberRole,
     Message,
+    PollResponse,
     PinnedMessageDetail,
     PresignedUrlResponse,
     SendCallMessageRequest,
@@ -67,11 +74,36 @@ function unwrapApiData<T>(payload: ApiResponse<T> | T): T {
     return payload as T;
 }
 
+export function isMaxPinLimitError(error: unknown): boolean {
+    const responseData =
+        error &&
+        typeof error === "object" &&
+        "response" in error
+            ? (error as { response?: { data?: unknown } }).response?.data
+            : undefined;
+
+    if (!responseData || typeof responseData !== "object") return false;
+
+    const payload = responseData as { errors?: unknown };
+    const errors = payload.errors;
+    const nestedCode =
+        errors && typeof errors === "object" && "code" in errors
+            ? (errors as { code?: unknown }).code
+            : undefined;
+
+    return nestedCode === "MAX_PIN_LIMIT";
+}
+
 const chatService = {
     async getConversations(
         userId: number,
     ): Promise<ApiResponse<ConversationSidebar[]>> {
         const response = await apiClient.get(`/conversations`);
+        return response.data;
+    },
+
+    async getForwardableConversations(): Promise<ApiResponse<ConversationSidebar[]>> {
+        const response = await apiClient.get(`/conversations/forward-targets`);
         return response.data;
     },
 
@@ -83,6 +115,24 @@ const chatService = {
             `/conversations/${conversationId}`,
         );
         return response.data;
+    },
+
+    async fetchPinnedConversations(): Promise<ConversationPin[]> {
+        const response = await apiClient.get("/pins");
+        return unwrapApiData(
+            response.data as ApiResponse<ConversationPin[]> | ConversationPin[],
+        );
+    },
+
+    async pinConversation(conversationId: number): Promise<ConversationPin> {
+        const response = await apiClient.post("/pins", { conversationId });
+        return unwrapApiData(
+            response.data as ApiResponse<ConversationPin> | ConversationPin,
+        );
+    },
+
+    async unpinConversation(conversationId: number): Promise<void> {
+        await apiClient.delete(`/pins/${conversationId}`);
     },
 
     async getConversationMembers(
@@ -155,6 +205,70 @@ const chatService = {
         return normalizeMessagePayload(response.data);
     },
 
+    async searchChatUserByPhone(phone: string): Promise<ChatUserSearchResult | null> {
+        const response = await apiClient.get("/chat-users/search-by-phone", {
+            params: { phone },
+        });
+        return unwrapApiData(
+            response.data as ApiResponse<ChatUserSearchResult | null> | ChatUserSearchResult | null,
+        );
+    },
+
+    async getChatUserRelationship(userId: number): Promise<ChatUserSearchResult | null> {
+        const response = await apiClient.get(`/chat-users/${userId}/relationship`);
+        return unwrapApiData(
+            response.data as ApiResponse<ChatUserSearchResult | null> | ChatUserSearchResult | null,
+        );
+    },
+
+    async resolveDirectConversation(receiverId: number): Promise<Conversation> {
+        const response = await apiClient.post("/conversations/direct/resolve", {
+            receiverId,
+        });
+        return unwrapApiData(response.data as ApiResponse<Conversation> | Conversation);
+    },
+
+    async createPoll(request: CreatePollRequest): Promise<Message> {
+        const response = await apiClient.post(`/messages/polls`, request);
+        return normalizeMessagePayload(response.data);
+    },
+
+    async getPoll(pollId: string): Promise<PollResponse> {
+        const response = await apiClient.get(`/polls/${pollId}`);
+        return unwrapApiData(response.data as ApiResponse<PollResponse> | PollResponse);
+    },
+
+    async votePoll(pollId: string, optionIds: string[]): Promise<PollResponse> {
+        const response = await apiClient.post(`/polls/${pollId}/vote`, {
+            optionIds,
+        });
+        return unwrapApiData(response.data as ApiResponse<PollResponse> | PollResponse);
+    },
+
+    async removePollVote(pollId: string): Promise<PollResponse> {
+        const response = await apiClient.delete(`/polls/${pollId}/vote`);
+        return unwrapApiData(response.data as ApiResponse<PollResponse> | PollResponse);
+    },
+
+    async addPollOption(pollId: string, text: string): Promise<PollResponse> {
+        const response = await apiClient.post(`/polls/${pollId}/options`, {
+            text,
+        });
+        return unwrapApiData(response.data as ApiResponse<PollResponse> | PollResponse);
+    },
+
+    async closePoll(pollId: string): Promise<PollResponse> {
+        const response = await apiClient.patch(`/polls/${pollId}/close`);
+        return unwrapApiData(response.data as ApiResponse<PollResponse> | PollResponse);
+    },
+
+    async forwardMessage(request: ForwardMessageRequest): Promise<Message[]> {
+        const response = await apiClient.post(`/messages/forward`, request);
+        return unwrapApiData(
+            response.data as ApiResponse<Message[]> | Message[],
+        );
+    },
+
     async sendCallMessage(
         request: SendCallMessageRequest,
         userId: number,
@@ -194,6 +308,14 @@ const chatService = {
         await apiClient.delete(`/messages/${messageId}/pin`);
     },
 
+    async addReaction(messageId: string, emoji: string): Promise<Message> {
+        const response = await apiClient.post(
+            `/messages/${messageId}/reactions`,
+            { emoji },
+        );
+        return normalizeMessagePayload(response.data);
+    },
+
     async deleteMessageForMe(messageId: string, userId: number): Promise<void> {
         await apiClient.delete(`/messages/${messageId}/delete-for-me`);
     },
@@ -207,10 +329,30 @@ const chatService = {
         );
     },
 
+    async hideConversationForMe(
+        conversationId: number,
+        _userId: number,
+    ): Promise<void> {
+        await apiClient.patch(`/conversations/${conversationId}/hide-for-me`);
+    },
+
     async createGroupConversation(
         request: CreateGroupRequest,
     ): Promise<Conversation> {
         const response = await apiClient.post("/conversations/group", request);
+
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async createGroupConversationWithInvites(
+        request: CreateGroupWithInvitesRequest,
+    ): Promise<Conversation> {
+        const response = await apiClient.post(
+            "/conversations/group-with-invites",
+            request,
+        );
 
         return unwrapApiData(
             response.data as ApiResponse<Conversation> | Conversation,
@@ -223,6 +365,20 @@ const chatService = {
     ): Promise<Conversation> {
         const response = await apiClient.post(
             `/conversations/${conversationId}/members`,
+            request,
+        );
+
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async addMembersToGroupWithInvites(
+        conversationId: number,
+        request: AddGroupMembersWithInvitesRequest,
+    ): Promise<Conversation> {
+        const response = await apiClient.post(
+            `/conversations/${conversationId}/members-with-invites`,
             request,
         );
 
@@ -244,11 +400,52 @@ const chatService = {
     async kickGroupMember(
         conversationId: number,
         targetUserId: number,
+        blockFromGroup = false,
     ): Promise<Conversation> {
         const response = await apiClient.delete(
             `/conversations/${conversationId}/members/${targetUserId}`,
+            {
+                params: {
+                    blockFromGroup,
+                },
+            },
         );
 
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async getBlockedGroupMembers(
+        conversationId: number,
+    ): Promise<ConversationMember[]> {
+        const response = await apiClient.get(
+            `/conversations/${conversationId}/blocked-members`,
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<ConversationMember[]> | ConversationMember[],
+        );
+    },
+
+    async blockGroupMember(
+        conversationId: number,
+        targetUserId: number,
+    ): Promise<Conversation> {
+        const response = await apiClient.post(
+            `/conversations/${conversationId}/blocked-members/${targetUserId}`,
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async unblockGroupMember(
+        conversationId: number,
+        targetUserId: number,
+    ): Promise<Conversation> {
+        const response = await apiClient.delete(
+            `/conversations/${conversationId}/blocked-members/${targetUserId}`,
+        );
         return unwrapApiData(
             response.data as ApiResponse<Conversation> | Conversation,
         );
@@ -336,6 +533,12 @@ const chatService = {
         );
         return unwrapApiData(
             response.data as ApiResponse<JoinRequest[]> | JoinRequest[],
+        );
+    },
+
+    async cancelMyJoinRequest(conversationId: number): Promise<void> {
+        await apiClient.delete(
+            `/conversations/${conversationId}/join-requests/me`,
         );
     },
 

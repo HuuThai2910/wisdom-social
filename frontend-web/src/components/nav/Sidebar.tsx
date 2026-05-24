@@ -28,6 +28,7 @@ import { useFriendDataSafe } from "../../contexts/FriendDataContext";
 import { useSidebarLayout } from "../../hooks/useSidebarLayout";
 import { useNotificationContext } from "../../contexts/NotificationContext";
 import { useHasActiveStory } from "../../hooks/useHasActiveStory";
+import { useChatUnread } from "../../contexts/ChatUnreadContext";
 
 export default function Sidebar() {
   const location = useLocation();
@@ -39,6 +40,7 @@ export default function Sidebar() {
   const showLabels = !sidebarCollapsed;
 
   const { unreadCount } = useNotificationContext();
+  const { unreadCount: chatUnreadCount } = useChatUnread();
 
   // Check if current user has an active story
   const { hasStory: hasActiveStory } = useHasActiveStory(currentUser?.id);
@@ -52,12 +54,17 @@ export default function Sidebar() {
     { icon: Search, label: "Search", path: "/search" },
     { icon: Compass, label: "Explore", path: "/explore" },
     { icon: Clapperboard, label: "Reels", path: "/reels" },
-    { icon: MessageCircle, label: "Messages", path: "/messages" },
-    { 
-      icon: Heart, 
-      label: "Notifications", 
+    {
+      icon: MessageCircle,
+      label: "Messages",
+      path: "/messages",
+      badge: chatUnreadCount,
+    },
+    {
+      icon: Heart,
+      label: "Notifications",
       path: "/notifications",
-      badge: unreadCount 
+      badge: unreadCount,
     },
     {
       icon: UserPlus,
@@ -153,20 +160,23 @@ export default function Sidebar() {
               className={`flex w-full items-center rounded-lg py-3 transition-all hover:bg-gray-100 dark:hover:bg-[#262626] ${
                 showLabels ? "gap-4 px-3" : "justify-center px-2"
               } ${
-                location.pathname === "/create" || location.pathname === "/create-story"
+                location.pathname === "/create" ||
+                location.pathname === "/create-story"
                   ? "font-bold"
                   : "font-normal"
               } dark:text-white`}
             >
               <PlusSquare
                 className={
-                  location.pathname === "/create" || location.pathname === "/create-story"
+                  location.pathname === "/create" ||
+                  location.pathname === "/create-story"
                     ? "fill-current"
                     : ""
                 }
                 size={26}
                 strokeWidth={
-                  location.pathname === "/create" || location.pathname === "/create-story"
+                  location.pathname === "/create" ||
+                  location.pathname === "/create-story"
                     ? 2.5
                     : 1.5
                 }
@@ -216,7 +226,8 @@ export default function Sidebar() {
                     : "font-normal"
                 } dark:text-white`}
               >
-                <div className={`relative shrink-0 ${
+                <div
+                  className={`relative shrink-0 ${
                     hasActiveStory
                       ? "p-[2px] rounded-full bg-gradient-to-tr from-green-400 to-emerald-500"
                       : ""
@@ -228,7 +239,9 @@ export default function Sidebar() {
                     }
                     alt={currentUser.username}
                     className={`w-6.5 h-6.5 rounded-full object-cover ${
-                      hasActiveStory ? "border-2 border-white dark:border-black" : ""
+                      hasActiveStory
+                        ? "border-2 border-white dark:border-black"
+                        : ""
                     }`}
                   />
                 </div>

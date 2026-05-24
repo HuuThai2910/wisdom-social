@@ -11,8 +11,12 @@ import { UserAvatar } from "@/components";
 import SelectGroupMembersModal from "@/components/SelectGroupMembersModal";
 import { colors, spacing } from "@/constants";
 import { useChatWindowController } from "@/hooks/useChatWindowController";
+import { useFriendNotifications } from "@/hooks/useFriendNotifications";
 import { useGroupManagement } from "@/hooks/useGroupManagement";
-import type { LocalUploadFile, Message } from "@/types/chat";
+import chatService from "@/services/chatService";
+import friendService from "@/services/friendService";
+import type { FriendEvent } from "@/services/friendWebsocketService";
+import type { ChatUserSearchResult, ConversationSidebar, LocalUploadFile, Message } from "@/types/chat";
 import { formatRelativeTime } from "@/utils/format";
 import { focusComposerInput } from "@/utils/focusComposerInput";
 import { buildConversationDisplayInfo } from "@/utils/conversationDisplayInfo";
@@ -20,12 +24,13 @@ import { Ionicons } from "@expo/vector-icons";
 import { Audio, type AVPlaybackStatus, ResizeMode, Video } from "expo-av";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, usePreventRemove } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Alert,
     Animated,
     ActivityIndicator,
+    BackHandler,
     Dimensions,
     Easing,
     FlatList,
@@ -89,31 +94,114 @@ import { PinnedBanner } from "@/components/PinnedBanner";
 import { buildPinnedBannerItemsFromSnapshot } from "@/utils/pinnedMessageSnapshot";
 import { useOneToOneCall } from "@/hooks/useOneToOneCall";
 import { consumeInviteReturnSync } from "@/utils/inviteReturnSync";
+
+const FORWARD_BLOCKED_MEMBER_STATUSES = new Set([
+    "LEFT",
+    "KICKED",
+    "BLOCKED",
+    "GROUP_DISBANDED",
+]);
+
+function canForwardToConversation(
+    conversation: ConversationSidebar,
+    currentUserId: number,
+): boolean {
+    if (conversation.lastMessage?.lastMessageType === "SYSTEM_DISBAND_GROUP") {
+        return false;
+    }
+
+    const currentMember = conversation.members?.find(
+        (member) => Number(member.userId) === Number(currentUserId),
+    );
+
+    if (!currentMember) return true;
+    return !FORWARD_BLOCKED_MEMBER_STATUSES.has(String(currentMember.status));
+}
+
 export default function MessagesConversationScreen() {
     const {
         conversationId: conversationIdParam,
         refreshAt,
         pendingJoinNotice,
         backToMessages,
+        peerFriendStatus,
+        peerMutualGroupsCount,
+        openMessageId,
     } = useLocalSearchParams<{
         conversationId?: string;
         refreshAt?: string;
         pendingJoinNotice?: string;
         backToMessages?: string;
+        peerFriendStatus?: string;
+        peerMutualGroupsCount?: string;
+        openMessageId?: string;
     }>();
     const conversationId = Number(conversationIdParam ?? 0);
     const router = useRouter();
     const insets = useSafeAreaInsets();
+    const redirectingBackToMessagesRef = useRef(false);
+    const [redirectingBackToMessages, setRedirectingBackToMessages] =
+        useState(false);
+    const goBackToMessagesRoot = useCallback(() => {
+        if (redirectingBackToMessagesRef.current) return;
+        redirectingBackToMessagesRef.current = true;
+        setRedirectingBackToMessages(true);
+        router.replace("/(tabs)/activity");
+    }, [router]);
+
     const handleBackPress = useCallback(() => {
         if (backToMessages === "1") {
-            router.replace("/(tabs)/activity");
+            goBackToMessagesRoot();
             return;
         }
         router.back();
-    }, [backToMessages, router]);
+    }, [backToMessages, goBackToMessagesRoot, router]);
+
+    useEffect(() => {
+        if (backToMessages !== "1") return;
+
+        const subscription = BackHandler.addEventListener(
+            "hardwareBackPress",
+            () => {
+                goBackToMessagesRoot();
+                return true;
+            },
+        );
+
+        return () => subscription.remove();
+    }, [backToMessages, goBackToMessagesRoot]);
+
+    usePreventRemove(
+        backToMessages === "1" && !redirectingBackToMessages,
+        goBackToMessagesRoot,
+    );
     const handleAccessBlocked = useCallback(() => {
         router.replace("/(tabs)/activity");
     }, [router]);
+    const [loadedRelationshipInfo, setLoadedRelationshipInfo] =
+        useState<ChatUserSearchResult | null>(null);
+    const [friendRequestSending, setFriendRequestSending] = useState(false);
+    const [friendRequestSent, setFriendRequestSent] = useState(false);
+    const routeRelationshipInfo = useMemo(() => {
+        if (!peerFriendStatus) return null;
+        return {
+            friendStatus: peerFriendStatus === "FRIEND" ? "FRIEND" : "STRANGER",
+            mutualGroupsCount: Number(peerMutualGroupsCount ?? 0),
+        };
+    }, [peerFriendStatus, peerMutualGroupsCount]);
+    const effectiveRelationshipInfo =
+        loadedRelationshipInfo ?? routeRelationshipInfo;
+    const peerRelationshipText = useMemo(() => {
+        if (!effectiveRelationshipInfo) return null;
+        const parts = [
+            effectiveRelationshipInfo.friendStatus === "FRIEND" ? "Ban be" : "Nguoi la",
+        ];
+        const mutualGroupsCount = Number(effectiveRelationshipInfo.mutualGroupsCount ?? 0);
+        if (mutualGroupsCount > 0) {
+            parts.push(`Nhom chung (${mutualGroupsCount})`);
+        }
+        return parts.join(" · ");
+    }, [effectiveRelationshipInfo]);
 
     const {
         currentUserId,
@@ -128,7 +216,6 @@ export default function MessagesConversationScreen() {
         loading,
         loadingMore,
         loadingNewer,
-        hasMoreOlder,
         hasMoreNewer,
         isHistoricalMode,
         sending,
@@ -146,6 +233,7 @@ export default function MessagesConversationScreen() {
         handleDeleteForMe,
         handlePinMessage,
         handleUnpinMessage,
+        addReaction,
         sendTypingSignal,
         loadOlderMessages,
         loadNewerMessages,
@@ -182,6 +270,17 @@ export default function MessagesConversationScreen() {
         start: 0,
         end: 0,
     });
+    const [forwardSourceMessage, setForwardSourceMessage] =
+        useState<Message | null>(null);
+    const [forwardConversations, setForwardConversations] = useState<
+        ConversationSidebar[]
+    >([]);
+    const [forwardSelectedIds, setForwardSelectedIds] = useState<Set<number>>(
+        () => new Set(),
+    );
+    const [forwardLoading, setForwardLoading] = useState(false);
+    const [forwardSubmitting, setForwardSubmitting] = useState(false);
+    const [forwardError, setForwardError] = useState<string | null>(null);
 
     useEffect(() => {
         if (!refreshAt) return;
@@ -256,6 +355,7 @@ export default function MessagesConversationScreen() {
     const isAtBottomRef = useRef(true);
     const stickToBottomRef = useRef(true);
     const didInitialAutoScrollRef = useRef(false);
+    const userHasDraggedListRef = useRef(false);
     const listLayoutRef = useRef({ y: 0, height: 0 });
     const scrollMetricsRef = useRef({
         contentHeight: 0,
@@ -320,6 +420,132 @@ export default function MessagesConversationScreen() {
             null
         );
     }, [currentUserId, membersById]);
+
+    useFriendNotifications(
+        useCallback(
+            (event: FriendEvent) => {
+                if (!currentUserId || !otherUser?.userId) return;
+                const senderId = Number(event.senderId);
+                const receiverId = Number(event.receiverId);
+                const matchesCurrentConversation =
+                    (senderId === currentUserId &&
+                        receiverId === Number(otherUser.userId)) ||
+                    (senderId === Number(otherUser.userId) &&
+                        receiverId === currentUserId);
+
+                if (!matchesCurrentConversation) return;
+
+                if (event.eventType === "friend-accept") {
+                    setFriendRequestSent(false);
+                    setLoadedRelationshipInfo((previous) =>
+                        previous
+                            ? { ...previous, friendStatus: "FRIEND" }
+                            : {
+                                  userId: Number(otherUser.userId),
+                                  name:
+                                      otherUser.nickname ||
+                                      otherUser.username ||
+                                      "",
+                                  friendStatus: "FRIEND",
+                                  mutualGroupsCount: 0,
+                              },
+                    );
+                    return;
+                }
+
+                if (
+                    event.eventType === "friend-reject" ||
+                    event.eventType === "friend-cancel"
+                ) {
+                    setFriendRequestSent(false);
+                    setLoadedRelationshipInfo((previous) =>
+                        previous
+                            ? { ...previous, friendStatus: "STRANGER" }
+                            : previous,
+                    );
+                }
+            },
+            [currentUserId, otherUser?.nickname, otherUser?.userId, otherUser?.username],
+        ),
+    );
+
+    useEffect(() => {
+        setFriendRequestSent(false);
+        setFriendRequestSending(false);
+    }, [otherUser?.userId]);
+
+    const handleSendFriendRequest = useCallback(async () => {
+        if (
+            !currentUserId ||
+            !otherUser?.userId ||
+            friendRequestSending
+        ) {
+            return;
+        }
+
+        setFriendRequestSending(true);
+        if (friendRequestSent) {
+            setFriendRequestSent(false);
+        }
+        const ok = friendRequestSent
+            ? await friendService.cancelFriendRequest(
+                  currentUserId,
+                  otherUser.userId,
+              )
+            : await friendService.sendFriendRequest(
+                  currentUserId,
+                  otherUser.userId,
+              );
+        setFriendRequestSending(false);
+
+        if (ok) {
+            if (!friendRequestSent) {
+                setFriendRequestSent(true);
+            }
+            return;
+        }
+
+        if (friendRequestSent) {
+            setFriendRequestSent(true);
+        }
+
+        Alert.alert(
+            "Thong bao",
+            friendRequestSent
+                ? "Khong the huy loi moi ket ban"
+                : "Khong the gui loi moi ket ban",
+        );
+    }, [
+        currentUserId,
+        friendRequestSending,
+        friendRequestSent,
+        otherUser?.userId,
+    ]);
+
+    useEffect(() => {
+        if (routeRelationshipInfo) {
+            setLoadedRelationshipInfo(null);
+            return;
+        }
+        if (conversation?.type !== "DIRECT" || !otherUser?.userId) {
+            setLoadedRelationshipInfo(null);
+            return;
+        }
+
+        let cancelled = false;
+        chatService
+            .getChatUserRelationship(otherUser.userId)
+            .then((result) => {
+                if (!cancelled) setLoadedRelationshipInfo(result);
+            })
+            .catch(() => {
+                if (!cancelled) setLoadedRelationshipInfo(null);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [conversation?.type, otherUser?.userId, routeRelationshipInfo]);
 
     const conversationDisplayInfo = useMemo(() => {
         if (!conversation) return null;
@@ -475,14 +701,14 @@ export default function MessagesConversationScreen() {
                     try {
                         listRef.current?.scrollToIndex({
                             index,
-                            animated: true,
+                            animated: false,
                             viewPosition: 0.5,
                         });
                     } catch {
                         const fallbackOffset = Math.max(index * 92 - 140, 0);
                         listRef.current?.scrollToOffset({
                             offset: fallbackOffset,
-                            animated: true,
+                            animated: false,
                         });
 
                         if (attempt < 4) {
@@ -640,6 +866,11 @@ export default function MessagesConversationScreen() {
         },
         [requestJumpToMessage],
     );
+
+    useEffect(() => {
+        if (!openMessageId) return;
+        void requestJumpToMessage(String(openMessageId));
+    }, [openMessageId, requestJumpToMessage]);
 
     useEffect(() => {
         return () => {
@@ -835,6 +1066,7 @@ export default function MessagesConversationScreen() {
         isAtBottomRef.current = true;
         stickToBottomRef.current = true;
         didInitialAutoScrollRef.current = false;
+        userHasDraggedListRef.current = false;
         setShowScrollToBottomButton(false);
         setPendingNewMessages(0);
         rightScrollCueVisibleRef.current = false;
@@ -860,6 +1092,7 @@ export default function MessagesConversationScreen() {
         if (jumpScrollLockRef.current) return;
 
         didInitialAutoScrollRef.current = true;
+        autoPagingSuppressedUntilRef.current = Date.now() + 500;
         stickToBottomRef.current = true;
         isAtBottomRef.current = true;
         forceScrollToBottom(false);
@@ -953,6 +1186,7 @@ export default function MessagesConversationScreen() {
 
     const handleListScrollBeginDrag = useCallback(
         (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+            userHasDraggedListRef.current = true;
             autoPagingSuppressedUntilRef.current = 0;
             const distanceFromBottom =
                 event.nativeEvent.contentSize.height -
@@ -1209,6 +1443,72 @@ export default function MessagesConversationScreen() {
         });
     };
 
+    const openForwardModal = useCallback(
+        async (messageId: string) => {
+            const source = messages.find((message) => message.id === messageId);
+            if (!source) return;
+
+            setForwardSourceMessage(source);
+            setForwardSelectedIds(new Set());
+            setForwardError(null);
+            setForwardLoading(true);
+
+            try {
+                const response = await chatService.getForwardableConversations();
+                setForwardConversations(
+                    (response.data ?? []).filter((item) =>
+                        canForwardToConversation(item, currentUserId),
+                    ),
+                );
+            } catch {
+                setForwardError("Khong the tai danh sach hoi thoai");
+            } finally {
+                setForwardLoading(false);
+            }
+        },
+        [currentUserId, messages],
+    );
+
+    const closeForwardModal = useCallback(() => {
+        if (forwardSubmitting) return;
+        setForwardSourceMessage(null);
+        setForwardSelectedIds(new Set());
+        setForwardError(null);
+    }, [forwardSubmitting]);
+
+    const toggleForwardTarget = useCallback((targetId: number) => {
+        setForwardSelectedIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(targetId)) next.delete(targetId);
+            else next.add(targetId);
+            return next;
+        });
+    }, []);
+
+    const submitForwardMessage = useCallback(async () => {
+        if (!forwardSourceMessage || forwardSelectedIds.size === 0) return;
+
+        try {
+            setForwardSubmitting(true);
+            setForwardError(null);
+            await chatService.forwardMessage({
+                sourceMessageId: forwardSourceMessage.id,
+                targetConversationIds: Array.from(forwardSelectedIds),
+            });
+            setForwardSourceMessage(null);
+            setForwardSelectedIds(new Set());
+            Alert.alert("Thong bao", "Da chuyen tiep tin nhan");
+        } catch (error) {
+            const message =
+                (error as { response?: { data?: { message?: string } } })
+                    ?.response?.data?.message ||
+                "Khong the chuyen tiep tin nhan";
+            setForwardError(message);
+        } finally {
+            setForwardSubmitting(false);
+        }
+    }, [forwardSelectedIds, forwardSourceMessage]);
+
     const handleContextAction = (actionKey: string) => {
         if (!contextMenu) return;
         if (actionKey === "copy") {
@@ -1242,6 +1542,10 @@ export default function MessagesConversationScreen() {
             }
         }
 
+        if (actionKey === "forward") {
+            void openForwardModal(contextMenu.messageId);
+        }
+
         closeContextMenu();
     };
 
@@ -1260,7 +1564,11 @@ export default function MessagesConversationScreen() {
         };
         updateRightScrollCuePosition();
 
-        if (event.nativeEvent.contentOffset.y <= LOAD_OLDER_TRIGGER_PX) {
+        if (
+            userHasDraggedListRef.current &&
+            didInitialAutoScrollRef.current &&
+            event.nativeEvent.contentOffset.y <= LOAD_OLDER_TRIGGER_PX
+        ) {
             if (!isAutoPagingSuppressed) {
                 void loadOlderMessages();
             } else if (now - autoPagingSuppressLogAtRef.current > 700) {
@@ -1327,13 +1635,13 @@ export default function MessagesConversationScreen() {
 
         listRef.current?.scrollToOffset({
             offset: fallbackOffset,
-            animated: true,
+            animated: false,
         });
 
         setTimeout(() => {
             listRef.current?.scrollToIndex({
                 index: info.index,
-                animated: true,
+                animated: false,
                 viewPosition: 0.5,
             });
         }, 180);
@@ -1397,6 +1705,7 @@ export default function MessagesConversationScreen() {
     // Chỉ hiện màn hình lỗi (error view) khi bị mất quyền truy cập hoàn toàn.
     // Nếu chỉ bị chặn gửi tin nhắn (readOnlyNotice chứa "Chỉ trưởng/phó nhóm") thì vẫn cho xem hội thoại.
     const isAccessBlocked = readOnlyNotice && (
+        readOnlyNotice.includes("chặn") ||
         readOnlyNotice.includes("xóa") || 
         readOnlyNotice.includes("rời") || 
         readOnlyNotice.includes("giải tán") ||
@@ -1404,6 +1713,7 @@ export default function MessagesConversationScreen() {
     );
     const normalizedReadOnlyNotice = readOnlyNotice?.toLowerCase() ?? "";
     const isPlainTextAccessBlocked =
+        normalizedReadOnlyNotice.includes("chan") ||
         normalizedReadOnlyNotice.includes("xoa") ||
         normalizedReadOnlyNotice.includes("roi") ||
         normalizedReadOnlyNotice.includes("giai tan") ||
@@ -1518,7 +1828,7 @@ export default function MessagesConversationScreen() {
                                     "Conversation"}
                             </Text>
                             <Text style={styles.headerStatus} numberOfLines={1}>
-                                {activityText}
+                                {peerRelationshipText || activityText}
                             </Text>
                         </View>
                     </View>
@@ -1566,6 +1876,44 @@ export default function MessagesConversationScreen() {
                         </Pressable>
                     </View>
                 </View>
+
+                {effectiveRelationshipInfo &&
+                effectiveRelationshipInfo.friendStatus !== "FRIEND" ? (
+                    <View style={styles.friendRequestBanner}>
+                        <View style={styles.friendRequestTextWrap}>
+                            <Ionicons
+                                name="person-add-outline"
+                                size={18}
+                                color="#334155"
+                            />
+                            <Text
+                                style={styles.friendRequestText}
+                                numberOfLines={1}
+                            >
+                                Gui yeu cau ket ban toi nguoi nay
+                            </Text>
+                        </View>
+                        <Pressable
+                            style={[
+                                styles.friendRequestButton,
+                                friendRequestSending &&
+                                    styles.friendRequestButtonDisabled,
+                            ]}
+                            disabled={friendRequestSending}
+                            onPress={() => void handleSendFriendRequest()}
+                        >
+                            <Text style={styles.friendRequestButtonText}>
+                                {friendRequestSent
+                                    ? friendRequestSending
+                                        ? "Dang huy..."
+                                        : "Huy yeu cau"
+                                    : friendRequestSending
+                                      ? "Dang gui..."
+                                      : "Gui ket ban"}
+                            </Text>
+                        </Pressable>
+                    </View>
+                ) : null}
 
                 <PinnedBanner
                     pinnedBannerItems={pinnedBannerItems}
@@ -1633,6 +1981,9 @@ export default function MessagesConversationScreen() {
                             onRecallCall={(callType) => {
                                 void tryStartCall(callType);
                             }}
+                            isPinned={pinnedMessages.some((pin) => pin.messageId === item.id)}
+                            onPinMessage={handlePinMessage}
+                            onUnpinMessage={handleUnpinMessage}
                             onSwipeReply={replyToTargetMessage}
                         />
                     )}
@@ -1879,6 +2230,164 @@ export default function MessagesConversationScreen() {
                 />
             </KeyboardAvoidingView>
 
+            <Modal
+                visible={Boolean(forwardSourceMessage)}
+                transparent
+                animationType="fade"
+                onRequestClose={closeForwardModal}
+            >
+                <View style={forwardStyles.overlay}>
+                    <View style={forwardStyles.card}>
+                        <View style={forwardStyles.header}>
+                            <View style={forwardStyles.headerTextWrap}>
+                                <Text style={forwardStyles.title}>
+                                    Chuyen tiep tin nhan
+                                </Text>
+                                <Text style={forwardStyles.subtitle} numberOfLines={1}>
+                                    {forwardSourceMessage
+                                        ? buildReplyPreview(forwardSourceMessage)
+                                        : ""}
+                                </Text>
+                            </View>
+                            <Pressable
+                                style={forwardStyles.closeBtn}
+                                onPress={closeForwardModal}
+                            >
+                                <Ionicons
+                                    name="close"
+                                    size={20}
+                                    color={colors.textMuted}
+                                />
+                            </Pressable>
+                        </View>
+
+                        {forwardLoading ? (
+                            <View style={forwardStyles.loadingWrap}>
+                                <ActivityIndicator color="#2563EB" />
+                            </View>
+                        ) : (
+                            <FlatList
+                                data={forwardConversations}
+                                keyExtractor={(item) => String(item.id)}
+                                style={forwardStyles.list}
+                                contentContainerStyle={
+                                    forwardConversations.length === 0
+                                        ? forwardStyles.emptyList
+                                        : undefined
+                                }
+                                ListEmptyComponent={
+                                    <Text style={forwardStyles.emptyText}>
+                                        Khong co hoi thoai phu hop
+                                    </Text>
+                                }
+                                renderItem={({ item }) => {
+                                    const selected = forwardSelectedIds.has(item.id);
+                                    const displayInfo =
+                                        buildConversationDisplayInfo({
+                                            conversation: item,
+                                            currentUserId,
+                                        });
+                                    return (
+                                        <Pressable
+                                            style={({ pressed }) => [
+                                                forwardStyles.row,
+                                                pressed && forwardStyles.rowPressed,
+                                            ]}
+                                            onPress={() =>
+                                                toggleForwardTarget(item.id)
+                                            }
+                                        >
+                                            {displayInfo.avatarUrl || item.imageUrl ? (
+                                                <Image
+                                                    source={{
+                                                        uri:
+                                                            displayInfo.avatarUrl ||
+                                                            item.imageUrl,
+                                                    }}
+                                                    style={forwardStyles.avatar}
+                                                />
+                                            ) : (
+                                                <View style={forwardStyles.avatarFallback}>
+                                                    <Ionicons
+                                                        name={
+                                                            item.type === "GROUP"
+                                                                ? "people"
+                                                                : "person"
+                                                        }
+                                                        size={20}
+                                                        color="#64748B"
+                                                    />
+                                                </View>
+                                            )}
+                                            <View style={forwardStyles.rowTextWrap}>
+                                                <Text
+                                                    style={forwardStyles.rowTitle}
+                                                    numberOfLines={1}
+                                                >
+                                                    {displayInfo.name}
+                                                </Text>
+                                            </View>
+                                            <View
+                                                style={[
+                                                    forwardStyles.checkCircle,
+                                                    selected &&
+                                                        forwardStyles.checkCircleSelected,
+                                                ]}
+                                            >
+                                                {selected ? (
+                                                    <Ionicons
+                                                        name="checkmark"
+                                                        size={14}
+                                                        color={colors.white}
+                                                    />
+                                                ) : null}
+                                            </View>
+                                        </Pressable>
+                                    );
+                                }}
+                            />
+                        )}
+
+                        {forwardError ? (
+                            <Text style={forwardStyles.errorText}>
+                                {forwardError}
+                            </Text>
+                        ) : null}
+
+                        <View style={forwardStyles.footer}>
+                            <Pressable
+                                style={forwardStyles.cancelBtn}
+                                onPress={closeForwardModal}
+                                disabled={forwardSubmitting}
+                            >
+                                <Text style={forwardStyles.cancelText}>Huy</Text>
+                            </Pressable>
+                            <Pressable
+                                style={[
+                                    forwardStyles.submitBtn,
+                                    (forwardSelectedIds.size === 0 ||
+                                        forwardSubmitting) &&
+                                        forwardStyles.submitBtnDisabled,
+                                ]}
+                                onPress={() => void submitForwardMessage()}
+                                disabled={
+                                    forwardSelectedIds.size === 0 ||
+                                    forwardSubmitting
+                                }
+                            >
+                                {forwardSubmitting ? (
+                                    <ActivityIndicator color={colors.white} />
+                                ) : (
+                                    <Text style={forwardStyles.submitText}>
+                                        Chuyen tiep
+                                    </Text>
+                                )}
+                            </Pressable>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+
             <MessageContextMenu
                 contextMenu={contextMenu}
                 selectedMessage={
@@ -1890,6 +2399,7 @@ export default function MessagesConversationScreen() {
                 }
                 closeContextMenu={closeContextMenu}
                 handleContextAction={handleContextAction}
+                onReaction={addReaction}
                 selectedMessagePinned={selectedMessagePinned}
                 canRecallOwnMessages={canRecallOwnMessages}
             />
@@ -1968,5 +2478,168 @@ const disbandedStyles = StyleSheet.create({
         color: "#6B7280",
         textAlign: "center",
         lineHeight: 20,
+    },
+});
+
+const forwardStyles = StyleSheet.create({
+    overlay: {
+        flex: 1,
+        backgroundColor: "rgba(0,0,0,0.42)",
+        justifyContent: "center",
+        paddingHorizontal: 18,
+    },
+    card: {
+        maxHeight: "78%",
+        borderRadius: 20,
+        overflow: "hidden",
+        backgroundColor: colors.white,
+    },
+    header: {
+        minHeight: 64,
+        paddingHorizontal: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: "#EEF0F3",
+        flexDirection: "row",
+        alignItems: "center",
+    },
+    headerTextWrap: {
+        flex: 1,
+        minWidth: 0,
+    },
+    title: {
+        fontSize: 16,
+        fontWeight: "800",
+        color: colors.text,
+    },
+    subtitle: {
+        marginTop: 3,
+        fontSize: 12,
+        color: colors.textMuted,
+    },
+    closeBtn: {
+        width: 34,
+        height: 34,
+        borderRadius: 17,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#F3F4F6",
+        marginLeft: 10,
+    },
+    loadingWrap: {
+        height: 220,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    list: {
+        maxHeight: 360,
+    },
+    emptyList: {
+        minHeight: 160,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    emptyText: {
+        color: colors.textMuted,
+        fontSize: 13,
+    },
+    row: {
+        minHeight: 62,
+        flexDirection: "row",
+        alignItems: "center",
+        paddingHorizontal: 16,
+    },
+    rowPressed: {
+        backgroundColor: "#F8FAFC",
+    },
+    avatar: {
+        width: 42,
+        height: 42,
+        borderRadius: 21,
+        backgroundColor: "#E5E7EB",
+    },
+    avatarFallback: {
+        width: 42,
+        height: 42,
+        borderRadius: 21,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#E5E7EB",
+    },
+    rowTextWrap: {
+        flex: 1,
+        minWidth: 0,
+        marginLeft: 11,
+    },
+    rowTitle: {
+        fontSize: 14,
+        fontWeight: "700",
+        color: colors.text,
+    },
+    rowSubtitle: {
+        marginTop: 2,
+        fontSize: 12,
+        color: colors.textMuted,
+    },
+    checkCircle: {
+        width: 22,
+        height: 22,
+        borderRadius: 11,
+        borderWidth: 1,
+        borderColor: "#CBD5E1",
+        alignItems: "center",
+        justifyContent: "center",
+        marginLeft: 10,
+    },
+    checkCircleSelected: {
+        borderColor: "#2563EB",
+        backgroundColor: "#2563EB",
+    },
+    errorText: {
+        paddingHorizontal: 16,
+        paddingVertical: 9,
+        borderTopWidth: 1,
+        borderTopColor: "#EEF0F3",
+        color: "#EF4444",
+        fontSize: 13,
+    },
+    footer: {
+        flexDirection: "row",
+        justifyContent: "flex-end",
+        alignItems: "center",
+        gap: 10,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        borderTopWidth: 1,
+        borderTopColor: "#EEF0F3",
+    },
+    cancelBtn: {
+        height: 40,
+        paddingHorizontal: 16,
+        borderRadius: 12,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#F3F4F6",
+    },
+    cancelText: {
+        fontSize: 14,
+        fontWeight: "700",
+        color: "#374151",
+    },
+    submitBtn: {
+        minWidth: 112,
+        height: 40,
+        paddingHorizontal: 16,
+        borderRadius: 12,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#2563EB",
+    },
+    submitBtnDisabled: {
+        opacity: 0.55,
+    },
+    submitText: {
+        fontSize: 14,
+        fontWeight: "800",
+        color: colors.white,
     },
 });

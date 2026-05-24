@@ -2,12 +2,16 @@ import React from "react";
 import {
     View,
     Text,
+    TextInput,
     Image,
+    Modal,
     Pressable,
+    ScrollView,
     Animated,
     StyleSheet,
     Linking,
     Platform,
+    Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -19,9 +23,10 @@ import {
     type PanGestureHandlerGestureEvent,
     type PanGestureHandlerStateChangeEvent,
 } from "react-native-gesture-handler";
-import { UserAvatar } from "@/components";
+import { UserAvatar, ReactionDetailModal } from "@/components";
 import { colors, spacing } from "@/constants";
-import { Message, Conversation } from "@/types/chat";
+import { Message, Conversation, PollResponse } from "@/types/chat";
+import chatService from "@/services/chatService";
 import { type MembersByUserId } from "@/stores/chatRuntimeStore";
 import {
     isSystemMessageType,
@@ -75,16 +80,86 @@ function renderTextWithLinks(content: string, mine: boolean) {
 }
 
 const GROUP_SYSTEM_MESSAGE_TYPES = new Set<Message["type"]>([
+    "SYSTEM_POLL_CREATED",
+    "SYSTEM_POLL_VOTED",
+    "SYSTEM_POLL_CHANGED",
+    "SYSTEM_POLL_CLOSED",
+    "SYSTEM_POLL_PINNED",
     "SYSTEM_CREATE_GROUP",
     "SYSTEM_ADD_MEMBER",
     "SYSTEM_UPDATE_ROLE",
     "SYSTEM_KICK_MEMBER",
+    "SYSTEM_BLOCK_MEMBER",
+    "SYSTEM_MEMBER_BLOCKED_FROM_JOIN",
     "SYSTEM_LEAVE_GROUP",
     "SYSTEM_DISBAND_GROUP",
     "SYSTEM_UPDATE_SETTING",
     "SYSTEM_REQUIRE_APPROVAL",
     "SYSTEM_JOIN_VIA_LINK",
+    "SYSTEM_GROUP_INVITE_LINK_SENT",
 ]);
+
+function isPollSystemType(type: Message["type"]): boolean {
+    return type.startsWith("SYSTEM_POLL_");
+}
+
+function isAnonymousPollActorMessage(type: Message["type"]): boolean {
+    return type === "SYSTEM_POLL_VOTED" || type === "SYSTEM_POLL_CHANGED";
+}
+
+function buildPollSystemText(type: Message["type"], title?: string | null, actorLabel = "Bạn"): string {
+    const pollTitle = title?.trim() || "bình chọn";
+    switch (type) {
+        case "SYSTEM_POLL_CREATED":
+            return `${actorLabel} tạo cuộc bình chọn mới: ${pollTitle}`;
+        case "SYSTEM_POLL_VOTED":
+            return `${actorLabel} tham gia cuộc bình chọn: ${pollTitle}`;
+        case "SYSTEM_POLL_CHANGED":
+            return `${actorLabel} đổi lựa chọn trong cuộc bình chọn: ${pollTitle}`;
+        case "SYSTEM_POLL_CLOSED":
+            return `${actorLabel} khóa bình chọn: ${pollTitle}`;
+        case "SYSTEM_POLL_PINNED":
+            return `${actorLabel} ghim bình chọn: ${pollTitle}`;
+        default:
+            return pollTitle;
+    }
+}
+
+function isPollExpired(poll?: PollResponse | null): boolean {
+    if (!poll?.expiresAt) return false;
+    return new Date(poll.expiresAt).getTime() <= Date.now();
+}
+
+function formatPollEndLabel(value?: string | null, ended = false): string {
+    if (!value) return "";
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return "";
+    const now = new Date();
+    const sameDay =
+        date.getFullYear() === now.getFullYear() &&
+        date.getMonth() === now.getMonth() &&
+        date.getDate() === now.getDate();
+    const time = date.toLocaleTimeString("vi-VN", {
+        hour: "2-digit",
+        minute: "2-digit",
+    });
+    const dayLabel = sameDay
+        ? "Hôm nay"
+        : `ngày ${date.toLocaleDateString("vi-VN")}`;
+    return `${ended ? "Đã kết thúc lúc" : "Kết thúc lúc"} ${time} ${dayLabel}`;
+}
+
+function formatContextDay(value?: string | null): string {
+    if (!value) return "";
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return "";
+    const now = new Date();
+    const sameDay =
+        date.getFullYear() === now.getFullYear() &&
+        date.getMonth() === now.getMonth() &&
+        date.getDate() === now.getDate();
+    return sameDay ? "Hôm nay" : `ngày ${date.toLocaleDateString("vi-VN")}`;
+}
 
 export type MessageBubbleProps = {
     item: Message;
@@ -105,6 +180,9 @@ export type MessageBubbleProps = {
     requestJumpToMessage: (messageId: string) => Promise<void>;
     handleExpandPinSystemRun: (runKey: string) => void;
     audioPlayback: any;
+    isPinned?: boolean;
+    onPinMessage?: (messageId: string) => Promise<void>;
+    onUnpinMessage?: (messageId: string) => Promise<void>;
     onRecallCall?: (callType: "audio" | "video") => void;
     onSwipeReply?: (message: Message) => void;
 };
@@ -125,10 +203,182 @@ export const MessageBubble = React.memo(
         requestJumpToMessage,
         handleExpandPinSystemRun,
         audioPlayback,
+        isPinned = false,
+        onPinMessage,
+        onUnpinMessage,
         onRecallCall,
         onSwipeReply,
     }: MessageBubbleProps) => {
         const router = useRouter();
+        const [reactionDetailVisible, setReactionDetailVisible] = React.useState(false);
+        const [pollModalOpen, setPollModalOpen] = React.useState(false);
+        const [pollDetailOpen, setPollDetailOpen] = React.useState(false);
+        const [pollSettingsOpen, setPollSettingsOpen] = React.useState(false);
+        const [pollDraftOptionIds, setPollDraftOptionIds] = React.useState<string[]>([]);
+        const [localPoll, setLocalPoll] = React.useState<PollResponse | null>(
+            item.poll ?? null,
+        );
+        const [pollUpdating, setPollUpdating] = React.useState(false);
+        const [pollAddingOption, setPollAddingOption] = React.useState(false);
+        const [pollClosing, setPollClosing] = React.useState(false);
+        const [pollOptionDraft, setPollOptionDraft] = React.useState("");
+        const [, setPollClockTick] = React.useState(0);
+        const pollSelectionByIdRef = React.useRef<Record<string, string[]>>({});
+
+        React.useEffect(() => {
+            if (!item.poll) {
+                setLocalPoll(null);
+                return;
+            }
+            const rememberedSelection = pollSelectionByIdRef.current[item.poll.id];
+            setLocalPoll({
+                ...item.poll,
+                currentUserOptionIds:
+                    rememberedSelection ?? item.poll.currentUserOptionIds ?? [],
+            });
+        }, [item.poll]);
+
+        React.useEffect(() => {
+            if (!localPoll?.expiresAt || isPollExpired(localPoll)) return;
+            const timeout = setTimeout(
+                () => setPollClockTick((value) => value + 1),
+                Math.max(250, new Date(localPoll.expiresAt).getTime() - Date.now() + 250),
+            );
+            return () => clearTimeout(timeout);
+        }, [localPoll]);
+
+        React.useEffect(() => {
+            if (!pollModalOpen || !localPoll) return;
+            setPollDraftOptionIds(localPoll.currentUserOptionIds ?? []);
+            setPollSettingsOpen(false);
+            setPollDetailOpen(false);
+        }, [localPoll, pollModalOpen]);
+
+        const togglePollDraftOption = React.useCallback(
+            (optionId: string) => {
+                const poll = localPoll;
+                if (!poll || poll.closed || poll.recalled || isPollExpired(poll) || pollUpdating) return;
+
+                setPollDraftOptionIds((current) => {
+                    if (poll.allowMultipleChoices) {
+                        return current.includes(optionId)
+                            ? current.filter((id) => id !== optionId)
+                            : [...current, optionId];
+                    }
+                    return current.includes(optionId) ? [] : [optionId];
+                });
+            },
+            [localPoll, pollUpdating],
+        );
+
+        const submitPollDraft = React.useCallback(async () => {
+            const poll = localPoll;
+            if (!poll || poll.closed || poll.recalled || isPollExpired(poll) || pollUpdating) return;
+
+            setPollUpdating(true);
+            try {
+                const updated =
+                    pollDraftOptionIds.length === 0
+                        ? await chatService.removePollVote(poll.id)
+                        : await chatService.votePoll(poll.id, pollDraftOptionIds);
+                pollSelectionByIdRef.current[poll.id] =
+                    updated.currentUserOptionIds ?? pollDraftOptionIds;
+                setLocalPoll(updated);
+                setPollDraftOptionIds(updated.currentUserOptionIds ?? []);
+                setPollModalOpen(false);
+                setPollSettingsOpen(false);
+            } finally {
+                setPollUpdating(false);
+            }
+        }, [localPoll, pollDraftOptionIds, pollUpdating]);
+
+        const handleAddPollOption = React.useCallback(async () => {
+            const poll = localPoll;
+            const optionText = pollOptionDraft.trim();
+            if (!poll || !optionText || pollAddingOption || poll.closed || poll.recalled || isPollExpired(poll)) {
+                return;
+            }
+            const duplicated = poll.options.some(
+                (option) => option.text.trim().toLowerCase() === optionText.toLowerCase(),
+            );
+            if (duplicated) {
+                Alert.alert("Lua chon bi trung", "Moi lua chon phai khac nhau.");
+                return;
+            }
+
+            setPollAddingOption(true);
+            try {
+                const updated = await chatService.addPollOption(poll.id, optionText);
+                setLocalPoll(updated);
+                setPollOptionDraft("");
+            } finally {
+                setPollAddingOption(false);
+            }
+        }, [localPoll, pollAddingOption, pollOptionDraft]);
+
+        const handleClosePoll = React.useCallback(() => {
+            const poll = localPoll;
+            if (!poll || pollClosing || poll.closed || poll.recalled || isPollExpired(poll)) return;
+            Alert.alert(
+                "Khoa binh chon?",
+                "Sau khi khoa, thanh vien se khong the tiep tuc tham gia binh chon.",
+                [
+                    { text: "Khong", style: "cancel" },
+                    {
+                        text: "Khoa",
+                        style: "destructive",
+                        onPress: () => {
+            setPollClosing(true);
+            chatService.closePoll(poll.id)
+                .then((updated) => {
+                    setLocalPoll(updated);
+                    setPollSettingsOpen(false);
+                })
+                .finally(() => setPollClosing(false));
+                        },
+                    },
+                ],
+            );
+        }, [localPoll, pollClosing]);
+
+        const handlePinPoll = React.useCallback(async () => {
+            try {
+                if (isPinned) {
+                    if (onUnpinMessage) {
+                        await onUnpinMessage(item.id);
+                    } else {
+                        await chatService.unpinMessage(item.id, currentUserId);
+                    }
+                } else if (onPinMessage) {
+                    await onPinMessage(item.id);
+                } else {
+                    await chatService.pinMessage(item.id, currentUserId);
+                }
+                setPollSettingsOpen(false);
+            } catch {
+                Alert.alert("Không thể ghim bình chọn", "Vui lòng thử lại sau.");
+            }
+        }, [currentUserId, isPinned, item.id, onPinMessage, onUnpinMessage]);
+
+        const openPollModalFromSystem = React.useCallback(async () => {
+            if (localPoll) {
+                setPollModalOpen(true);
+                return;
+            }
+            if (!item.pollId) {
+                if (item.replyInfo?.messageId) {
+                    await requestJumpToMessage(item.replyInfo.messageId);
+                }
+                return;
+            }
+            try {
+                const poll = await chatService.getPoll(item.pollId);
+                setLocalPoll(poll);
+                setPollModalOpen(true);
+            } catch {
+                Alert.alert("Không thể mở bình chọn", "Vui lòng thử lại sau.");
+            }
+        }, [item.pollId, item.replyInfo?.messageId, localPoll, requestJumpToMessage]);
         const {
             audioLoadingKey,
             playingAudioKey,
@@ -154,6 +404,69 @@ export const MessageBubble = React.memo(
         const sender = membersById[item.senderId];
         const senderDisplayName =
             sender?.nickname || sender?.username || "Nguoi dung";
+        const currentMemberRole = membersById[currentUserId]?.role;
+        const canManageCurrentPoll =
+            Boolean(localPoll) &&
+            (localPoll?.creatorId === currentUserId ||
+                currentMemberRole === "OWNER" ||
+                currentMemberRole === "DEPUTY");
+        const pollCreator = localPoll?.creatorId
+            ? membersById[localPoll.creatorId]
+            : undefined;
+        const pollCreatorName =
+            Number(localPoll?.creatorId) === Number(currentUserId)
+                ? "Bạn"
+                : pollCreator?.nickname || pollCreator?.username || senderDisplayName;
+        const pollCreatedDayLabel = formatContextDay(localPoll?.createdAt || item.createdAt);
+        const getPollMember = React.useCallback(
+            (userId: number) => membersById[userId],
+            [membersById],
+        );
+        const getPollMemberName = React.useCallback(
+            (userId: number) => {
+                if (Number(userId) === Number(currentUserId)) return "Bạn";
+                const member = getPollMember(userId);
+                return member?.nickname || member?.username || `Người dùng ${userId}`;
+            },
+            [currentUserId, getPollMember],
+        );
+        const renderPollAvatarStack = React.useCallback(
+            (voterIds?: number[]) => {
+                const ids = (voterIds ?? []).map(Number).filter(Boolean);
+                if (ids.length === 0) return null;
+                const visibleIds = ids.slice(0, 3);
+                const hiddenCount = ids.length - visibleIds.length;
+
+                return (
+                    <View style={styles.pollAvatarStack}>
+                        {visibleIds.map((voterId, avatarIndex) => {
+                            const member = getPollMember(voterId);
+                            return (
+                                <View
+                                    key={`${voterId}-${avatarIndex}`}
+                                    style={[
+                                        styles.pollAvatarWrap,
+                                        avatarIndex > 0 && styles.pollAvatarOverlap,
+                                    ]}
+                                >
+                                    <UserAvatar
+                                        uri={member?.avatar}
+                                        name={getPollMemberName(voterId)}
+                                        size={22}
+                                    />
+                                </View>
+                            );
+                        })}
+                        {hiddenCount > 0 ? (
+                            <View style={[styles.pollAvatarMore, visibleIds.length > 0 && styles.pollAvatarOverlap]}>
+                                <Text style={styles.pollAvatarMoreText}>+{hiddenCount}</Text>
+                            </View>
+                        ) : null}
+                    </View>
+                );
+            },
+            [getPollMember, getPollMemberName],
+        );
 
         // ===== Gesture handling (từ develop) =====
         const suppressNextTapRef = React.useRef(false);
@@ -277,15 +590,17 @@ export const MessageBubble = React.memo(
             previousMessage?.senderId === item.senderId;
 
         // ===== UI flags (common) =====
+        const isPollMessage = item.type === "POLL";
         const showSenderLabel =
+            !isPollMessage &&
             !mine &&
             conversation?.type === "GROUP" &&
             isFirstInGroup &&
             !item.isRecalled;
 
-        const showAvatar = !mine && isLastInGroup;
+        const showAvatar = !isPollMessage && !mine && isLastInGroup;
 
-        const messageTime = formatMessageTime(item.createdAt);
+        const messageTime = !isPollMessage ? formatMessageTime(item.createdAt) : '';
 
         // ===== read receipts (common) =====
         const receiptsForThisMessage =
@@ -390,7 +705,7 @@ export const MessageBubble = React.memo(
                       : replyPreviewContent || "Tin nhan";
         const trimmedContent = item.content?.trim() ?? "";
         const groupInviteToken =
-            item.type === "TEXT" && !item.isRecalled
+            (item.type === "TEXT" || item.type === "LINK") && !item.isRecalled
                 ? extractGroupInviteToken(trimmedContent)
                 : null;
         const messageIsEmojiOnly =
@@ -403,7 +718,9 @@ export const MessageBubble = React.memo(
             item.type !== "FILE" &&
             item.type !== "VIDEO" &&
             item.type !== "AUDIO" &&
+            item.type !== "POLL" &&
             item.type !== "CALL" &&
+            item.type !== "LINK" &&
             item.type !== "SYSTEM_PIN" &&
             item.type !== "SYSTEM_UPIN" &&
             !GROUP_SYSTEM_MESSAGE_TYPES.has(item.type) &&
@@ -426,6 +743,7 @@ export const MessageBubble = React.memo(
                 item.type === "FILE" ||
                 item.type === "VIDEO" ||
                 item.type === "AUDIO" ||
+                item.type === "POLL" ||
                 item.type === "CALL");
 
         const isCallMessage = !item.isRecalled && item.type === "CALL";
@@ -478,7 +796,7 @@ export const MessageBubble = React.memo(
                             <Ionicons
                                 name="time-outline"
                                 size={13}
-                                color="#57585aff"
+                                color={colors.primary}
                             />
                             <Text style={styles.systemCollapsedBtnText}>
                                 {`Xem cập nhật trước (${pinRunMeta.runLength})`}
@@ -498,7 +816,7 @@ export const MessageBubble = React.memo(
                             <Ionicons
                                 name="pin-outline"
                                 size={12}
-                                color="#4B5563"
+                                color={colors.primary}
                             />
                             <Text
                                 numberOfLines={1}
@@ -511,6 +829,202 @@ export const MessageBubble = React.memo(
                 );
             }
 
+            if (isPollSystemType(item.type)) {
+                const pollMessageId = item.replyInfo?.messageId;
+                const pollActorLabel =
+                    isAnonymousPollActorMessage(item.type) && Number(item.senderId) <= 0
+                        ? "Một thành viên"
+                        : mine
+                          ? "Bạn"
+                          : senderDisplayName;
+
+                return (
+                    <>
+                        <View style={styles.systemMessageRow}>
+                            <View style={styles.systemPollBadge}>
+                                <Ionicons
+                                    name="stats-chart-outline"
+                                    size={13}
+                                    color={colors.primary}
+                                />
+                                <Text style={styles.systemMessageText}>
+                                    {buildPollSystemText(item.type, item.content, pollActorLabel)}
+                                    {pollMessageId ? (
+                                        <Text
+                                            onPress={() => {
+                                                void openPollModalFromSystem();
+                                            }}
+                                            style={styles.systemPollLink}
+                                        >
+                                            {"  "}Xem
+                                        </Text>
+                                    ) : null}
+                                </Text>
+                            </View>
+                        </View>
+                        {localPoll ? (
+                            <Modal
+                                visible={pollModalOpen}
+                                transparent
+                                animationType="fade"
+                                onRequestClose={() => setPollModalOpen(false)}
+                            >
+                                <View style={styles.pollModalOverlay}>
+                                    <View style={styles.pollModalCard}>
+                                        <View style={styles.pollModalHeader}>
+                                            <Text style={styles.pollModalTitle}>Bình chọn</Text>
+                                            <Pressable
+                                                onPress={() => {
+                                                    setPollModalOpen(false);
+                                                    setPollSettingsOpen(false);
+                                                }}
+                                                hitSlop={8}
+                                                style={styles.pollHeaderIconButton}
+                                            >
+                                                <Ionicons name="close" size={22} color="#111827" />
+                                            </Pressable>
+                                        </View>
+                                        <ScrollView
+                                            style={styles.pollModalBody}
+                                            contentContainerStyle={styles.pollModalBodyContent}
+                                            keyboardShouldPersistTaps="handled"
+                                        >
+                                            {(() => {
+                                                const pollEnded =
+                                                    localPoll.closed ||
+                                                    localPoll.recalled ||
+                                                    isPollExpired(localPoll);
+                                                const endLabel = formatPollEndLabel(
+                                                    localPoll.expiresAt || (pollEnded ? localPoll.updatedAt : null),
+                                                    pollEnded,
+                                                );
+                                                const totalVoters =
+                                                    localPoll.totalVoterCount ?? localPoll.totalVoteCount;
+
+                                                return (
+                                                    <>
+                                                        <Text style={styles.pollModalQuestion}>
+                                                            {localPoll.title || item.content}
+                                                        </Text>
+                                                        <Text style={styles.pollCreatorText}>
+                                                            Tạo bởi {pollCreatorName}
+                                                            {pollCreatedDayLabel ? ` · ${pollCreatedDayLabel}` : ""}
+                                                        </Text>
+                                                        {endLabel ? (
+                                                            <View style={styles.pollMetaRow}>
+                                                                <Ionicons name="time-outline" size={16} color="#4B5563" />
+                                                                <Text style={styles.pollModalMeta}>{endLabel}</Text>
+                                                            </View>
+                                                        ) : null}
+                                                        <View style={styles.pollMetaRow}>
+                                                            <Ionicons name="list-outline" size={16} color="#4B5563" />
+                                                            <Text style={styles.pollModalMeta}>
+                                                                {localPoll.allowMultipleChoices
+                                                                    ? "Chọn nhiều phương án"
+                                                                    : "Chọn một phương án"}
+                                                            </Text>
+                                                        </View>
+                                                        {localPoll.anonymous ? (
+                                                            <View style={styles.pollMetaRow}>
+                                                                <Ionicons name="eye-off-outline" size={16} color="#4B5563" />
+                                                                <Text style={styles.pollModalMeta}>Ẩn người bình chọn</Text>
+                                                            </View>
+                                                        ) : null}
+                                                        <Text style={styles.pollAnonymousNotice}>
+                                                            {totalVoters} người bình chọn, {localPoll.totalVoteCount} lượt chọn
+                                                        </Text>
+                                                        {localPoll.options.map((option) => {
+                                                            const selected = pollDraftOptionIds.includes(option.id);
+                                                            const percent =
+                                                                localPoll.totalVoteCount > 0
+                                                                    ? Math.round((option.voteCount / localPoll.totalVoteCount) * 100)
+                                                                    : 0;
+                                                            return (
+                                                                <Pressable
+                                                                    key={option.id}
+                                                                    disabled={pollUpdating || pollEnded}
+                                                                    onPress={() => togglePollDraftOption(option.id)}
+                                                                    style={[
+                                                                        styles.pollOption,
+                                                                        selected && styles.pollOptionSelected,
+                                                                    ]}
+                                                                >
+                                                                    <Text numberOfLines={1} style={styles.pollOptionText}>
+                                                                        {option.text}
+                                                                    </Text>
+                                                                    {renderPollAvatarStack(option.voterIds)}
+                                                                    <Text style={styles.pollOptionCount}>
+                                                                        {option.voteCount} · {percent}%
+                                                                    </Text>
+                                                                </Pressable>
+                                                            );
+                                                        })}
+                                                    </>
+                                                );
+                                            })()}
+                                        </ScrollView>
+                                        <View style={styles.pollModalFooter}>
+                                            <View style={styles.pollSettingsWrap}>
+                                                <Pressable
+                                                    style={styles.pollSettingsButton}
+                                                    onPress={() => setPollSettingsOpen((open) => !open)}
+                                                >
+                                                    <Ionicons name="settings-outline" size={22} color="#0F172A" />
+                                                </Pressable>
+                                                {pollSettingsOpen ? (
+                                                    <View style={styles.pollSettingsMenu}>
+                                                        <Pressable
+                                                            style={styles.pollSettingsMenuItem}
+                                                            onPress={() => void handlePinPoll()}
+                                                        >
+                                                            <Text style={styles.pollSettingsMenuText}>
+                                                                {isPinned ? "Bỏ ghim" : "Ghim lên đầu trò chuyện"}
+                                                            </Text>
+                                                        </Pressable>
+                                                        {canManageCurrentPoll &&
+                                                        !localPoll.closed &&
+                                                        !localPoll.recalled &&
+                                                        !isPollExpired(localPoll) ? (
+                                                            <Pressable
+                                                                style={styles.pollSettingsMenuItem}
+                                                                onPress={handleClosePoll}
+                                                            >
+                                                                <Text style={styles.pollSettingsMenuText}>Khóa bình chọn</Text>
+                                                            </Pressable>
+                                                        ) : null}
+                                                    </View>
+                                                ) : null}
+                                            </View>
+                                            {localPoll.closed || localPoll.recalled || isPollExpired(localPoll) ? (
+                                                <Pressable
+                                                    onPress={() => {
+                                                        setPollModalOpen(false);
+                                                        setPollSettingsOpen(false);
+                                                    }}
+                                                    style={styles.pollModalCloseButton}
+                                                >
+                                                    <Text style={styles.pollModalCloseButtonText}>Đóng</Text>
+                                                </Pressable>
+                                            ) : (
+                                                <Pressable
+                                                    disabled={pollUpdating}
+                                                    onPress={() => void submitPollDraft()}
+                                                    style={styles.pollConfirmButton}
+                                                >
+                                                    <Text style={styles.pollConfirmButtonText}>
+                                                        {pollUpdating ? "Đang xác nhận..." : "Xác nhận"}
+                                                    </Text>
+                                                </Pressable>
+                                            )}
+                                        </View>
+                                    </View>
+                                </View>
+                            </Modal>
+                        ) : null}
+                    </>
+                );
+            }
+
             // Group system message (Create group, Add member, etc.)
             const content = buildSystemGroupMessage({
                 type: item.type as
@@ -518,11 +1032,14 @@ export const MessageBubble = React.memo(
                     | "SYSTEM_ADD_MEMBER"
                     | "SYSTEM_UPDATE_ROLE"
                     | "SYSTEM_KICK_MEMBER"
+                    | "SYSTEM_BLOCK_MEMBER"
+                    | "SYSTEM_MEMBER_BLOCKED_FROM_JOIN"
                     | "SYSTEM_LEAVE_GROUP"
                     | "SYSTEM_DISBAND_GROUP"
                     | "SYSTEM_UPDATE_SETTING"
                     | "SYSTEM_REQUIRE_APPROVAL"
-                    | "SYSTEM_JOIN_VIA_LINK",
+                    | "SYSTEM_JOIN_VIA_LINK"
+                    | "SYSTEM_GROUP_INVITE_LINK_SENT",
                 content: item.content,
                 isOwn: mine,
                 senderName: senderDisplayName,
@@ -537,7 +1054,7 @@ export const MessageBubble = React.memo(
                         <Ionicons
                             name="people-outline"
                             size={12}
-                            color="#4B5563"
+                            color={colors.primary}
                         />
                         <Text
                             numberOfLines={2}
@@ -601,10 +1118,14 @@ export const MessageBubble = React.memo(
                                     styles.rowGroupedWithReply,
                                 isConsecutiveRecalledInGroup &&
                                     styles.rowGroupedRecalled,
-                                mine ? styles.rowMine : styles.rowOther,
+                                isPollMessage
+                                    ? styles.rowPollCenter
+                                    : mine
+                                      ? styles.rowMine
+                                      : styles.rowOther,
                             ]}
                         >
-                            {!mine ? (
+                            {!mine && !isPollMessage ? (
                                 showAvatar ? (
                                     <UserAvatar
                                         uri={sender?.avatar}
@@ -619,7 +1140,9 @@ export const MessageBubble = React.memo(
                             <View
                                 style={[
                                     styles.messageColumn,
-                                    mine
+                                    isPollMessage
+                                        ? styles.messageColumnPoll
+                                        : mine
                                         ? styles.messageColumnMine
                                         : styles.messageColumnOther,
                                 ]}
@@ -936,8 +1459,17 @@ export const MessageBubble = React.memo(
 
                                             {imageUrls.length > 0 ? (
                                                 <View style={styles.imageGrid}>
-                                                    {imageUrls.map(
-                                                        (url, imageIndex) => (
+                                                    {imageUrls.slice(0, 4).map(
+                                                        (url, imageIndex) => {
+                                                            const remainingImages =
+                                                                imageUrls.length -
+                                                                4;
+                                                            const showMoreBadge =
+                                                                imageIndex ===
+                                                                    3 &&
+                                                                remainingImages >
+                                                                    0;
+                                                            return (
                                                             <Pressable
                                                                 key={`${item.id}-image-${imageIndex}`}
                                                                 delayLongPress={
@@ -974,8 +1506,25 @@ export const MessageBubble = React.memo(
                                                                             styles.cardShadow,
                                                                     ]}
                                                                 />
+                                                                {showMoreBadge ? (
+                                                                    <View
+                                                                        pointerEvents="none"
+                                                                        style={
+                                                                            styles.imageMoreOverlay
+                                                                        }
+                                                                    >
+                                                                        <Text
+                                                                            style={
+                                                                                styles.imageMoreText
+                                                                            }
+                                                                        >
+                                                                            +{remainingImages}
+                                                                        </Text>
+                                                                    </View>
+                                                                ) : null}
                                                             </Pressable>
-                                                        ),
+                                                            );
+                                                        },
                                                     )}
                                                 </View>
                                             ) : null}
@@ -1695,6 +2244,375 @@ export const MessageBubble = React.memo(
                                                 </Pressable>
                                             ) : null}
 
+                                            {item.type === "POLL" && localPoll ? (
+                                                <>
+                                                <Pressable
+                                                    style={styles.pollCard}
+                                                    onPress={() => setPollModalOpen(true)}
+                                                >
+                                                    {(() => {
+                                                        const pollEnded =
+                                                            localPoll.closed ||
+                                                            localPoll.recalled ||
+                                                            isPollExpired(localPoll);
+                                                        const visibleOptions = localPoll.options.slice(0, 3);
+                                                        const hiddenOptionCount = Math.max(
+                                                            0,
+                                                            localPoll.options.length - visibleOptions.length,
+                                                        );
+                                                        const selectedOptionIds =
+                                                            localPoll.currentUserOptionIds ?? [];
+                                                        const totalVoters =
+                                                            localPoll.totalVoterCount ?? localPoll.totalVoteCount;
+                                                        const endLabel = formatPollEndLabel(
+                                                            localPoll.expiresAt || (pollEnded ? localPoll.updatedAt : null),
+                                                            pollEnded,
+                                                        );
+
+                                                        return (
+                                                            <>
+                                                    <View style={styles.pollHeader}>
+                                                        <View style={styles.pollHeaderText}>
+                                                            <Text
+                                                                numberOfLines={1}
+                                                                style={styles.pollTitle}
+                                                            >
+                                                                {localPoll.title || item.content}
+                                                            </Text>
+                                                            {endLabel ? (
+                                                                <Text style={styles.pollSubtitle}>
+                                                                    {endLabel}
+                                                                </Text>
+                                                            ) : null}
+                                                            <Text style={styles.pollSubtitle}>
+                                                                {localPoll.allowMultipleChoices
+                                                                    ? "Chọn nhiều phương án"
+                                                                    : "Chọn một phương án"}
+                                                            </Text>
+                                                        </View>
+                                                    </View>
+
+                                                    {!pollEnded ? (
+                                                        <Text style={styles.pollSummary}>
+                                                            {totalVoters > 0
+                                                                ? `${totalVoters} người đã bình chọn`
+                                                                : "Chưa có ai bình chọn"}
+                                                        </Text>
+                                                    ) : null}
+
+                                                    {visibleOptions.map((option) => {
+                                                        const selected =
+                                                            selectedOptionIds.includes(option.id) ||
+                                                            option.selectedByCurrentUser;
+
+                                                        return (
+                                                            <View
+                                                                key={option.id}
+                                                                style={[
+                                                                    styles.pollOption,
+                                                                    selected && styles.pollOptionSelected,
+                                                                ]}
+                                                            >
+                                                                <Text
+                                                                    numberOfLines={1}
+                                                                    style={styles.pollOptionText}
+                                                                >
+                                                                    {option.text}
+                                                                </Text>
+                                                                {renderPollAvatarStack(option.voterIds)}
+                                                                <Text style={styles.pollOptionCount}>
+                                                                    {option.voteCount}
+                                                                </Text>
+                                                            </View>
+                                                        );
+                                                    })}
+
+                                                    {hiddenOptionCount > 0 ? (
+                                                        <Text style={styles.pollMoreText}>
+                                                            * Con {hiddenOptionCount} lua chon khac
+                                                        </Text>
+                                                    ) : null}
+
+                                                    <View style={styles.pollPreviewButton}>
+                                                        <Text style={styles.pollPreviewButtonText}>
+                                                            {pollEnded
+                                                                ? "Xem lựa chọn"
+                                                                : selectedOptionIds.length > 0
+                                                                  ? "Đổi bình chọn"
+                                                                  : "Bình chọn"}
+                                                        </Text>
+                                                    </View>
+                                                            </>
+                                                        );
+                                                    })()}
+                                                </Pressable>
+                                                <Modal
+                                                    visible={pollModalOpen}
+                                                    transparent
+                                                    animationType="fade"
+                                                    onRequestClose={() => {
+                                                        setPollModalOpen(false);
+                                                        setPollDetailOpen(false);
+                                                        setPollSettingsOpen(false);
+                                                    }}
+                                                >
+                                                    <View style={styles.pollModalOverlay}>
+                                                        <View style={styles.pollModalCard}>
+                                                            <View style={styles.pollModalHeader}>
+                                                                {pollDetailOpen ? (
+                                                                    <Pressable
+                                                                        onPress={() => setPollDetailOpen(false)}
+                                                                        hitSlop={8}
+                                                                        style={styles.pollHeaderIconButton}
+                                                                    >
+                                                                        <Ionicons name="chevron-back" size={23} color="#111827" />
+                                                                    </Pressable>
+                                                                ) : null}
+                                                                <Text style={styles.pollModalTitle}>
+                                                                    {pollDetailOpen ? "Chi tiết bình chọn" : "Bình chọn"}
+                                                                </Text>
+                                                                <Pressable
+                                                                    onPress={() => {
+                                                                        setPollModalOpen(false);
+                                                                        setPollDetailOpen(false);
+                                                                        setPollSettingsOpen(false);
+                                                                    }}
+                                                                    hitSlop={8}
+                                                                    style={styles.pollHeaderIconButton}
+                                                                >
+                                                                    <Ionicons name="close" size={22} color="#111827" />
+                                                                </Pressable>
+                                                            </View>
+                                                            <ScrollView
+                                                                style={styles.pollModalBody}
+                                                                contentContainerStyle={styles.pollModalBodyContent}
+                                                                keyboardShouldPersistTaps="handled"
+                                                            >
+                                                                {(() => {
+                                                                    const pollEnded =
+                                                                        localPoll.closed ||
+                                                                        localPoll.recalled ||
+                                                                        isPollExpired(localPoll);
+                                                                    const endLabel = formatPollEndLabel(
+                                                                        localPoll.expiresAt || (pollEnded ? localPoll.updatedAt : null),
+                                                                        pollEnded,
+                                                                    );
+                                                                    const totalVoters =
+                                                                        localPoll.totalVoterCount ?? localPoll.totalVoteCount;
+
+                                                                    if (pollDetailOpen) {
+                                                                        return (
+                                                                            <>
+                                                                                {localPoll.options.map((option) => {
+                                                                                    const voters = (option.voterIds ?? []).map(Number);
+                                                                                    if (voters.length === 0) return null;
+                                                                                    return (
+                                                                                        <View key={option.id} style={styles.pollDetailGroup}>
+                                                                                            <Text style={styles.pollDetailOptionTitle}>
+                                                                                                {option.text} ({voters.length})
+                                                                                            </Text>
+                                                                                            {voters.map((voterId) => {
+                                                                                                const member = getPollMember(voterId);
+                                                                                                return (
+                                                                                                    <View
+                                                                                                        key={`${option.id}-${voterId}`}
+                                                                                                        style={styles.pollDetailVoterRow}
+                                                                                                    >
+                                                                                                        <UserAvatar
+                                                                                                            uri={member?.avatar}
+                                                                                                            name={getPollMemberName(voterId)}
+                                                                                                            size={38}
+                                                                                                        />
+                                                                                                        <Text style={styles.pollDetailVoterName}>
+                                                                                                            {getPollMemberName(voterId)}
+                                                                                                        </Text>
+                                                                                                    </View>
+                                                                                                );
+                                                                                            })}
+                                                                                        </View>
+                                                                                    );
+                                                                                })}
+                                                                            </>
+                                                                        );
+                                                                    }
+
+                                                                    return (
+                                                                        <>
+                                                                            <Text style={styles.pollModalQuestion}>
+                                                                                {localPoll.title || item.content}
+                                                                            </Text>
+                                                                            <Text style={styles.pollCreatorText}>
+                                                                                Tạo bởi {pollCreatorName}
+                                                                                {pollCreatedDayLabel ? ` · ${pollCreatedDayLabel}` : ""}
+                                                                            </Text>
+                                                                            {endLabel ? (
+                                                                                <View style={styles.pollMetaRow}>
+                                                                                    <Ionicons name="time-outline" size={16} color="#4B5563" />
+                                                                                    <Text style={styles.pollModalMeta}>{endLabel}</Text>
+                                                                                </View>
+                                                                            ) : null}
+                                                                            <View style={styles.pollMetaRow}>
+                                                                                <Ionicons name="list-outline" size={16} color="#4B5563" />
+                                                                                <Text style={styles.pollModalMeta}>
+                                                                                    {localPoll.allowMultipleChoices
+                                                                                        ? "Chọn nhiều phương án"
+                                                                                        : "Chọn một phương án"}
+                                                                                </Text>
+                                                                            </View>
+                                                                            {localPoll.anonymous ? (
+                                                                                <View style={styles.pollMetaRow}>
+                                                                                    <Ionicons name="eye-off-outline" size={16} color="#4B5563" />
+                                                                                    <Text style={styles.pollModalMeta}>
+                                                                                        Ẩn người bình chọn
+                                                                                    </Text>
+                                                                                </View>
+                                                                            ) : null}
+                                                                            {localPoll.anonymous ? (
+                                                                                <View style={styles.pollAnonymousBlock}>
+                                                                                    <Text style={styles.pollAnonymousNotice}>
+                                                                                        {totalVoters} người bình chọn, {localPoll.totalVoteCount} lượt chọn
+                                                                                    </Text>
+                                                                                </View>
+                                                                            ) : (
+                                                                                <Pressable
+                                                                                    style={styles.pollSummaryLink}
+                                                                                    onPress={() => setPollDetailOpen(true)}
+                                                                                >
+                                                                                    <Text style={styles.pollSummaryLinkText}>
+                                                                                        {totalVoters} người bình chọn, {localPoll.totalVoteCount} lượt chọn
+                                                                                    </Text>
+                                                                                    <Ionicons name="chevron-forward" size={16} color={colors.primary} />
+                                                                                </Pressable>
+                                                                            )}
+                                                                            {localPoll.options.map((option) => {
+                                                                                const selected =
+                                                                                    pollDraftOptionIds.includes(option.id);
+                                                                                const percent =
+                                                                                    localPoll.totalVoteCount > 0
+                                                                                        ? Math.round((option.voteCount / localPoll.totalVoteCount) * 100)
+                                                                                        : 0;
+                                                                                return (
+                                                                                    <Pressable
+                                                                                        key={option.id}
+                                                                                        disabled={pollUpdating || pollEnded}
+                                                                                        onPress={() => togglePollDraftOption(option.id)}
+                                                                                        style={[
+                                                                                            styles.pollOption,
+                                                                                            selected && styles.pollOptionSelected,
+                                                                                        ]}
+                                                                                    >
+                                                                                        <Text numberOfLines={1} style={styles.pollOptionText}>
+                                                                                            {option.text}
+                                                                                        </Text>
+                                                                                        {renderPollAvatarStack(option.voterIds)}
+                                                                                        <Text style={styles.pollOptionCount}>
+                                                                                            {option.voteCount} · {percent}%
+                                                                                        </Text>
+                                                                                    </Pressable>
+                                                                                );
+                                                                            })}
+                                                                            {localPoll.allowAddOption && !pollEnded ? (
+                                                                                <View style={styles.pollAddRow}>
+                                                                                    <TextInput
+                                                                                        value={pollOptionDraft}
+                                                                                        onChangeText={setPollOptionDraft}
+                                                                                        placeholder="Thêm lựa chọn"
+                                                                                        placeholderTextColor="#9CA3AF"
+                                                                                        style={styles.pollAddInput}
+                                                                                    />
+                                                                                    <Pressable
+                                                                                        disabled={pollAddingOption || pollOptionDraft.trim().length === 0}
+                                                                                        onPress={() => void handleAddPollOption()}
+                                                                                        style={[
+                                                                                            styles.pollAddButton,
+                                                                                            (pollAddingOption || pollOptionDraft.trim().length === 0) &&
+                                                                                                styles.pollAddButtonDisabled,
+                                                                                        ]}
+                                                                                    >
+                                                                                        <Ionicons name="add" size={18} color="#fff" />
+                                                                                    </Pressable>
+                                                                                </View>
+                                                                            ) : null}
+                                                                            {pollEnded ? (
+                                                                                <View style={styles.pollClosedNotice}>
+                                                                                    <Ionicons name="lock-closed-outline" size={15} color="#6B7280" />
+                                                                                    <Text style={styles.pollClosedNoticeText}>
+                                                                                        Bình chọn đã đóng
+                                                                                    </Text>
+                                                                                </View>
+                                                                            ) : null}
+                                                                        </>
+                                                                    );
+                                                                })()}
+                                                            </ScrollView>
+                                                            <View style={styles.pollModalFooter}>
+                                                                {!pollDetailOpen ? (
+                                                                    <View style={styles.pollSettingsWrap}>
+                                                                        <Pressable
+                                                                            style={styles.pollSettingsButton}
+                                                                            onPress={() => setPollSettingsOpen((open) => !open)}
+                                                                        >
+                                                                            <Ionicons name="settings-outline" size={22} color="#0F172A" />
+                                                                        </Pressable>
+                                                                        {pollSettingsOpen ? (
+                                                                            <View style={styles.pollSettingsMenu}>
+                                                                                <Pressable
+                                                                                    style={styles.pollSettingsMenuItem}
+                                                                                    onPress={() => void handlePinPoll()}
+                                                                                >
+                                                                                    <Text style={styles.pollSettingsMenuText}>
+                                                                                        {isPinned ? "Bỏ ghim" : "Ghim lên đầu trò chuyện"}
+                                                                                    </Text>
+                                                                                </Pressable>
+                                                                                {canManageCurrentPoll &&
+                                                                                !localPoll.closed &&
+                                                                                !localPoll.recalled &&
+                                                                                !isPollExpired(localPoll) ? (
+                                                                                    <Pressable
+                                                                                        style={styles.pollSettingsMenuItem}
+                                                                                        onPress={handleClosePoll}
+                                                                                    >
+                                                                                        <Text style={styles.pollSettingsMenuText}>Khóa bình chọn</Text>
+                                                                                    </Pressable>
+                                                                                ) : null}
+                                                                            </View>
+                                                                        ) : null}
+                                                                    </View>
+                                                                ) : (
+                                                                    <View style={styles.pollSettingsWrap} />
+                                                                )}
+                                                                {!pollDetailOpen &&
+                                                                !localPoll.closed &&
+                                                                !localPoll.recalled &&
+                                                                !isPollExpired(localPoll) ? (
+                                                                    <Pressable
+                                                                        disabled={pollUpdating}
+                                                                        onPress={() => void submitPollDraft()}
+                                                                        style={styles.pollConfirmButton}
+                                                                    >
+                                                                        <Text style={styles.pollConfirmButtonText}>
+                                                                            {pollUpdating ? "Đang xác nhận..." : "Xác nhận"}
+                                                                        </Text>
+                                                                    </Pressable>
+                                                                ) : (
+                                                                    <Pressable
+                                                                        onPress={() => {
+                                                                            setPollModalOpen(false);
+                                                                            setPollDetailOpen(false);
+                                                                            setPollSettingsOpen(false);
+                                                                        }}
+                                                                        style={styles.pollModalCloseButton}
+                                                                    >
+                                                                        <Text style={styles.pollModalCloseButtonText}>Đóng</Text>
+                                                                    </Pressable>
+                                                                )}
+                                                            </View>
+                                                        </View>
+                                                    </View>
+                                                </Modal>
+                                                </>
+                                            ) : null}
+
                                             {shouldShowFallbackText ? (
                                                 <Text
                                                     style={[
@@ -1740,6 +2658,34 @@ export const MessageBubble = React.memo(
                         </View>
                     </Animated.View>
                 </PanGestureHandler>
+
+                {item.iconName && item.iconName.length > 0 ? (
+                    <View
+                        style={[
+                            styles.messageMetaRow,
+                            mine
+                                ? styles.messageMetaRowMine
+                                : styles.messageMetaRowOther,
+                            { marginTop: 4, zIndex: 10 }
+                        ]}
+                    >
+                        <Pressable 
+                            style={{ flexDirection: "row", alignItems: "center", backgroundColor: "#fff", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 12, borderWidth: 1, borderColor: "#E5E7EB", shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 1 }}
+                            onPress={() => setReactionDetailVisible(true)}
+                        >
+                            {item.iconName.slice(0, 3).map((reaction, i) => (
+                                <Text key={i} style={{ fontSize: 13, marginRight: i === Math.min(item.iconName!.length, 3) - 1 ? 0 : -2 }}>
+                                    {reaction.name}
+                                </Text>
+                            ))}
+                            {item.iconName.reduce((sum, r) => sum + r.user.reduce((acc, u) => acc + u.quantity, 0), 0) > 1 && (
+                                <Text style={{ fontSize: 11, fontWeight: "600", color: "#6B7280", marginLeft: 4 }}>
+                                    {item.iconName.reduce((sum, r) => sum + r.user.reduce((acc, u) => acc + u.quantity, 0), 0)}
+                                </Text>
+                            )}
+                        </Pressable>
+                    </View>
+                ) : null}
 
                 {isLastInGroup && messageTime ? (
                     <View
@@ -1787,6 +2733,13 @@ export const MessageBubble = React.memo(
                         </View>
                     </View>
                 ) : null}
+
+                <ReactionDetailModal
+                    visible={reactionDetailVisible}
+                    onClose={() => setReactionDetailVisible(false)}
+                    reactions={item.iconName || []}
+                    membersById={membersById}
+                />
             </View>
         );
     },
@@ -1901,6 +2854,9 @@ const styles = StyleSheet.create({
     rowOther: {
         justifyContent: "flex-start",
     },
+    rowPollCenter: {
+        justifyContent: "center",
+    },
     avatarSpacer: {
         width: 30,
     },
@@ -1913,6 +2869,11 @@ const styles = StyleSheet.create({
     messageColumnOther: {
         alignItems: "flex-start",
         marginLeft: spacing.sm,
+    },
+    messageColumnPoll: {
+        alignItems: "center",
+        marginLeft: 0,
+        maxWidth: "100%",
     },
     groupSenderLabel: {
         maxWidth: 180,
@@ -2051,6 +3012,361 @@ const styles = StyleSheet.create({
     },
     messageTextMine: {
         color: colors.white,
+    },
+    pollCard: {
+        width: 280,
+        maxWidth: 300,
+        padding: spacing.md,
+        backgroundColor: colors.white,
+        borderRadius: 12,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: "#D1D5DB",
+        shadowColor: "#0F172A",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 5,
+        elevation: 2,
+    },
+    pollHeader: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: spacing.sm,
+        marginBottom: spacing.sm,
+    },
+    pollHeaderText: {
+        flex: 1,
+    },
+    pollTitle: {
+        fontSize: 14,
+        fontWeight: "700",
+        color: "#111827",
+    },
+    pollSubtitle: {
+        marginTop: 2,
+        fontSize: 12,
+        color: "#6B7280",
+    },
+    pollSummary: {
+        marginBottom: spacing.xs,
+        fontSize: 12,
+        fontWeight: "700",
+        color: colors.primary,
+    },
+    pollOption: {
+        marginTop: spacing.xs,
+        borderRadius: 8,
+        backgroundColor: "#F3F4F6",
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: "#E5E7EB",
+        paddingVertical: spacing.sm,
+        paddingHorizontal: spacing.sm,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: spacing.sm,
+    },
+    pollOptionSelected: {
+        backgroundColor: "#EFF6FF",
+        borderColor: "#3B82F6",
+    },
+    pollOptionText: {
+        flex: 1,
+        fontSize: 13,
+        color: "#111827",
+    },
+    pollOptionCount: {
+        fontSize: 12,
+        color: "#6B7280",
+    },
+    pollAvatarStack: {
+        flexDirection: "row",
+        alignItems: "center",
+        marginLeft: 4,
+    },
+    pollAvatarWrap: {
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: "#fff",
+        backgroundColor: "#fff",
+    },
+    pollAvatarOverlap: {
+        marginLeft: -7,
+    },
+    pollAvatarMore: {
+        width: 22,
+        height: 22,
+        borderRadius: 11,
+        borderWidth: 1,
+        borderColor: "#fff",
+        backgroundColor: "#E5E7EB",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    pollAvatarMoreText: {
+        color: "#4B5563",
+        fontSize: 10,
+        fontWeight: "800",
+    },
+    pollMoreText: {
+        marginTop: spacing.xs,
+        fontSize: 12,
+        color: "#6B7280",
+    },
+    pollAddRow: {
+        marginTop: spacing.sm,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: spacing.xs,
+    },
+    pollAddInput: {
+        flex: 1,
+        height: 36,
+        borderRadius: 8,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: "#D1D5DB",
+        paddingHorizontal: spacing.sm,
+        color: "#111827",
+        backgroundColor: "#fff",
+    },
+    pollAddButton: {
+        width: 36,
+        height: 36,
+        borderRadius: 8,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: colors.primary,
+    },
+    pollAddButtonDisabled: {
+        opacity: 0.45,
+    },
+    pollFooter: {
+        marginTop: spacing.sm,
+        fontSize: 12,
+        color: "#6B7280",
+    },
+    pollPreviewButton: {
+        marginTop: spacing.sm,
+        height: 36,
+        borderRadius: 7,
+        borderWidth: 1,
+        borderColor: colors.primary,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#fff",
+    },
+    pollPreviewButtonText: {
+        color: colors.primary,
+        fontSize: 14,
+        fontWeight: "800",
+    },
+    pollModalOverlay: {
+        flex: 1,
+        backgroundColor: "rgba(0,0,0,0.55)",
+        justifyContent: "center",
+        paddingHorizontal: 18,
+    },
+    pollModalCard: {
+        maxHeight: "86%",
+        borderRadius: 8,
+        backgroundColor: "#fff",
+        overflow: "hidden",
+    },
+    pollModalHeader: {
+        minHeight: 54,
+        paddingHorizontal: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: "#E5E7EB",
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+    },
+    pollHeaderIconButton: {
+        width: 34,
+        height: 34,
+        borderRadius: 17,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    pollModalTitle: {
+        fontSize: 16,
+        fontWeight: "800",
+        color: "#111827",
+    },
+    pollModalBody: {
+        maxHeight: 430,
+    },
+    pollModalBodyContent: {
+        padding: 16,
+    },
+    pollModalQuestion: {
+        fontSize: 17,
+        fontWeight: "800",
+        color: "#111827",
+        marginBottom: 8,
+    },
+    pollCreatorText: {
+        marginBottom: 14,
+        color: "#6B7280",
+        fontSize: 12,
+        fontWeight: "600",
+    },
+    pollMetaRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 7,
+        marginBottom: 8,
+    },
+    pollModalMeta: {
+        flexShrink: 1,
+        fontSize: 13,
+        color: "#4B5563",
+    },
+    pollAnonymousBlock: {
+        marginBottom: 12,
+    },
+    pollAnonymousNotice: {
+        color: colors.primary,
+        fontSize: 13,
+        fontWeight: "700",
+    },
+    pollAnonymousSubText: {
+        marginTop: 4,
+        color: "#4B5563",
+        fontSize: 13,
+        fontWeight: "600",
+    },
+    pollSummaryLink: {
+        alignSelf: "flex-start",
+        marginBottom: 12,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+    },
+    pollSummaryLinkText: {
+        color: colors.primary,
+        fontSize: 13,
+        fontWeight: "700",
+    },
+    pollDetailGroup: {
+        marginBottom: 22,
+    },
+    pollDetailOptionTitle: {
+        marginBottom: 12,
+        color: "#111827",
+        fontSize: 14,
+        fontWeight: "800",
+    },
+    pollDetailVoterRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+        marginBottom: 12,
+    },
+    pollDetailVoterName: {
+        color: "#1F2937",
+        fontSize: 14,
+        fontWeight: "600",
+    },
+    pollClosedNotice: {
+        marginTop: spacing.sm,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+    },
+    pollClosedNoticeText: {
+        color: "#6B7280",
+        fontSize: 13,
+        fontWeight: "600",
+    },
+    pollModalFooter: {
+        minHeight: 56,
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        borderTopWidth: 1,
+        borderTopColor: "#E5E7EB",
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "flex-end",
+        gap: 10,
+    },
+    pollSettingsWrap: {
+        marginRight: "auto",
+        position: "relative",
+        minWidth: 40,
+    },
+    pollSettingsButton: {
+        width: 40,
+        height: 40,
+        borderRadius: 8,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#F3F4F6",
+    },
+    pollSettingsMenu: {
+        position: "absolute",
+        left: 0,
+        bottom: 46,
+        width: 220,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: "#E5E7EB",
+        backgroundColor: "#fff",
+        shadowColor: "#0F172A",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.14,
+        shadowRadius: 10,
+        elevation: 6,
+        overflow: "hidden",
+        zIndex: 10,
+    },
+    pollSettingsMenuItem: {
+        minHeight: 44,
+        justifyContent: "center",
+        paddingHorizontal: 14,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: "#E5E7EB",
+    },
+    pollSettingsMenuText: {
+        color: "#111827",
+        fontSize: 14,
+        fontWeight: "600",
+    },
+    pollCloseButton: {
+        height: 36,
+        paddingHorizontal: 14,
+        borderRadius: 8,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#FEE2E2",
+    },
+    pollCloseButtonText: {
+        fontSize: 13,
+        fontWeight: "700",
+        color: "#DC2626",
+    },
+    pollModalCloseButton: {
+        height: 38,
+        paddingHorizontal: 18,
+        borderRadius: 8,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#E5E7EB",
+    },
+    pollModalCloseButtonText: {
+        color: "#111827",
+        fontWeight: "800",
+    },
+    pollConfirmButton: {
+        height: 38,
+        paddingHorizontal: 18,
+        borderRadius: 8,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: colors.primary,
+    },
+    pollConfirmButtonText: {
+        color: "#fff",
+        fontWeight: "800",
     },
     inlineLink: {
         color: colors.primary,
@@ -2277,6 +3593,22 @@ const styles = StyleSheet.create({
     imageAttachmentLarge: {
         width: 248,
         height: 286,
+    },
+    imageMoreOverlay: {
+        position: "absolute",
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+        borderRadius: 16,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "rgba(0, 0, 0, 0.48)",
+    },
+    imageMoreText: {
+        color: colors.white,
+        fontSize: 22,
+        fontWeight: "800",
     },
     mediaCardMine: {
         borderColor: "rgba(255,255,255,0.35)",
@@ -2575,34 +3907,70 @@ const styles = StyleSheet.create({
         marginTop: 14,
     },
     systemMessageBadge: {
-        maxWidth: "88%",
+        maxWidth: "94%",
         paddingHorizontal: 10,
         paddingVertical: 6,
         borderRadius: 999,
-        backgroundColor: "#efeff0ff",
+        backgroundColor: "#F8FAFC",
         flexDirection: "row",
         alignItems: "center",
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: "#E5E7EB",
+        shadowColor: "#0F172A",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.11,
+        shadowRadius: 5,
+        elevation: 2,
+    },
+    systemPollBadge: {
+        maxWidth: "94%",
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 999,
+        backgroundColor: "#F8FAFC",
+        flexDirection: "row",
+        alignItems: "flex-start",
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: "#E5E7EB",
+        shadowColor: "#0F172A",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.11,
+        shadowRadius: 5,
+        elevation: 2,
     },
     systemMessageText: {
         marginLeft: 6,
         fontSize: 12,
-        color: "#4B5563",
+        color: "#374151",
+        fontWeight: "600",
         flexShrink: 1,
     },
+    systemPollLink: {
+        fontSize: 12,
+        fontWeight: "800",
+        color: colors.primary,
+    },
     systemCollapsedBtn: {
-        maxWidth: "88%",
+        maxWidth: "94%",
         paddingHorizontal: 14,
         paddingVertical: 8,
         borderRadius: 999,
-        backgroundColor: "#f5f5f5ff",
+        backgroundColor: "#F8FAFC",
         flexDirection: "row",
         alignItems: "center",
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: "#E5E7EB",
+        shadowColor: "#0F172A",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.11,
+        shadowRadius: 5,
+        elevation: 2,
     },
     systemCollapsedBtnText: {
         marginLeft: 6,
         fontSize: 12,
         fontWeight: "700",
-        color: "#424344ff",
+        color: "#374151",
     },
     seenReceiptsRow: {
         marginTop: 4,

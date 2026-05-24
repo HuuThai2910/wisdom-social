@@ -59,6 +59,11 @@ public class GlobalExceptionHandler {
         return buildErrorResponse(HttpStatus.FORBIDDEN, ex.getMessage(), "CONVERSATION_MEMBER_LEFT");
     }
 
+    @ExceptionHandler(MaxPinLimitException.class)
+    public ResponseEntity<ApiResponse<Object>> handleMaxPinLimit(MaxPinLimitException ex) {
+        return buildErrorResponse(HttpStatus.CONFLICT, ex.getMessage(), "MAX_PIN_LIMIT");
+    }
+
     @ExceptionHandler(ExternalAIServiceException.class)
     public ResponseEntity<ApiResponse<Object>> handleExternalAIService(ExternalAIServiceException ex) {
         LOGGER.warn("External AI service error: {}", ex.getMessage());

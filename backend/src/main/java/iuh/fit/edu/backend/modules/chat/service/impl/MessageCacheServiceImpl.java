@@ -66,6 +66,27 @@ public class MessageCacheServiceImpl implements MessageCacheService {
         return -1;
     }
 
+    private MessageResponse withoutPollDetail(MessageResponse source) {
+        if (source == null || source.getPoll() == null) {
+            return source;
+        }
+        MessageResponse copy = new MessageResponse();
+        copy.setId(source.getId());
+        copy.setConversationId(source.getConversationId());
+        copy.setContent(source.getContent());
+        copy.setType(source.getType());
+        copy.setCreatedAt(source.getCreatedAt());
+        copy.setSenderId(source.getSenderId());
+        copy.setPollId(source.getPollId());
+        copy.setReplyInfo(source.getReplyInfo());
+        copy.setActive(source.isActive());
+        copy.setRecalled(source.isRecalled());
+        copy.setAttachments(source.getAttachments());
+        copy.setIconName(source.getIconName());
+        copy.setDeletedFor(source.getDeletedFor());
+        return copy;
+    }
+
     /**
      * Dùng để lưu tin nhắn mới nhất vào cache (dùng khi sendMessage)
      */
@@ -75,7 +96,7 @@ public class MessageCacheServiceImpl implements MessageCacheService {
         log.info("Push message to cache {}", message);
 
         // Push tin nhắn mới nhất vào đầu danh sách
-        redisTemplate.opsForList().leftPush(key, message);
+        redisTemplate.opsForList().leftPush(key, withoutPollDetail(message));
 
         // Cắt bớt nếu dài quá 50 tin nhắn (chỉ giữ index từ 0 đến 49)
         redisTemplate.opsForList().trim(key, 0, CACHE_SIZE - 1);
@@ -132,6 +153,23 @@ public class MessageCacheServiceImpl implements MessageCacheService {
                 }
             }
         }
+    }
+
+    @Override
+    public void updateMessage(MessageResponse message) {
+        String key = getKey(message.getConversationId());
+        if (Boolean.FALSE.equals(redisTemplate.hasKey(key))) {
+            return;
+        }
+
+        List<Object> objects = getFullListFromCache(key);
+        int targetIndex = findMessageIndex(objects, message.getId());
+        if (targetIndex == -1) {
+            return;
+        }
+
+        redisTemplate.opsForList().set(key, targetIndex, message);
+        log.info("Đã cập nhật tin nhắn {} trong Redis tại index: {}", message.getId(), targetIndex);
     }
 
     @Override

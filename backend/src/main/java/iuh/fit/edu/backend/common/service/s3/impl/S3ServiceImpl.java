@@ -282,8 +282,44 @@ public class S3ServiceImpl implements S3Service {
     }
 
     @Override
+    public String copyObject(UploadModule module, String sourceKey, String destinationKey) {
+        String normalizedSourceKey = normalizeS3ObjectKey(sourceKey);
+        String normalizedDestinationKey = normalizeS3ObjectKey(destinationKey);
+        if (normalizedSourceKey == null || normalizedSourceKey.isBlank()) {
+            throw new IllegalArgumentException("Source key khong hop le");
+        }
+        if (normalizedDestinationKey == null || normalizedDestinationKey.isBlank()) {
+            throw new IllegalArgumentException("Destination key khong hop le");
+        }
+
+        String expectedRootFolder = switch (module) {
+            case CONVERSATION -> "conversations";
+            case USER -> "users";
+            case POST -> "posts";
+            case STORY -> "stories";
+        };
+
+        if (!normalizedSourceKey.startsWith(expectedRootFolder + "/")
+                || !normalizedDestinationKey.startsWith(expectedRootFolder + "/")) {
+            throw new IllegalArgumentException("S3 key khong khop voi module " + module);
+        }
+
+        CopyObjectRequest copyRequest = CopyObjectRequest.builder()
+                .sourceBucket(bucketName)
+                .sourceKey(normalizedSourceKey)
+                .destinationBucket(bucketName)
+                .destinationKey(normalizedDestinationKey)
+                .build();
+
+        s3Client.copyObject(copyRequest);
+        log.info("Copied S3 object from {} to {}", normalizedSourceKey, normalizedDestinationKey);
+        return normalizedDestinationKey;
+    }
+
+    @Override
     public void deleteByKey(UploadModule module, String s3ObjectKey) {
         if (s3ObjectKey == null || s3ObjectKey.trim().isEmpty()) return;
+        s3ObjectKey = normalizeS3ObjectKey(s3ObjectKey);
 
         // Xác định thư mục gốc dựa vào module (giống generatePresignedUrl)
         String expectedRootFolder = switch (module) {
@@ -308,6 +344,30 @@ public class S3ServiceImpl implements S3Service {
         } catch (Exception e) {
             log.error("Lỗi xóa file S3 từ module {}: {}", module, e.getMessage()); // Nuốt lỗi để không block luồng thu hồi
         }
+    }
+
+    private String normalizeS3ObjectKey(String keyOrUrl) {
+        if (keyOrUrl == null) return null;
+        String normalized = keyOrUrl.trim();
+        int queryIndex = normalized.indexOf('?');
+        if (queryIndex >= 0) {
+            normalized = normalized.substring(0, queryIndex);
+        }
+        int fragmentIndex = normalized.indexOf('#');
+        if (fragmentIndex >= 0) {
+            normalized = normalized.substring(0, fragmentIndex);
+        }
+        while (normalized.startsWith("/")) {
+            normalized = normalized.substring(1);
+        }
+
+        for (String root : List.of("conversations/", "users/", "posts/", "stories/")) {
+            int rootIndex = normalized.indexOf(root);
+            if (rootIndex > 0) {
+                return normalized.substring(rootIndex);
+            }
+        }
+        return normalized;
     }
 
     @Override

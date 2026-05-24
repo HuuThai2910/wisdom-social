@@ -31,6 +31,35 @@ function resolveJoinedConversationId(
     return Number.isFinite(id) ? id : null;
 }
 
+function pickMessage(value: unknown): string | null {
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (!value || typeof value !== "object") return null;
+
+    const record = value as Record<string, unknown>;
+    return (
+        pickMessage(record.message) ||
+        pickMessage(record.error) ||
+        pickMessage(record.data) ||
+        pickMessage(record.errors)
+    );
+}
+
+function extractApiErrorMessage(error: unknown): string | null {
+    if (error && typeof error === "object") {
+        const responseData = (
+            error as { response?: { data?: unknown } }
+        ).response?.data;
+        const fromResponse = pickMessage(responseData);
+        if (fromResponse) return fromResponse;
+    }
+
+    if (error instanceof Error && error.message.trim()) {
+        return error.message.trim();
+    }
+
+    return null;
+}
+
 export function GroupInviteScreen() {
     const { token, returnConversationId, returnTo } = useLocalSearchParams<{
         token: string;
@@ -42,6 +71,7 @@ export function GroupInviteScreen() {
     const currentUserId = Number(currentUser?.id ?? 0);
     const [loading, setLoading] = useState(true);
     const [joining, setJoining] = useState(false);
+    const [cancelling, setCancelling] = useState(false);
     const [error, setError] = useState("");
     const [preview, setPreview] = useState<ConversationPreview | null>(null);
     const [userStatus, setUserStatus] = useState<InviteUserStatus | null>(null);
@@ -60,7 +90,11 @@ export function GroupInviteScreen() {
             if (data.userStatus === "ACTIVE") {
                 router.replace({
                     pathname: "/(stack)/messages/[conversationId]",
-                    params: { conversationId: String(data.conversationId) },
+                    params: {
+                        conversationId: String(data.conversationId),
+                        refreshAt: String(Date.now()),
+                        backToMessages: "1",
+                    },
                 });
                 return;
             }
@@ -228,19 +262,32 @@ export function GroupInviteScreen() {
             });
             return;
         } catch (err) {
-            const message =
-                err &&
-                typeof err === "object" &&
-                "response" in (err as Record<string, unknown>)
-                    ? (
-                          err as {
-                              response?: { data?: { message?: string } };
-                          }
-                      ).response?.data?.message
-                    : null;
-            Alert.alert("Không thể tham gia", message || "Bạn không thể tham gia nhóm này.");
+            const message = extractApiErrorMessage(err);
+            Alert.alert("Không thể tham gia", message || "Bạn đã bị chặn khỏi nhóm này");
         } finally {
             setJoining(false);
+        }
+    };
+
+    const handleCancelRequest = async () => {
+        if (!preview || userStatus !== "PENDING") return;
+
+        try {
+            setCancelling(true);
+            await chatService.cancelMyJoinRequest(preview.conversationId);
+            setUserStatus("NOT_MEMBER");
+            Alert.alert(
+                "Đã hủy yêu cầu",
+                "Yêu cầu tham gia nhóm của bạn đã được hủy.",
+            );
+        } catch (err) {
+            const message = extractApiErrorMessage(err);
+            Alert.alert(
+                "Không thể hủy yêu cầu",
+                message || "Vui lòng thử lại sau.",
+            );
+        } finally {
+            setCancelling(false);
         }
     };
 
@@ -287,14 +334,18 @@ export function GroupInviteScreen() {
                         </Text>
                     )}
                     <Pressable
-                        disabled={joining || userStatus === "PENDING"}
-                        onPress={handleJoin}
+                        disabled={joining || cancelling}
+                        onPress={
+                            userStatus === "PENDING"
+                                ? handleCancelRequest
+                                : handleJoin
+                        }
                         style={[
                             styles.joinButton,
                             userStatus === "PENDING" && styles.pendingButton,
                         ]}
                     >
-                        {joining ? (
+                        {joining || cancelling ? (
                             <ActivityIndicator color="#fff" />
                         ) : (
                             <Text
@@ -304,7 +355,7 @@ export function GroupInviteScreen() {
                                 ]}
                             >
                                 {userStatus === "PENDING"
-                                    ? "Đang chờ duyệt"
+                                    ? "Hủy yêu cầu"
                                     : "Tham gia nhóm"}
                             </Text>
                         )}

@@ -10,6 +10,7 @@ import iuh.fit.edu.backend.modules.page.repository.PagePostRepository;
 import iuh.fit.edu.backend.modules.page.repository.PageRepository;
 import iuh.fit.edu.backend.modules.post.repository.PostRepository;
 import iuh.fit.edu.backend.modules.page.service.PagePostService;
+import iuh.fit.edu.backend.modules.page.event.publisher.PageEventPublisher;
 import org.bson.types.ObjectId;
 import org.springframework.stereotype.Service;
 
@@ -23,12 +24,18 @@ public class PagePostServiceImpl implements PagePostService {
     private final PagePostRepository pagePostRepository;
     private final PageRepository pageRepository;
     private final PageMemberRepository pageMemberRepository;
+    private final PageEventPublisher pageEventPublisher;
 
-    public PagePostServiceImpl(PageMemberRepository pageMemberRepository, PostRepository postRepository, PagePostRepository pagePostRepository, PageRepository pageRepository) {
+    public PagePostServiceImpl(PageMemberRepository pageMemberRepository,
+                               PostRepository postRepository,
+                               PagePostRepository pagePostRepository,
+                               PageRepository pageRepository,
+                               PageEventPublisher pageEventPublisher) {
         this.pageMemberRepository = pageMemberRepository;
         this.postRepository = postRepository;
         this.pagePostRepository = pagePostRepository;
         this.pageRepository = pageRepository;
+        this.pageEventPublisher = pageEventPublisher;
     }
 
     @Override
@@ -46,6 +53,10 @@ public class PagePostServiceImpl implements PagePostService {
         pagePost.setApprovedAt(OffsetDateTime.now());
 
         pagePostRepository.save(pagePost);
+
+        // Publish approved event with the full post payload
+        Post post = postRepository.findById(postId.toString()).orElse(null);
+        pageEventPublisher.publishPostApproved(pageId, postId.toString(), userId, post);
 
         return true;
     }
@@ -65,6 +76,9 @@ public class PagePostServiceImpl implements PagePostService {
         pagePost.setApprovedAt(null);
 
         pagePostRepository.save(pagePost);
+
+        // Publish rejected event
+        pageEventPublisher.publishPostRejected(pageId, postId.toString(), userId);
 
         return true;
     }
@@ -88,21 +102,34 @@ public class PagePostServiceImpl implements PagePostService {
 
         pagePostRepository.save(pagePost);
 
+        // Publish submitted event with the full post payload
+        pageEventPublisher.publishPostSubmitted(pageId, savedPost.getId(), userId, savedPost);
+
         return true;
     }
 
     @Override
     public boolean removePostPage(long userId, long pageId, ObjectId postId) {
 
-        if (isPageAdminOrMorderator(userId, pageId)) return false;
-
         PagePost pagePost = pagePostRepository
                 .findByPostIdAndPage_Id(postId.toHexString(), pageId);
 
         if (pagePost == null) return false;
 
+        boolean isAdminOrMod = !isPageAdminOrMorderator(userId, pageId);
+
+        if (!isAdminOrMod) {
+            // Not admin/mod — only allow if the post is PENDING and authored by this user
+            if (pagePost.getStatus() != PostStatus.PENDING) return false;
+            Post post = postRepository.findById(postId.toString()).orElse(null);
+            if (post == null || !String.valueOf(userId).equals(post.getAuthorId())) return false;
+        }
+
         pagePostRepository.delete(pagePost);
         postRepository.deleteById(postId.toString());
+
+        // Publish removed event
+        pageEventPublisher.publishPostRemoved(pageId, postId.toString(), userId);
 
         return true;
     }
@@ -134,6 +161,18 @@ public class PagePostServiceImpl implements PagePostService {
     }
 
     @Override
+    public List<Post> getMyPendingPostsOfPage(long userId, long pageId) {
+        List<PagePost> pagePostList = pagePostRepository
+                .findByPage_IdAndStatus(pageId, PostStatus.PENDING);
+
+        String authorIdStr = String.valueOf(userId);
+        return pagePostList.stream()
+                .map(pagePost -> postRepository.findById(pagePost.getPostId()).orElse(null))
+                .filter(post -> post != null && authorIdStr.equals(post.getAuthorId()))
+                .toList();
+    }
+
+    @Override
     public boolean approveAllPostPage(long userId, long pageId) {
         if (isPageAdminOrMorderator(userId, pageId)) return false;
 
@@ -145,6 +184,9 @@ public class PagePostServiceImpl implements PagePostService {
             pagePost.setApprovedBy(User.builder().id(userId).build());
             pagePost.setApprovedAt(OffsetDateTime.now());
             pagePostRepository.save(pagePost);
+            // Publish approved event for each post
+            Post post = postRepository.findById(pagePost.getPostId()).orElse(null);
+            pageEventPublisher.publishPostApproved(pageId, pagePost.getPostId(), userId, post);
         });
 
         return !pagePostList.isEmpty();
@@ -162,6 +204,8 @@ public class PagePostServiceImpl implements PagePostService {
             pagePost.setApprovedBy(null);
             pagePost.setApprovedAt(null);
             pagePostRepository.save(pagePost);
+            // Publish rejected event for each post
+            pageEventPublisher.publishPostRejected(pageId, pagePost.getPostId(), userId);
         });
 
         return !pagePostList.isEmpty();
@@ -169,7 +213,7 @@ public class PagePostServiceImpl implements PagePostService {
 
     @Override
     public PagePost getPagePostByIdandPostId(long pageId, ObjectId postId) {
-        return pagePostRepository.findPagePostByPage_IdAndPostId(pageId,postId.toString());
+        return pagePostRepository.findPagePostByPage_IdAndPostId(pageId, postId.toString());
     }
 
     private boolean isPageAdminOrMorderator(long userId, long pageId) {
