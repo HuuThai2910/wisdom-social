@@ -24,6 +24,10 @@ export interface User {
     followersCount?: number;
     followingCount?: number;
     postsCount?: number;
+    // Account deletion (15-day pending wipe)
+    deletionRequestedAt?: string | null;
+    deletionScheduledFor?: string | null;
+    hasPinCode?: boolean;
 }
 
 // Post Types

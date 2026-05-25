@@ -6,7 +6,6 @@ import {
   LogOut,
   MessageCircle,
   MapPin,
-  MoreHorizontal,
   Info,
   X,
   AtSign,
@@ -250,12 +249,6 @@ export default function ProfileHeader({
                   username={user.username}
                 />
               </div>
-              <button
-                className="inline-flex items-center justify-center w-[34px] h-[34px] bg-[#efefef] dark:bg-[#262626] hover:bg-[#dbdbdb] dark:hover:bg-[#363636] border border-[#dbdbdb] dark:border-[#363636] rounded-lg dark:text-white transition-colors"
-                title="Thêm"
-              >
-                <MoreHorizontal size={15} />
-              </button>
             </>
           )}
         </div>

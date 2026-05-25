@@ -1,9 +1,9 @@
 import { Outlet, useLocation } from "react-router-dom";
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import Sidebar from "../nav/Sidebar";
 import BottomNav from "../nav/BottomNav";
 import { Link } from "react-router-dom";
-import { Loader2, UserPlus, Check } from "lucide-react";
+import { Loader2, UserPlus, X } from "lucide-react";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useForceLogout } from "../../hooks/useForceLogout";
 import { useAvatarBuster } from "../../context/AvatarContext";
@@ -34,14 +34,17 @@ function MainLayoutContent() {
     // Friend suggestions for the right sidebar
     const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
     const [suggestionsLoading, setSuggestionsLoading] = useState(false);
-    const [sentIds, setSentIds] = useState<Set<number>>(new Set());
-    const [sendingId, setSendingId] = useState<number | null>(null);
+    const [pendingId, setPendingId] = useState<number | null>(null);
 
-    // Friend events trigger a refresh — keeps suggestions in sync when a
-    // request is accepted/rejected/canceled by either side. Granular: we
-    // only refetch this small list, never reload the page.
-    const { refreshTrigger } = useFriendData();
+    // Pull sentRequests/friends from context so the widget reacts in realtime
+    // when the user (de)sends a request from any other page (FriendRequests,
+    // profile, etc.). No refetch needed — derived state stays in sync.
+    const { sentRequests, friends, sendRequest, cancelSentRequest, refreshTrigger } =
+        useFriendData();
 
+    // Only refetch the suggestion list when the current user changes or when
+    // backend pushes a friend event (refreshTrigger). Send/cancel locally
+    // does not bump refreshTrigger, so the list keeps its order.
     useEffect(() => {
         const id = currentUser?.id;
         if (!id) return;
@@ -52,15 +55,6 @@ function MainLayoutContent() {
             .then((list) => {
                 if (cancelled) return;
                 setSuggestions(list as Suggestion[]);
-                // Drop stale "sent" marks for users no longer in the list.
-                setSentIds((prev) => {
-                    const valid = new Set<number>();
-                    const ids = new Set(list.map((u) => u.id));
-                    prev.forEach((id) => {
-                        if (ids.has(id)) valid.add(id);
-                    });
-                    return valid;
-                });
             })
             .finally(() => {
                 if (!cancelled) setSuggestionsLoading(false);
@@ -70,20 +64,34 @@ function MainLayoutContent() {
         };
     }, [currentUser?.id, refreshTrigger]);
 
-    const handleSendRequest = async (targetId: number) => {
-        if (!currentUser?.id) return;
-        setSendingId(targetId);
-        try {
-            await friendService.sendFriendRequest({
-                senderId: currentUser.id,
-                receivedId: targetId,
-            });
-            setSentIds((prev) => new Set(prev).add(targetId));
-        } catch (err) {
-            console.error("Error sending friend request:", err);
-        } finally {
-            setSendingId(null);
-        }
+    // Derive "already-sent" and "already-friend" sets from context for O(1) lookup.
+    const sentIds = useMemo(
+        () => new Set(sentRequests.map((u) => u.id)),
+        [sentRequests],
+    );
+    const friendIds = useMemo(
+        () => new Set(friends.map((u) => u.id)),
+        [friends],
+    );
+
+    // Hide users who are already friends from the suggestion list (e.g. after
+    // an accept happens via WebSocket trigger). Keep "sent" rows visible so
+    // the user can cancel right from the widget.
+    const visibleSuggestions = useMemo(
+        () => suggestions.filter((u) => !friendIds.has(u.id)),
+        [suggestions, friendIds],
+    );
+
+    const handleSendRequest = async (target: Suggestion) => {
+        setPendingId(target.id);
+        await sendRequest(target);
+        setPendingId(null);
+    };
+
+    const handleCancelRequest = async (targetId: number) => {
+        setPendingId(targetId);
+        await cancelSentRequest(targetId);
+        setPendingId(null);
     };
 
     console.log(
@@ -167,14 +175,15 @@ function MainLayoutContent() {
                                 <div className="flex items-center justify-center py-6">
                                     <Loader2 className="animate-spin text-blue-500" size={20} />
                                 </div>
-                            ) : suggestions.length === 0 ? (
+                            ) : visibleSuggestions.length === 0 ? (
                                 <p className="text-xs text-gray-500 dark:text-gray-400 py-4">
                                     Không có gợi ý
                                 </p>
                             ) : (
                                 <div className="space-y-3">
-                                    {suggestions.map((user) => {
+                                    {visibleSuggestions.map((user) => {
                                         const sent = sentIds.has(user.id);
+                                        const isPending = pendingId === user.id;
                                         return (
                                             <div
                                                 key={user.id}
@@ -198,26 +207,32 @@ function MainLayoutContent() {
                                                             {user.username}
                                                         </p>
                                                         <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                                                            {user.mutualFriendsCount && user.mutualFriendsCount > 0
-                                                                ? `${user.mutualFriendsCount} bạn chung`
-                                                                : user.fullName || user.name || "Gợi ý cho bạn"}
+                                                            {sent
+                                                                ? "Đang chờ phản hồi"
+                                                                : user.mutualFriendsCount && user.mutualFriendsCount > 0
+                                                                    ? `${user.mutualFriendsCount} bạn chung`
+                                                                    : user.fullName || user.name || "Gợi ý cho bạn"}
                                                         </p>
                                                     </div>
                                                 </Link>
                                                 <button
-                                                    onClick={() => handleSendRequest(user.id)}
-                                                    disabled={sent || sendingId === user.id}
-                                                    className={`shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full transition-colors ${
+                                                    onClick={() =>
                                                         sent
-                                                            ? "bg-gray-100 dark:bg-[#262626] text-green-500"
-                                                            : "bg-blue-500 hover:bg-blue-600 text-white disabled:opacity-60"
+                                                            ? handleCancelRequest(user.id)
+                                                            : handleSendRequest(user)
+                                                    }
+                                                    disabled={isPending}
+                                                    className={`shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full transition-colors disabled:opacity-60 ${
+                                                        sent
+                                                            ? "bg-gray-100 dark:bg-[#262626] text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-[#363636]"
+                                                            : "bg-blue-500 hover:bg-blue-600 text-white"
                                                     }`}
-                                                    title={sent ? "Đã gửi lời mời" : "Kết bạn"}
+                                                    title={sent ? "Hủy lời mời" : "Kết bạn"}
                                                 >
-                                                    {sendingId === user.id ? (
+                                                    {isPending ? (
                                                         <Loader2 className="animate-spin" size={14} />
                                                     ) : sent ? (
-                                                        <Check size={14} />
+                                                        <X size={14} />
                                                     ) : (
                                                         <UserPlus size={14} />
                                                     )}

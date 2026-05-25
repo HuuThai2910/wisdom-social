@@ -27,6 +27,8 @@ interface FriendDataContextType {
     acceptRequest: (userId: number) => Promise<boolean>;
     rejectRequest: (userId: number) => Promise<boolean>;
     unfriend: (userId: number) => Promise<boolean>;
+    sendRequest: (target: User) => Promise<boolean>;
+    cancelSentRequest: (userId: number) => Promise<boolean>;
     
     // Refresh trigger (incremented when WebSocket notification received)
     refreshTrigger: number;
@@ -179,6 +181,60 @@ export function FriendDataProvider({ children }: { children: ReactNode }) {
         }
     }, [currentUser?.id]);
 
+    // Send friend request (optimistic — adds to sentRequests immediately, rolls back on failure)
+    const sendRequest = useCallback(async (target: User): Promise<boolean> => {
+        if (!currentUser?.id || target.id === currentUser.id) return false;
+
+        let inserted = false;
+        setSentRequests((prev) => {
+            if (prev.some((u) => u.id === target.id)) return prev;
+            inserted = true;
+            return [target, ...prev];
+        });
+
+        try {
+            await friendService.sendFriendRequest({
+                senderId: currentUser.id,
+                receivedId: target.id,
+            });
+            return true;
+        } catch (err) {
+            console.error("Error sending friend request:", err);
+            if (inserted) {
+                setSentRequests((prev) => prev.filter((u) => u.id !== target.id));
+            }
+            return false;
+        }
+    }, [currentUser?.id]);
+
+    // Cancel sent friend request (optimistic — removes from sentRequests immediately, rolls back on failure)
+    const cancelSentRequest = useCallback(async (userId: number): Promise<boolean> => {
+        if (!currentUser?.id) return false;
+
+        let removed: User | undefined;
+        setSentRequests((prev) => {
+            removed = prev.find((u) => u.id === userId);
+            return prev.filter((u) => u.id !== userId);
+        });
+
+        try {
+            await friendService.cancelFriendRequest({
+                senderId: currentUser.id,
+                receivedId: userId,
+            });
+            return true;
+        } catch (err) {
+            console.error("Error canceling sent request:", err);
+            if (removed) {
+                const restore = removed;
+                setSentRequests((prev) =>
+                    prev.some((u) => u.id === restore.id) ? prev : [restore, ...prev],
+                );
+            }
+            return false;
+        }
+    }, [currentUser?.id]);
+
     // Unfriend
     const unfriend = useCallback(async (userId: number): Promise<boolean> => {
         if (!currentUser?.id) return false;
@@ -214,6 +270,8 @@ export function FriendDataProvider({ children }: { children: ReactNode }) {
             acceptRequest,
             rejectRequest,
             unfriend,
+            sendRequest,
+            cancelSentRequest,
             refreshTrigger,
             triggerRefreshAll,
             isInitialLoadComplete,
@@ -251,6 +309,8 @@ export function useFriendDataSafe() {
             acceptRequest: async () => false,
             rejectRequest: async () => false,
             unfriend: async () => false,
+            sendRequest: async () => false,
+            cancelSentRequest: async () => false,
             refreshTrigger: 0,
             triggerRefreshAll: () => {},
             isInitialLoadComplete: false,

@@ -13,7 +13,6 @@ import {
   Check,
 } from "lucide-react";
 import { useFriendData } from "../contexts/FriendDataContext";
-import friendService from "../services/friendService";
 import blockService from "../services/blockService";
 import { useCurrentUser } from "../hooks/useCurrentUser";
 import { useBlockNotifications } from "../hooks/useBlockNotifications";
@@ -90,6 +89,7 @@ export default function FriendRequests() {
     acceptRequest,
     rejectRequest,
     unfriend,
+    cancelSentRequest,
     refreshTrigger,
   } = useFriendData();
 
@@ -165,11 +165,7 @@ export default function FriendRequests() {
     if (!window.confirm("Hủy lời mời đã gửi?")) return;
     setPendingId(id);
     try {
-      await friendService.cancelFriendRequest({
-        senderId: currentUser.id,
-        receivedId: id,
-      });
-      await refreshSentRequests();
+      await cancelSentRequest(id);
     } finally {
       setPendingId(null);
     }

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { Users, Loader2, AlertCircle, UserMinus, RefreshCw } from "lucide-react";
+import toast from "react-hot-toast";
 import friendService from "../../services/friendService";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { buildS3Url } from "../../utils/s3";
@@ -87,9 +88,10 @@ export default function FriendsList({
             if (onUnfriend) {
                 const success = await onUnfriend(friendId);
                 if (success) {
+                    toast.success(`Đã hủy kết bạn với ${friendUsername}`);
                     onFriendRemoved?.(friendId);
                 } else {
-                    alert("Không thể hủy kết bạn. Vui lòng thử lại.");
+                    toast.error("Không thể hủy kết bạn. Vui lòng thử lại.");
                 }
             } else {
                 await friendService.cancelFriendRequest({
@@ -97,11 +99,12 @@ export default function FriendsList({
                     receivedId: friendId,
                 });
                 setLocalFriends(prev => prev.filter(f => f.id !== friendId));
+                toast.success(`Đã hủy kết bạn với ${friendUsername}`);
                 onFriendRemoved?.(friendId);
             }
         } catch (err: any) {
             console.error("Error unfriending:", err);
-            alert("Không thể hủy kết bạn. Vui lòng thử lại.");
+            toast.error("Không thể hủy kết bạn. Vui lòng thử lại.");
         } finally {
             setUnfriendingId(null);
         }
