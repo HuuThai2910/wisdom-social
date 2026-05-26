@@ -115,9 +115,7 @@ export default function ProfileHeader({
   }, []);
 
   const avatarSrc =
-    buildS3Url(user.avatarUrl) ||
-    user.avatarUrl ||
-    "https://i.pravatar.cc/150";
+    buildS3Url(user.avatarUrl) || user.avatarUrl || "https://i.pravatar.cc/150";
   const displayName = user.fullName || user.name || user.username;
   const genderLabel = user.gender ? GENDER_LABELS[user.gender] : null;
 
@@ -156,7 +154,9 @@ export default function ProfileHeader({
                       {note.location?.trim() && (
                         <p className="text-[11px] text-gray-600 dark:text-gray-300 line-clamp-1 flex items-center gap-1">
                           <MapPin className="w-3 h-3 text-rose-400 shrink-0" />
-                          <span className="truncate">{note.location.trim()}</span>
+                          <span className="truncate">
+                            {note.location.trim()}
+                          </span>
                         </p>
                       )}
                       {!note.content?.trim() &&
@@ -245,7 +245,6 @@ export default function ProfileHeader({
                     : user.friendsCount || 0
                 }
                 label="Bạn bè"
-                onClick={() => setShowFriendsModal(true)}
               />
               {isOwnProfile && (
                 <Stat value={user.followingCount ?? 0} label="Theo dõi" />
