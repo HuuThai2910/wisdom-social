@@ -3,6 +3,7 @@ import { Ban, Loader2, AlertCircle } from "lucide-react";
 import type { User } from "../../types";
 import blockService from "../../services/blockService";
 import { buildS3Url } from "../../utils/s3";
+import ConfirmModal from "../common/ConfirmModal";
 
 interface ProfileBlockedUsersProps {
   userId: string | number;
@@ -16,6 +17,7 @@ export default function ProfileBlockedUsers({
   const [blockedUsers, setBlockedUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [notification, setNotification] = useState<string>("");
 
   useEffect(() => {
     if (!isOwnProfile) {
@@ -95,12 +97,19 @@ export default function ProfileBlockedUsers({
       );
     } catch (err) {
       console.error("Error unblocking user:", err);
-      alert("Không thể bỏ chặn. Vui lòng thử lại.");
+      setNotification("Không thể bỏ chặn. Vui lòng thử lại.");
     }
   };
 
   return (
     <div className="space-y-4">
+      <ConfirmModal
+        open={!!notification}
+        title="Lỗi"
+        message={notification}
+        variant="warning"
+        onConfirm={() => setNotification("")}
+      />
       {blockedUsers.map((user) => (
         <div
           key={user.id}

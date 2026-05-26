@@ -3,6 +3,7 @@ import { Ban, Loader2 } from "lucide-react";
 import toast from "react-hot-toast";
 import blockService from "../../services/blockService";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
+import ConfirmModal from "../common/ConfirmModal";
 
 interface BlockUnblockButtonProps {
     userId: number;
@@ -26,6 +27,7 @@ export default function BlockUnblockButton({
     const [isBlocked, setIsBlocked] = useState(initialIsBlocked ?? false);
     const [loading, setLoading] = useState(false);
     const [checking, setChecking] = useState(!skipInitialCheck);
+    const [showConfirm, setShowConfirm] = useState(false);
 
     const checkBlockStatus = useCallback(async () => {
         // Skip if parent already provided the status
@@ -63,19 +65,18 @@ export default function BlockUnblockButton({
         }
     }, [initialIsBlocked]);
 
-    const handleBlockUnblock = useCallback(async () => {
+    const handleBlockUnblock = useCallback(() => {
         if (!currentUser?.id) {
             toast.error("Vui lòng đăng nhập để thực hiện hành động này");
             return;
         }
+        setShowConfirm(true);
+    }, [currentUser]);
 
+    const doBlockUnblock = useCallback(async () => {
+        if (!currentUser?.id) return;
+        setShowConfirm(false);
         const action = isBlocked ? "bỏ chặn" : "chặn";
-        const confirmed = window.confirm(
-            `Bạn có chắc chắn muốn ${action} "${username}"?`
-        );
-
-        if (!confirmed) return;
-
         setLoading(true);
         try {
             if (isBlocked) {
@@ -112,6 +113,17 @@ export default function BlockUnblockButton({
     }
 
     return (
+        <>
+        <ConfirmModal
+            open={showConfirm}
+            title={isBlocked ? "Bỏ chặn người dùng" : "Chặn người dùng"}
+            message={`Bạn có chắc chắn muốn ${isBlocked ? "bỏ chặn" : "chặn"} "${username}"?`}
+            confirmText={isBlocked ? "Bỏ chặn" : "Chặn"}
+            cancelText="Hủy"
+            variant={isBlocked ? "warning" : "danger"}
+            onConfirm={doBlockUnblock}
+            onCancel={() => setShowConfirm(false)}
+        />
         <button
             onClick={handleBlockUnblock}
             disabled={loading}
@@ -128,5 +140,6 @@ export default function BlockUnblockButton({
             )}
             <span>{isBlocked ? "Unblock" : "Block"}</span>
         </button>
+        </>
     );
 }

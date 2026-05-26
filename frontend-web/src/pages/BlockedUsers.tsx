@@ -6,6 +6,7 @@ import blockService from "../services/blockService";
 import type { User } from "../types";
 import { useCurrentUser } from "../hooks/useCurrentUser";
 import { buildS3Url } from "../utils/s3";
+import ConfirmModal from "../components/common/ConfirmModal";
 
 export default function BlockedUsers() {
     const currentUser = useCurrentUser();
@@ -15,6 +16,8 @@ export default function BlockedUsers() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
     const [unblockingUserId, setUnblockingUserId] = useState<Number | null>(null);
+    const [confirmModal, setConfirmModal] = useState<{ userId: number; username: string } | null>(null);
+    const [notification, setNotification] = useState("");
 
     useEffect(() => {
         if (currentUser) {
@@ -40,25 +43,22 @@ export default function BlockedUsers() {
         }
     };
 
-    const handleUnblockUser = async (userId: number, username: string) => {
+    const handleUnblockUser = (userId: number, username: string) => {
         if (!currentUser) return;
+        setConfirmModal({ userId, username });
+    };
 
-        const confirmed = window.confirm(
-            `Bạn có chắc chắn muốn bỏ chặn "${username}"?`
-        );
-
-        if (!confirmed) return;
-
+    const doUnblock = async () => {
+        if (!currentUser || !confirmModal) return;
+        const { userId, username } = confirmModal;
+        setConfirmModal(null);
         setUnblockingUserId(userId);
         try {
             await blockService.unblockUser(currentUser.id, userId);
-
-            // Remove from list
             setBlockedByMe((prev) => prev.filter((u) => u.id !== userId));
-            alert(`Đã bỏ chặn "${username}" thành công!`);
         } catch (err: any) {
             console.error("Error unblocking user:", err);
-            alert("Không thể bỏ chặn user. Vui lòng thử lại.");
+            setNotification(`Không thể bỏ chặn "${username}". Vui lòng thử lại.`);
         } finally {
             setUnblockingUserId(null);
         }
@@ -87,6 +87,23 @@ export default function BlockedUsers() {
 
     return (
         <div className="min-h-screen bg-white dark:bg-[#000]">
+            <ConfirmModal
+                open={!!confirmModal}
+                title="Bỏ chặn người dùng"
+                message={`Bạn có chắc chắn muốn bỏ chặn "${confirmModal?.username}"?`}
+                confirmText="Bỏ chặn"
+                cancelText="Hủy"
+                variant="warning"
+                onConfirm={doUnblock}
+                onCancel={() => setConfirmModal(null)}
+            />
+            <ConfirmModal
+                open={!!notification}
+                title="Lỗi"
+                message={notification}
+                variant="warning"
+                onConfirm={() => setNotification("")}
+            />
             {/* Header */}
             <div className="border-b border-gray-200 dark:border-[#262626] sticky top-0 bg-white dark:bg-[#000] z-10">
                 <div className="max-w-3xl mx-auto px-4 py-4">

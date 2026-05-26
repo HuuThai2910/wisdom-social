@@ -27,6 +27,7 @@ function MainLayoutContent() {
     const { sidebarWidth } = useSidebarLayout();
     const [isRightSidebarExpanded, setIsRightSidebarExpanded] = useState(false);
     const isMessagesRoute = location.pathname.startsWith("/messages");
+    const isFullWidthRoute = /^\/pages\/\d/.test(location.pathname);
 
     // Lắng nghe force-logout event từ backend (khi logoutAllDevices được gọi từ thiết bị khác)
     useForceLogout(currentUser?.phone);
@@ -109,9 +110,13 @@ function MainLayoutContent() {
                 className="min-h-screen pb-16 md:pb-0 xl:mr-[72px]"
                 style={{ marginLeft: `${sidebarWidth}px` }}
             >
-                <div className="max-w-[975px] mx-auto pt-6 px-8 md:px-12">
+                {isFullWidthRoute ? (
                     <Outlet />
-                </div>
+                ) : (
+                    <div className="max-w-[975px] mx-auto pt-6 px-8 md:px-12">
+                        <Outlet />
+                    </div>
+                )}
             </main>
 
             {/* Right Panel for desktop - Suggestions */}
