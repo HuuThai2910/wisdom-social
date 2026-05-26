@@ -4,7 +4,7 @@
  */
 package iuh.fit.edu.backend.modules.post.entity;
 
-import jakarta.persistence.Id;
+import org.springframework.data.annotation.Id;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -69,21 +69,4 @@ public class HashtagTrending {
     // TTL - Tự động xóa sau 30 ngày (config via MongoConfig)
     @Indexed
     private Instant expireAt;
-}
-
-@Data
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
-class TrendingStats {
-    private long postCount;
-    private long userCount; // Số user unique sử dụng
-    private long viewCount;
-    private long engagementCount; // reactions + comments + shares
-    
-    // Velocity (tốc độ tăng trưởng)
-    private Double velocity;
-    
-    // Peak time
-    private Instant peakTime;
 }

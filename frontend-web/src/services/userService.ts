@@ -178,8 +178,8 @@ export const userService = {
     },
 
     async getUserProfile(id: string | number): Promise<UserProfileResponse> {
-        const response = await axiosClient.get(`auth/users/${id}`);
-        return response.data.data;
+        const response = await axiosClient.get(`auth/user/${id}`);
+        return response.data?.data ?? response.data;
     },
 
     async searchUserByUsername(keyword: string): Promise<User[]> {

@@ -44,4 +44,18 @@ public interface PostFeedRepositoryCustom {
             Instant recentThreshold,
             int size
     );
+
+    List<Post> findPostsByHashtag(
+            String hashtag,
+            String currentUserId,
+            List<String> friendIds,
+            int page,
+            int size
+    );
+
+    long countPostsByHashtag(
+            String hashtag,
+            String currentUserId,
+            List<String> friendIds
+    );
 }

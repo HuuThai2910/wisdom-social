@@ -5,13 +5,35 @@ export type User = {
     name?: string;
     bio: string;
     avatarUrl?: string;
+    avatar?: string;
     phone?: string;
     followers: number;
     following: number;
+    friendsCount?: number;
+    followersCount?: number;
+    followingCount?: number;
+    postsCount?: number;
     website?: string;
     birthday?: string;
     gender?: "MALE" | "FEMALE" | "HIDDEN";
     hasPinCode?: boolean;
+};
+
+export type StoryMedia = {
+    url: string;
+    type: string;
+    thumbnailUrl?: string;
+};
+
+export type StoryMusic = {
+    id?: string;
+    trackId?: string | number;
+    title?: string;
+    artist?: string;
+    audioUrl?: string;
+    thumbnail?: string;
+    coverUrl?: string;
+    muteOriginal?: boolean;
 };
 
 export type Story = {
@@ -19,24 +41,101 @@ export type Story = {
     userId: string;
     image: string;
     viewed: boolean;
+    isViewed?: boolean;
     createdAt: string;
+    text?: string;
+    content?: string;
+    media?: StoryMedia;
+    user?: User;
+    music?: StoryMusic;
+    stickers?: unknown[];
+    textStyle?: unknown;
+    privacy?: PrivacyType;
+    allowReplies?: boolean;
+    allowReactions?: boolean;
+    allowSharing?: boolean;
+    viewCount?: number;
+};
+
+export type StoryGroup = {
+    userId: string;
+    username: string;
+    userAvatar: string;
+    stories: Story[];
+    highlightId?: string;
+};
+
+export type StoryViewerInfo = {
+    viewerId: string;
+    viewedAt: string;
+    reaction?: string;
+    username?: string;
+    avatarUrl?: string;
+};
+
+export type PrivacyType = "PUBLIC" | "FRIENDS" | "ONLY_ME" | "SPECIFIC" | "EXCEPT";
+
+export type PostMedia = {
+    url: string;
+    type: string;
+    order?: number;
+    duration?: number;
+    width?: number;
+    height?: number;
+};
+
+export type PostMusic = {
+    trackId?: string | number;
+    title?: string;
+    artist?: string;
+    coverUrl?: string;
+    thumbnail?: string;
+    audioUrl?: string;
+    duration?: number;
+    muteOriginal?: boolean;
+    originalVolume?: number;
+    musicVolume?: number;
 };
 
 export type Comment = {
     id: string;
-    userId: string;
-    content: string;
+    userId?: string;
+    user?: User;
+    content?: string;
+    text?: string;
     createdAt: string;
+    likes?: number;
+    parentId?: string | null;
 };
 
 export type Post = {
     id: string;
     userId: string;
+    user?: User;
     image: string;
+    images?: string[];
+    media?: PostMedia[];
     caption: string;
     likes: number;
     comments: Comment[];
+    commentsCount?: number;
+    shares?: number;
     createdAt: string;
+    lastActivityAt?: string;
+    rankingTime?: string;
+    isLiked?: boolean;
+    isSaved?: boolean;
+    privacy?: PrivacyType;
+    allowComments?: boolean;
+    allowShares?: boolean;
+    taggedUserIds?: string[];
+    music?: PostMusic;
+    location?:
+    | string
+    | {
+        name?: string;
+        address?: string;
+    };
 };
 
 export type AppNotification = {
@@ -88,3 +187,53 @@ export type AuthResult = {
     deletionPending?: boolean;
     deletionRemainingDays?: number;
 };
+
+export type HighlightStory = {
+    id: string;
+    userId: string;
+    media?: {
+        url: string;
+        type: string;
+        thumbnailUrl?: string;
+    };
+    text?: string;
+    createdAt: string;
+    isArchived: boolean;
+    highlightCategory?: string;
+};
+
+export type StoryHighlight = {
+    id: string;
+    userId: string;
+    title: string;
+    coverImageUrl?: string;
+    stories: HighlightStory[];
+    displayOrder: number;
+    viewCount: number;
+    createdAt: string;
+    updatedAt: string;
+};
+
+export interface NoteMusic {
+    trackId?: string;
+    title: string;
+    artist: string;
+    coverUrl: string;
+    thumbnail?: string;
+    audioUrl: string;
+    duration?: number;
+    muteOriginal?: boolean;
+    originalVolume?: number;
+    musicVolume?: number;
+}
+
+export interface Note {
+    id: string;
+    userId: string;
+    content: string;
+    emoji: string;
+    location?: string;
+    music?: NoteMusic;
+    createdAt: string;
+    expireAt: string;
+}
