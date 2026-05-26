@@ -6,8 +6,8 @@ export interface MusicMetadata {
     title: string;
     artist: string;
     duration: number; // seconds
-    imageUrl: string; // S3/Cloudflare R2 URL
-    audioUrl: string; // S3/Cloudflare R2 URL
+    imageUrl: string; 
+    audioUrl: string;
     createdAt: string;
 }
 
@@ -103,8 +103,9 @@ export const getMusicById = async (musicId: string): Promise<MusicMetadata | nul
  * Format duration from seconds to MM:SS
  */
 export const formatDuration = (seconds: number): string => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
+    const total = Math.floor(seconds);
+    const mins = Math.floor(total / 60);
+    const secs = total % 60;
     return `${mins}:${secs.toString().padStart(2, "0")}`;
 };
 

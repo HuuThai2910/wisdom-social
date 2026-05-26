@@ -3,6 +3,11 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { Post } from "../../../types";
 import * as postApi from "../../../services/postService";
 
+import {
+  enforceVideoAudioState,
+  getVideoAudioState,
+} from "../../../utils/postVideoAudio";
+
 interface PostCardMediaProps {
   displayPost: Post;
   totalImages: number;
@@ -36,6 +41,8 @@ export default function PostCardMedia({
     return null;
   }
 
+  const videoAudioState = getVideoAudioState(displayPost.music);
+
   return (
     <div className="relative w-full group">
       {isCurrentMediaVideo ? (
@@ -49,10 +56,19 @@ export default function PostCardMedia({
               ref={videoRef}
               src={currentMediaUrl}
               className="w-full h-full object-contain cursor-pointer"
-              muted
+              muted={videoAudioState.shouldMuteOriginal}
               playsInline
               preload="metadata"
-              controls
+              controls={!videoAudioState.locked}
+              onLoadedMetadata={(e) => {
+                enforceVideoAudioState(e.currentTarget, videoAudioState);
+              }}
+              onVolumeChange={(e) => {
+                enforceVideoAudioState(e.currentTarget, videoAudioState);
+              }}
+              onPlay={(e) => {
+                enforceVideoAudioState(e.currentTarget, videoAudioState);
+              }}
             />
             {currentMediaDuration !== null && currentMediaDuration > 0 && (
               <div className="absolute top-3 left-3 bg-black/65 text-white text-xs px-2 py-1 rounded-full z-10">

@@ -1,6 +1,7 @@
 import { getCookie, setCookie, clearAuthStorage } from './cookies';
 import type  { UserRequestLogin, UserRequestRegister, UserRequestForgotPassword, UserRequestResetPassword } from '../services/userService';
 import userService from '../services/userService';
+import websocketService from '../services/websocket';
 
 const AUTH_KEY = 'authed';
 const USER_KEY = 'current_user';
@@ -203,6 +204,8 @@ export const getToken = (): string | null => {
 };
 
 export const logout = async (): Promise<void> => {
+    websocketService.disconnect();
+
     // Clear client data immediately so redirect/navigation cannot interrupt cleanup.
     clearAuthStorage();
 

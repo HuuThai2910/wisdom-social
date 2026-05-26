@@ -20,4 +20,10 @@ public class Music {
     private String artist;
     private String thumbnail;
     private String audioUrl;   // lấy từ MusicMetadata
+    private Long duration;
+
+    // video original audio config
+    private Boolean muteOriginal;
+    private Integer originalVolume;
+    private Integer musicVolume;
 }

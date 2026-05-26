@@ -295,6 +295,8 @@ export function AppProvider({ children }: PropsWithChildren) {
 
         const setupRealtimeProfileSync = async () => {
             try {
+                // Presence dat o AppContext de mobile dung chung 1 ket noi WebSocket.
+                chatWebsocketService.setPresenceIdentity(internationalPhone);
                 await chatWebsocketService.connect();
             } catch {
                 // ignore connection bootstrap errors; subscriptions will be synced on reconnect
@@ -456,6 +458,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     }, []);
 
     const logout = () => {
+        chatWebsocketService.disconnect();
         setCurrentUserId(null);
         setDeletionPending(false);
         setDeletionRemainingDays(undefined);

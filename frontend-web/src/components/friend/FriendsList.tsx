@@ -6,6 +6,7 @@ import friendService from "../../services/friendService";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { buildS3Url } from "../../utils/s3";
 import type { User } from "../../types";
+import { usePresenceStatus } from "../../hooks/usePresenceStatus";
 
 interface FriendsListProps {
     userId: string;
@@ -45,6 +46,7 @@ export default function FriendsList({
     const friends = useExternal ? externalFriends : localFriends;
     const loading = useExternal ? (externalLoading ?? false) : localLoading;
     const error = useExternal ? (externalError ?? "") : localError;
+    const presenceByUserId = usePresenceStatus(friends.map((friend) => friend.id));
 
     // Load friends locally (only if not using external data)
     const loadFriends = useCallback(async () => {
@@ -168,11 +170,19 @@ export default function FriendsList({
                             to={`/profile/${friend.username}`}
                             className="flex flex-col items-center w-full"
                         >
-                            <img
-                                src={buildS3Url(friend.avatarUrl) || friend.avatarUrl || "https://i.pravatar.cc/150"}
-                                alt={friend.username}
-                                className="w-20 h-20 rounded-full object-cover mb-3"
-                            />
+                            <div className="relative mb-3">
+                                <img
+                                    src={buildS3Url(friend.avatarUrl) || friend.avatarUrl || "https://i.pravatar.cc/150"}
+                                    alt={friend.username}
+                                    className="w-20 h-20 rounded-full object-cover"
+                                />
+                                {presenceByUserId[Number(friend.id)]?.online && (
+                                    <span
+                                        className="absolute bottom-1 right-1 h-4 w-4 rounded-full border-2 border-white bg-green-500 dark:border-[#121212]"
+                                        title="Dang hoat dong"
+                                    />
+                                )}
+                            </div>
                             <p className="font-semibold dark:text-white text-center truncate w-full">
                                 {friend.username}
                             </p>

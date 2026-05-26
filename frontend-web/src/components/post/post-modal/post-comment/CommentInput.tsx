@@ -69,7 +69,6 @@ const CommentInput: React.FC<CommentInputProps & { inputRef?: React.RefObject<HT
   onSubmitComment,
   inputRef,
   mentionLoading,
-  mentionHasMore,
   onLoadMoreMentions,
 }) => {
   const [showEmojiPicker, setShowEmojiPicker] = React.useState(false);
@@ -93,7 +92,7 @@ const CommentInput: React.FC<CommentInputProps & { inputRef?: React.RefObject<HT
             }
           }}
         >
-          <div className="p-2 border-b dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/50 sticky top-0 z-10 backdrop-blur-sm">
+          <div className="p-2 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/50 sticky top-0 z-10 backdrop-blur-sm">
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-2">Gợi ý bạn bè</p>
           </div>
           

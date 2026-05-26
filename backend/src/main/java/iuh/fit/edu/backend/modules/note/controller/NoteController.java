@@ -81,8 +81,8 @@ public class NoteController {
                     .body(ApiResponse.error(401, "Unauthorized - authentication required", null));
         }
 
-        String content = body.get("content");
-        String location = body.get("location");
+        String content = sanitizeInput(body.get("content"));
+        String location = sanitizeInput(body.get("location"));
         
         // Music can be provided by trackId (reference to MusicMetadata) or manual input
         String trackId = body.get("trackId");
@@ -197,8 +197,8 @@ public class NoteController {
         }
 
         // Update fields
-        String content = body.get("content");
-        String location = body.get("location");
+        String content = sanitizeInput(body.get("content"));
+        String location = sanitizeInput(body.get("location"));
         
         // Music can be provided by trackId or manual input
         String trackId = body.get("trackId");
@@ -324,5 +324,12 @@ public class NoteController {
 
         Optional<User> user = permissionService.getUserByPhone(phoneNumber);
         return user.map(User::getId).orElse(null);
+    }
+
+    private String sanitizeInput(String input) {
+        if (input == null) {
+            return null;
+        }
+        return input.replaceAll("<(?:[^>=]|='[^']*'|=\"[^\"]*\"|=[^'\"][^\\s>]*)*>", "").trim();
     }
 }

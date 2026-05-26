@@ -99,6 +99,21 @@ export const normalizePost = (post: any, userData: any): Post => {
         isLiked: false,
         isSaved: false,
         taggedUserIds: post.taggedUserIds || [],
+        music: post.music
+            ? {
+                trackId: post.music.trackId,
+                title: post.music.title || "",
+                artist: post.music.artist || "",
+                coverUrl: post.music.coverUrl || post.music.thumbnail || "",
+                thumbnail: post.music.thumbnail,
+                audioUrl: post.music.audioUrl || "",
+                duration: post.music.duration,
+                muteOriginal: post.music.muteOriginal,
+                originalVolume: post.music.originalVolume,
+                musicVolume: post.music.musicVolume,
+            }
+            : undefined,
+        location: post.location,
     } as Post;
 };
 

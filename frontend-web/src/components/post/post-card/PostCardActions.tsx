@@ -1,4 +1,4 @@
-import { Heart, MessageCircle, Bookmark } from "lucide-react";
+import { MessageCircle, Bookmark, Heart } from "lucide-react";
 
 interface PostCardActionsProps {
   currentReaction: string | null;
@@ -62,14 +62,7 @@ export default function PostCardActions({
                   </span>
                 )
               )}
-              {!currentReaction && (
-                <Heart
-                  size={27}
-                  fill={isLiked ? "currentColor" : "none"}
-                  strokeWidth={1.8}
-                  className={isLiked ? "text-red-500" : ""}
-                />
-              )}
+              {!currentReaction && <Heart size={27} strokeWidth={1.8} />}
             </button>
 
             {showReactions && (
@@ -100,7 +93,7 @@ export default function PostCardActions({
             </button>
           )}
           {allowShares !== false && (
-            <button 
+            <button
               onClick={onShare}
               className="hover:opacity-50 transition-opacity"
             >

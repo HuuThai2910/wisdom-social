@@ -2,6 +2,8 @@ package iuh.fit.edu.backend.modules.story.controller;
 
 import iuh.fit.edu.backend.modules.story.entity.Story;
 import iuh.fit.edu.backend.modules.story.entity.StoryView;
+import iuh.fit.edu.backend.modules.story.repository.StoryRepository;
+import iuh.fit.edu.backend.modules.story.repository.StoryViewRepository;
 import iuh.fit.edu.backend.modules.user.entity.User;
 import iuh.fit.edu.backend.modules.story.dto.response.StoryResponse;
 import iuh.fit.edu.backend.common.dto.response.PresignedUrlResponse;
@@ -10,8 +12,17 @@ import iuh.fit.edu.backend.modules.post.constant.PrivacyType;
 import iuh.fit.edu.backend.modules.story.service.StoryService;
 import iuh.fit.edu.backend.modules.story.service.StoryEventPublisher;
 import iuh.fit.edu.backend.common.service.s3.S3Service;
+import iuh.fit.edu.backend.modules.music.service.MusicService;
+import iuh.fit.edu.backend.modules.music.entity.MusicMetadata;
+import iuh.fit.edu.backend.modules.music.entity.Music;
 import iuh.fit.edu.backend.modules.note.service.NotePermissionService;
 import iuh.fit.edu.backend.modules.user.repository.UserRepository;
+import iuh.fit.edu.backend.modules.user.repository.FriendRepository;
+import iuh.fit.edu.backend.modules.post.repository.ReactionRepository;
+import iuh.fit.edu.backend.modules.post.entity.Reaction;
+import iuh.fit.edu.backend.modules.post.constant.ReactionType;
+import iuh.fit.edu.backend.modules.notification.constant.TargetType;
+import iuh.fit.edu.backend.modules.post.entity.Stats;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -43,6 +54,26 @@ public class StoryController {
     private final NotePermissionService permissionService;
     private final UserRepository userRepository;
     private final S3Service s3Service;
+    private final MusicService musicService;
+    private final StoryRepository storyRepository;
+    private final FriendRepository friendRepository;
+    private final StoryViewRepository storyViewRepository;
+    private final ReactionRepository reactionRepository;
+
+    @GetMapping("/debug/all-stories")
+    public ResponseEntity<List<Story>> getDebugAllStories() {
+        return ResponseEntity.ok(storyRepository.findAll());
+    }
+
+    @GetMapping("/debug/all-views")
+    public ResponseEntity<List<StoryView>> getDebugAllViews() {
+        return ResponseEntity.ok(storyViewRepository.findAll());
+    }
+
+    @GetMapping("/debug/all-users")
+    public ResponseEntity<List<User>> getDebugAllUsers() {
+        return ResponseEntity.ok(userRepository.findAll());
+    }
 
     /**
      * GET current user ID from JWT token
@@ -154,14 +185,17 @@ public class StoryController {
      *   - privacy: PUBLIC/FRIENDS/PRIVATE
      *   - mediaUrls: S3 URLs from presigned upload (optional)
      */
-    @PostMapping
+     @PostMapping
     public ResponseEntity<StoryResponse> createStory(
             @RequestParam(required = false) String content,
             @RequestParam(required = false, defaultValue = "PUBLIC") String privacy,
-            @RequestParam(required = false) List<String> mediaUrls) {
+            @RequestParam(required = false) List<String> mediaUrls,
+            @RequestParam(required = false) String musicId,
+            @RequestParam(required = false) Integer musicStartTime,
+            @RequestParam(required = false) Boolean muteOriginal) {
         try {
             String currentUserId = getCurrentUserId();
-            log.info("Creating story for user: {}", currentUserId);
+            log.info("Creating story for user: {} with music: {}, muteOriginal: {}", currentUserId, musicId, muteOriginal);
 
             // Parse privacy enum
             PrivacyType privacyType;
@@ -171,12 +205,42 @@ public class StoryController {
                 privacyType = PrivacyType.PUBLIC;
             }
 
+            // Fetch and set music if present
+            Music storyMusic = null;
+            if (musicId != null && !musicId.isBlank()) {
+                Optional<MusicMetadata> metadataOpt = musicService.getMusicById(musicId);
+                if (metadataOpt.isPresent()) {
+                    MusicMetadata meta = metadataOpt.get();
+                    storyMusic = Music.builder()
+                            .trackId(meta.getId())
+                            .startTime(musicStartTime != null ? musicStartTime : 0)
+                            .title(meta.getTitle())
+                            .artist(meta.getArtist())
+                            .thumbnail(meta.getImageUrl())
+                            .audioUrl(meta.getAudioUrl())
+                            .duration(meta.getDuration() != null ? meta.getDuration().longValue() : 0L)
+                            .muteOriginal(muteOriginal != null ? muteOriginal : false)
+                            .originalVolume(muteOriginal != null && muteOriginal ? 0 : 100)
+                            .musicVolume(100)
+                            .build();
+                    log.info("Found music metadata for story: title={}", meta.getTitle());
+                }
+            }
+
+            if (storyMusic == null && muteOriginal != null) {
+                storyMusic = Music.builder()
+                        .muteOriginal(muteOriginal)
+                        .originalVolume(muteOriginal ? 0 : 100)
+                        .musicVolume(100)
+                        .build();
+            }
+
             // Create story object
             Story story = Story.builder()
                     .media(null)
                     .text(content)
                     .textStyle(null)
-                    .music(null)
+                    .music(storyMusic)
                     .stickers(new ArrayList<>())
                     .privacy(privacyType)
                     .allowReplies(true)
@@ -220,12 +284,32 @@ public class StoryController {
             List<String> userIds = new ArrayList<>();
             userIds.add(currentUserId);
             
-            // TODO: Add friend IDs here (query from Friend repository)
-            // List<String> friendIds = friendRepository.findAcceptedFriendIds(currentUserId);
-            // userIds.addAll(friendIds);
+            List<Long> friendIds = friendRepository.findAcceptedFriendIds(Long.parseLong(currentUserId), 1);
+            if (friendIds != null) {
+                for (Long friendId : friendIds) {
+                    userIds.add(friendId.toString());
+                }
+            }
 
-            Page<Story> stories = storyService.getFeedStories(userIds, pageable);
-            Page<StoryResponse> responses = stories.map(this::mapToResponse);
+            Page<Story> stories = storyService.getFeedStories(userIds, currentUserId, pageable);
+
+            // Fetch viewed stories for the current user in a single optimized query
+            List<String> storyIds = stories.getContent().stream()
+                    .map(Story::getId)
+                    .collect(Collectors.toList());
+            Set<String> viewedStoryIds = new HashSet<>();
+            if (!storyIds.isEmpty()) {
+                viewedStoryIds = storyViewRepository.findByViewerIdAndStoryIdIn(currentUserId, storyIds).stream()
+                        .map(StoryView::getStoryId)
+                        .collect(Collectors.toSet());
+            }
+
+            final Set<String> finalViewedIds = viewedStoryIds;
+            Page<StoryResponse> responses = stories.map(story -> {
+                StoryResponse resp = mapToResponse(story);
+                resp.setViewed(finalViewedIds.contains(story.getId()));
+                return resp;
+            });
 
             return ResponseEntity.ok(responses);
 
@@ -248,8 +332,25 @@ public class StoryController {
             log.info("Fetching stories for user: {} by requester: {}", userId, currentUserId);
 
             List<Story> stories = storyService.getUserStories(userId, currentUserId);
+
+            // Fetch viewed stories for the current user in a single optimized query
+            List<String> storyIds = stories.stream()
+                    .map(Story::getId)
+                    .collect(Collectors.toList());
+            Set<String> viewedStoryIds = new HashSet<>();
+            if (!storyIds.isEmpty() && currentUserId != null) {
+                viewedStoryIds = storyViewRepository.findByViewerIdAndStoryIdIn(currentUserId, storyIds).stream()
+                        .map(StoryView::getStoryId)
+                        .collect(Collectors.toSet());
+            }
+
+            final Set<String> finalViewedIds = viewedStoryIds;
             List<StoryResponse> responses = stories.stream()
-                    .map(this::mapToResponse)
+                    .map(story -> {
+                        StoryResponse resp = mapToResponse(story);
+                        resp.setViewed(finalViewedIds.contains(story.getId()));
+                        return resp;
+                    })
                     .collect(Collectors.toList());
 
             return ResponseEntity.ok(responses);
@@ -260,6 +361,39 @@ public class StoryController {
         } catch (Exception e) {
             log.error("Error fetching user stories: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * GET /api/stories/user/{userId}/has-active - Check if user has active stories
+     * Used for avatar story ring/border indicator
+     */
+    @GetMapping("/user/{userId}/has-active")
+    public ResponseEntity<Map<String, Boolean>> hasActiveStory(@PathVariable String userId) {
+        try {
+            String currentUserId = getCurrentUserId();
+            List<Story> activeStories = storyService.getUserStories(userId, currentUserId);
+            boolean hasActive = !activeStories.isEmpty();
+            boolean hasUnviewed = false;
+
+            if (hasActive && currentUserId != null) {
+                List<String> storyIds = activeStories.stream()
+                        .map(Story::getId)
+                        .collect(Collectors.toList());
+                long viewCount = storyViewRepository.findByViewerIdAndStoryIdIn(currentUserId, storyIds).size();
+                hasUnviewed = viewCount < activeStories.size();
+            }
+
+            return ResponseEntity.ok(Map.of(
+                    "hasActiveStory", hasActive,
+                    "hasUnviewedStory", hasUnviewed
+            ));
+        } catch (Exception e) {
+            log.error("Error checking active story for user {}: {}", userId, e.getMessage());
+            return ResponseEntity.ok(Map.of(
+                    "hasActiveStory", false,
+                    "hasUnviewedStory", false
+            ));
         }
     }
 
@@ -362,11 +496,79 @@ public class StoryController {
             }
 
             List<StoryView> viewers = storyService.getStoryViewers(storyId);
-            List<Map<String, Object>> response = viewers.stream()
+            
+            // Fetch reactions from generic reactions collection for this story
+            Map<String, String> reactionMap = new HashMap<>();
+            try {
+                List<Reaction> storyReactions = reactionRepository.findByTargetTypeAndTargetId(TargetType.STORY, storyId);
+                for (Reaction r : storyReactions) {
+                    reactionMap.put(r.getUserId(), getEmojiFromReactionType(r.getType()));
+                }
+            } catch (Exception e) {
+                log.error("Failed to fetch generic reactions for story: {}", storyId, e);
+            }
+            
+            // Deduplicate by viewerId and filter out story owner
+            String storyOwnerId = story.getUserId();
+            Map<String, StoryView> uniqueViews = new LinkedHashMap<>();
+            for (StoryView view : viewers) {
+                String viewerId = view.getViewerId();
+                if (viewerId.equals(storyOwnerId)) {
+                    continue;
+                }
+                
+                // Merge reaction from generic reactions collection
+                String reactionEmoji = reactionMap.get(viewerId);
+                if (reactionEmoji != null) {
+                    view.setReaction(reactionEmoji);
+                }
+                
+                if (uniqueViews.containsKey(viewerId)) {
+                    StoryView existing = uniqueViews.get(viewerId);
+                    // Keep the one with a reaction if available
+                    if (existing.getReaction() == null && view.getReaction() != null) {
+                        uniqueViews.put(viewerId, view);
+                    }
+                } else {
+                    uniqueViews.put(viewerId, view);
+                }
+            }
+
+            // Sync/update story viewCount in DB if it mismatches actual unique non-owner count
+            int correctViewCount = uniqueViews.size();
+            if (story.getStats() == null || story.getStats().getViewCount() != correctViewCount) {
+                try {
+                    if (story.getStats() == null) {
+                        story.setStats(new Stats());
+                    }
+                    story.getStats().setViewCount(correctViewCount);
+                    storyRepository.save(story);
+                    log.info("🔔 [getViewers] Synchronized story viewCount in DB to {}", correctViewCount);
+                } catch (Exception e) {
+                    log.error("Failed to sync viewCount for story: {}", storyId, e);
+                }
+            }
+
+            List<Map<String, Object>> response = uniqueViews.values().stream()
                     .map(view -> {
                         Map<String, Object> map = new HashMap<>();
                         map.put("viewerId", view.getViewerId());
                         map.put("viewedAt", view.getCreatedAt());
+                        map.put("reaction", view.getReaction());
+
+                        // Fetch user details for the viewer
+                        try {
+                            Long uid = Long.parseLong(view.getViewerId());
+                            Optional<User> uOpt = userRepository.findById(uid);
+                            if (uOpt.isPresent()) {
+                                User u = uOpt.get();
+                                map.put("username", u.getUsername() != null ? u.getUsername() : u.getName());
+                                map.put("avatarUrl", u.getAvatarUrl());
+                            }
+                        } catch (Exception e) {
+                            log.warn("Failed to fetch user details for viewer ID: {}", view.getViewerId(), e);
+                        }
+
                         return map;
                     })
                     .collect(Collectors.toList());
@@ -382,11 +584,26 @@ public class StoryController {
         }
     }
 
+    private String getEmojiFromReactionType(ReactionType type) {
+        if (type == null) return null;
+        switch (type) {
+            case LOVE: return "❤️";
+            case HAHA: return "😂";
+            case WOW: return "😮";
+            case SAD: return "😢";
+            case ANGRY: return "😡";
+            case LIKE: return "👍";
+            default: return "👍";
+        }
+    }
+
     /**
      * POST /api/stories/{storyId}/react - Add reaction
      */
     @PostMapping("/{storyId}/react")
-    public ResponseEntity<Void> reactStory(@PathVariable String storyId) {
+    public ResponseEntity<Void> reactStory(
+            @PathVariable String storyId,
+            @RequestParam(required = false) String emoji) {
         try {
             String currentUserId = getCurrentUserId();
 
@@ -406,7 +623,7 @@ public class StoryController {
                 return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
             }
 
-            storyService.reactToStory(storyId);
+            storyService.reactToStory(storyId, currentUserId, emoji);
             
             // Publish STORY_REACTION event
             // Note: We need to fetch updated story to get new reaction count
@@ -491,6 +708,80 @@ public class StoryController {
     }
 
     /**
+     * PUT /api/stories/{storyId}/privacy - Update story privacy level
+     */
+    @PutMapping("/{storyId}/privacy")
+    public ResponseEntity<StoryResponse> updateStoryPrivacy(
+            @PathVariable String storyId,
+            @RequestParam String privacy) {
+        try {
+            String currentUserId = getCurrentUserId();
+
+            if (!storyService.isStoryOwner(storyId, currentUserId)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+            }
+
+            Optional<Story> storyOpt = storyService.getStory(storyId);
+            if (storyOpt.isEmpty()) {
+                return ResponseEntity.notFound().build();
+            }
+
+            Story story = storyOpt.get();
+            try {
+                story.setPrivacy(PrivacyType.valueOf(privacy.toUpperCase()));
+            } catch (IllegalArgumentException e) {
+                return ResponseEntity.badRequest().build();
+            }
+
+            Story updated = storyService.saveStory(story, currentUserId);
+            return ResponseEntity.ok(mapToResponse(updated));
+
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        } catch (Exception e) {
+            log.error("Error updating story privacy: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * PUT /api/stories/{storyId}/settings - Update story advanced settings
+     */
+    @PutMapping("/{storyId}/settings")
+    public ResponseEntity<StoryResponse> updateStorySettings(
+            @PathVariable String storyId,
+            @RequestParam(required = false) Boolean allowReplies,
+            @RequestParam(required = false) Boolean allowReactions,
+            @RequestParam(required = false) Boolean allowSharing) {
+        try {
+            String currentUserId = getCurrentUserId();
+
+            if (!storyService.isStoryOwner(storyId, currentUserId)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+            }
+
+            Optional<Story> storyOpt = storyService.getStory(storyId);
+            if (storyOpt.isEmpty()) {
+                return ResponseEntity.notFound().build();
+            }
+
+            Story story = storyOpt.get();
+            if (allowReplies != null) story.setAllowReplies(allowReplies);
+            if (allowReactions != null) story.setAllowReactions(allowReactions);
+            if (allowSharing != null) story.setAllowSharing(allowSharing);
+
+            Story updated = storyService.saveStory(story, currentUserId);
+            return ResponseEntity.ok(mapToResponse(updated));
+
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        } catch (Exception e) {
+            log.error("Error updating story settings: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
      * DELETE /api/stories/{storyId} - Delete story
      * Also deletes associated media from S3
      */
@@ -539,9 +830,44 @@ public class StoryController {
      * Map Story entity to response DTO
      */
     private StoryResponse mapToResponse(Story story) {
+        StoryResponse.UserSummary userSummary = null;
+        try {
+            if (story.getUserId() != null) {
+                Long uid = Long.parseLong(story.getUserId());
+                Optional<User> uOpt = userRepository.findById(uid);
+                if (uOpt.isPresent()) {
+                    User u = uOpt.get();
+                    userSummary = StoryResponse.UserSummary.builder()
+                            .username(u.getUsername() != null ? u.getUsername() : u.getName())
+                            .avatarUrl(u.getAvatarUrl())
+                            .build();
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to map user info for story user ID: {}", story.getUserId(), e);
+        }
+
+        // Calculate actual view count from StoryView records, excluding story owner
+        int actualViewCount = 0;
+        try {
+            List<StoryView> views = storyViewRepository.findByStoryIdOrderByCreatedAtDesc(story.getId());
+            Set<String> uniqueNonOwnerViewers = new HashSet<>();
+            for (StoryView v : views) {
+                if (!v.getViewerId().equals(story.getUserId())) {
+                    uniqueNonOwnerViewers.add(v.getViewerId());
+                }
+            }
+            actualViewCount = uniqueNonOwnerViewers.size();
+        } catch (Exception e) {
+            // Fallback to stats counter if query fails
+            actualViewCount = (int) (story.getStats() != null ? story.getStats().getViewCount() : 0);
+            log.warn("Failed to compute actual viewCount for story {}, using stats fallback: {}", story.getId(), actualViewCount);
+        }
+
         return StoryResponse.builder()
                 .id(story.getId())
                 .userId(story.getUserId())
+                .user(userSummary)
                 .media(story.getMedia())
                 .text(story.getText())
                 .textStyle(story.getTextStyle())
@@ -551,7 +877,7 @@ public class StoryController {
                 .allowReplies(story.isAllowReplies())
                 .allowReactions(story.isAllowReactions())
                 .allowSharing(story.isAllowSharing())
-                .viewCount((int) (story.getStats() != null ? story.getStats().getViewCount() : 0))
+                .viewCount(actualViewCount)
                 .reactCount((int) (story.getStats() != null ? story.getStats().getReactCount() : 0))
                 .replyCount((int) story.getReplyCount())
                 .shareCount((int) (story.getStats() != null ? story.getStats().getShareCount() : 0))

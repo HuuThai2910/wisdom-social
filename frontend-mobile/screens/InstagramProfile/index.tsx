@@ -21,6 +21,7 @@ import friendService from "@/services/friendService";
 import blockService from "@/services/blockService";
 import { useFriendNotifications } from "@/hooks/useFriendNotifications";
 import { useBlockNotifications } from "@/hooks/useBlockNotifications";
+import { usePresenceStatus } from "@/hooks/usePresenceStatus";
 import type { User } from "@/services/userService";
 import { buildS3Url } from "@/utils/s3";
 
@@ -49,6 +50,13 @@ export default function InstagramProfileScreen() {
   );
   const myId = useMemo(() => Number(currentUser?.id), [currentUser?.id]);
   const targetId = useMemo(() => Number(paramUserId), [paramUserId]);
+  const profilePresenceUserId = isViewingOther ? targetId : myId;
+  const presenceByUserId = usePresenceStatus([profilePresenceUserId]);
+  const isProfileOnline = Boolean(
+    Number.isFinite(profilePresenceUserId) &&
+      profilePresenceUserId > 0 &&
+      presenceByUserId[profilePresenceUserId]?.online,
+  );
 
   // ── Other-user state ──────────────────────────────────────────────────────
   const [profileUser,       setProfileUser]       = useState<User | null>(null);
@@ -316,7 +324,7 @@ export default function InstagramProfileScreen() {
           >
             {/* Avatar (trái) + username / stats (phải) */}
             <View style={s.profileTopRow}>
-              <View>
+              <View style={s.avatarPresenceWrap}>
                 {u?.avatarUrl ? (
                   <Image source={{ uri: buildS3Url(u.avatarUrl) }} style={s.avatar} />
                 ) : (
@@ -324,6 +332,7 @@ export default function InstagramProfileScreen() {
                     <Ionicons name="person" size={38} color="#C7C7CC" />
                   </View>
                 )}
+                {isProfileOnline ? <View style={s.onlineDotLarge} /> : null}
               </View>
               <View style={s.profileRightCol}>
                 <Text style={s.profileUsername} numberOfLines={1}>
@@ -477,13 +486,16 @@ export default function InstagramProfileScreen() {
         {/* Avatar (trái) + username / stats / settings (phải) — cùng một hàng */}
         <View style={s.profileTopRow}>
           <TouchableOpacity onPress={() => router.push("/(stack)/profile/edit")} activeOpacity={0.85}>
-            {currentUser.avatarUrl ? (
-              <Image source={{ uri: buildS3Url(currentUser.avatarUrl) }} style={s.avatar} />
-            ) : (
-              <View style={[s.avatar, s.avatarFallback]}>
-                <Ionicons name="person" size={38} color="#C7C7CC" />
-              </View>
-            )}
+            <View style={s.avatarPresenceWrap}>
+              {currentUser.avatarUrl ? (
+                <Image source={{ uri: buildS3Url(currentUser.avatarUrl) }} style={s.avatar} />
+              ) : (
+                <View style={[s.avatar, s.avatarFallback]}>
+                  <Ionicons name="person" size={38} color="#C7C7CC" />
+                </View>
+              )}
+              {isProfileOnline ? <View style={s.onlineDotLarge} /> : null}
+            </View>
           </TouchableOpacity>
 
           <View style={s.profileRightCol}>
@@ -723,10 +735,26 @@ const s = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: "#DBDBDB",
   },
+  avatarPresenceWrap: {
+    position: "relative",
+    width: 86,
+    height: 86,
+  },
   avatarFallback: {
     backgroundColor: "#EFEFEF",
     alignItems: "center",
     justifyContent: "center",
+  },
+  onlineDotLarge: {
+    position: "absolute",
+    right: 4,
+    bottom: 4,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 3,
+    borderColor: "#FFFFFF",
+    backgroundColor: "#22C55E",
   },
   statItem: {
     alignItems: "center",

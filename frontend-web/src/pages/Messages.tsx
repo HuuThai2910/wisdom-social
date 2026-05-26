@@ -41,6 +41,7 @@ import { useAuth } from "../contexts/AuthContext";
 import chatService, { type ChatUserSearchResult, type Message } from "../services/chatService";
 import chatRuntimeStore from "../stores/chatRuntimeStore";
 import { buildConversationLastMessagePreview } from "../utils/conversationLastMessagePreview";
+import { usePresenceStatus } from "../hooks/usePresenceStatus";
 
 type DetailSectionKey = "chatInfo" | "customize" | "media" | "privacy";
 type InfoPanelView = "main" | "polls";
@@ -194,6 +195,25 @@ export default function Messages() {
             ? chatRuntimeStore.getConversation(selectedConversationId)
             : null) ||
         null;
+    const directPartnerIds = useMemo(
+        () =>
+            filteredConversations
+                .filter((conversation) => conversation.type === "DIRECT")
+                .map(
+                    (conversation) =>
+                        Number(
+                            conversation.directPartnerId ??
+                                conversation.members?.find(
+                                    (member) =>
+                                        Number(member.userId) !==
+                                        Number(currentUserId),
+                                )?.userId,
+                        ),
+                )
+                .filter((id): id is number => Number.isFinite(id) && id > 0),
+        [currentUserId, filteredConversations],
+    );
+    const presenceByUserId = usePresenceStatus(directPartnerIds);
     const isGroupConversation = selectedConversation?.type === "GROUP";
     const phoneSearchDigits = useMemo(
         () => searchQuery.replace(/\D/g, ""),
@@ -1257,6 +1277,20 @@ export default function Messages() {
                                         conversation: conv,
                                         currentUserId,
                                     });
+                                const directPartnerId = Number(
+                                    conv.type === "DIRECT"
+                                        ? conv.directPartnerId ??
+                                          conv.members?.find(
+                                            (member) =>
+                                              Number(member.userId) !==
+                                              Number(currentUserId),
+                                          )?.userId
+                                        : undefined,
+                                );
+                                const isDirectPartnerOnline = Boolean(
+                                    Number.isFinite(directPartnerId) &&
+                                        presenceByUserId[directPartnerId]?.online,
+                                );
 
                                 return (
                                     <div
@@ -1295,6 +1329,12 @@ export default function Messages() {
                                                     sizeClassName="h-14 w-14"
                                                     ringClassName="ring-1 ring-gray-200 dark:ring-[#2a2a2a]"
                                                 />
+                                                {isDirectPartnerOnline && (
+                                                    <span
+                                                        className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-white bg-green-500 dark:border-black"
+                                                        title="Dang hoat dong"
+                                                    />
+                                                )}
                                             </div>
 
                                             <div className="flex-1 min-w-0">

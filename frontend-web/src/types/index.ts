@@ -1,3 +1,5 @@
+import type { NoteMusic } from "./note";
+
 // API Response Types
 export interface ApiResponse<T> {
     status: number;
@@ -49,6 +51,13 @@ export interface Post {
     privacy?: PrivacyType;
     allowComments?: boolean;
     allowShares?: boolean;
+    music?: NoteMusic;
+    location?:
+        | string
+        | {
+            name?: string;
+            address?: string;
+        };
 }
 
 export interface Comment {

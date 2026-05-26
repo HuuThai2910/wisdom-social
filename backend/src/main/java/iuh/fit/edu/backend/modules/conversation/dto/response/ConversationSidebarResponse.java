@@ -22,6 +22,7 @@ public class ConversationSidebarResponse {
     private String name;
     private ConversationType type;
     private String imageUrl;
+    private Long directPartnerId;
     private Instant updatedAt;
     private int unreadCount;
     private LastMessageResponse lastMessage;

@@ -18,6 +18,7 @@ import { useAppContext } from "@/context/AppContext";
 import blockService from "@/services/blockService";
 import friendService, { FriendUser } from "@/services/friendService";
 import { useFriendNotifications } from "@/hooks/useFriendNotifications";
+import { usePresenceStatus } from "@/hooks/usePresenceStatus";
 
 type TabType = "friends" | "requests" | "sent" | "blocked" | "suggestions";
 
@@ -124,6 +125,7 @@ export default function FriendsListScreen() {
             user.phone?.includes(query)
         );
     });
+    const presenceByUserId = usePresenceStatus(filteredList.map((user) => user.id));
 
     const refreshTrigger = useFriendNotifications();
 
@@ -159,13 +161,18 @@ export default function FriendsListScreen() {
                     })
                 }
             >
-                {item.avatar ? (
-                    <Image source={{ uri: item.avatar }} style={styles.avatar} />
-                ) : (
-                    <View style={styles.avatarPlaceholder}>
-                        <Ionicons name="person" size={30} color="#9CA3AF" />
-                    </View>
-                )}
+                <View style={styles.avatarWrap}>
+                    {item.avatar ? (
+                        <Image source={{ uri: item.avatar }} style={styles.avatar} />
+                    ) : (
+                        <View style={styles.avatarPlaceholder}>
+                            <Ionicons name="person" size={30} color="#9CA3AF" />
+                        </View>
+                    )}
+                    {presenceByUserId[item.id]?.online ? (
+                        <View style={styles.onlineDot} />
+                    ) : null}
+                </View>
                 <View style={styles.textInfo}>
                     <Text style={styles.name}>
                         {item.name || item.username || item.phone || `User ${item.id}`}
@@ -500,11 +507,14 @@ const styles = StyleSheet.create({
         alignItems: "center",
         flex: 1,
     },
+    avatarWrap: {
+        position: "relative",
+        marginRight: 12,
+    },
     avatar: {
         width: 50,
         height: 50,
         borderRadius: 25,
-        marginRight: 12,
     },
     avatarPlaceholder: {
         width: 50,
@@ -513,7 +523,17 @@ const styles = StyleSheet.create({
         backgroundColor: colors.surface,
         alignItems: "center",
         justifyContent: "center",
-        marginRight: 12,
+    },
+    onlineDot: {
+        position: "absolute",
+        right: 0,
+        bottom: 0,
+        width: 13,
+        height: 13,
+        borderRadius: 7,
+        borderWidth: 2,
+        borderColor: colors.background,
+        backgroundColor: "#22C55E",
     },
     textInfo: {
         flex: 1,
