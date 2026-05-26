@@ -1,4 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
+import { useState } from "react";
 import {
   Home,
   Search,
@@ -7,6 +8,12 @@ import {
   MessageCircle,
   Heart,
   PlusSquare,
+  Menu,
+  Moon,
+  Sun,
+  Settings,
+  Bookmark,
+  RefreshCw,
   UserPlus,
   Flag,
   ChevronLeft,
@@ -14,6 +21,7 @@ import {
   FileText,
   Sparkles,
 } from "lucide-react";
+import { useTheme } from "../../contexts/ThemeContext";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { buildS3Url } from "../../utils/s3";
 import { useFriendDataSafe } from "../../contexts/FriendDataContext";
@@ -24,6 +32,7 @@ import { useChatUnread } from "../../contexts/ChatUnreadContext";
 
 export default function Sidebar() {
   const location = useLocation();
+  const { isDark, toggleTheme } = useTheme();
   const currentUser = useCurrentUser();
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showCreateMenu, setShowCreateMenu] = useState(false);
@@ -243,6 +252,61 @@ export default function Sidebar() {
         </ul>
       </nav>
 
+      {/* More menu at Bottom */}
+      <div className="mt-auto relative">
+        <button
+          onClick={() => setShowMoreMenu(!showMoreMenu)}
+          className={`flex w-full items-center rounded-lg py-3 transition-all hover:bg-gray-100 dark:hover:bg-[#262626] dark:text-white ${
+            showLabels ? "gap-4 px-3" : "justify-center px-2"
+          }`}
+        >
+          <Menu size={26} strokeWidth={1.5} />
+          {showLabels && <span className="text-[16px]">More</span>}
+        </button>
+
+        {/* More Menu Popup */}
+        {showMoreMenu && (
+          <>
+            <div
+              className="fixed inset-0"
+              onClick={() => setShowMoreMenu(false)}
+            />
+            <div className="absolute bottom-full left-0 mb-2 w-64 bg-white dark:bg-[#262626] border border-gray-200 dark:border-[#363636] rounded-2xl shadow-xl overflow-hidden">
+              <button className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-100 dark:hover:bg-[#363636] dark:text-white">
+                <Settings size={20} />
+                <span className="text-sm">Settings</span>
+              </button>
+              <button className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-100 dark:hover:bg-[#363636] dark:text-white">
+                <Bookmark size={20} />
+                <span className="text-sm">Saved</span>
+              </button>
+              <button
+                onClick={() => {
+                  toggleTheme();
+                  setShowMoreMenu(false);
+                }}
+                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-100 dark:hover:bg-[#363636] dark:text-white border-t border-gray-200 dark:border-[#363636]"
+              >
+                {isDark ? <Sun size={20} /> : <Moon size={20} />}
+                <span className="text-sm">
+                  {isDark ? "Switch to light mode" : "Switch to dark mode"}
+                </span>
+              </button>
+              <button className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-100 dark:hover:bg-[#363636] dark:text-white border-t border-gray-200 dark:border-[#363636]">
+                <RefreshCw size={20} />
+                <span className="text-sm">Report a problem</span>
+              </button>
+              <div className="border-t border-gray-200 dark:border-[#363636]" />
+              <button className="w-full text-left px-4 py-3 hover:bg-gray-100 dark:hover:bg-[#363636] dark:text-white">
+                <span className="text-sm">Switch accounts</span>
+              </button>
+              <button className="w-full text-left px-4 py-3 hover:bg-gray-100 dark:hover:bg-[#363636] dark:text-white">
+                <span className="text-sm">Log out</span>
+              </button>
+            </div>
+          </>
+        )}
+      </div>
     </aside>
   );
 }
