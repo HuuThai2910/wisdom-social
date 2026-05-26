@@ -103,6 +103,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         JWTVerifier verifier = JWT
                 .require(Algorithm.HMAC256(getLocalSecret()))
                 .withIssuer("wis-chat")
+                .acceptLeeway(60)
                 .build();
 
         return verifier.verify(token);
@@ -140,6 +141,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         JWTVerifier verifier = JWT
                 .require(Algorithm.RSA256(publicKey, null))
                 .withIssuer(ISSUER)
+                .acceptLeeway(60)
                 .build();
 
         return verifier.verify(token);
