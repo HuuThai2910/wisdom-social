@@ -33,6 +33,8 @@ import { usePresenceStatus } from "../../hooks/usePresenceStatus";
 interface ProfileHeaderProps {
   user: User;
   isOwnProfile?: boolean;
+  onFriendAccepted?: () => void;
+  onFriendRemoved?: () => void;
 }
 
 const GENDER_LABELS: Record<string, string> = {
@@ -55,6 +57,8 @@ const stripHtml = (text: string | undefined | null): string => {
 export default function ProfileHeader({
   user,
   isOwnProfile = false,
+  onFriendAccepted,
+  onFriendRemoved,
 }: ProfileHeaderProps) {
   const [showFriendsModal, setShowFriendsModal] = useState(false);
   const [showInfoModal, setShowInfoModal] = useState(false);
@@ -310,6 +314,8 @@ export default function ProfileHeader({
                       targetUsername={user.username}
                       size="md"
                       showText={true}
+                      onFriendAccepted={onFriendAccepted}
+                      onFriendRemoved={onFriendRemoved}
                     />
                   </div>
                   <button className="flex-1 inline-flex items-center justify-center gap-1.5 h-8.5 px-3 bg-[#efefef] dark:bg-[#262626] hover:bg-[#dbdbdb] dark:hover:bg-[#363636] border border-[#dbdbdb] dark:border-[#363636] rounded-lg text-[14px] font-semibold dark:text-white transition-colors">
