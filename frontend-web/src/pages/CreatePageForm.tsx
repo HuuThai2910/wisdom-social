@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Loader2, Upload, X, Globe, Lock } from "lucide-react";
 import pageService from "../services/pageService";
 import { useCurrentUser } from "../hooks/useCurrentUser";
+import ConfirmModal from "../components/common/ConfirmModal";
 
 const CATEGORIES = [
     "Kinh doanh",
@@ -23,6 +24,7 @@ export default function CreatePage() {
     const navigate = useNavigate();
     const currentUser = useCurrentUser();
     const [loading, setLoading] = useState(false);
+    const [notification, setNotification] = useState<{ title: string; message: string; variant?: "warning" | "default" } | null>(null);
     const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
     const [avatarFile, setAvatarFile] = useState<File | null>(null);
 
@@ -110,7 +112,7 @@ export default function CreatePage() {
         
         if (!validate()) return;
         if (!currentUser?.id) {
-            alert("Vui lòng đăng nhập để tạo page");
+            setNotification({ title: "Thông báo", message: "Vui lòng đăng nhập để tạo page", variant: "warning" });
             return;
         }
 
@@ -170,11 +172,10 @@ export default function CreatePage() {
                 status: formData.status,
             });
 
-            alert("Tạo page thành công!");
             navigate("/pages");
         } catch (error: any) {
             console.error("Error creating page:", error);
-            alert(error.response?.data?.message || "Không thể tạo page. Vui lòng thử lại.");
+            setNotification({ title: "Lỗi", message: error.response?.data?.message || "Không thể tạo page. Vui lòng thử lại.", variant: "warning" });
         } finally {
             setLoading(false);
         }
@@ -182,6 +183,15 @@ export default function CreatePage() {
 
     return (
         <div className="max-w-2xl mx-auto p-4 md:p-6">
+            {notification && (
+                <ConfirmModal
+                    open
+                    title={notification.title}
+                    message={notification.message}
+                    variant={notification.variant ?? "warning"}
+                    onConfirm={() => setNotification(null)}
+                />
+            )}
             {/* Header */}
             <div className="flex items-center gap-4 mb-6">
                 <button

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { 
-    ArrowLeft, Loader2, Users, UserPlus, UserMinus, Shield, 
+import {
+    ArrowLeft, Loader2, Users, UserPlus, UserMinus, Shield,
     Ban, CheckCircle, XCircle, Clock, Trash2, Settings as SettingsIcon,
     Edit, Image, MoreVertical, FileText, Search, X
 } from "lucide-react";
@@ -10,6 +10,7 @@ import userService from "../services/userService";
 import { useCurrentUser } from "../hooks/useCurrentUser";
 import { buildS3Url } from "../utils/s3";
 import type { User } from "../types";
+import ConfirmModal from "../components/common/ConfirmModal";
 
 type TabType = "members" | "pending" | "posts" | "settings";
 type PageRole = "ADMIN" | "EDITOR" | "MODERATOR" | "ANALYST" | "USER";
@@ -28,7 +29,7 @@ export default function PageSettings() {
     const { pageId } = useParams();
     const navigate = useNavigate();
     const currentUser = useCurrentUser();
-    
+
     const [page, setPage] = useState<Page | null>(null);
     const [activeTab, setActiveTab] = useState<TabType>("members");
     const [members, setMembers] = useState<MemberWithUser[]>([]);
@@ -37,6 +38,16 @@ export default function PageSettings() {
     const [actionLoading, setActionLoading] = useState<number | null>(null);
     const [isOwner, setIsOwner] = useState(false);
     const [isAdmin, setIsAdmin] = useState(false);
+    const [notification, setNotification] = useState<{ title: string; message: string; variant?: "warning" | "default" } | null>(null);
+    const [confirmModal, setConfirmModal] = useState<{
+        title: string; message: string; confirmText: string;
+        variant: "danger" | "warning" | "default";
+        action: () => Promise<void>;
+    } | null>(null);
+
+    const showConfirm = (title: string, message: string, confirmText: string, variant: "danger" | "warning" | "default", action: () => Promise<void>) => {
+        setConfirmModal({ title, message, confirmText, variant, action });
+    };
 
     // Add member modal states
     const [showAddMemberModal, setShowAddMemberModal] = useState(false);
@@ -78,7 +89,7 @@ export default function PageSettings() {
 
     const handleAddMembers = async () => {
         if (!pageId || selectedUsers.length === 0) return;
-        
+
         setIsAddingMembers(true);
         try {
             await Promise.all(
@@ -86,7 +97,7 @@ export default function PageSettings() {
                     pageService.addMember(Number(user.id), Number(pageId), selectedRole)
                 )
             );
-            alert(`Đã thêm ${selectedUsers.length} thành viên!`);
+            setNotification({ title: "Thành công", message: `Đã thêm ${selectedUsers.length} thành viên thành công!`, variant: "default" });
             setShowAddMemberModal(false);
             setMemberSearchQuery("");
             setSearchResults([]);
@@ -96,7 +107,7 @@ export default function PageSettings() {
             loadPageData();
         } catch (error) {
             console.error("Error adding members:", error);
-            alert("Không thể thêm thành viên");
+            setNotification({ title: "Lỗi", message: "Không thể thêm thành viên", variant: "warning" });
         } finally {
             setIsAddingMembers(false);
         }
@@ -153,7 +164,7 @@ export default function PageSettings() {
 
     const handleApproveRequest = async (userId: number) => {
         if (!pageId) return;
-        
+
         setActionLoading(userId);
         try {
             await pageService.approveJoinRequest(Number(pageId), userId);
@@ -165,7 +176,7 @@ export default function PageSettings() {
             }
         } catch (error) {
             console.error("Error approving request:", error);
-            alert("Không thể duyệt yêu cầu");
+            setNotification({ title: "Lỗi", message: "Không thể duyệt yêu cầu", variant: "warning" });
         } finally {
             setActionLoading(null);
         }
@@ -173,58 +184,68 @@ export default function PageSettings() {
 
     const handleRejectRequest = async (userId: number) => {
         if (!pageId) return;
-        
+
         setActionLoading(userId);
         try {
             await pageService.rejectJoinRequest(Number(pageId), userId);
             setPendingRequests(prev => prev.filter(r => Number(r.user?.id) !== userId));
         } catch (error) {
             console.error("Error rejecting request:", error);
-            alert("Không thể từ chối yêu cầu");
+            setNotification({ title: "Lỗi", message: "Không thể từ chối yêu cầu", variant: "warning" });
         } finally {
             setActionLoading(null);
         }
     };
 
-    const handleRemoveMember = async (userId: number) => {
+    const handleRemoveMember = (userId: number) => {
         if (!pageId) return;
-        
-        if (!confirm("Bạn có chắc muốn xóa thành viên này?")) return;
-        
-        setActionLoading(userId);
-        try {
-            await pageService.deleteMember(Number(pageId), userId);
-            setMembers(prev => prev.filter(m => Number(m.user?.id) !== userId));
-        } catch (error) {
-            console.error("Error removing member:", error);
-            alert("Không thể xóa thành viên");
-        } finally {
-            setActionLoading(null);
-        }
+        showConfirm(
+            "Xóa thành viên",
+            "Bạn có chắc muốn xóa thành viên này?",
+            "Xóa",
+            "danger",
+            async () => {
+                setActionLoading(userId);
+                try {
+                    await pageService.deleteMember(Number(pageId), userId);
+                    setMembers(prev => prev.filter(m => Number(m.user?.id) !== userId));
+                } catch (error) {
+                    console.error("Error removing member:", error);
+                    setNotification({ title: "Lỗi", message: "Không thể xóa thành viên", variant: "warning" });
+                } finally {
+                    setActionLoading(null);
+                }
+            }
+        );
     };
 
-    const handleBlockMember = async (userId: number) => {
+    const handleBlockMember = (userId: number) => {
         if (!pageId) return;
-        
-        if (!confirm("Bạn có chắc muốn chặn thành viên này?")) return;
-        
-        setActionLoading(userId);
-        try {
-            await pageService.blockMember(Number(pageId), userId);
-            setMembers(prev => prev.map(m =>
-                Number(m.user?.id) === userId ? { ...m, status: "BLOCKED" } : m
-            ));
-        } catch (error) {
-            console.error("Error blocking member:", error);
-            alert("Không thể chặn thành viên");
-        } finally {
-            setActionLoading(null);
-        }
+        showConfirm(
+            "Chặn thành viên",
+            "Bạn có chắc muốn chặn thành viên này?",
+            "Chặn",
+            "warning",
+            async () => {
+                setActionLoading(userId);
+                try {
+                    await pageService.blockMember(Number(pageId), userId);
+                    setMembers(prev => prev.map(m =>
+                        Number(m.user?.id) === userId ? { ...m, status: "BLOCKED" } : m
+                    ));
+                } catch (error) {
+                    console.error("Error blocking member:", error);
+                    setNotification({ title: "Lỗi", message: "Không thể chặn thành viên", variant: "warning" });
+                } finally {
+                    setActionLoading(null);
+                }
+            }
+        );
     };
 
     const handleUnblockMember = async (userId: number) => {
         if (!pageId) return;
-        
+
         setActionLoading(userId);
         try {
             await pageService.unblockMember(Number(pageId), userId);
@@ -233,7 +254,7 @@ export default function PageSettings() {
             ));
         } catch (error) {
             console.error("Error unblocking member:", error);
-            alert("Không thể bỏ chặn thành viên");
+            setNotification({ title: "Lỗi", message: "Không thể bỏ chặn thành viên", variant: "warning" });
         } finally {
             setActionLoading(null);
         }
@@ -241,7 +262,7 @@ export default function PageSettings() {
 
     const handlePromoteToAdmin = async (userId: number) => {
         if (!pageId) return;
-        
+
         setActionLoading(userId);
         try {
             await pageService.authorizeMember(userId, Number(pageId), "ADMIN");
@@ -250,7 +271,7 @@ export default function PageSettings() {
             ));
         } catch (error) {
             console.error("Error promoting member:", error);
-            alert("Không thể thăng cấp thành viên");
+            setNotification({ title: "Lỗi", message: "Không thể thăng cấp thành viên", variant: "warning" });
         } finally {
             setActionLoading(null);
         }
@@ -258,7 +279,7 @@ export default function PageSettings() {
 
     const handleDemoteToMember = async (userId: number) => {
         if (!pageId) return;
-        
+
         setActionLoading(userId);
         try {
             await pageService.authorizeMember(userId, Number(pageId), "USER");
@@ -267,26 +288,29 @@ export default function PageSettings() {
             ));
         } catch (error) {
             console.error("Error demoting member:", error);
-            alert("Không thể hạ cấp thành viên");
+            setNotification({ title: "Lỗi", message: "Không thể hạ cấp thành viên", variant: "warning" });
         } finally {
             setActionLoading(null);
         }
     };
 
-    const handleDeletePage = async () => {
+    const handleDeletePage = () => {
         if (!pageId || !isOwner) return;
-        
-        if (!confirm("Bạn có chắc muốn XÓA page này? Hành động này không thể hoàn tác!")) return;
-        if (!confirm("Xác nhận lần cuối: XÓA VĨNH VIỄN page này?")) return;
-        
-        try {
-            await pageService.deletePage(Number(pageId));
-            alert("Đã xóa page thành công");
-            navigate("/pages");
-        } catch (error) {
-            console.error("Error deleting page:", error);
-            alert("Không thể xóa page");
-        }
+        showConfirm(
+            "Xóa Page",
+            "Bạn có chắc muốn XÓA VĨNH VIỄN page này? Hành động này KHÔNG THỂ hoàn tác!",
+            "Xóa vĩnh viễn",
+            "danger",
+            async () => {
+                try {
+                    await pageService.deletePage(Number(pageId));
+                    navigate("/pages");
+                } catch (error) {
+                    console.error("Error deleting page:", error);
+                    setNotification({ title: "Lỗi", message: "Không thể xóa page", variant: "warning" });
+                }
+            }
+        );
     };
 
     if (loading) {
@@ -310,6 +334,27 @@ export default function PageSettings() {
 
     return (
         <div className="max-w-4xl mx-auto p-4 md:p-6">
+            {notification && (
+                <ConfirmModal
+                    open
+                    title={notification.title}
+                    message={notification.message}
+                    variant={notification.variant ?? "warning"}
+                    onConfirm={() => setNotification(null)}
+                />
+            )}
+            {confirmModal && (
+                <ConfirmModal
+                    open
+                    title={confirmModal.title}
+                    message={confirmModal.message}
+                    confirmText={confirmModal.confirmText}
+                    cancelText="Hủy"
+                    variant={confirmModal.variant}
+                    onConfirm={async () => { const act = confirmModal.action; setConfirmModal(null); await act(); }}
+                    onCancel={() => setConfirmModal(null)}
+                />
+            )}
             {/* Header */}
             <div className="flex items-center gap-4 mb-6">
                 <button

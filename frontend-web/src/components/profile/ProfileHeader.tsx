@@ -304,7 +304,7 @@ export default function ProfileHeader({
                 </>
               ) : (
                 <>
-                  <div className="flex-1 [&>button]:w-full [&>button]:h-8.5 [&>button]:rounded-lg [&>button]:text-[14px] [&>div>button]:h-8.5 [&>div>button]:rounded-lg [&>div>button]:text-[14px]">
+                  <div className="flex-1 min-w-0 [&>button]:w-full [&>button]:h-8.5 [&>button]:rounded-lg [&>button]:text-[14px] [&>button]:whitespace-nowrap [&>div]:w-full [&>div>button]:flex-1 [&>div>button]:h-8.5 [&>div>button]:rounded-lg [&>div>button]:text-[14px] [&>div>button]:whitespace-nowrap">
                     <FriendActions
                       targetUserId={user.id}
                       targetUsername={user.username}

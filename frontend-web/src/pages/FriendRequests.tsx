@@ -18,6 +18,7 @@ import { useCurrentUser } from "../hooks/useCurrentUser";
 import { useBlockNotifications } from "../hooks/useBlockNotifications";
 import { buildS3Url } from "../utils/s3";
 import type { User } from "../types";
+import ConfirmModal from "../components/common/ConfirmModal";
 
 type TabType = "friends" | "requests" | "sent" | "blocked";
 
@@ -75,6 +76,13 @@ export default function FriendRequests() {
   const [pendingId, setPendingId] = useState<number | null>(null);
   const [blocked, setBlocked] = useState<User[]>([]);
   const [blockedLoading, setBlockedLoading] = useState(false);
+  const [confirmModal, setConfirmModal] = useState<{
+    title: string;
+    message: string;
+    confirmText: string;
+    variant: "danger" | "warning" | "default";
+    action: () => Promise<void>;
+  } | null>(null);
 
   const {
     friends,
@@ -154,38 +162,76 @@ export default function FriendRequests() {
     await acceptRequest(id);
     setPendingId(null);
   };
-  const handleReject = async (id: number) => {
-    if (!window.confirm("Từ chối lời mời này?")) return;
-    setPendingId(id);
-    await rejectRequest(id);
-    setPendingId(null);
+  const showConfirm = (
+    title: string,
+    message: string,
+    confirmText: string,
+    variant: "danger" | "warning" | "default",
+    action: () => Promise<void>
+  ) => {
+    setConfirmModal({ title, message, confirmText, variant, action });
   };
-  const handleCancelSent = async (id: number) => {
+
+  const handleReject = (id: number) => {
+    showConfirm(
+      "Từ chối lời mời",
+      "Bạn có chắc muốn từ chối lời mời kết bạn này?",
+      "Từ chối",
+      "warning",
+      async () => {
+        setPendingId(id);
+        await rejectRequest(id);
+        setPendingId(null);
+      }
+    );
+  };
+  const handleCancelSent = (id: number) => {
     if (!currentUser?.id) return;
-    if (!window.confirm("Hủy lời mời đã gửi?")) return;
-    setPendingId(id);
-    try {
-      await cancelSentRequest(id);
-    } finally {
-      setPendingId(null);
-    }
+    showConfirm(
+      "Hủy lời mời đã gửi",
+      "Bạn có chắc muốn hủy lời mời kết bạn đã gửi?",
+      "Hủy lời mời",
+      "warning",
+      async () => {
+        setPendingId(id);
+        try {
+          await cancelSentRequest(id);
+        } finally {
+          setPendingId(null);
+        }
+      }
+    );
   };
-  const handleUnfriend = async (id: number, username: string) => {
-    if (!window.confirm(`Hủy kết bạn với ${username}?`)) return;
-    setPendingId(id);
-    await unfriend(id);
-    setPendingId(null);
+  const handleUnfriend = (id: number, username: string) => {
+    showConfirm(
+      "Hủy kết bạn",
+      `Bạn có chắc muốn hủy kết bạn với ${username}?`,
+      "Hủy kết bạn",
+      "danger",
+      async () => {
+        setPendingId(id);
+        await unfriend(id);
+        setPendingId(null);
+      }
+    );
   };
-  const handleUnblock = async (id: number, username: string) => {
+  const handleUnblock = (id: number, username: string) => {
     if (!currentUser?.id) return;
-    if (!window.confirm(`Bỏ chặn ${username}?`)) return;
-    setPendingId(id);
-    try {
-      const ok = await blockService.unblockUser(currentUser.id, id);
-      if (ok) setBlocked((prev) => prev.filter((u) => u.id !== id));
-    } finally {
-      setPendingId(null);
-    }
+    showConfirm(
+      "Bỏ chặn người dùng",
+      `Bạn có chắc muốn bỏ chặn ${username}?`,
+      "Bỏ chặn",
+      "warning",
+      async () => {
+        setPendingId(id);
+        try {
+          const ok = await blockService.unblockUser(currentUser.id, id);
+          if (ok) setBlocked((prev) => prev.filter((u) => u.id !== id));
+        } finally {
+          setPendingId(null);
+        }
+      }
+    );
   };
   const refreshAll = () => {
     if (tab === "friends") refreshFriends();
@@ -360,6 +406,22 @@ export default function FriendRequests() {
 
   return (
     <div className="max-w-2xl mx-auto bg-white dark:bg-black min-h-screen border-x border-gray-100 dark:border-[#262626]">
+      {confirmModal && (
+        <ConfirmModal
+          open
+          title={confirmModal.title}
+          message={confirmModal.message}
+          confirmText={confirmModal.confirmText}
+          cancelText="Hủy"
+          variant={confirmModal.variant}
+          onConfirm={async () => {
+            const act = confirmModal.action;
+            setConfirmModal(null);
+            await act();
+          }}
+          onCancel={() => setConfirmModal(null)}
+        />
+      )}
       {/* Header */}
       <div className="sticky top-0 z-30 bg-white dark:bg-black border-b border-gray-200 dark:border-[#262626]">
         <div className="flex items-center justify-between px-4 py-3">

@@ -4,6 +4,7 @@ import { ArrowLeft, Loader2, Upload, X, Save, Globe, Lock, ShieldAlert } from "l
 import pageService, { type Page } from "../services/pageService";
 import { useCurrentUser } from "../hooks/useCurrentUser";
 import { buildS3Url } from "../utils/s3";
+import ConfirmModal from "../components/common/ConfirmModal";
 
 const CATEGORIES = [
     "Kinh doanh",
@@ -28,6 +29,7 @@ export default function EditPage() {
     const [saving, setSaving] = useState(false);
     const [page, setPage] = useState<Page | null>(null);
     const [accessDenied, setAccessDenied] = useState(false);
+    const [notification, setNotification] = useState<{ title: string; message: string; variant?: "warning" | "default" } | null>(null);
 
     // Avatar
     const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
@@ -199,11 +201,10 @@ export default function EditPage() {
                 status: formData.status,
             });
 
-            alert("Cập nhật page thành công!");
             navigate(`/pages/${pageId}`);
         } catch (error: any) {
             console.error("Error updating page:", error);
-            alert(error.response?.data?.message || "Không thể cập nhật page. Vui lòng thử lại.");
+            setNotification({ title: "Lỗi", message: error.response?.data?.message || "Không thể cập nhật page. Vui lòng thử lại.", variant: "warning" });
         } finally {
             setSaving(false);
         }
@@ -249,6 +250,15 @@ export default function EditPage() {
 
     return (
         <div className="max-w-2xl mx-auto p-4 md:p-6">
+            {notification && (
+                <ConfirmModal
+                    open
+                    title={notification.title}
+                    message={notification.message}
+                    variant={notification.variant ?? "warning"}
+                    onConfirm={() => setNotification(null)}
+                />
+            )}
             {/* Header */}
             <div className="flex items-center gap-4 mb-6">
                 <button
