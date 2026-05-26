@@ -35,7 +35,7 @@ import {
     User,
 } from "@/types";
 import { getDeviceInfo } from "@/utils/deviceInfo";
-import { getSettings, getUser, saveSettings, saveUser } from "@/utils/storage";
+import { clearStorage, getSettings, getUser, saveSettings, saveUser } from "@/utils/storage";
 import {
     createContext,
     PropsWithChildren,
@@ -319,6 +319,27 @@ export function AppProvider({ children }: PropsWithChildren) {
             chatWebsocketService.unsubscribeFromProfileUpdates(internationalPhone);
         };
     }, [loggedIn, currentUser?.phone, syncCurrentUserFromServer]);
+
+    useEffect(() => {
+        if (!loggedIn || !currentUser?.phone) return;
+
+        const internationalPhone = toInternationalPhone(currentUser.phone);
+        if (!internationalPhone) return;
+
+        const handleForceLogout = () => {
+            chatWebsocketService.disconnect();
+            setCurrentUserId(null);
+            setDeletionPending(false);
+            setDeletionRemainingDays(undefined);
+            void clearStorage();
+        };
+
+        chatWebsocketService.subscribeToForceLogout(internationalPhone, handleForceLogout);
+
+        return () => {
+            chatWebsocketService.unsubscribeFromForceLogout(internationalPhone);
+        };
+    }, [loggedIn, currentUser?.phone]);
 
     useEffect(() => {
         const loadRemoteDeviceSettings = async () => {

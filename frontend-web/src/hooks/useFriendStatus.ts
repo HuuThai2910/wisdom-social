@@ -34,7 +34,10 @@ export function useFriendStatus(targetUserId: number | undefined): UseFriendStat
     // re-renders to "Đã gửi" without refetch).
     const {
         refreshTrigger,
+        acceptRequest: ctxAcceptRequest,
+        rejectRequest: ctxRejectRequest,
         cancelSentRequest: ctxCancelSentRequest,
+        unfriend: ctxUnfriend,
         refreshSentRequests: ctxRefreshSentRequests,
         sentRequests: ctxSentRequests,
         friends: ctxFriends,
@@ -200,19 +203,30 @@ export function useFriendStatus(targetUserId: number | undefined): UseFriendStat
         }
     }, [currentUser?.id, targetUserId, ctxRefreshSentRequests]);
 
-    // Accept friend request
+    // Accept friend request — delegate to context so FriendRequests tab
+    // removes the request and friends list refreshes without page reload.
     const acceptRequest = useCallback(async (): Promise<boolean> => {
         if (!currentUser?.id || !targetUserId) return false;
 
         setLoading(true);
         setError(null);
         try {
-            await friendService.acceptFriendRequest({
-                senderId: targetUserId,
-                receivedId: currentUser.id,
-            });
-            setStatus("friends");
-            return true;
+            const ok = ctxAcceptRequest
+                ? await ctxAcceptRequest(targetUserId)
+                : await friendService
+                      .acceptFriendRequest({
+                          senderId: targetUserId,
+                          receivedId: currentUser.id,
+                      })
+                      .then(() => true)
+                      .catch(() => false);
+
+            if (ok) {
+                setStatus("friends");
+                return true;
+            }
+            setError("Không thể chấp nhận lời mời");
+            return false;
         } catch (err: any) {
             console.error("Error accepting friend request:", err);
             setError("Không thể chấp nhận lời mời");
@@ -220,21 +234,32 @@ export function useFriendStatus(targetUserId: number | undefined): UseFriendStat
         } finally {
             setLoading(false);
         }
-    }, [currentUser?.id, targetUserId]);
+    }, [currentUser?.id, targetUserId, ctxAcceptRequest]);
 
-    // Reject friend request
+    // Reject friend request — delegate to context so FriendRequests tab
+    // removes the request immediately without page reload.
     const rejectRequest = useCallback(async (): Promise<boolean> => {
         if (!currentUser?.id || !targetUserId) return false;
 
         setLoading(true);
         setError(null);
         try {
-            await friendService.rejectFriendRequest({
-                senderId: targetUserId,
-                receivedId: currentUser.id,
-            });
-            setStatus("none");
-            return true;
+            const ok = ctxRejectRequest
+                ? await ctxRejectRequest(targetUserId)
+                : await friendService
+                      .rejectFriendRequest({
+                          senderId: targetUserId,
+                          receivedId: currentUser.id,
+                      })
+                      .then(() => true)
+                      .catch(() => false);
+
+            if (ok) {
+                setStatus("none");
+                return true;
+            }
+            setError("Không thể từ chối lời mời");
+            return false;
         } catch (err: any) {
             console.error("Error rejecting friend request:", err);
             setError("Không thể từ chối lời mời");
@@ -242,7 +267,7 @@ export function useFriendStatus(targetUserId: number | undefined): UseFriendStat
         } finally {
             setLoading(false);
         }
-    }, [currentUser?.id, targetUserId]);
+    }, [currentUser?.id, targetUserId, ctxRejectRequest]);
 
     // Cancel sent request — delegate to context's optimistic action so
     // suggestion widget + sent-tab patch immediately without page reload.
@@ -274,19 +299,31 @@ export function useFriendStatus(targetUserId: number | undefined): UseFriendStat
         }
     }, [currentUser?.id, targetUserId, ctxCancelSentRequest]);
 
-    // Unfriend
+    // Unfriend — delegate to context so ctxFriends is updated immediately.
+    // Without this, ctxFriends still contains the target after unfriending, and
+    // the context-sync effect would flip a subsequent "pending_sent" back to "friends".
     const unfriend = useCallback(async (): Promise<boolean> => {
         if (!currentUser?.id || !targetUserId) return false;
 
         setLoading(true);
         setError(null);
         try {
-            await friendService.cancelFriendRequest({
-                senderId: currentUser.id,
-                receivedId: targetUserId,
-            });
-            setStatus("none");
-            return true;
+            const ok = ctxUnfriend
+                ? await ctxUnfriend(targetUserId)
+                : await friendService
+                      .cancelFriendRequest({
+                          senderId: currentUser.id,
+                          receivedId: targetUserId,
+                      })
+                      .then(() => true)
+                      .catch(() => false);
+
+            if (ok) {
+                setStatus("none");
+                return true;
+            }
+            setError("Không thể hủy kết bạn");
+            return false;
         } catch (err: any) {
             console.error("Error unfriending:", err);
             setError("Không thể hủy kết bạn");
@@ -294,7 +331,7 @@ export function useFriendStatus(targetUserId: number | undefined): UseFriendStat
         } finally {
             setLoading(false);
         }
-    }, [currentUser?.id, targetUserId]);
+    }, [currentUser?.id, targetUserId, ctxUnfriend]);
 
     // Refresh status - triggers re-run of useEffect
     const refresh = useCallback(async () => {

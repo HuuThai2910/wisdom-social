@@ -362,6 +362,11 @@ export async function getCurrentUser(): Promise<ApiAuthUser | null> {
 export async function logoutApi(): Promise<void> {
     try {
         await apiClient.post("/auth/logout");
+    } catch (error: any) {
+        // 401/403 means token already invalidated (e.g. after logout-all) — not an error
+        if (error?.response?.status !== 401 && error?.response?.status !== 403) {
+            throw error;
+        }
     } finally {
         await clearStorage();
     }

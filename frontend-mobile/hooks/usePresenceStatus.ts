@@ -34,9 +34,11 @@ export function usePresenceStatus(
         if (normalizedIds.length === 0) return;
 
         let cancelled = false;
-        presenceService
-            .getBulkStatus(normalizedIds)
-            .then((items) => {
+
+        const fetchInitialPresence = async () => {
+            if (cancelled) return;
+            try {
+                const items = await presenceService.getBulkStatus(normalizedIds);
                 if (cancelled) return;
                 setStatuses((prev) => {
                     const next = { ...prev };
@@ -45,11 +47,12 @@ export function usePresenceStatus(
                     });
                     return next;
                 });
-            })
-            .catch((error) => {
+            } catch {
                 // REST chi lay snapshot ban dau; realtime WebSocket van tiep tuc cap nhat.
-                console.log("Khong the tai presence ban dau", error);
-            });
+            }
+        };
+
+        void fetchInitialPresence();
 
         return () => {
             cancelled = true;

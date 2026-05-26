@@ -218,6 +218,16 @@ apiClient.interceptors.response.use(
             }
         }
 
+        // When a 403 arrives after logout (storage already cleared), the request
+        // is a stale in-flight call with an invalidated token — suppress it silently
+        // instead of triggering an unhandled rejection in callers without try/catch.
+        if (status === 403 && !isPublicEndpoint(originalRequest?.url)) {
+            const storedToken = (await getIdToken()) ?? (await getToken());
+            if (!storedToken) {
+                return Promise.resolve({ data: null, status: 403, headers: {}, config: originalRequest, request: error.request });
+            }
+        }
+
         return Promise.reject(error);
     },
 );

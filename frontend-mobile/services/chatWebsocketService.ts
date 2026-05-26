@@ -1357,6 +1357,30 @@ class ChatWebsocketService {
     unsubscribeFromProfileUpdates(phone: string): void {
         this.removeSubscription(`/topic/user/${phone}/profile-update`);
     }
+
+    subscribeToForceLogout(phone: string, onForceLogout: () => void): void {
+        const destination = `/topic/user/${phone}/force-logout`;
+        this.registerSubscription(destination, () => {
+            const client = this.client;
+            if (!client?.connected) {
+                throw new Error("WebSocket not connected");
+            }
+            return client.subscribe(destination, (msg: IMessage) => {
+                try {
+                    const raw = JSON.parse(msg.body) as Record<string, unknown>;
+                    if (raw.event === "FORCE_LOGOUT") {
+                        onForceLogout();
+                    }
+                } catch {
+                    // no-op
+                }
+            });
+        });
+    }
+
+    unsubscribeFromForceLogout(phone: string): void {
+        this.removeSubscription(`/topic/user/${phone}/force-logout`);
+    }
 }
 
 const chatWebsocketService = new ChatWebsocketService();

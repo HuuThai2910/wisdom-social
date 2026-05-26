@@ -11,6 +11,8 @@ interface FriendActionsProps {
     showText?: boolean;
     layout?: "horizontal" | "vertical";
     onStatusChange?: (status: FriendshipStatus) => void;
+    onFriendAccepted?: () => void;
+    onFriendRemoved?: () => void;
 }
 
 export default function FriendActions({
@@ -20,6 +22,8 @@ export default function FriendActions({
     showText = true,
     layout = "horizontal",
     onStatusChange,
+    onFriendAccepted,
+    onFriendRemoved,
 }: FriendActionsProps) {
     const currentUser = useCurrentUser();
     const {
@@ -86,6 +90,7 @@ export default function FriendActions({
         const success = await acceptRequest();
         if (success) {
             onStatusChange?.("friends");
+            onFriendAccepted?.();
         }
     };
 
@@ -123,7 +128,10 @@ export default function FriendActions({
             variant: "danger",
             action: async () => {
                 const success = await unfriend();
-                if (success) onStatusChange?.("none");
+                if (success) {
+                    onStatusChange?.("none");
+                    onFriendRemoved?.();
+                }
             },
         });
     };

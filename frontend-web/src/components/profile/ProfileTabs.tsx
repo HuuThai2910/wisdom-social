@@ -3,16 +3,17 @@ import { Grid, Bookmark, Ban, Share2, UserSquare2 } from "lucide-react";
 
 interface ProfileTabsProps {
   username: string;
+  isOwnProfile: boolean;
 }
 
-export default function ProfileTabs({ username }: ProfileTabsProps) {
+export default function ProfileTabs({ username, isOwnProfile }: ProfileTabsProps) {
   const basePath = `/profile/${username}`;
   const tabs = [
     { icon: Grid, label: "Bài viết", path: basePath, end: true },
     { icon: Bookmark, label: "Đã lưu", path: `${basePath}/saved` },
     { icon: UserSquare2, label: "Gắn thẻ", path: `${basePath}/tagged` },
     { icon: Share2, label: "Chia sẻ", path: `${basePath}/shared` },
-    { icon: Ban, label: "Đã chặn", path: `${basePath}/blocked` },
+    ...(isOwnProfile ? [{ icon: Ban, label: "Đã chặn", path: `${basePath}/blocked` }] : []),
   ];
 
   return (
