@@ -111,11 +111,11 @@ export default function ProfileGeneral() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="bg-white dark:bg-black min-h-screen">
       <ProfileHeader user={user} isOwnProfile={isOwnProfile} />
       <ProfileTabs username={username!} />
-      <div className="p-6 text-center text-gray-500">
-        General profile information will be displayed here
+      <div className="max-w-3xl mx-auto px-1 sm:px-2 py-10 text-center text-gray-500 dark:text-gray-400 text-sm">
+        Thông tin chung sẽ hiển thị tại đây
       </div>
     </div>
   );

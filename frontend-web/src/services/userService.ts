@@ -125,6 +125,10 @@ export const userService = {
         await axiosClient.post(`auth/logout`, {});
     },
 
+    async logoutAll(): Promise<void> {
+        await axiosClient.post(`auth/logout-all`, {});
+    },
+
     async refreshToken(): Promise<string> {
         const response = await axiosClient.get(`auth/refresh`);
         return response.data.data;

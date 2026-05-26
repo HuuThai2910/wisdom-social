@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Ban, Loader2 } from "lucide-react";
+import toast from "react-hot-toast";
 import blockService from "../../services/blockService";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 
@@ -63,14 +64,8 @@ export default function BlockUnblockButton({
     }, [initialIsBlocked]);
 
     const handleBlockUnblock = useCallback(async () => {
-        if (!currentUser) {
-            alert("Vui lòng đăng nhập để thực hiện hành động này");
-            return;
-        }
-
-        if (!currentUser.id) {
-            console.error("❌ currentUser.id is undefined:", currentUser);
-            alert("Lỗi: Không thể lấy ID người dùng hiện tại");
+        if (!currentUser?.id) {
+            toast.error("Vui lòng đăng nhập để thực hiện hành động này");
             return;
         }
 
@@ -87,35 +82,32 @@ export default function BlockUnblockButton({
                 await blockService.unblockUser(currentUser.id, userId);
                 setIsBlocked(false);
                 onBlockStatusChange?.(userId, false);
-                alert(`Đã bỏ chặn "${username}" thành công!`);
+                toast.success(`Đã bỏ chặn ${username}`);
             } else {
                 await blockService.blockUser(currentUser.id, userId);
                 setIsBlocked(true);
                 onBlockStatusChange?.(userId, true);
-                alert(`Đã chặn "${username}" thành công!`);
+                toast.success(`Đã chặn ${username}`);
             }
         } catch (error: any) {
             console.error("Error block/unblock user:", error);
-            alert(`Không thể ${action} user. Vui lòng thử lại.`);
+            toast.error(`Không thể ${action} người dùng. Vui lòng thử lại.`);
         } finally {
             setLoading(false);
         }
     }, [currentUser, isBlocked, userId, username, onBlockStatusChange]);
 
-    // Don't render anything until currentUser is available
-    if (!currentUser) {
+    // Render a real <button> as placeholder so parent CSS that targets `button`
+    // (e.g. ProfileHeader's `[&>button]:!w-[34px]`) keeps the size consistent.
+    if (!currentUser || checking) {
         return (
-            <div className="px-4 py-[7px] bg-gray-200 dark:bg-[#363636] rounded-lg">
+            <button
+                type="button"
+                disabled
+                className="px-4 py-[7px] rounded-lg bg-gray-200 dark:bg-[#363636] flex items-center justify-center"
+            >
                 <Loader2 className="animate-spin" size={16} />
-            </div>
-        );
-    }
-
-    if (checking) {
-        return (
-            <div className="px-4 py-[7px] bg-gray-200 dark:bg-[#363636] rounded-lg">
-                <Loader2 className="animate-spin" size={16} />
-            </div>
+            </button>
         );
     }
 
@@ -123,7 +115,7 @@ export default function BlockUnblockButton({
         <button
             onClick={handleBlockUnblock}
             disabled={loading}
-            className={`px-4 py-[7px] rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 ${
+            className={`px-4 py-[7px] rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center justify-center gap-2 ${
                 isBlocked
                     ? "bg-gray-500 hover:bg-gray-600 text-white"
                     : "bg-red-500 hover:bg-red-600 text-white"
@@ -134,7 +126,7 @@ export default function BlockUnblockButton({
             ) : (
                 <Ban size={16} />
             )}
-            {isBlocked ? "Unblock" : "Block"}
+            <span>{isBlocked ? "Unblock" : "Block"}</span>
         </button>
     );
 }
