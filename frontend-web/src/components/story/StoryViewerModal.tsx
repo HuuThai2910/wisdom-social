@@ -7,6 +7,11 @@ import { musicFeedManager } from "../../services/MusicFeedManager";
 import StoryOptionsBottomSheet from "./StoryOptionsBottomSheet";
 import StoryReactionBar from "./StoryReactionBar";
 import StoryViewersBottomSheet from "./StoryViewersBottomSheet";
+import { removeStoriesFromHighlight } from "../../services/highlightService";
+import HighlightOptionsBottomSheet from "./HighlightOptionsBottomSheet";
+import EditHighlightModal from "./EditHighlightModal";
+import useRealtimeStory from "../../hooks/useRealtimeStory";
+
 
 export interface StoryGroup {
   userId: string;
@@ -23,6 +28,11 @@ interface StoryViewerModalProps {
   initialStoryIdx?: number;
   onStoryViewed?: (storyId: string) => void;
   onGroupChanged?: (groupIdx: number) => void;
+  highlightId?: string;
+  highlightTitle?: string;
+  highlightCoverImageUrl?: string;
+  onStoryRemovedFromHighlight?: (storyId: string) => void;
+  onHighlightUpdated?: () => void;
 }
 
 export default function StoryViewerModal({
@@ -33,6 +43,11 @@ export default function StoryViewerModal({
   initialStoryIdx = 0,
   onStoryViewed,
   onGroupChanged,
+  highlightId,
+  highlightTitle,
+  highlightCoverImageUrl,
+  onStoryRemovedFromHighlight,
+  onHighlightUpdated,
 }: StoryViewerModalProps) {
   // Use groups directly — parent is responsible for keeping them stable
   const [groupIdx, setGroupIdx] = useState(initialGroupIdx);
@@ -50,7 +65,23 @@ export default function StoryViewerModal({
   const safeStoryIdx = activeGroup ? Math.max(0, Math.min(storyIdx, activeGroup.stories.length - 1)) : 0;
   const activeStory = activeGroup?.stories[safeStoryIdx];
   const currentUser = useCurrentUser();
-  const isMyStory = currentUser && activeGroup && String(currentUser.id) === String(activeGroup.userId);
+
+  // Synchronous check against cached user in localStorage to prevent render flash
+  const cachedUserStr = localStorage.getItem("current_user");
+  let cachedUserId: string | null = null;
+  if (cachedUserStr) {
+    try {
+      const parsed = JSON.parse(cachedUserStr);
+      if (parsed && parsed.id) {
+        cachedUserId = String(parsed.id);
+      }
+    } catch (e) {}
+  }
+
+  const isMyStory = activeGroup && (
+    (currentUser && String(currentUser.id) === String(activeGroup.userId)) ||
+    (cachedUserId && String(cachedUserId) === String(activeGroup.userId))
+  );
 
   // Sync state when modal is opened (reset to initial indices)
   useEffect(() => {
@@ -60,20 +91,27 @@ export default function StoryViewerModal({
       setProgress(0);
       setIsFinished(false);
       setShowViewers(false);
+      setShowHighlightOptions(false);
     }
   }, [isOpen]);
 
   // Close viewers sheet when story changes
   useEffect(() => {
     setShowViewers(false);
+    setShowHighlightOptions(false);
   }, [groupIdx, storyIdx]);
 
   const [showOptions, setShowOptions] = useState(false);
   const [showViewers, setShowViewers] = useState(false);
+  const [showHighlightOptions, setShowHighlightOptions] = useState(false);
+  const [showEditHighlight, setShowEditHighlight] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [isRemovingHighlight, setIsRemovingHighlight] = useState(false);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [syncedViewCount, setSyncedViewCount] = useState<number | null>(null);
+
+  const isModalOpen = showOptions || showViewers || showHighlightOptions || showEditHighlight;
 
   // Fetch real view count when story changes (owner only)
   useEffect(() => {
@@ -97,6 +135,21 @@ export default function StoryViewerModal({
     }
   }, [isOpen, activeStory?.id, isMyStory]);
 
+  useRealtimeStory({
+    storyId: activeStory?.id || "",
+    enabled: !!(isOpen && activeStory?.id && isMyStory),
+    onStoryUpdate: (event) => {
+      if (event && event.type === "STORY_VIEW") {
+        const newCount = event.data?.viewCount;
+        if (typeof newCount === "number") {
+          setSyncedViewCount(newCount);
+          activeStory.viewCount = newCount;
+        }
+      }
+    }
+  });
+
+
   const handleDelete = async () => {
     if (!activeStory) return;
     if (window.confirm("Bạn có chắc chắn muốn xóa tin này không?")) {
@@ -115,7 +168,7 @@ export default function StoryViewerModal({
               setStoryIdx(0);
             } else {
               // Last group — close modal
-              handleClose();
+              onClose();
               return;
             }
           } else if (storyIdx >= remainingStories.length) {
@@ -124,7 +177,7 @@ export default function StoryViewerModal({
               setGroupIdx((prev) => prev + 1);
               setStoryIdx(0);
             } else {
-              handleClose();
+              onClose();
               return;
             }
           }
@@ -172,6 +225,42 @@ export default function StoryViewerModal({
       alert("Cập nhật cài đặt thất bại!");
     } finally {
       setIsUpdating(false);
+    }
+  };
+
+  const handleRemoveFromHighlight = async () => {
+    if (!activeStory || !highlightId) return;
+    if (window.confirm("Bạn có chắc chắn muốn gỡ tin này khỏi tin nổi bật?")) {
+      setIsRemovingHighlight(true);
+      try {
+        await removeStoriesFromHighlight(highlightId, [activeStory.id]);
+
+        // Notify parent to refresh highlights list
+        onStoryRemovedFromHighlight?.(activeStory.id);
+
+        // Advance to next story or close
+        const group = groups[groupIdx];
+        if (group) {
+          const remainingStories = group.stories.filter((s) => s.id !== activeStory.id);
+          // Mutate local array reference
+          group.stories = remainingStories;
+
+          if (remainingStories.length === 0) {
+            onClose();
+            return;
+          } else if (storyIdx >= remainingStories.length) {
+            setStoryIdx(remainingStories.length - 1);
+          }
+        }
+
+        setShowHighlightOptions(false);
+        setIsPaused(false);
+        setProgress(0);
+      } catch (err) {
+        alert("Gỡ tin nổi bật thất bại!");
+      } finally {
+        setIsRemovingHighlight(false);
+      }
     }
   };
 
@@ -489,10 +578,10 @@ export default function StoryViewerModal({
       {/* Main Story Container */}
       <div
         className="relative w-full h-full max-h-[85vh] md:max-h-[90vh] max-w-[420px] aspect-[9/16] md:rounded-2xl overflow-hidden bg-zinc-950 flex flex-col justify-between shadow-2xl ring-1 ring-white/10"
-        onMouseDown={isFinished || showOptions || showViewers ? undefined : handleMouseDown}
-        onMouseUp={isFinished || showOptions || showViewers ? undefined : handleMouseUp}
-        onTouchStart={isFinished || showOptions || showViewers ? undefined : handleTouchStart}
-        onTouchEnd={isFinished || showOptions || showViewers ? undefined : handleTouchEnd}
+        onMouseDown={isFinished || isModalOpen ? undefined : handleMouseDown}
+        onMouseUp={isFinished || isModalOpen ? undefined : handleMouseUp}
+        onTouchStart={isFinished || isModalOpen ? undefined : handleTouchStart}
+        onTouchEnd={isFinished || isModalOpen ? undefined : handleTouchEnd}
       >
         {isFinished ? (
           <div className="flex-1 flex flex-col items-center justify-center p-6 text-center bg-zinc-950 text-white relative">
@@ -668,22 +757,42 @@ export default function StoryViewerModal({
             {/* View Count for Owner */}
             {isMyStory && activeStory && (
               <div
-                className="absolute bottom-0 left-0 right-0 z-40 bg-gradient-to-t from-black/85 via-black/45 to-transparent pt-10 pb-5 px-4 flex justify-center"
+                className="absolute bottom-0 left-0 right-0 h-28 z-40 bg-gradient-to-t from-black/90 via-black/45 to-transparent pointer-events-none"
                 onMouseDown={(e) => e.stopPropagation()}
                 onMouseUp={(e) => e.stopPropagation()}
                 onTouchStart={(e) => e.stopPropagation()}
                 onTouchEnd={(e) => e.stopPropagation()}
               >
+                {/* Activity / Viewers button */}
                 <button
                   onClick={() => {
                     setIsPaused(true);
                     setShowViewers(true);
                   }}
-                  className="flex items-center gap-2 bg-white/10 hover:bg-white/20 active:scale-95 px-4 py-2.5 rounded-full border border-white/10 text-white text-xs font-semibold cursor-pointer transition-all duration-200"
+                  className="absolute left-6 bottom-5 flex flex-col items-center gap-1.5 hover:scale-105 active:scale-95 text-white/80 hover:text-white cursor-pointer transition-all duration-200 pointer-events-auto"
+                  title="Hoạt động"
                 >
-                  <Eye size={14} className="text-blue-400" />
-                  <span>{syncedViewCount !== null ? syncedViewCount : (activeStory.viewCount || 0)} người xem</span>
+                  <Users size={20} className="text-white drop-shadow-xs" />
+                  <span className="text-[10px] font-bold font-sans tracking-wide">
+                    Hoạt động ({syncedViewCount ?? activeStory.viewCount ?? 0})
+                  </span>
                 </button>
+
+                {/* More Options button for Highlights */}
+                {highlightId && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsPaused(true);
+                      setShowHighlightOptions(true);
+                    }}
+                    className="absolute right-6 bottom-5 flex flex-col items-center gap-1.5 hover:scale-105 active:scale-95 text-white/80 hover:text-white cursor-pointer transition-all duration-200 pointer-events-auto"
+                    title="Tùy chọn tin nổi bật"
+                  >
+                    <MoreHorizontal size={20} className="text-white drop-shadow-xs" />
+                    <span className="text-[10px] font-bold font-sans tracking-wide">Xem thêm</span>
+                  </button>
+                )}
               </div>
             )}
           </>
@@ -715,6 +824,43 @@ export default function StoryViewerModal({
             viewCount={activeStory.viewCount || 0}
             onViewersLoaded={(count) => {
               setSyncedViewCount(count);
+            }}
+          />
+        )}
+
+        {/* Highlight Options list Bottom Sheet */}
+        {activeStory && highlightId && (
+          <HighlightOptionsBottomSheet
+            isOpen={showHighlightOptions}
+            onClose={() => {
+              setShowHighlightOptions(false);
+              setIsPaused(false);
+            }}
+            onEdit={() => {
+              setShowHighlightOptions(false);
+              setShowEditHighlight(true);
+            }}
+            onRemove={handleRemoveFromHighlight}
+            isRemoving={isRemovingHighlight}
+          />
+        )}
+
+        {/* Edit Highlight Modal */}
+        {highlightId && activeGroup && (
+          <EditHighlightModal
+            userId={activeGroup.userId}
+            highlightId={highlightId}
+            highlightTitle={highlightTitle || "Tin nổi bật"}
+            initialCoverImageUrl={highlightCoverImageUrl}
+            currentStoryIds={activeGroup.stories.map((s: any) => s.id)}
+            isOpen={showEditHighlight}
+            onClose={() => {
+              setShowEditHighlight(false);
+              setIsPaused(false);
+            }}
+            onUpdated={() => {
+              onHighlightUpdated?.();
+              onClose();
             }}
           />
         )}

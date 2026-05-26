@@ -1,4 +1,4 @@
-import { useParams, Outlet } from "react-router-dom";
+import { useParams, Outlet, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import ProfileHeader from "./ProfileHeader";
 import ProfileTabs from "./ProfileTabs";
@@ -12,6 +12,7 @@ import { convertPhoneToInternational } from "../../hooks/useCurrentUser";
 
 export default function ProfileLayout() {
   const { username } = useParams();
+  const navigate = useNavigate();
   const [user, setUser] = useState<User | null>(null);
   const [isOwnProfile, setIsOwnProfile] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -25,6 +26,19 @@ export default function ProfileLayout() {
       try {
         setLoading(true);
         setError("");
+
+        // Check if username is a numeric ID
+        if (/^\d+$/.test(username)) {
+          try {
+            const profile = await userService.getUserProfile(username);
+            if (profile && profile.username) {
+              navigate(`/profile/${profile.username}`, { replace: true });
+              return;
+            }
+          } catch (err) {
+            console.error("Error loading user profile by ID:", err);
+          }
+        }
 
         const users = await userService.searchUserByUsername(username);
         if (users && users.length > 0) {

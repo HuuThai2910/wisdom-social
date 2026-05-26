@@ -2,6 +2,8 @@ import React, { useState, useEffect } from "react";
 import { X, Eye, Heart } from "lucide-react";
 import { fetchStoryViewers } from "../../services/storyService";
 import { buildS3Url } from "../../utils/s3";
+import useRealtimeStory from "../../hooks/useRealtimeStory";
+
 
 interface StoryViewersBottomSheetProps {
   isOpen: boolean;
@@ -29,30 +31,43 @@ export default function StoryViewersBottomSheet({
   const [viewers, setViewers] = useState<ViewerInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  useEffect(() => {
-    if (isOpen && storyId) {
-      const loadViewers = async () => {
-        setIsLoading(true);
-        try {
-          const data = await fetchStoryViewers(storyId);
-          const list = Array.isArray(data)
-            ? data
-            : Array.isArray((data as any)?.data)
-            ? (data as any).data
-            : [];
-          setViewers(list);
-          onViewersLoaded?.(list.length);
-        } catch (err) {
-          console.error("Failed to load story viewers:", err);
-        } finally {
-          setIsLoading(false);
-        }
-      };
-      loadViewers();
-    } else {
-      setViewers([]);
+  const loadViewers = async (showLoading = true) => {
+    if (showLoading) setIsLoading(true);
+    try {
+      const data = await fetchStoryViewers(storyId);
+      const list = Array.isArray(data)
+        ? data
+        : Array.isArray((data as any)?.data)
+        ? (data as any).data
+        : [];
+      setViewers(list);
+      onViewersLoaded?.(list.length);
+    } catch (err) {
+      console.error("Failed to load story viewers:", err);
+    } finally {
+      if (showLoading) setIsLoading(false);
     }
-  }, [isOpen, storyId, onViewersLoaded]);
+  };
+
+  useEffect(() => {
+    if (!isOpen || !storyId) {
+      setViewers([]);
+      return;
+    }
+    loadViewers(true);
+  }, [isOpen, storyId]);
+
+  useRealtimeStory({
+    storyId,
+    enabled: !!(isOpen && storyId),
+    onStoryUpdate: (event) => {
+      if (event && event.storyId === storyId) {
+        if (event.type === "STORY_VIEW" || event.type === "STORY_REACTION") {
+          void loadViewers(false);
+        }
+      }
+    }
+  });
 
   if (!isOpen) return null;
 

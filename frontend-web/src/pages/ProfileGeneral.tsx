@@ -2,14 +2,13 @@ import { useParams } from "react-router-dom";
 import { useState, useEffect } from "react";
 import ProfileHeader from "../components/profile/ProfileHeader";
 import ProfileTabs from "../components/profile/ProfileTabs";
-import axios from "axios";
+import axiosClient from "../api/axiosClient";
 import type { User } from "../types";
 import { useCurrentUser } from "../hooks/useCurrentUser";
 import websocketService from "../services/websocket";
 import { convertPhoneToInternational } from "../hooks/useCurrentUser";
 import { buildS3Url } from "../utils/s3";
 
-const API_BASE_URL = "http://localhost:8080/api";
 
 export default function ProfileGeneral() {
   const { username } = useParams();
@@ -20,8 +19,8 @@ export default function ProfileGeneral() {
   useEffect(() => {
     const fetchUser = async () => {
       try {
-        const response = await axios.get(
-          `${API_BASE_URL}/auth/user/${username}`
+        const response = await axiosClient.get(
+          `/auth/user/${username}`
         );
         if (response.data.success) {
           const userData = response.data.data;

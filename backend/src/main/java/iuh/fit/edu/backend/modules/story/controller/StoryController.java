@@ -1,7 +1,11 @@
 package iuh.fit.edu.backend.modules.story.controller;
 
 import iuh.fit.edu.backend.modules.story.entity.Story;
+import iuh.fit.edu.backend.modules.story.entity.StoryHighlight;
 import iuh.fit.edu.backend.modules.story.entity.StoryView;
+import iuh.fit.edu.backend.modules.story.repository.StoryHighlightRepository;
+import iuh.fit.edu.backend.modules.story.dto.response.StoryHighlightResponse;
+
 import iuh.fit.edu.backend.modules.story.repository.StoryRepository;
 import iuh.fit.edu.backend.modules.story.repository.StoryViewRepository;
 import iuh.fit.edu.backend.modules.user.entity.User;
@@ -9,6 +13,7 @@ import iuh.fit.edu.backend.modules.story.dto.response.StoryResponse;
 import iuh.fit.edu.backend.common.dto.response.PresignedUrlResponse;
 import iuh.fit.edu.backend.common.constant.UploadModule;
 import iuh.fit.edu.backend.modules.post.constant.PrivacyType;
+import iuh.fit.edu.backend.modules.post.constant.StatusType;
 import iuh.fit.edu.backend.modules.story.service.StoryService;
 import iuh.fit.edu.backend.modules.story.service.StoryEventPublisher;
 import iuh.fit.edu.backend.common.service.s3.S3Service;
@@ -33,6 +38,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -59,6 +65,7 @@ public class StoryController {
     private final FriendRepository friendRepository;
     private final StoryViewRepository storyViewRepository;
     private final ReactionRepository reactionRepository;
+    private final StoryHighlightRepository storyHighlightRepository;
 
     @GetMapping("/debug/all-stories")
     public ResponseEntity<List<Story>> getDebugAllStories() {
@@ -824,6 +831,504 @@ public class StoryController {
             log.error("Error deleting story: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
+    }
+
+    // ==========================================
+    // STORY HIGHLIGHTS ENDPOINTS
+    // ==========================================
+
+    /**
+     * POST /api/stories/highlights - Create a new highlight group
+     * Body: { "title": "...", "storyIds": ["id1","id2",...], "coverImageUrl": "..." }
+     * This will also set isArchived=true on selected stories so they won't expire
+     */
+    @PostMapping("/highlights")
+    public ResponseEntity<StoryHighlightResponse> createHighlight(@RequestBody Map<String, Object> request) {
+        try {
+            String currentUserId = getCurrentUserId();
+            
+            String title = (String) request.get("title");
+            if (title == null || title.isBlank()) {
+                return ResponseEntity.badRequest().build();
+            }
+            
+            @SuppressWarnings("unchecked")
+            List<String> storyIds = (List<String>) request.get("storyIds");
+            if (storyIds == null || storyIds.isEmpty()) {
+                return ResponseEntity.badRequest().build();
+            }
+            
+            String coverImageUrl = (String) request.get("coverImageUrl");
+            
+            // Verify all stories belong to current user and archive them
+            List<Story> stories = new ArrayList<>();
+            for (String storyId : storyIds) {
+                Optional<Story> storyOpt = storyRepository.findById(storyId);
+                if (storyOpt.isEmpty()) {
+                    log.warn("Story not found during highlight creation: {}", storyId);
+                    continue;
+                }
+                Story story = storyOpt.get();
+                if (!story.getUserId().equals(currentUserId)) {
+                    log.warn("User {} tried to add story {} that belongs to {}", currentUserId, storyId, story.getUserId());
+                    continue;
+                }
+                
+                // Archive the story so it won't be deleted by TTL
+                if (!story.isArchived()) {
+                    story.setArchived(true);
+                    story.setExpireAt(null); // Remove TTL
+                    story.setHighlightCategory(title);
+                    storyRepository.save(story);
+                }
+                stories.add(story);
+            }
+            
+            if (stories.isEmpty()) {
+                return ResponseEntity.badRequest().build();
+            }
+            
+            // Use cover from first story if not provided
+            if (coverImageUrl == null || coverImageUrl.isBlank()) {
+                Story firstStory = stories.get(0);
+                if (firstStory.getMedia() != null) {
+                    coverImageUrl = firstStory.getMedia().getThumbnailUrl() != null
+                            ? firstStory.getMedia().getThumbnailUrl()
+                            : firstStory.getMedia().getUrl();
+                }
+            }
+            
+            // Get next display order
+            long count = storyHighlightRepository.countByUserId(currentUserId);
+            
+            StoryHighlight highlight = StoryHighlight.builder()
+                    .userId(currentUserId)
+                    .title(title)
+                    .coverImageUrl(coverImageUrl)
+                    .storyIds(stories.stream().map(Story::getId).collect(Collectors.toList()))
+                    .displayOrder((int) count)
+                    .viewCount(0)
+                    .createdAt(Instant.now())
+                    .updatedAt(Instant.now())
+                    .build();
+            
+            highlight = storyHighlightRepository.save(highlight);
+            log.info("Created highlight '{}' with {} stories for user {}", title, stories.size(), currentUserId);
+            
+            StoryHighlightResponse response = mapToHighlightResponse(highlight);
+            return ResponseEntity.status(HttpStatus.CREATED).body(response);
+            
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        } catch (Exception e) {
+            log.error("Error creating highlight: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * GET /api/stories/highlights/user/{userId} - Get all highlights for a user
+     */
+    @GetMapping("/highlights/user/{userId}")
+    public ResponseEntity<List<StoryHighlightResponse>> getUserHighlights(@PathVariable String userId) {
+        try {
+            List<StoryHighlight> highlights = storyHighlightRepository.findByUserIdOrderByDisplayOrderAsc(userId);
+            
+            List<StoryHighlightResponse> responses = highlights.stream()
+                    .map(this::mapToHighlightResponse)
+                    .collect(Collectors.toList());
+            
+            return ResponseEntity.ok(responses);
+        } catch (Exception e) {
+            log.error("Error fetching highlights for user {}: {}", userId, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * DELETE /api/stories/highlights/{highlightId} - Delete a highlight
+     * Optionally unarchives stories that are no longer referenced by any other highlight.
+     */
+    @DeleteMapping("/highlights/{highlightId}")
+    public ResponseEntity<Void> deleteHighlight(@PathVariable String highlightId) {
+        try {
+            String currentUserId = getCurrentUserId();
+            
+            Optional<StoryHighlight> highlightOpt = storyHighlightRepository.findById(highlightId);
+            if (highlightOpt.isEmpty()) {
+                return ResponseEntity.notFound().build();
+            }
+            
+            StoryHighlight highlight = highlightOpt.get();
+            if (!highlight.getUserId().equals(currentUserId)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+            }
+            
+            // Collect story IDs from this highlight
+            List<String> storyIdsToCheck = highlight.getStoryIds() != null ? highlight.getStoryIds() : List.of();
+            
+            // Delete the highlight
+            storyHighlightRepository.deleteById(highlightId);
+            log.info("Deleted highlight '{}' ({}) for user {}", highlight.getTitle(), highlightId, currentUserId);
+            
+            // Unarchive stories that are no longer in ANY other highlight
+            if (!storyIdsToCheck.isEmpty()) {
+                List<StoryHighlight> remainingHighlights = storyHighlightRepository.findByUserId(currentUserId);
+                Set<String> stillReferencedIds = remainingHighlights.stream()
+                        .filter(h -> h.getStoryIds() != null)
+                        .flatMap(h -> h.getStoryIds().stream())
+                        .collect(Collectors.toSet());
+                
+                for (String storyId : storyIdsToCheck) {
+                    if (!stillReferencedIds.contains(storyId)) {
+                        storyRepository.findById(storyId).ifPresent(story -> {
+                            if (story.getUserId().equals(currentUserId) && story.isArchived()) {
+                                story.setArchived(false);
+                                story.setHighlightCategory(null);
+                                // Re-set TTL if story was originally 24h
+                                if (story.getExpireAt() == null && story.getCreatedAt() != null) {
+                                    story.setExpireAt(story.getCreatedAt().plusSeconds(86400));
+                                }
+                                storyRepository.save(story);
+                                log.info("Unarchived story {} after highlight deletion", storyId);
+                            }
+                        });
+                    }
+                }
+            }
+            
+            return ResponseEntity.noContent().build();
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        } catch (Exception e) {
+            log.error("Error deleting highlight: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * PUT /api/stories/highlights/{highlightId} - Update a highlight
+     * Supports updating: title, coverImageUrl, storyIds (full replacement), displayOrder.
+     * Automatically archives newly added stories and unarchives removed ones
+     * (if they are no longer in any other highlight).
+     */
+    @PutMapping("/highlights/{highlightId}")
+    public ResponseEntity<StoryHighlightResponse> updateHighlight(
+            @PathVariable String highlightId,
+            @RequestBody Map<String, Object> request) {
+        try {
+            String currentUserId = getCurrentUserId();
+            
+            Optional<StoryHighlight> highlightOpt = storyHighlightRepository.findById(highlightId);
+            if (highlightOpt.isEmpty()) {
+                return ResponseEntity.notFound().build();
+            }
+            
+            StoryHighlight highlight = highlightOpt.get();
+            if (!highlight.getUserId().equals(currentUserId)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+            }
+            
+            // Update title
+            if (request.containsKey("title")) {
+                String newTitle = (String) request.get("title");
+                if (newTitle != null && !newTitle.isBlank()) {
+                    highlight.setTitle(newTitle);
+                }
+            }
+            
+            // Update cover image
+            if (request.containsKey("coverImageUrl")) {
+                highlight.setCoverImageUrl((String) request.get("coverImageUrl"));
+            }
+            
+            // Update display order
+            if (request.containsKey("displayOrder")) {
+                Object orderObj = request.get("displayOrder");
+                if (orderObj instanceof Number) {
+                    highlight.setDisplayOrder(((Number) orderObj).intValue());
+                }
+            }
+            
+            // Update story list (full replacement)
+            if (request.containsKey("storyIds")) {
+                @SuppressWarnings("unchecked")
+                List<String> newStoryIds = (List<String>) request.get("storyIds");
+                List<String> oldStoryIds = highlight.getStoryIds() != null ? highlight.getStoryIds() : List.of();
+                
+                // Find newly added stories and archive them
+                Set<String> oldSet = new HashSet<>(oldStoryIds);
+                for (String storyId : newStoryIds) {
+                    if (!oldSet.contains(storyId)) {
+                        storyRepository.findById(storyId).ifPresent(story -> {
+                            if (story.getUserId().equals(currentUserId) && !story.isArchived()) {
+                                story.setArchived(true);
+                                story.setExpireAt(null);
+                                story.setHighlightCategory(highlight.getTitle());
+                                storyRepository.save(story);
+                                log.info("Archived story {} for highlight '{}'", storyId, highlight.getTitle());
+                            }
+                        });
+                    }
+                }
+                
+                // Find removed stories and unarchive if no longer in any other highlight
+                Set<String> newSet = new HashSet<>(newStoryIds);
+                List<String> removedIds = oldStoryIds.stream()
+                        .filter(id -> !newSet.contains(id))
+                        .collect(Collectors.toList());
+                
+                if (!removedIds.isEmpty()) {
+                    List<StoryHighlight> otherHighlights = storyHighlightRepository.findByUserId(currentUserId)
+                            .stream()
+                            .filter(h -> !h.getId().equals(highlightId))
+                            .collect(Collectors.toList());
+                    Set<String> stillReferencedIds = otherHighlights.stream()
+                            .filter(h -> h.getStoryIds() != null)
+                            .flatMap(h -> h.getStoryIds().stream())
+                            .collect(Collectors.toSet());
+                    
+                    for (String removedId : removedIds) {
+                        if (!stillReferencedIds.contains(removedId)) {
+                            storyRepository.findById(removedId).ifPresent(story -> {
+                                if (story.getUserId().equals(currentUserId) && story.isArchived()) {
+                                    story.setArchived(false);
+                                    story.setHighlightCategory(null);
+                                    if (story.getExpireAt() == null && story.getCreatedAt() != null) {
+                                        story.setExpireAt(story.getCreatedAt().plusSeconds(86400));
+                                    }
+                                    storyRepository.save(story);
+                                    log.info("Unarchived story {} after removal from highlight '{}'", removedId, highlight.getTitle());
+                                }
+                            });
+                        }
+                    }
+                }
+                
+                highlight.setStoryIds(newStoryIds);
+            }
+            
+            highlight.setUpdatedAt(Instant.now());
+            StoryHighlight savedHighlight = storyHighlightRepository.save(highlight);
+            log.info("Updated highlight '{}' ({}) for user {}", savedHighlight.getTitle(), highlightId, currentUserId);
+            
+            return ResponseEntity.ok(mapToHighlightResponse(savedHighlight));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        } catch (Exception e) {
+            log.error("Error updating highlight: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * POST /api/stories/highlights/{highlightId}/stories - Add stories to an existing highlight
+     * Body: { "storyIds": ["id1", "id2", ...] }
+     * Archives added stories automatically.
+     */
+    @PostMapping("/highlights/{highlightId}/stories")
+    public ResponseEntity<StoryHighlightResponse> addStoriesToHighlight(
+            @PathVariable String highlightId,
+            @RequestBody Map<String, Object> request) {
+        try {
+            String currentUserId = getCurrentUserId();
+            
+            Optional<StoryHighlight> highlightOpt = storyHighlightRepository.findById(highlightId);
+            if (highlightOpt.isEmpty()) {
+                return ResponseEntity.notFound().build();
+            }
+            
+            StoryHighlight highlight = highlightOpt.get();
+            if (!highlight.getUserId().equals(currentUserId)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+            }
+            
+            @SuppressWarnings("unchecked")
+            List<String> storyIdsToAdd = (List<String>) request.get("storyIds");
+            if (storyIdsToAdd == null || storyIdsToAdd.isEmpty()) {
+                return ResponseEntity.badRequest().build();
+            }
+            
+            List<String> currentStoryIds = highlight.getStoryIds() != null
+                    ? new ArrayList<>(highlight.getStoryIds())
+                    : new ArrayList<>();
+            Set<String> existingSet = new HashSet<>(currentStoryIds);
+            
+            int addedCount = 0;
+            for (String storyId : storyIdsToAdd) {
+                if (existingSet.contains(storyId)) continue; // skip duplicates
+                
+                Optional<Story> storyOpt = storyRepository.findById(storyId);
+                if (storyOpt.isEmpty()) continue;
+                
+                Story story = storyOpt.get();
+                if (!story.getUserId().equals(currentUserId)) continue;
+                
+                // Archive the story
+                if (!story.isArchived()) {
+                    story.setArchived(true);
+                    story.setExpireAt(null);
+                    story.setHighlightCategory(highlight.getTitle());
+                    storyRepository.save(story);
+                }
+                
+                currentStoryIds.add(storyId);
+                addedCount++;
+            }
+            
+            if (addedCount == 0) {
+                return ResponseEntity.ok(mapToHighlightResponse(highlight)); // nothing to add
+            }
+            
+            highlight.setStoryIds(currentStoryIds);
+            highlight.setUpdatedAt(Instant.now());
+            highlight = storyHighlightRepository.save(highlight);
+            log.info("Added {} stories to highlight '{}' for user {}", addedCount, highlight.getTitle(), currentUserId);
+            
+            return ResponseEntity.ok(mapToHighlightResponse(highlight));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        } catch (Exception e) {
+            log.error("Error adding stories to highlight: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * DELETE /api/stories/highlights/{highlightId}/stories - Remove stories from a highlight
+     * Query params: storyIds=id1,id2,id3
+     * Unarchives removed stories if they are no longer in any other highlight.
+     */
+    @DeleteMapping("/highlights/{highlightId}/stories")
+    public ResponseEntity<StoryHighlightResponse> removeStoriesFromHighlight(
+            @PathVariable String highlightId,
+            @RequestParam List<String> storyIds) {
+        try {
+            String currentUserId = getCurrentUserId();
+            
+            Optional<StoryHighlight> highlightOpt = storyHighlightRepository.findById(highlightId);
+            if (highlightOpt.isEmpty()) {
+                return ResponseEntity.notFound().build();
+            }
+            
+            StoryHighlight highlight = highlightOpt.get();
+            if (!highlight.getUserId().equals(currentUserId)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+            }
+            
+            if (storyIds == null || storyIds.isEmpty()) {
+                return ResponseEntity.badRequest().build();
+            }
+            
+            List<String> currentStoryIds = highlight.getStoryIds() != null
+                    ? new ArrayList<>(highlight.getStoryIds())
+                    : new ArrayList<>();
+            Set<String> toRemove = new HashSet<>(storyIds);
+            
+            // Remove stories from highlight list
+            List<String> removed = currentStoryIds.stream()
+                    .filter(toRemove::contains)
+                    .collect(Collectors.toList());
+            currentStoryIds.removeAll(toRemove);
+            
+            // Unarchive removed stories if they're not in any other highlight
+            if (!removed.isEmpty()) {
+                List<StoryHighlight> otherHighlights = storyHighlightRepository.findByUserId(currentUserId)
+                        .stream()
+                        .filter(h -> !h.getId().equals(highlightId))
+                        .collect(Collectors.toList());
+                Set<String> stillReferencedIds = otherHighlights.stream()
+                        .filter(h -> h.getStoryIds() != null)
+                        .flatMap(h -> h.getStoryIds().stream())
+                        .collect(Collectors.toSet());
+                // Also include the stories that remain in THIS highlight
+                stillReferencedIds.addAll(currentStoryIds);
+                
+                for (String removedId : removed) {
+                    if (!stillReferencedIds.contains(removedId)) {
+                        storyRepository.findById(removedId).ifPresent(story -> {
+                            if (story.getUserId().equals(currentUserId) && story.isArchived()) {
+                                story.setArchived(false);
+                                story.setHighlightCategory(null);
+                                if (story.getExpireAt() == null && story.getCreatedAt() != null) {
+                                    story.setExpireAt(story.getCreatedAt().plusSeconds(86400));
+                                }
+                                storyRepository.save(story);
+                                log.info("Unarchived story {} after removal from highlight", removedId);
+                            }
+                        });
+                    }
+                }
+            }
+            
+            highlight.setStoryIds(currentStoryIds);
+            highlight.setUpdatedAt(Instant.now());
+            highlight = storyHighlightRepository.save(highlight);
+            log.info("Removed {} stories from highlight '{}' for user {}", removed.size(), highlight.getTitle(), currentUserId);
+            
+            return ResponseEntity.ok(mapToHighlightResponse(highlight));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        } catch (Exception e) {
+            log.error("Error removing stories from highlight: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * GET /api/stories/user/{userId}/all - Get ALL stories for a user (including archived/expired)
+     * Used by highlight selection modal to show available stories
+     */
+    @GetMapping("/user/{userId}/all")
+    public ResponseEntity<List<StoryResponse>> getAllUserStories(@PathVariable String userId) {
+        try {
+            String currentUserId = getCurrentUserId();
+            
+            // Only owner can see all their stories
+            if (!userId.equals(currentUserId)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+            }
+            
+            List<Story> stories = storyRepository.findByUserIdAndStatusOrderByCreatedAtDesc(
+                    userId, StatusType.ACTIVE
+            );
+            
+            List<StoryResponse> responses = stories.stream()
+                    .map(this::mapToResponse)
+                    .collect(Collectors.toList());
+            
+            return ResponseEntity.ok(responses);
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        } catch (Exception e) {
+            log.error("Error fetching all user stories: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * Map StoryHighlight entity to response DTO with populated stories
+     */
+    private StoryHighlightResponse mapToHighlightResponse(StoryHighlight highlight) {
+        List<StoryResponse> storyResponses = new ArrayList<>();
+        if (highlight.getStoryIds() != null) {
+            for (String storyId : highlight.getStoryIds()) {
+                Optional<Story> storyOpt = storyRepository.findById(storyId);
+                storyOpt.ifPresent(story -> storyResponses.add(mapToResponse(story)));
+            }
+        }
+        
+        return StoryHighlightResponse.builder()
+                .id(highlight.getId())
+                .userId(highlight.getUserId())
+                .title(highlight.getTitle())
+                .coverImageUrl(highlight.getCoverImageUrl())
+                .stories(storyResponses)
+                .displayOrder(highlight.getDisplayOrder())
+                .viewCount(highlight.getViewCount())
+                .createdAt(highlight.getCreatedAt())
+                .updatedAt(highlight.getUpdatedAt())
+                .build();
     }
 
     /**

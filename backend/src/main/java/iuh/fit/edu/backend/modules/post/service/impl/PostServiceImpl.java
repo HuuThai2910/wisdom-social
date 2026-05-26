@@ -21,6 +21,7 @@ import iuh.fit.edu.backend.modules.post.repository.PostRepository;
 import iuh.fit.edu.backend.modules.post.repository.ReactionRepository;
 import iuh.fit.edu.backend.common.service.s3.S3Service;
 import iuh.fit.edu.backend.modules.post.service.PostService;
+import iuh.fit.edu.backend.modules.post.service.HashtagTrendingService;
 import iuh.fit.edu.backend.modules.user.service.FriendService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -64,6 +65,7 @@ public class PostServiceImpl implements PostService {
     private final ReactionRepository reactionRepository;
     private final CommentRepository commentRepository;
     private final FriendService friendService;
+    private final HashtagTrendingService hashtagTrendingService;
     
     @Override
     @Transactional
@@ -185,6 +187,15 @@ public class PostServiceImpl implements PostService {
             log.info("No image URLs provided");
         }
         
+        // Update hashtag trending stats
+        if (savedPost.getHashtags() != null && !savedPost.getHashtags().isEmpty()) {
+            try {
+                hashtagTrendingService.updateHashtagOnPostCreated(savedPost.getId(), savedPost.getAuthorId(), savedPost.getHashtags());
+            } catch (Exception e) {
+                log.error("Failed to update hashtag trending for post {}: {}", savedPost.getId(), e.getMessage());
+            }
+        }
+
         // Broadcast CREATE event - Post-commit for stability
         final Post finalPost = savedPost;
         if (TransactionSynchronizationManager.isActualTransactionActive()) {
@@ -334,6 +345,15 @@ public class PostServiceImpl implements PostService {
             }
         }
         
+        // Update hashtag trending stats
+        if (post.getHashtags() != null && !post.getHashtags().isEmpty()) {
+            try {
+                hashtagTrendingService.updateHashtagOnPostDeleted(postId, post.getHashtags());
+            } catch (Exception e) {
+                log.error("Failed to update hashtag trending on post delete {}: {}", postId, e.getMessage());
+            }
+        }
+
         // Delete the post
         postRepository.delete(post);
         log.info("Post {} deleted successfully", postId);
@@ -377,6 +397,9 @@ public class PostServiceImpl implements PostService {
             throw new RuntimeException("Unauthorized: You can only edit your own posts");
         }
         
+        // Capture old hashtags for trending updates
+        List<String> oldHashtags = post.getHashtags() != null ? new ArrayList<>(post.getHashtags()) : new ArrayList<>();
+
         // Update post fields only if provided (not null)
         if (request.getContent() != null) {
             post.setContent(request.getContent());
@@ -567,6 +590,13 @@ public class PostServiceImpl implements PostService {
         Post updated = postRepository.save(post);
         log.info("✅ Post {} updated successfully with {} media items", postId, updated.getMedia().size());
         
+        // Update hashtag trending stats
+        try {
+            hashtagTrendingService.updateHashtagOnPostUpdated(updated.getId(), updated.getAuthorId(), oldHashtags, updated.getHashtags());
+        } catch (Exception e) {
+            log.error("Failed to update hashtag trending on post update {}: {}", updated.getId(), e.getMessage());
+        }
+
         // Broadcast UPDATE event - Post-commit
         if (TransactionSynchronizationManager.isActualTransactionActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
@@ -848,5 +878,26 @@ public class PostServiceImpl implements PostService {
             media.setUrl(canonical);
             media.setType(resolveMediaTypeFromKey(canonical));
         }
+    }
+
+    @Override
+    public Page<Post> getPostsByHashtag(String hashtag, Long currentUserId, int page, int size) {
+        log.info("Getting posts for hashtag {} viewed by {}, page={}, size={}", hashtag, currentUserId, page, size);
+
+        List<String> friendIds = new ArrayList<>();
+        if (currentUserId != null) {
+            friendIds = friendService.getAcceptedFriendIds(currentUserId).stream()
+                    .map(Object::toString)
+                    .collect(Collectors.toList());
+        }
+
+        String viewerId = currentUserId != null ? currentUserId.toString() : "";
+        List<Post> posts = postRepository.findPostsByHashtag(hashtag, viewerId, friendIds, page, size);
+        long total = postRepository.countPostsByHashtag(hashtag, viewerId, friendIds);
+
+        posts.forEach(this::sanitizeMediaKeys);
+
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        return new PageImpl<>(posts, pageable, total);
     }
 }

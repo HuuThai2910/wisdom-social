@@ -1,10 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import QRCode from "qrcode";
-import axios from "axios";
+import axiosClient from "../api/axiosClient";
 import { setCookie } from "../utils/cookies";
 
-const API_BASE_URL = "http://localhost:8080/api";
 
 export default function QRLogin() {
   const [sessionId, setSessionId] = useState<string>("");
@@ -70,7 +69,7 @@ export default function QRLogin() {
   const createQRSession = async () => {
     try {
       resetQrState();
-      const response = await axios.get(`${API_BASE_URL}/session/qr-login/create`);
+      const response = await axiosClient.get(`/session/qr-login/create`);
       const newSessionId = response.data;
       setSessionId(newSessionId);
 
@@ -109,7 +108,7 @@ export default function QRLogin() {
     if (!sessionId) return;
     pollRef.current = window.setInterval(async () => {
       try {
-        const response = await axios.get(`${API_BASE_URL}/session/qr-login/status/${sessionId}`);
+        const response = await axiosClient.get(`/session/qr-login/status/${sessionId}`);
         console.log("QR status response:", response.data.data);
         const { status, expireAt } = response.data.data;
 
@@ -124,7 +123,7 @@ export default function QRLogin() {
         if (status === "CONFIRMED") {
           clearTimers();
 
-          const tokenResponse = await axios.get(`${API_BASE_URL}/session/qr-login/access-token/${sessionId}`);
+          const tokenResponse = await axiosClient.get(`/session/qr-login/access-token/${sessionId}`);
           const rawTokenPayload = tokenResponse.data?.data ?? tokenResponse.data;
 
           // Accept multiple payload shapes from backend for safety.

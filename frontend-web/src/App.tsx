@@ -40,7 +40,6 @@ import Messages from "./pages/Messages";
 import ProfileMyPosts from "./pages/ProfileMyPosts";
 import ProfileSavedPost from "./pages/ProfileSavedPost";
 import ProfileTaggedPost from "./pages/ProfileTaggedPost";
-import ProfileBlocked from "./pages/ProfileBlocked";
 import ProfileShared from "./pages/ProfileShared";
 import ProfileGeneral from "./pages/ProfileGeneral";
 import CreatePost from "./pages/CreatePost";
@@ -150,7 +149,6 @@ function App() {
                     <Route path="saved" element={<ProfileSavedPost />} />
                     <Route path="tagged" element={<ProfileTaggedPost />} />
                     <Route path="shared" element={<ProfileShared />} />
-                    <Route path="blocked" element={<ProfileBlocked />} />
                   </Route>
 
                   <Route path="/profile/:username/general" element={<ProfileGeneral />} />

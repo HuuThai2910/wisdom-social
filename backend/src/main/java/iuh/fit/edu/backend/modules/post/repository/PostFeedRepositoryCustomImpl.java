@@ -207,4 +207,41 @@ public class PostFeedRepositoryCustomImpl implements PostFeedRepositoryCustom {
                 )
         );
     }
+
+    @Override
+    public List<Post> findPostsByHashtag(
+            String hashtag,
+            String currentUserId,
+            List<String> friendIds,
+            int page,
+            int size
+    ) {
+        List<Criteria> andCriteria = new ArrayList<>();
+        // Compare with lowercase for case-insensitivity consistency
+        andCriteria.add(Criteria.where("hashtags").is(hashtag.trim().toLowerCase()));
+        andCriteria.add(Criteria.where("status").is(StatusType.ACTIVE));
+        andCriteria.add(buildPrivacyCriteria(currentUserId, friendIds));
+
+        Query query = new Query(new Criteria().andOperator(andCriteria));
+        query.with(Sort.by(Sort.Order.desc("createdAt")));
+        query.skip((long) page * size);
+        query.limit(size);
+
+        return mongoTemplate.find(query, Post.class);
+    }
+
+    @Override
+    public long countPostsByHashtag(
+            String hashtag,
+            String currentUserId,
+            List<String> friendIds
+    ) {
+        List<Criteria> andCriteria = new ArrayList<>();
+        andCriteria.add(Criteria.where("hashtags").is(hashtag.trim().toLowerCase()));
+        andCriteria.add(Criteria.where("status").is(StatusType.ACTIVE));
+        andCriteria.add(buildPrivacyCriteria(currentUserId, friendIds));
+
+        Query query = new Query(new Criteria().andOperator(andCriteria));
+        return mongoTemplate.count(query, Post.class);
+    }
 }

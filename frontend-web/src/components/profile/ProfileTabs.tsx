@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { Grid, Bookmark, Ban, Share2, UserSquare2 } from "lucide-react";
+import { Grid, Bookmark, Share2, UserSquare2 } from "lucide-react";
 
 interface ProfileTabsProps {
   username: string;
@@ -7,12 +7,11 @@ interface ProfileTabsProps {
 
 export default function ProfileTabs({ username }: ProfileTabsProps) {
   const basePath = `/profile/${username}`;
-const tabs = [
+  const tabs = [
     { icon: Grid, label: "Post", path: basePath, end: true },
     { icon: Bookmark, label: "Saved", path: `${basePath}/saved` },
     { icon: UserSquare2, label: "Tagged", path: `${basePath}/tagged` },
     { icon: Share2, label: "Shared", path: `${basePath}/shared` },
-    { icon: Ban, label: "Blocked", path: `${basePath}/blocked` },
   ];
 
   return (
