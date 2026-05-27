@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import type { User } from "../../types";
 import {
   Settings,
@@ -14,6 +14,7 @@ import {
   Users as UsersIcon,
   MessageSquare,
   Phone,
+  QrCode,
   Plus,
 } from "lucide-react";
 import { logout } from "../../utils/auth";
@@ -33,6 +34,7 @@ import {
   getUserHighlights,
   type StoryHighlight,
 } from "../../services/highlightService";
+import CreateHighlightModal from "./CreateHighlightModal";
 
 interface ProfileHeaderProps {
   user: User;
@@ -95,10 +97,20 @@ export default function ProfileHeader({
       .catch(() => setPostsCount(0));
   }, [user?.id]);
 
+  // Check if user has an active story
+  const {
+    hasStory: hasActiveStory,
+    hasUnviewed: hasUnviewedStory,
+    refresh: refreshActiveStory,
+  } = useHasActiveStory(user?.id);
+
+  const [activeStories, setActiveStories] = useState<any[]>([]);
+  const [isViewerOpen, setIsViewerOpen] = useState(false);
+
   // Highlights state
   const [highlights, setHighlights] = useState<StoryHighlight[]>([]);
-  const [viewingHighlight, setViewingHighlight] =
-    useState<StoryHighlight | null>(null);
+  const [showCreateHighlight, setShowCreateHighlight] = useState(false);
+  const [viewingHighlight, setViewingHighlight] = useState<StoryHighlight | null>(null);
 
   // Fetch highlights
   const fetchHighlights = useCallback(async () => {
@@ -220,11 +232,7 @@ export default function ProfileHeader({
                   hasActiveStory
                     ? `p-0.75 rounded-full ${
                         hasUnviewedStory
-                          ? `bg-linear-to-tr ${
-                              isOwnProfile
-                                ? "from-green-400 to-emerald-500"
-                                : "from-blue-400 to-indigo-500"
-                            }`
+                          ? `bg-linear-to-tr ${isOwnProfile ? "from-green-400 to-emerald-500" : "from-blue-400 to-indigo-500"}`
                           : "bg-gray-300 dark:bg-zinc-700"
                       }`
                     : ""
@@ -366,19 +374,15 @@ export default function ProfileHeader({
               )}
             </div>
           </div>
-        </div>
-      </div>
 
-      {/* Story Highlights Section - Full width */}
-      {(isOwnProfile || highlights.length > 0) && (
-        <div className="bg-white dark:bg-black">
-          <div className="max-w-3xl mx-auto px-4">
+          {/* Story Highlights Section - Full width */}
+          {(isOwnProfile || highlights.length > 0) && (
             <div className="mt-6 pt-6 border-t border-gray-200 dark:border-[#262626]">
-              <div className="flex gap-5 overflow-x-auto pb-2 scrollbar-thin justify-center">
+              <div className="flex gap-5 overflow-x-auto pb-2 scrollbar-thin">
                 {/* Create New Highlight Button (own profile only) */}
                 {isOwnProfile && (
-                  <Link
-                    to="/create-story"
+                  <button
+                    onClick={() => setShowCreateHighlight(true)}
                     className="flex flex-col items-center gap-2 shrink-0 group"
                   >
                     <div className="w-[72px] h-[72px] rounded-full border-2 border-dashed border-gray-300 dark:border-[#363636] flex items-center justify-center group-hover:border-blue-400 dark:group-hover:border-blue-500 transition-colors bg-gray-50 dark:bg-[#1a1a1a] group-hover:bg-blue-50 dark:group-hover:bg-blue-900/10">
@@ -391,19 +395,18 @@ export default function ProfileHeader({
                     <span className="text-xs text-gray-600 dark:text-gray-400 font-medium group-hover:text-blue-500 transition-colors w-[72px] text-center truncate">
                       Mới
                     </span>
-                  </Link>
+                  </button>
                 )}
 
                 {/* Existing Highlights */}
                 {highlights.map((hl) => {
-                  const isTextCover =
-                    hl.coverImageUrl?.startsWith("text-story:");
+                  const isTextCover = hl.coverImageUrl?.startsWith("text-story:");
                   const coverUrl = isTextCover
                     ? null
-                    : buildS3Url(hl.coverImageUrl) ||
-                      (hl.stories?.[0]?.media?.url
-                        ? buildS3Url(hl.stories[0].media.url)
-                        : null);
+                    : (buildS3Url(hl.coverImageUrl) ||
+                       (hl.stories?.[0]?.media?.url
+                         ? buildS3Url(hl.stories[0].media.url)
+                         : null));
 
                   return (
                     <button
@@ -421,26 +424,17 @@ export default function ProfileHeader({
                         <div className="w-full h-full rounded-full overflow-hidden border-2 border-white dark:border-[#1a1a1a] bg-gray-100 dark:bg-[#262626]">
                           {isTextCover ? (
                             (() => {
-                              const storyText = hl.coverImageUrl!.substring(
-                                "text-story:".length
-                              );
+                              const storyText = hl.coverImageUrl!.substring("text-story:".length);
                               const bgMatch = storyText.match(/\[bg:(.*?)\]/);
-                              let bgClass =
-                                "bg-gradient-to-br from-purple-500 to-blue-500";
+                              let bgClass = "bg-gradient-to-br from-purple-500 to-blue-500";
                               let cleanText = storyText;
                               if (bgMatch) {
                                 bgClass = bgMatch[1];
-                                cleanText = storyText
-                                  .replace(/\[bg:(.*?)\]/, "")
-                                  .trim();
+                                cleanText = storyText.replace(/\[bg:(.*?)\]/, "").trim();
                               }
                               return (
-                                <div
-                                  className={`w-full h-full ${bgClass} flex items-center justify-center p-1 text-center`}
-                                >
-                                  <span className="text-white text-[8px] line-clamp-2 leading-tight font-bold">
-                                    {cleanText}
-                                  </span>
+                                <div className={`w-full h-full ${bgClass} flex items-center justify-center p-1 text-center`}>
+                                  <span className="text-white text-[8px] line-clamp-2 leading-tight font-bold">{cleanText}</span>
                                 </div>
                               );
                             })()
@@ -467,9 +461,32 @@ export default function ProfileHeader({
                 })}
               </div>
             </div>
-          </div>
+          )}
         </div>
-      )}
+
+        {/* ── Story Highlights Section ─────────────────────────────────── */}
+        {isOwnProfile && (
+          <div className="mt-6 pt-6 border-t border-gray-200 dark:border-[#262626]">
+            <div className="flex gap-5 overflow-x-auto pb-2">
+              <Link
+                to="/create-story"
+                className="flex flex-col items-center gap-2 shrink-0 group"
+              >
+                <div className="w-18 h-18 rounded-full border-2 border-dashed border-gray-300 dark:border-[#363636] flex items-center justify-center group-hover:border-blue-400 dark:group-hover:border-blue-500 transition-colors bg-gray-50 dark:bg-[#1a1a1a] group-hover:bg-blue-50 dark:group-hover:bg-blue-900/10">
+                  <Plus
+                    size={28}
+                    strokeWidth={1.5}
+                    className="text-gray-400 group-hover:text-blue-500 transition-colors"
+                  />
+                </div>
+                <span className="text-xs text-gray-600 dark:text-gray-400 font-medium group-hover:text-blue-500 transition-colors">
+                  Mới
+                </span>
+              </Link>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* ── Note modal ──────────────────────────────────────────────── */}
       {showNoteModal && (
