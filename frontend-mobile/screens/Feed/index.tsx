@@ -1,86 +1,91 @@
-import { AppHeader, PostCard, StoryBubble } from "@/components";
+import { AppHeader, EmptyState, PostCard, StoriesBar } from "@/components";
 import { colors, spacing } from "@/constants";
 import { useAppContext } from "@/context/AppContext";
 import { useRouter } from "expo-router";
-import { FlatList, SafeAreaView, StyleSheet } from "react-native";
+import { useCallback, useMemo, useState } from "react";
+import { ActivityIndicator, FlatList, RefreshControl, SafeAreaView, StyleSheet, Text, View } from "react-native";
 
 export default function FeedScreen() {
     const router = useRouter();
     const {
         posts,
-        stories,
+        currentUser,
+        upsertUsers,
+        loggedIn,
         likedPostIds,
         savedPostIds,
         likePost,
         savePost,
         addComment,
         getUserById,
+        refreshPosts,
+        removePost,
+        updatePostPrivacyLocal,
     } = useAppContext();
+    const [refreshing, setRefreshing] = useState(false);
+
+    const sortedPosts = useMemo(
+        () =>
+            [...posts].sort((a, b) => {
+                const da = new Date(a.rankingTime || a.createdAt).getTime();
+                const db = new Date(b.rankingTime || b.createdAt).getTime();
+                if (Number.isNaN(da) || Number.isNaN(db)) return 0;
+                return db - da;
+            }),
+        [posts],
+    );
+
+    const onRefresh = useCallback(async () => {
+        setRefreshing(true);
+        try {
+            await refreshPosts();
+        } finally {
+            setRefreshing(false);
+        }
+    }, [refreshPosts]);
 
     return (
         <SafeAreaView style={styles.container}>
             <AppHeader
-                title="Instagram"
-                leftAction={{
-                    icon: "flag-outline",
-                    onPress: () => router.push("/(tabs)/pages"),
-                }}
+                title="Wisdom Social"
+                leftAction={{ icon: "flag-outline", onPress: () => router.push("/(tabs)/pages") }}
                 rightActions={[
-                    {
-                        icon: "scan-outline",
-                        onPress: () => router.push("/(stack)/qr-scanner"),
-                    },
-                    {
-                        icon: "notifications-outline",
-                        onPress: () => router.push("/(stack)/notifications"),
-                    },
-                    {
-                        icon: "heart-outline",
-                        onPress: () => router.push("/(stack)/likes"),
-                    },
+                    { icon: "scan-outline", onPress: () => router.push("/(stack)/qr-scanner") },
+                    { icon: "notifications-outline", onPress: () => router.push("/(stack)/notifications") },
+                    { icon: "heart-outline", onPress: () => router.push("/(stack)/likes") },
                 ]}
             />
 
             <FlatList
-                data={posts}
+                data={sortedPosts}
                 keyExtractor={(item) => item.id}
-                ListHeaderComponent={
-                    <FlatList
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        data={stories}
-                        keyExtractor={(item) => item.id}
-                        contentContainerStyle={styles.storyList}
-                        renderItem={({ item }) => {
-                            const user = getUserById(item.userId);
-                            if (!user) return null;
-                            return (
-                                <StoryBubble
-                                    name={user.username}
-                                    avatar={user.avatar}
-                                    viewed={item.viewed}
-                                    onPress={() =>
-                                        router.push({
-                                            pathname:
-                                                "/(stack)/story/[storyId]",
-                                            params: { storyId: item.id },
-                                        })
-                                    }
-                                />
-                            );
-                        }}
-                    />
+                ListHeaderComponent={<StoriesBar currentUser={currentUser} onUsersLoaded={upsertUsers} />}
+                ListEmptyComponent={
+                    <View style={styles.emptyWrap}>
+                        {refreshing ? (
+                            <ActivityIndicator color={colors.primary} />
+                        ) : loggedIn ? (
+                            <EmptyState title="Chưa có bài viết" description="Hãy theo dõi bạn bè hoặc tạo bài viết mới để xem bảng tin." />
+                        ) : (
+                            <Text style={styles.loginText}>Vui lòng đăng nhập để xem bài viết</Text>
+                        )}
+                    </View>
                 }
                 showsVerticalScrollIndicator={false}
+                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
                 renderItem={({ item }) => (
                     <PostCard
                         post={item}
-                        author={getUserById(item.userId)}
-                        liked={likedPostIds.includes(item.id)}
-                        saved={savedPostIds.includes(item.id)}
-                        onLike={() => likePost(item.id)}
-                        onSave={() => savePost(item.id)}
-                        onAddComment={(content) => addComment(item.id, content)}
+                        author={item.user || getUserById(item.userId)}
+                        currentUserId={currentUser?.id}
+                        liked={likedPostIds.includes(item.id) || item.isLiked}
+                        saved={savedPostIds.includes(item.id) || item.isSaved}
+                        onLike={() => void likePost(item.id)}
+                        onSave={() => void savePost(item.id)}
+                        onAddComment={(content) => void addComment(item.id, content)}
+                        onDeleted={removePost}
+                        onPrivacyChanged={updatePostPrivacyLocal}
+                        onOpenPost={(postId) => router.push({ pathname: "/(stack)/post/[postId]" as any, params: { postId } })}
                     />
                 )}
             />
@@ -89,14 +94,7 @@ export default function FeedScreen() {
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: colors.white,
-    },
-    storyList: {
-        paddingHorizontal: spacing.md,
-        paddingVertical: spacing.md,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.border,
-    },
+    container: { flex: 1, backgroundColor: colors.white },
+    emptyWrap: { paddingVertical: spacing.xxl },
+    loginText: { color: colors.textMuted, textAlign: "center", padding: spacing.xl },
 });

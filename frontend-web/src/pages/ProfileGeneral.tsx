@@ -113,7 +113,7 @@ export default function ProfileGeneral() {
   return (
     <div className="bg-white dark:bg-black min-h-screen">
       <ProfileHeader user={user} isOwnProfile={isOwnProfile} />
-      <ProfileTabs username={username!} />
+      <ProfileTabs username={username!} isOwnProfile={isOwnProfile} />
       <div className="max-w-3xl mx-auto px-1 sm:px-2 py-10 text-center text-gray-500 dark:text-gray-400 text-sm">
         Thông tin chung sẽ hiển thị tại đây
       </div>

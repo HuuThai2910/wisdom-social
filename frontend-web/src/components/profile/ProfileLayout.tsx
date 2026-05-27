@@ -1,5 +1,5 @@
-import { useParams, Outlet } from "react-router-dom";
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useParams, Outlet, useNavigate } from "react-router-dom";
 import ProfileHeader from "./ProfileHeader";
 import ProfileTabs from "./ProfileTabs";
 import type { User } from "../../types";
@@ -13,6 +13,7 @@ import { useFriendDataSafe } from "../../contexts/FriendDataContext";
 
 export default function ProfileLayout() {
   const { username } = useParams();
+  const navigate = useNavigate();
   const [user, setUser] = useState<User | null>(null);
   const [isOwnProfile, setIsOwnProfile] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -32,7 +33,9 @@ export default function ProfileLayout() {
 
   const handleFriendRemoved = useCallback(() => {
     setUser((prev) =>
-      prev ? { ...prev, friendsCount: Math.max(0, (prev.friendsCount ?? 0) - 1) } : prev
+      prev
+        ? { ...prev, friendsCount: Math.max(0, (prev.friendsCount ?? 0) - 1) }
+        : prev
     );
   }, []);
 
@@ -43,6 +46,19 @@ export default function ProfileLayout() {
       try {
         setLoading(true);
         setError("");
+
+        // Check if username is a numeric ID
+        if (/^\d+$/.test(username)) {
+          try {
+            const profile = await userService.getUserProfile(username);
+            if (profile && profile.username) {
+              navigate(`/profile/${profile.username}`, { replace: true });
+              return;
+            }
+          } catch (err) {
+            console.error("Error loading user profile by ID:", err);
+          }
+        }
 
         const users = await userService.searchUserByUsername(username);
         if (users && users.length > 0) {

@@ -1,12 +1,33 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { X, ChevronLeft, ChevronRight, MoreHorizontal, Trash2, Lock, Settings, Globe, Users, Eye } from "lucide-react";
+import {
+  X,
+  ChevronLeft,
+  ChevronRight,
+  MoreHorizontal,
+  Trash2,
+  Lock,
+  Settings,
+  Globe,
+  Users,
+  Eye,
+} from "lucide-react";
 import { buildS3Url } from "../../utils/s3";
-import { viewStory, deleteStory, updateStoryPrivacy, updateStorySettings, fetchStoryViewers } from "../../services/storyService";
+import {
+  viewStory,
+  deleteStory,
+  updateStoryPrivacy,
+  updateStorySettings,
+  fetchStoryViewers,
+} from "../../services/storyService";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { musicFeedManager } from "../../services/MusicFeedManager";
 import StoryOptionsBottomSheet from "./StoryOptionsBottomSheet";
 import StoryReactionBar from "./StoryReactionBar";
 import StoryViewersBottomSheet from "./StoryViewersBottomSheet";
+import { removeStoriesFromHighlight } from "../../services/highlightService";
+import HighlightOptionsBottomSheet from "./HighlightOptionsBottomSheet";
+import EditHighlightModal from "./EditHighlightModal";
+import useRealtimeStory from "../../hooks/useRealtimeStory";
 
 export interface StoryGroup {
   userId: string;
@@ -23,6 +44,11 @@ interface StoryViewerModalProps {
   initialStoryIdx?: number;
   onStoryViewed?: (storyId: string) => void;
   onGroupChanged?: (groupIdx: number) => void;
+  highlightId?: string;
+  highlightTitle?: string;
+  highlightCoverImageUrl?: string;
+  onStoryRemovedFromHighlight?: (storyId: string) => void;
+  onHighlightUpdated?: () => void;
 }
 
 export default function StoryViewerModal({
@@ -33,6 +59,11 @@ export default function StoryViewerModal({
   initialStoryIdx = 0,
   onStoryViewed,
   onGroupChanged,
+  highlightId,
+  highlightTitle,
+  highlightCoverImageUrl,
+  onStoryRemovedFromHighlight,
+  onHighlightUpdated,
 }: StoryViewerModalProps) {
   // Use groups directly — parent is responsible for keeping them stable
   const [groupIdx, setGroupIdx] = useState(initialGroupIdx);
@@ -47,10 +78,28 @@ export default function StoryViewerModal({
   // Clamp indices to valid range
   const safeGroupIdx = Math.max(0, Math.min(groupIdx, groups.length - 1));
   const activeGroup = groups[safeGroupIdx];
-  const safeStoryIdx = activeGroup ? Math.max(0, Math.min(storyIdx, activeGroup.stories.length - 1)) : 0;
+  const safeStoryIdx = activeGroup
+    ? Math.max(0, Math.min(storyIdx, activeGroup.stories.length - 1))
+    : 0;
   const activeStory = activeGroup?.stories[safeStoryIdx];
   const currentUser = useCurrentUser();
-  const isMyStory = currentUser && activeGroup && String(currentUser.id) === String(activeGroup.userId);
+
+  // Synchronous check against cached user in localStorage to prevent render flash
+  const cachedUserStr = localStorage.getItem("current_user");
+  let cachedUserId: string | null = null;
+  if (cachedUserStr) {
+    try {
+      const parsed = JSON.parse(cachedUserStr);
+      if (parsed && parsed.id) {
+        cachedUserId = String(parsed.id);
+      }
+    } catch (e) {}
+  }
+
+  const isMyStory =
+    activeGroup &&
+    ((currentUser && String(currentUser.id) === String(activeGroup.userId)) ||
+      (cachedUserId && String(cachedUserId) === String(activeGroup.userId)));
 
   // Sync state when modal is opened (reset to initial indices)
   useEffect(() => {
@@ -60,27 +109,35 @@ export default function StoryViewerModal({
       setProgress(0);
       setIsFinished(false);
       setShowViewers(false);
+      setShowHighlightOptions(false);
     }
   }, [isOpen]);
 
   // Close viewers sheet when story changes
   useEffect(() => {
     setShowViewers(false);
+    setShowHighlightOptions(false);
   }, [groupIdx, storyIdx]);
 
   const [showOptions, setShowOptions] = useState(false);
   const [showViewers, setShowViewers] = useState(false);
+  const [showHighlightOptions, setShowHighlightOptions] = useState(false);
+  const [showEditHighlight, setShowEditHighlight] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [isRemovingHighlight, setIsRemovingHighlight] = useState(false);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [syncedViewCount, setSyncedViewCount] = useState<number | null>(null);
+
+  const isModalOpen =
+    showOptions || showViewers || showHighlightOptions || showEditHighlight;
 
   // Fetch real view count when story changes (owner only)
   useEffect(() => {
     if (isOpen && activeStory && isMyStory) {
       // Set to current viewCount initially
       setSyncedViewCount(activeStory.viewCount || 0);
-      
+
       // Fetch fresh count from server
       fetchStoryViewers(activeStory.id)
         .then((viewersList) => {
@@ -97,6 +154,20 @@ export default function StoryViewerModal({
     }
   }, [isOpen, activeStory?.id, isMyStory]);
 
+  useRealtimeStory({
+    storyId: activeStory?.id || "",
+    enabled: !!(isOpen && activeStory?.id && isMyStory),
+    onStoryUpdate: (event) => {
+      if (event && event.type === "STORY_VIEW") {
+        const newCount = event.data?.viewCount;
+        if (typeof newCount === "number") {
+          setSyncedViewCount(newCount);
+          activeStory.viewCount = newCount;
+        }
+      }
+    },
+  });
+
   const handleDelete = async () => {
     if (!activeStory) return;
     if (window.confirm("Bạn có chắc chắn muốn xóa tin này không?")) {
@@ -107,7 +178,9 @@ export default function StoryViewerModal({
         // After deleting, advance to next story or close
         const group = groups[groupIdx];
         if (group) {
-          const remainingStories = group.stories.filter((s) => s.id !== activeStory.id);
+          const remainingStories = group.stories.filter(
+            (s) => s.id !== activeStory.id
+          );
           if (remainingStories.length === 0) {
             // No more stories in this group
             if (groupIdx < groups.length - 1) {
@@ -115,7 +188,7 @@ export default function StoryViewerModal({
               setStoryIdx(0);
             } else {
               // Last group — close modal
-              handleClose();
+              onClose();
               return;
             }
           } else if (storyIdx >= remainingStories.length) {
@@ -124,7 +197,7 @@ export default function StoryViewerModal({
               setGroupIdx((prev) => prev + 1);
               setStoryIdx(0);
             } else {
-              handleClose();
+              onClose();
               return;
             }
           }
@@ -158,7 +231,11 @@ export default function StoryViewerModal({
     }
   };
 
-  const handleUpdateSettings = async (settings: { allowReplies?: boolean; allowReactions?: boolean; allowSharing?: boolean }) => {
+  const handleUpdateSettings = async (settings: {
+    allowReplies?: boolean;
+    allowReactions?: boolean;
+    allowSharing?: boolean;
+  }) => {
     if (!activeStory) return;
     setIsUpdating(true);
     try {
@@ -175,9 +252,53 @@ export default function StoryViewerModal({
     }
   };
 
+  const handleRemoveFromHighlight = async () => {
+    if (!activeStory || !highlightId) return;
+    if (window.confirm("Bạn có chắc chắn muốn gỡ tin này khỏi tin nổi bật?")) {
+      setIsRemovingHighlight(true);
+      try {
+        await removeStoriesFromHighlight(highlightId, [activeStory.id]);
+
+        // Notify parent to refresh highlights list
+        onStoryRemovedFromHighlight?.(activeStory.id);
+
+        // Advance to next story or close
+        const group = groups[groupIdx];
+        if (group) {
+          const remainingStories = group.stories.filter(
+            (s) => s.id !== activeStory.id
+          );
+          // Mutate local array reference
+          group.stories = remainingStories;
+
+          if (remainingStories.length === 0) {
+            onClose();
+            return;
+          } else if (storyIdx >= remainingStories.length) {
+            setStoryIdx(remainingStories.length - 1);
+          }
+        }
+
+        setShowHighlightOptions(false);
+        setIsPaused(false);
+        setProgress(0);
+      } catch (err) {
+        alert("Gỡ tin nổi bật thất bại!");
+      } finally {
+        setIsRemovingHighlight(false);
+      }
+    }
+  };
+
   // Record view on story active
   useEffect(() => {
-    if (isOpen && activeStory && currentUser && !activeStory.isViewed && !isFinished) {
+    if (
+      isOpen &&
+      activeStory &&
+      currentUser &&
+      !activeStory.isViewed &&
+      !isFinished
+    ) {
       viewStory(activeStory.id).then(() => {
         activeStory.isViewed = true;
         onStoryViewed?.(activeStory.id);
@@ -270,14 +391,17 @@ export default function StoryViewerModal({
     let activeAudio: HTMLAudioElement | null = null;
 
     if (activeStory.music && activeStory.music.audioUrl) {
-      const resolvedUrl = buildS3Url(activeStory.music.audioUrl) || activeStory.music.audioUrl;
+      const resolvedUrl =
+        buildS3Url(activeStory.music.audioUrl) || activeStory.music.audioUrl;
       activeAudio = new Audio(resolvedUrl);
       activeAudio.volume = 0.8;
       activeAudio.loop = true;
       audioRef.current = activeAudio;
 
       if (!isPaused) {
-        activeAudio.play().catch((err) => console.log("Audio play blocked:", err));
+        activeAudio
+          .play()
+          .catch((err) => console.log("Audio play blocked:", err));
       }
     }
 
@@ -295,7 +419,8 @@ export default function StoryViewerModal({
   // Progress Timer Effect (only for non-video stories)
   const progressRef = useRef(0);
   useEffect(() => {
-    if (!isOpen || isPaused || isInputFocused || !activeStory || isFinished) return;
+    if (!isOpen || isPaused || isInputFocused || !activeStory || isFinished)
+      return;
 
     const isVideoStory = activeStory.media?.type?.toUpperCase() === "VIDEO";
     if (isVideoStory) return; // Handled by inline video element events
@@ -346,7 +471,11 @@ export default function StoryViewerModal({
   }
 
   const parseStoryContent = (story: any) => {
-    if (!story) return { cleanText: "", bgClass: "bg-gradient-to-br from-purple-600 via-pink-500 to-red-500" };
+    if (!story)
+      return {
+        cleanText: "",
+        bgClass: "bg-gradient-to-br from-purple-600 via-pink-500 to-red-500",
+      };
     const text = story.text || "";
     let cleanText = text;
     let bgClass = "bg-gradient-to-br from-purple-600 via-pink-500 to-red-500";
@@ -420,7 +549,9 @@ export default function StoryViewerModal({
   const renderStoryContent = (story: any) => {
     if (!story) return null;
     const { cleanText, bgClass } = parseStoryContent(story);
-    const mediaUrl = story.media?.url ? (buildS3Url(story.media.url) || story.media.url) : null;
+    const mediaUrl = story.media?.url
+      ? buildS3Url(story.media.url) || story.media.url
+      : null;
 
     if (mediaUrl) {
       const isVideo = story.media?.type?.toUpperCase() === "VIDEO";
@@ -455,7 +586,9 @@ export default function StoryViewerModal({
     }
 
     return (
-      <div className={`w-full h-full ${bgClass} flex items-center justify-center p-8 text-center`}>
+      <div
+        className={`w-full h-full ${bgClass} flex items-center justify-center p-8 text-center`}
+      >
         <span className="text-white text-xl font-bold whitespace-pre-wrap leading-relaxed drop-shadow-md">
           {cleanText}
         </span>
@@ -463,7 +596,9 @@ export default function StoryViewerModal({
     );
   };
 
-  const { cleanText } = activeStory ? parseStoryContent(activeStory) : { cleanText: "" };
+  const { cleanText } = activeStory
+    ? parseStoryContent(activeStory)
+    : { cleanText: "" };
 
   return (
     <div className="fixed inset-0 z-50 bg-black/95 backdrop-blur-md flex items-center justify-center select-none">
@@ -489,29 +624,42 @@ export default function StoryViewerModal({
       {/* Main Story Container */}
       <div
         className="relative w-full h-full max-h-[85vh] md:max-h-[90vh] max-w-[420px] aspect-[9/16] md:rounded-2xl overflow-hidden bg-zinc-950 flex flex-col justify-between shadow-2xl ring-1 ring-white/10"
-        onMouseDown={isFinished || showOptions || showViewers ? undefined : handleMouseDown}
-        onMouseUp={isFinished || showOptions || showViewers ? undefined : handleMouseUp}
-        onTouchStart={isFinished || showOptions || showViewers ? undefined : handleTouchStart}
-        onTouchEnd={isFinished || showOptions || showViewers ? undefined : handleTouchEnd}
+        onMouseDown={isFinished || isModalOpen ? undefined : handleMouseDown}
+        onMouseUp={isFinished || isModalOpen ? undefined : handleMouseUp}
+        onTouchStart={isFinished || isModalOpen ? undefined : handleTouchStart}
+        onTouchEnd={isFinished || isModalOpen ? undefined : handleTouchEnd}
       >
         {isFinished ? (
           <div className="flex-1 flex flex-col items-center justify-center p-6 text-center bg-zinc-950 text-white relative">
             {/* Animated glowing checkmark background */}
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(59,130,246,0.1)_0%,transparent_70%)] pointer-events-none" />
-            
-            <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-green-400 to-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-500/20 mb-6 scale-95 animate-bounce animate-duration-3000" style={{ animationDuration: '3s' }}>
-              <svg className="w-10 h-10 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+
+            <div
+              className="w-20 h-20 rounded-full bg-gradient-to-tr from-green-400 to-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-500/20 mb-6 scale-95 animate-bounce animate-duration-3000"
+              style={{ animationDuration: "3s" }}
+            >
+              <svg
+                className="w-10 h-10 text-white"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={3}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M5 13l4 4L19 7"
+                />
               </svg>
             </div>
-            
+
             <h3 className="text-lg font-bold text-white mb-2">
               Bạn đã xem hết tất cả tin
             </h3>
             <p className="text-xs text-white/50 max-w-[240px] leading-relaxed mb-8">
               Hãy quay lại sau để cập nhật những khoảnh khắc mới nhất từ bạn bè.
             </p>
-            
+
             <div className="flex flex-col gap-3 w-full max-w-[200px] z-10">
               <button
                 onClick={handleClose}
@@ -575,7 +723,9 @@ export default function StoryViewerModal({
                       {activeGroup?.username}
                     </span>
                     <span className="text-white/50 text-[10px] leading-tight mt-0.5">
-                      {activeStory?.createdAt ? formatTimeAgo(activeStory.createdAt) : ""}
+                      {activeStory?.createdAt
+                        ? formatTimeAgo(activeStory.createdAt)
+                        : ""}
                     </span>
                   </div>
                 </div>
@@ -611,10 +761,13 @@ export default function StoryViewerModal({
               <div className="absolute top-20 left-4 right-4 bg-black/40 backdrop-blur-md px-3 py-2 rounded-xl border border-white/10 flex items-center gap-2.5 pointer-events-none animate-pulse">
                 <div className="w-9 h-9 rounded-lg overflow-hidden flex-shrink-0 bg-white/10 relative">
                   <img
-                    src={activeStory.music.thumbnail || "https://i.pravatar.cc/150?u=music"}
+                    src={
+                      activeStory.music.thumbnail ||
+                      "https://i.pravatar.cc/150?u=music"
+                    }
                     alt={activeStory.music.title}
                     className="w-full h-full object-cover animate-spin"
-                    style={{ animationDuration: '6s' }}
+                    style={{ animationDuration: "6s" }}
                   />
                   <div className="absolute inset-0 flex items-center justify-center bg-black/25">
                     <span className="text-white text-[10px]">🎵</span>
@@ -629,17 +782,48 @@ export default function StoryViewerModal({
                   </p>
                 </div>
                 <div className="flex items-end gap-0.5 h-3">
-                  <div className="w-0.5 bg-blue-400 rounded-full animate-bounce h-2" style={{ animationDelay: '0.1s', animationDuration: '0.6s' }} />
-                  <div className="w-0.5 bg-blue-400 rounded-full animate-bounce h-3" style={{ animationDelay: '0.3s', animationDuration: '0.4s' }} />
-                  <div className="w-0.5 bg-blue-400 rounded-full animate-bounce h-1.5" style={{ animationDelay: '0s', animationDuration: '0.5s' }} />
-                  <div className="w-0.5 bg-blue-400 rounded-full animate-bounce h-2.5" style={{ animationDelay: '0.2s', animationDuration: '0.7s' }} />
+                  <div
+                    className="w-0.5 bg-blue-400 rounded-full animate-bounce h-2"
+                    style={{
+                      animationDelay: "0.1s",
+                      animationDuration: "0.6s",
+                    }}
+                  />
+                  <div
+                    className="w-0.5 bg-blue-400 rounded-full animate-bounce h-3"
+                    style={{
+                      animationDelay: "0.3s",
+                      animationDuration: "0.4s",
+                    }}
+                  />
+                  <div
+                    className="w-0.5 bg-blue-400 rounded-full animate-bounce h-1.5"
+                    style={{ animationDelay: "0s", animationDuration: "0.5s" }}
+                  />
+                  <div
+                    className="w-0.5 bg-blue-400 rounded-full animate-bounce h-2.5"
+                    style={{
+                      animationDelay: "0.2s",
+                      animationDuration: "0.7s",
+                    }}
+                  />
                 </div>
               </div>
             )}
 
             {/* Text Overlay for media stories */}
             {activeStory?.media?.url && cleanText && (
-              <div className={`absolute inset-x-4 bg-black/45 backdrop-blur-sm px-4 py-3 rounded-xl border border-white/10 text-center pointer-events-none z-30 ${isMyStory ? 'bottom-20' : (!isMyStory && (activeStory?.allowReactions !== false || activeStory?.allowReplies !== false) ? 'bottom-28' : 'bottom-8')}`}>
+              <div
+                className={`absolute inset-x-4 bg-black/45 backdrop-blur-sm px-4 py-3 rounded-xl border border-white/10 text-center pointer-events-none z-30 ${
+                  isMyStory
+                    ? "bottom-20"
+                    : !isMyStory &&
+                      (activeStory?.allowReactions !== false ||
+                        activeStory?.allowReplies !== false)
+                    ? "bottom-28"
+                    : "bottom-8"
+                }`}
+              >
                 <p className="text-white text-xs font-medium whitespace-pre-wrap leading-snug drop-shadow-sm">
                   {cleanText}
                 </p>
@@ -668,22 +852,47 @@ export default function StoryViewerModal({
             {/* View Count for Owner */}
             {isMyStory && activeStory && (
               <div
-                className="absolute bottom-0 left-0 right-0 z-40 bg-gradient-to-t from-black/85 via-black/45 to-transparent pt-10 pb-5 px-4 flex justify-center"
+                className="absolute bottom-0 left-0 right-0 h-28 z-40 bg-gradient-to-t from-black/90 via-black/45 to-transparent pointer-events-none"
                 onMouseDown={(e) => e.stopPropagation()}
                 onMouseUp={(e) => e.stopPropagation()}
                 onTouchStart={(e) => e.stopPropagation()}
                 onTouchEnd={(e) => e.stopPropagation()}
               >
+                {/* Activity / Viewers button */}
                 <button
                   onClick={() => {
                     setIsPaused(true);
                     setShowViewers(true);
                   }}
-                  className="flex items-center gap-2 bg-white/10 hover:bg-white/20 active:scale-95 px-4 py-2.5 rounded-full border border-white/10 text-white text-xs font-semibold cursor-pointer transition-all duration-200"
+                  className="absolute left-6 bottom-5 flex flex-col items-center gap-1.5 hover:scale-105 active:scale-95 text-white/80 hover:text-white cursor-pointer transition-all duration-200 pointer-events-auto"
+                  title="Hoạt động"
                 >
-                  <Eye size={14} className="text-blue-400" />
-                  <span>{syncedViewCount !== null ? syncedViewCount : (activeStory.viewCount || 0)} người xem</span>
+                  <Users size={20} className="text-white drop-shadow-xs" />
+                  <span className="text-[10px] font-bold font-sans tracking-wide">
+                    Hoạt động ({syncedViewCount ?? activeStory.viewCount ?? 0})
+                  </span>
                 </button>
+
+                {/* More Options button for Highlights */}
+                {highlightId && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsPaused(true);
+                      setShowHighlightOptions(true);
+                    }}
+                    className="absolute right-6 bottom-5 flex flex-col items-center gap-1.5 hover:scale-105 active:scale-95 text-white/80 hover:text-white cursor-pointer transition-all duration-200 pointer-events-auto"
+                    title="Tùy chọn tin nổi bật"
+                  >
+                    <MoreHorizontal
+                      size={20}
+                      className="text-white drop-shadow-xs"
+                    />
+                    <span className="text-[10px] font-bold font-sans tracking-wide">
+                      Xem thêm
+                    </span>
+                  </button>
+                )}
               </div>
             )}
           </>
@@ -718,10 +927,50 @@ export default function StoryViewerModal({
             }}
           />
         )}
+
+        {/* Highlight Options list Bottom Sheet */}
+        {activeStory && highlightId && (
+          <HighlightOptionsBottomSheet
+            isOpen={showHighlightOptions}
+            onClose={() => {
+              setShowHighlightOptions(false);
+              setIsPaused(false);
+            }}
+            onEdit={() => {
+              setShowHighlightOptions(false);
+              setShowEditHighlight(true);
+            }}
+            onRemove={handleRemoveFromHighlight}
+            isRemoving={isRemovingHighlight}
+          />
+        )}
+
+        {/* Edit Highlight Modal */}
+        {highlightId && activeGroup && (
+          <EditHighlightModal
+            userId={activeGroup.userId}
+            highlightId={highlightId}
+            highlightTitle={highlightTitle || "Tin nổi bật"}
+            initialCoverImageUrl={highlightCoverImageUrl}
+            currentStoryIds={activeGroup.stories.map((s: any) => s.id)}
+            isOpen={showEditHighlight}
+            onClose={() => {
+              setShowEditHighlight(false);
+              setIsPaused(false);
+            }}
+            onUpdated={() => {
+              onHighlightUpdated?.();
+              onClose();
+            }}
+          />
+        )}
       </div>
 
       {/* Desktop Right navigation arrow */}
-      {!isFinished && activeGroup && (groupIdx < groups.length - 1 || storyIdx < activeGroup.stories.length - 1) ? (
+      {!isFinished &&
+      activeGroup &&
+      (groupIdx < groups.length - 1 ||
+        storyIdx < activeGroup.stories.length - 1) ? (
         <button
           onClick={handleNext}
           className="hidden md:flex absolute right-8 lg:right-16 text-white/50 hover:text-white bg-white/5 hover:bg-white/15 p-4 rounded-full transition-all duration-200 hover:scale-105 z-50 cursor-pointer"

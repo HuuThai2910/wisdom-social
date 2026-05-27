@@ -6,14 +6,19 @@ interface ProfileTabsProps {
   isOwnProfile: boolean;
 }
 
-export default function ProfileTabs({ username, isOwnProfile }: ProfileTabsProps) {
+export default function ProfileTabs({
+  username,
+  isOwnProfile,
+}: ProfileTabsProps) {
   const basePath = `/profile/${username}`;
   const tabs = [
     { icon: Grid, label: "Bài viết", path: basePath, end: true },
     { icon: Bookmark, label: "Đã lưu", path: `${basePath}/saved` },
     { icon: UserSquare2, label: "Gắn thẻ", path: `${basePath}/tagged` },
     { icon: Share2, label: "Chia sẻ", path: `${basePath}/shared` },
-    ...(isOwnProfile ? [{ icon: Ban, label: "Đã chặn", path: `${basePath}/blocked` }] : []),
+    ...(isOwnProfile
+      ? [{ icon: Ban, label: "Đã chặn", path: `${basePath}/blocked` }]
+      : []),
   ];
 
   return (

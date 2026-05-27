@@ -162,7 +162,7 @@ export const userService = {
         return response.data.data;
     },
 
-        async getAllUsersSearch(id:number): Promise<User[]> {
+    async getAllUsersSearch(id: number): Promise<User[]> {
         const response = await axiosClient.get(`auth/users/${id}`);
         return response.data.data;
     },

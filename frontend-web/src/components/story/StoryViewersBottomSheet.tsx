@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { X, Eye, Heart } from "lucide-react";
 import { fetchStoryViewers } from "../../services/storyService";
 import { buildS3Url } from "../../utils/s3";
+import useRealtimeStory from "../../hooks/useRealtimeStory";
 
 interface StoryViewersBottomSheetProps {
   isOpen: boolean;
@@ -29,30 +30,43 @@ export default function StoryViewersBottomSheet({
   const [viewers, setViewers] = useState<ViewerInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  useEffect(() => {
-    if (isOpen && storyId) {
-      const loadViewers = async () => {
-        setIsLoading(true);
-        try {
-          const data = await fetchStoryViewers(storyId);
-          const list = Array.isArray(data)
-            ? data
-            : Array.isArray((data as any)?.data)
-            ? (data as any).data
-            : [];
-          setViewers(list);
-          onViewersLoaded?.(list.length);
-        } catch (err) {
-          console.error("Failed to load story viewers:", err);
-        } finally {
-          setIsLoading(false);
-        }
-      };
-      loadViewers();
-    } else {
-      setViewers([]);
+  const loadViewers = async (showLoading = true) => {
+    if (showLoading) setIsLoading(true);
+    try {
+      const data = await fetchStoryViewers(storyId);
+      const list = Array.isArray(data)
+        ? data
+        : Array.isArray((data as any)?.data)
+        ? (data as any).data
+        : [];
+      setViewers(list);
+      onViewersLoaded?.(list.length);
+    } catch (err) {
+      console.error("Failed to load story viewers:", err);
+    } finally {
+      if (showLoading) setIsLoading(false);
     }
-  }, [isOpen, storyId, onViewersLoaded]);
+  };
+
+  useEffect(() => {
+    if (!isOpen || !storyId) {
+      setViewers([]);
+      return;
+    }
+    loadViewers(true);
+  }, [isOpen, storyId]);
+
+  useRealtimeStory({
+    storyId,
+    enabled: !!(isOpen && storyId),
+    onStoryUpdate: (event) => {
+      if (event && event.storyId === storyId) {
+        if (event.type === "STORY_VIEW" || event.type === "STORY_REACTION") {
+          void loadViewers(false);
+        }
+      }
+    },
+  });
 
   if (!isOpen) return null;
 
@@ -104,7 +118,9 @@ export default function StoryViewersBottomSheet({
         <div className="flex items-center justify-between border-b border-white/5 pb-3">
           <div className="flex items-center gap-2 text-white">
             <Eye size={16} className="text-blue-400" />
-            <h4 className="text-xs font-bold">Người xem ({safeViewers.length})</h4>
+            <h4 className="text-xs font-bold">
+              Người xem ({safeViewers.length})
+            </h4>
           </div>
           <button
             onClick={onClose}
@@ -119,24 +135,36 @@ export default function StoryViewersBottomSheet({
           {isLoading ? (
             <div className="flex flex-col items-center justify-center py-12 gap-3">
               <div className="w-6 h-6 border-2 border-white/20 border-t-blue-500 rounded-full animate-spin" />
-              <span className="text-[10px] text-white/40">Đang tải danh sách...</span>
+              <span className="text-[10px] text-white/40">
+                Đang tải danh sách...
+              </span>
             </div>
           ) : safeViewers.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center mb-3">
                 <Eye size={20} className="text-white/30" />
               </div>
-              <p className="text-xs text-white/60 font-semibold mb-1">Chưa có người xem</p>
+              <p className="text-xs text-white/60 font-semibold mb-1">
+                Chưa có người xem
+              </p>
               <p className="text-[10px] text-white/40 max-w-[200px]">
-                Khi có người xem tin của bạn, danh sách người xem sẽ xuất hiện tại đây.
+                Khi có người xem tin của bạn, danh sách người xem sẽ xuất hiện
+                tại đây.
               </p>
             </div>
           ) : (
             <div className="flex flex-col gap-3">
               {safeViewers.map((viewer, index) => {
-                const avatar = buildS3Url(viewer.avatarUrl) || viewer.avatarUrl || "https://i.pravatar.cc/150";
-                const viewerIdStr = viewer.viewerId ? String(viewer.viewerId) : "";
-                const displayId = viewerIdStr ? viewerIdStr.substring(0, 6) : `User-${index}`;
+                const avatar =
+                  buildS3Url(viewer.avatarUrl) ||
+                  viewer.avatarUrl ||
+                  "https://i.pravatar.cc/150";
+                const viewerIdStr = viewer.viewerId
+                  ? String(viewer.viewerId)
+                  : "";
+                const displayId = viewerIdStr
+                  ? viewerIdStr.substring(0, 6)
+                  : `User-${index}`;
                 return (
                   <div
                     key={viewer.viewerId || `viewer-${index}`}
@@ -172,7 +200,9 @@ export default function StoryViewersBottomSheet({
                     {viewer.reaction && (
                       <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/5 border border-white/5">
                         <span className="text-sm">{viewer.reaction}</span>
-                        <span className="text-[9px] text-white/50 font-medium">Cảm xúc</span>
+                        <span className="text-[9px] text-white/50 font-medium">
+                          Cảm xúc
+                        </span>
                       </div>
                     )}
                   </div>

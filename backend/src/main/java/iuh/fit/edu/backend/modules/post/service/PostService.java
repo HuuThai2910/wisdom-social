@@ -21,4 +21,5 @@ public interface PostService {
     Post updatePost(String postId, CreatePostRequest request, List<String> newImageUrls, Long userId);
     List<Post> getPostsByTaggedUserId(String userId);
     void syncAllPostsStats();
+    Page<Post> getPostsByHashtag(String hashtag, Long currentUserId, int page, int size);
 }

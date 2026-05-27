@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import type { User } from "../../types";
 import {
   Settings,
@@ -14,6 +14,7 @@ import {
   Users as UsersIcon,
   MessageSquare,
   Phone,
+  QrCode,
   Plus,
 } from "lucide-react";
 import { logout } from "../../utils/auth";
@@ -29,6 +30,11 @@ import { useHasActiveStory } from "../../hooks/useHasActiveStory";
 import { fetchUserStories } from "../../services/storyService";
 import StoryViewerModal from "../story/StoryViewerModal";
 import { usePresenceStatus } from "../../hooks/usePresenceStatus";
+import {
+  getUserHighlights,
+  type StoryHighlight,
+} from "../../services/highlightService";
+import CreateHighlightModal from "./CreateHighlightModal";
 
 interface ProfileHeaderProps {
   user: User;
@@ -49,7 +55,7 @@ const stripHtml = (text: string | undefined | null): string => {
   try {
     const doc = new DOMParser().parseFromString(text, "text/html");
     return doc.body.textContent || "";
-  } catch {
+  } catch (e) {
     return text.replace(/<(?:[^>=]|='[^']*'|="[^"]*"|=[^'"][^\s>]*)*>/g, "");
   }
 };
@@ -65,7 +71,7 @@ export default function ProfileHeader({
   const [postsCount, setPostsCount] = useState(0);
   const [notePlaceholder] = useState(
     () =>
-      NOTE_PLACEHOLDERS[Math.floor(Math.random() * NOTE_PLACEHOLDERS.length)],
+      NOTE_PLACEHOLDERS[Math.floor(Math.random() * NOTE_PLACEHOLDERS.length)]
   );
   const { note, showNoteModal, openNoteModal, closeNoteModal, setNote } =
     useProfileNote(user?.id);
@@ -73,16 +79,8 @@ export default function ProfileHeader({
   const profileUserId = Number(user?.id);
   const presenceByUserId = usePresenceStatus([profileUserId]);
   const isUserOnline = Boolean(
-    Number.isFinite(profileUserId) && presenceByUserId[profileUserId]?.online,
+    Number.isFinite(profileUserId) && presenceByUserId[profileUserId]?.online
   );
-
-  const {
-    hasStory: hasActiveStory,
-    hasUnviewed: hasUnviewedStory,
-    refresh: refreshActiveStory,
-  } = useHasActiveStory(user?.id);
-  const [activeStories, setActiveStories] = useState<any[]>([]);
-  const [isViewerOpen, setIsViewerOpen] = useState(false);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -91,6 +89,37 @@ export default function ProfileHeader({
       .catch(() => setPostsCount(0));
   }, [user?.id]);
 
+  // Check if user has an active story
+  const {
+    hasStory: hasActiveStory,
+    hasUnviewed: hasUnviewedStory,
+    refresh: refreshActiveStory,
+  } = useHasActiveStory(user?.id);
+
+  const [activeStories, setActiveStories] = useState<any[]>([]);
+  const [isViewerOpen, setIsViewerOpen] = useState(false);
+
+  // Highlights state
+  const [highlights, setHighlights] = useState<StoryHighlight[]>([]);
+  const [showCreateHighlight, setShowCreateHighlight] = useState(false);
+  const [viewingHighlight, setViewingHighlight] =
+    useState<StoryHighlight | null>(null);
+
+  // Fetch highlights
+  const fetchHighlights = useCallback(async () => {
+    if (!user?.id) return;
+    try {
+      const data = await getUserHighlights(String(user.id));
+      setHighlights(data);
+    } catch (err) {
+      console.error("Error fetching highlights:", err);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    fetchHighlights();
+  }, [fetchHighlights]);
+
   const handleAvatarClick = async () => {
     if (!hasActiveStory || !user?.id) return;
     try {
@@ -98,8 +127,8 @@ export default function ProfileHeader({
       const items = Array.isArray(data?.data)
         ? data.data
         : Array.isArray(data)
-          ? data
-          : [];
+        ? data
+        : [];
       if (items.length > 0) {
         setActiveStories(items);
         setIsViewerOpen(true);
@@ -196,7 +225,11 @@ export default function ProfileHeader({
                   hasActiveStory
                     ? `p-0.75 rounded-full ${
                         hasUnviewedStory
-                          ? `bg-linear-to-tr ${isOwnProfile ? "from-green-400 to-emerald-500" : "from-blue-400 to-indigo-500"}`
+                          ? `bg-linear-to-tr ${
+                              isOwnProfile
+                                ? "from-green-400 to-emerald-500"
+                                : "from-blue-400 to-indigo-500"
+                            }`
                           : "bg-gray-300 dark:bg-zinc-700"
                       }`
                     : ""
@@ -338,6 +371,104 @@ export default function ProfileHeader({
               )}
             </div>
           </div>
+
+          {/* Story Highlights Section - Full width */}
+          {(isOwnProfile || highlights.length > 0) && (
+            <div className="mt-6 pt-6 border-t border-gray-200 dark:border-[#262626]">
+              <div className="flex gap-5 overflow-x-auto pb-2 scrollbar-thin">
+                {/* Create New Highlight Button (own profile only) */}
+                {isOwnProfile && (
+                  <button
+                    onClick={() => setShowCreateHighlight(true)}
+                    className="flex flex-col items-center gap-2 shrink-0 group"
+                  >
+                    <div className="w-[72px] h-[72px] rounded-full border-2 border-dashed border-gray-300 dark:border-[#363636] flex items-center justify-center group-hover:border-blue-400 dark:group-hover:border-blue-500 transition-colors bg-gray-50 dark:bg-[#1a1a1a] group-hover:bg-blue-50 dark:group-hover:bg-blue-900/10">
+                      <Plus
+                        size={28}
+                        strokeWidth={1.5}
+                        className="text-gray-400 group-hover:text-blue-500 transition-colors"
+                      />
+                    </div>
+                    <span className="text-xs text-gray-600 dark:text-gray-400 font-medium group-hover:text-blue-500 transition-colors w-[72px] text-center truncate">
+                      Mới
+                    </span>
+                  </button>
+                )}
+
+                {/* Existing Highlights */}
+                {highlights.map((hl) => {
+                  const isTextCover =
+                    hl.coverImageUrl?.startsWith("text-story:");
+                  const coverUrl = isTextCover
+                    ? null
+                    : buildS3Url(hl.coverImageUrl) ||
+                      (hl.stories?.[0]?.media?.url
+                        ? buildS3Url(hl.stories[0].media.url)
+                        : null);
+
+                  return (
+                    <button
+                      key={hl.id}
+                      onClick={() => {
+                        if (hl.stories && hl.stories.length > 0) {
+                          setViewingHighlight(hl);
+                          setActiveStories(hl.stories);
+                          setIsViewerOpen(true);
+                        }
+                      }}
+                      className="flex flex-col items-center gap-2 shrink-0 group"
+                    >
+                      <div className="w-[72px] h-[72px] rounded-full p-[2px] bg-gradient-to-tr from-gray-300 to-gray-400 dark:from-[#525252] dark:to-[#404040] group-hover:from-blue-400 group-hover:to-indigo-500 transition-all">
+                        <div className="w-full h-full rounded-full overflow-hidden border-2 border-white dark:border-[#1a1a1a] bg-gray-100 dark:bg-[#262626]">
+                          {isTextCover ? (
+                            (() => {
+                              const storyText = hl.coverImageUrl!.substring(
+                                "text-story:".length
+                              );
+                              const bgMatch = storyText.match(/\[bg:(.*?)\]/);
+                              let bgClass =
+                                "bg-gradient-to-br from-purple-500 to-blue-500";
+                              let cleanText = storyText;
+                              if (bgMatch) {
+                                bgClass = bgMatch[1];
+                                cleanText = storyText
+                                  .replace(/\[bg:(.*?)\]/, "")
+                                  .trim();
+                              }
+                              return (
+                                <div
+                                  className={`w-full h-full ${bgClass} flex items-center justify-center p-1 text-center`}
+                                >
+                                  <span className="text-white text-[8px] line-clamp-2 leading-tight font-bold">
+                                    {cleanText}
+                                  </span>
+                                </div>
+                              );
+                            })()
+                          ) : coverUrl ? (
+                            <img
+                              src={coverUrl}
+                              alt={hl.title}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full bg-gradient-to-br from-purple-400 to-blue-400 flex items-center justify-center">
+                              <span className="text-white text-lg font-bold">
+                                {hl.title.charAt(0).toUpperCase()}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <span className="text-xs text-gray-600 dark:text-gray-400 font-medium group-hover:text-blue-500 transition-colors w-[72px] text-center truncate">
+                        {hl.title}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ── Story Highlights Section ─────────────────────────────────── */}
@@ -382,15 +513,19 @@ export default function ProfileHeader({
         />
       )}
 
-      {/* ── Story viewer ────────────────────────────────────────────── */}
       {isViewerOpen && activeStories.length > 0 && (
         <StoryViewerModal
           isOpen={isViewerOpen}
-          onClose={handleCloseViewer}
+          onClose={() => {
+            handleCloseViewer();
+            setViewingHighlight(null);
+          }}
           groups={[
             {
               userId: String(user.id),
-              username: user.username,
+              username: viewingHighlight
+                ? viewingHighlight.title
+                : user.username,
               userAvatar: user.avatarUrl,
               stories: activeStories,
             },

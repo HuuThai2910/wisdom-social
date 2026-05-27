@@ -24,6 +24,17 @@ import { useBlockNotifications } from "@/hooks/useBlockNotifications";
 import { usePresenceStatus } from "@/hooks/usePresenceStatus";
 import type { User } from "@/services/userService";
 import { buildS3Url } from "@/utils/s3";
+import {
+  getUserHighlights,
+  deleteHighlight,
+} from "@/services/highlightService";
+import type { StoryHighlight, StoryGroup, PrivacyType } from "@/types";
+import { StoryViewer, PostGrid, NoteModal } from "@/components";
+import HighlightModal from "@/components/story/HighlightModal";
+import HighlightOptionsModal from "@/components/story/HighlightOptionsModal";
+import { LinearGradient } from "expo-linear-gradient";
+import * as postApi from "@/services/postService";
+import { useProfileNote } from "@/hooks/useProfileNote";
 
 const { width: SW } = Dimensions.get("window");
 const GRID_GAP = 1.5;
@@ -35,8 +46,46 @@ const GENDER_LABEL: Record<string, string> = {
   HIDDEN: "Ẩn",
 };
 
+const TEXT_GRADIENTS: readonly [string, string][] = [
+  ["#7C3AED", "#EF4444"],
+  ["#2563EB", "#14B8A6"],
+  ["#F97316", "#FACC15"],
+  ["#059669", "#84CC16"],
+  ["#4F46E5", "#EC4899"],
+];
+
+const getGradientIndex = (text: string) => {
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    hash = text.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return Math.abs(hash) % TEXT_GRADIENTS.length;
+};
+
 type FriendStatus = "NONE" | "SENT" | "RECEIVED" | "FRIEND" | "BLOCKED";
-type OwnTab = "posts" | "saved" | "blocked";
+type ProfileTab = "posts" | "tagged" | "saved" | "shared" | "blocked";
+
+const OWN_TABS: {
+  key: ProfileTab;
+  icon: keyof typeof Ionicons.glyphMap;
+  iconOutline: keyof typeof Ionicons.glyphMap;
+}[] = [
+  { key: "posts", icon: "grid", iconOutline: "grid-outline" },
+  { key: "tagged", icon: "at", iconOutline: "at" },
+  { key: "saved", icon: "bookmark", iconOutline: "bookmark-outline" },
+  { key: "shared", icon: "paper-plane", iconOutline: "paper-plane-outline" },
+  { key: "blocked", icon: "shield", iconOutline: "shield-outline" },
+];
+
+const OTHER_TABS: {
+  key: ProfileTab;
+  icon: keyof typeof Ionicons.glyphMap;
+  iconOutline: keyof typeof Ionicons.glyphMap;
+}[] = [
+  { key: "posts", icon: "grid", iconOutline: "grid-outline" },
+  { key: "tagged", icon: "at", iconOutline: "at" },
+  { key: "shared", icon: "paper-plane", iconOutline: "paper-plane-outline" },
+];
 
 export default function InstagramProfileScreen() {
   const router = useRouter();
@@ -46,7 +95,7 @@ export default function InstagramProfileScreen() {
 
   const isViewingOther = useMemo(
     () => !!paramUserId && String(paramUserId) !== String(currentUser?.id),
-    [paramUserId, currentUser?.id],
+    [paramUserId, currentUser?.id]
   );
   const myId = useMemo(() => Number(currentUser?.id), [currentUser?.id]);
   const targetId = useMemo(() => Number(paramUserId), [paramUserId]);
@@ -55,27 +104,65 @@ export default function InstagramProfileScreen() {
   const isProfileOnline = Boolean(
     Number.isFinite(profilePresenceUserId) &&
       profilePresenceUserId > 0 &&
-      presenceByUserId[profilePresenceUserId]?.online,
+      presenceByUserId[profilePresenceUserId]?.online
   );
 
   // ── Other-user state ──────────────────────────────────────────────────────
-  const [profileUser,       setProfileUser]       = useState<User | null>(null);
-  const [profileLoading,    setProfileLoading]    = useState(false);
-  const [friendStatus,      setFriendStatus]      = useState<FriendStatus>("NONE");
-  const [statusLoading,     setStatusLoading]     = useState(false);
-  const [actionLoading,     setActionLoading]     = useState(false);
-  const [otherFriendsCount, setOtherFriendsCount] = useState<number | null>(null);
+  const [profileUser, setProfileUser] = useState<User | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [friendStatus, setFriendStatus] = useState<FriendStatus>("NONE");
+  const [statusLoading, setStatusLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [otherFriendsCount, setOtherFriendsCount] = useState<number | null>(
+    null
+  );
+  const [blockedUsers, setBlockedUsers] = useState<any[]>([]);
+  const [isLoadingBlocked, setIsLoadingBlocked] = useState(false);
 
   const [infoModalVisible, setInfoModalVisible] = useState(false);
 
-  // ── Own-profile state ─────────────────────────────────────────────────────
-  const [selectedTab,      setSelectedTab]      = useState<OwnTab>("posts");
-  const [friendsCount,     setFriendsCount]     = useState(0);
-  const [blockedUsers,     setBlockedUsers]     = useState<any[]>([]);
-  const [isLoadingBlocked, setIsLoadingBlocked] = useState(false);
-
+  // ── Own-profile / Tab state ─────────────────────────────────────────────────────
+  const [selectedTab, setSelectedTab] = useState<ProfileTab>("posts");
+  const [tabPosts, setTabPosts] = useState<any[]>([]);
+  const [tabLoading, setTabLoading] = useState(false);
+  const [friendsCount, setFriendsCount] = useState(0);
   const refreshTrigger = useFriendNotifications();
-  const blockTrigger   = useBlockNotifications();
+  const blockTrigger = useBlockNotifications();
+
+  // ── Highlight state ────────────────────────────────────────────────────────
+  const [highlights, setHighlights] = useState<StoryHighlight[]>([]);
+  const [highlightsLoading, setHighlightsLoading] = useState(false);
+  const [highlightModalVisible, setHighlightModalVisible] = useState(false);
+  const [selectedHighlight, setSelectedHighlight] =
+    useState<StoryHighlight | null>(null);
+  const [optionsModalVisible, setOptionsModalVisible] = useState(false);
+  const [longPressedHighlight, setLongPressedHighlight] =
+    useState<StoryHighlight | null>(null);
+
+  // StoryViewer state for Highlights
+  const [storyViewerVisible, setStoryViewerVisible] = useState(false);
+  const [viewerGroups, setViewerGroups] = useState<StoryGroup[]>([]);
+  const [viewerGroupIdx, setViewerGroupIdx] = useState(0);
+
+  const noteUserId = useMemo(() => {
+    return isViewingOther ? String(targetId) : String(currentUser?.id);
+  }, [isViewingOther, targetId, currentUser?.id]);
+
+  const { note, showNoteModal, openNoteModal, closeNoteModal, setNote } =
+    useProfileNote(noteUserId);
+
+  const myPosts = useMemo(
+    () => posts.filter((p) => p.userId === currentUser?.id),
+    [posts, currentUser?.id]
+  );
+  const savedPosts = useMemo(
+    () => posts.filter((p) => savedPostIds.includes(p.id)),
+    [posts, savedPostIds]
+  );
+
+  const displayPosts = useMemo(() => {
+    return tabPosts;
+  }, [tabPosts]);
 
   // ── Load other-user data ──────────────────────────────────────────────────
   const loadProfile = useCallback(async () => {
@@ -106,13 +193,97 @@ export default function InstagramProfileScreen() {
     } catch {}
   }, [isViewingOther, targetId]);
 
+  const loadHighlights = useCallback(async () => {
+    const activeUserId = isViewingOther
+      ? String(targetId)
+      : String(currentUser?.id);
+    if (!activeUserId) return;
+    setHighlightsLoading(true);
+    try {
+      const data = await getUserHighlights(activeUserId);
+      setHighlights(data);
+    } catch (err) {
+      console.error("Error loading highlights:", err);
+    } finally {
+      setHighlightsLoading(false);
+    }
+  }, [isViewingOther, targetId, currentUser?.id]);
+
+  const mapHighlightStoryToStory = (hs: any, user: any) => {
+    return {
+      id: hs.id,
+      userId: hs.userId,
+      image: hs.media?.url || "",
+      viewed: true,
+      isViewed: true,
+      createdAt: hs.createdAt,
+      text: hs.text || "",
+      content: hs.text || "",
+      media: hs.media
+        ? {
+            url: hs.media.url,
+            type: hs.media.type,
+            thumbnailUrl: hs.media.thumbnailUrl,
+          }
+        : undefined,
+      user: user
+        ? {
+            id: String(user.id),
+            username: user.username || "",
+            fullName: user.fullName || user.name || user.username || "",
+            name: user.name || user.fullName || user.username || "",
+            bio: user.bio || "",
+            avatarUrl: user.avatarUrl || user.avatar || "",
+            avatar: user.avatar || user.avatarUrl || "",
+            followers: user.followers || 0,
+            following: user.following || 0,
+          }
+        : undefined,
+      privacy: "PUBLIC" as PrivacyType,
+      allowReplies: false,
+      allowReactions: false,
+      allowSharing: false,
+      viewCount: 0,
+    };
+  };
+
+  const handlePlayHighlight = (index: number) => {
+    const groups = highlights.map((hl) => ({
+      userId: String(profileUser?.id || currentUser?.id),
+      username: hl.title,
+      userAvatar: hl.coverImageUrl || "",
+      stories: hl.stories.map((hs) =>
+        mapHighlightStoryToStory(hs, profileUser || currentUser)
+      ),
+      highlightId: hl.id,
+    }));
+
+    setViewerGroups(groups);
+    setViewerGroupIdx(index);
+    setStoryViewerVisible(true);
+  };
+
+  const handleLongPressHighlight = (hl: StoryHighlight) => {
+    if (isViewingOther) return;
+    setLongPressedHighlight(hl);
+    setOptionsModalVisible(true);
+  };
+
   useEffect(() => {
     if (isViewingOther) {
       void loadProfile();
       void loadFriendStatus();
       void loadOtherFriendsCount();
+      void loadHighlights();
     }
-  }, [isViewingOther, loadProfile, loadFriendStatus, loadOtherFriendsCount, refreshTrigger]);
+  }, [
+    isViewingOther,
+    loadProfile,
+    loadFriendStatus,
+    loadOtherFriendsCount,
+    loadHighlights,
+    refreshTrigger,
+  ]);
 
   // ── Load own-profile data ─────────────────────────────────────────────────
   useFocusEffect(
@@ -122,18 +293,64 @@ export default function InstagramProfileScreen() {
         .getFriends(Number(currentUser.id))
         .then((list) => setFriendsCount(list.length))
         .catch(() => {});
-    }, [isViewingOther, currentUser?.id]),
+      void loadHighlights();
+    }, [isViewingOther, currentUser?.id, loadHighlights])
   );
 
   const loadBlockedUsers = useCallback(async () => {
     if (!currentUser?.id) return;
     setIsLoadingBlocked(true);
     try {
-      setBlockedUsers(await blockService.getBlockedUsers(Number(currentUser.id)));
-    } catch {} finally {
+      setBlockedUsers(
+        await blockService.getBlockedUsers(Number(currentUser.id))
+      );
+    } catch {
+    } finally {
       setIsLoadingBlocked(false);
     }
   }, [currentUser?.id]);
+
+  const loadTabContent = useCallback(async () => {
+    const activeUserId = isViewingOther
+      ? String(targetId)
+      : String(currentUser?.id);
+    if (!activeUserId) return;
+
+    setTabLoading(true);
+    try {
+      if (selectedTab === "posts") {
+        const res = await postApi.getUserPostsWithDetails(activeUserId);
+        setTabPosts(res);
+      } else if (selectedTab === "saved") {
+        if (!isViewingOther) {
+          const res = await postApi.getSavedPostsWithDetails(activeUserId);
+          setTabPosts(res);
+        } else {
+          setTabPosts([]);
+        }
+      } else if (selectedTab === "tagged") {
+        const res = await postApi.getTaggedPostsWithDetails(activeUserId);
+        setTabPosts(res);
+      } else if (selectedTab === "shared") {
+        const res = await postApi.getSharedPostsWithDetails(activeUserId);
+        setTabPosts(res);
+      } else if (selectedTab === "blocked") {
+        // blocked tab không cần load ở đây, xử lý riêng bằng loadBlockedUsers
+        setTabPosts([]);
+      } else {
+        setTabPosts([]);
+      }
+    } catch (err) {
+      console.error("Error loading tab content:", err);
+      setTabPosts([]);
+    } finally {
+      setTabLoading(false);
+    }
+  }, [isViewingOther, targetId, currentUser?.id, selectedTab]);
+
+  useEffect(() => {
+    void loadTabContent();
+  }, [loadTabContent, selectedTab, targetId, refreshTrigger, blockTrigger]);
 
   useEffect(() => {
     if (!isViewingOther && selectedTab === "blocked") void loadBlockedUsers();
@@ -168,7 +385,8 @@ export default function InstagramProfileScreen() {
     Alert.alert("Hủy kết bạn", "Bạn có chắc muốn hủy kết bạn?", [
       { text: "Hủy", style: "cancel" },
       {
-        text: "Hủy kết bạn", style: "destructive",
+        text: "Hủy kết bạn",
+        style: "destructive",
         onPress: async () => {
           setActionLoading(true);
           await friendService.cancelFriendRequest(myId, targetId);
@@ -181,11 +399,14 @@ export default function InstagramProfileScreen() {
   const handleBlock = () => {
     Alert.alert(
       "Chặn người dùng",
-      `Chặn @${profileUser?.username || "người này"}? Họ sẽ không thể nhắn tin hoặc xem hồ sơ của bạn.`,
+      `Chặn @${
+        profileUser?.username || "người này"
+      }? Họ sẽ không thể nhắn tin hoặc xem hồ sơ của bạn.`,
       [
         { text: "Hủy", style: "cancel" },
         {
-          text: "Chặn", style: "destructive",
+          text: "Chặn",
+          style: "destructive",
           onPress: async () => {
             setActionLoading(true);
             await blockService.blockUser(myId, targetId);
@@ -193,14 +414,15 @@ export default function InstagramProfileScreen() {
             setActionLoading(false);
           },
         },
-      ],
+      ]
     );
   };
   const handleUnblockOther = () => {
     Alert.alert("Bỏ chặn", "Bạn có chắc muốn bỏ chặn người này?", [
       { text: "Hủy", style: "cancel" },
       {
-        text: "Bỏ chặn", style: "destructive",
+        text: "Bỏ chặn",
+        style: "destructive",
         onPress: async () => {
           setActionLoading(true);
           await blockService.unblockUser(myId, targetId);
@@ -218,9 +440,13 @@ export default function InstagramProfileScreen() {
         profileUser?.name || profileUser?.username || "Người dùng",
         undefined,
         [
-          { text: "Chặn người dùng", style: "destructive", onPress: handleBlock },
+          {
+            text: "Chặn người dùng",
+            style: "destructive",
+            onPress: handleBlock,
+          },
           { text: "Hủy", style: "cancel" },
-        ],
+        ]
       );
     }
   };
@@ -228,11 +454,17 @@ export default function InstagramProfileScreen() {
     Alert.alert("Bỏ chặn", "Bạn có chắc muốn bỏ chặn người dùng này?", [
       { text: "Hủy", style: "cancel" },
       {
-        text: "Bỏ chặn", style: "destructive",
+        text: "Bỏ chặn",
+        style: "destructive",
         onPress: async () => {
           try {
-            await blockService.unblockUser(Number(currentUser?.id), Number(userId));
-            setBlockedUsers((prev) => prev.filter((u) => String(u.id) !== userId));
+            await blockService.unblockUser(
+              Number(currentUser?.id),
+              Number(userId)
+            );
+            setBlockedUsers((prev) =>
+              prev.filter((u) => String(u.id) !== userId)
+            );
           } catch {
             Alert.alert("Lỗi", "Không thể bỏ chặn. Vui lòng thử lại.");
           }
@@ -240,12 +472,17 @@ export default function InstagramProfileScreen() {
       },
     ]);
   };
+
   const handleLogout = () => {
     Alert.alert("Đăng xuất", "Bạn có chắc muốn đăng xuất?", [
       { text: "Hủy", style: "cancel" },
       {
-        text: "Đăng xuất", style: "destructive",
-        onPress: () => { logout(); router.replace("/(auth)/login"); },
+        text: "Đăng xuất",
+        style: "destructive",
+        onPress: () => {
+          logout();
+          router.replace("/(auth)/login");
+        },
       },
     ]);
   };
@@ -262,50 +499,208 @@ export default function InstagramProfileScreen() {
     switch (friendStatus) {
       case "NONE":
         return (
-          <TouchableOpacity style={[s.btn, s.btnBlue, { flex: 1 }]} onPress={handleSendRequest} disabled={actionLoading} activeOpacity={0.75}>
-            {actionLoading
-              ? <ActivityIndicator size="small" color="#fff" />
-              : <Text style={s.btnBlueText}>Kết bạn</Text>}
+          <TouchableOpacity
+            style={[s.btn, s.btnBlue, { flex: 1 }]}
+            onPress={handleSendRequest}
+            disabled={actionLoading}
+            activeOpacity={0.75}
+          >
+            {actionLoading ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={s.btnBlueText}>Kết bạn</Text>
+            )}
           </TouchableOpacity>
         );
       case "SENT":
         return (
-          <TouchableOpacity style={[s.btn, s.btnGray, { flex: 1 }]} onPress={handleCancelRequest} disabled={actionLoading} activeOpacity={0.75}>
-            {actionLoading
-              ? <ActivityIndicator size="small" color="#000" />
-              : <Text style={s.btnGrayText}>Đã gửi lời mời</Text>}
+          <TouchableOpacity
+            style={[s.btn, s.btnGray, { flex: 1 }]}
+            onPress={handleCancelRequest}
+            disabled={actionLoading}
+            activeOpacity={0.75}
+          >
+            {actionLoading ? (
+              <ActivityIndicator size="small" color="#000" />
+            ) : (
+              <Text style={s.btnGrayText}>Đã gửi lời mời</Text>
+            )}
           </TouchableOpacity>
         );
       case "RECEIVED":
         return (
           <>
-            <TouchableOpacity style={[s.btn, s.btnBlue, { flex: 1 }]} onPress={handleAccept} disabled={actionLoading} activeOpacity={0.75}>
-              {actionLoading
-                ? <ActivityIndicator size="small" color="#fff" />
-                : <Text style={s.btnBlueText}>Chấp nhận</Text>}
+            <TouchableOpacity
+              style={[s.btn, s.btnBlue, { flex: 1 }]}
+              onPress={handleAccept}
+              disabled={actionLoading}
+              activeOpacity={0.75}
+            >
+              {actionLoading ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={s.btnBlueText}>Chấp nhận</Text>
+              )}
             </TouchableOpacity>
-            <TouchableOpacity style={[s.btn, s.btnGray, { flex: 1 }]} onPress={handleReject} disabled={actionLoading} activeOpacity={0.75}>
+            <TouchableOpacity
+              style={[s.btn, s.btnGray, { flex: 1 }]}
+              onPress={handleReject}
+              disabled={actionLoading}
+              activeOpacity={0.75}
+            >
               <Text style={s.btnGrayText}>Từ chối</Text>
             </TouchableOpacity>
           </>
         );
       case "FRIEND":
         return (
-          <TouchableOpacity style={[s.btn, s.btnGray, { flex: 1 }]} onPress={handleUnfriend} disabled={actionLoading} activeOpacity={0.75}>
-            {actionLoading
-              ? <ActivityIndicator size="small" color="#000" />
-              : <Text style={s.btnGrayText}>Bạn bè ▾</Text>}
+          <TouchableOpacity
+            style={[s.btn, s.btnGray, { flex: 1 }]}
+            onPress={handleUnfriend}
+            disabled={actionLoading}
+            activeOpacity={0.75}
+          >
+            {actionLoading ? (
+              <ActivityIndicator size="small" color="#000" />
+            ) : (
+              <Text style={s.btnGrayText}>Bạn bè ▾</Text>
+            )}
           </TouchableOpacity>
         );
       case "BLOCKED":
         return (
-          <TouchableOpacity style={[s.btn, s.btnRed, { flex: 1 }]} onPress={handleUnblockOther} disabled={actionLoading} activeOpacity={0.75}>
-            {actionLoading
-              ? <ActivityIndicator size="small" color={colors.danger} />
-              : <Text style={s.btnRedText}>Đã chặn</Text>}
+          <TouchableOpacity
+            style={[s.btn, s.btnRed, { flex: 1 }]}
+            onPress={handleUnblockOther}
+            disabled={actionLoading}
+            activeOpacity={0.75}
+          >
+            {actionLoading ? (
+              <ActivityIndicator size="small" color={colors.danger} />
+            ) : (
+              <Text style={s.btnRedText}>Đã chặn</Text>
+            )}
           </TouchableOpacity>
         );
     }
+  };
+
+  const renderHighlights = () => {
+    if (highlightsLoading) {
+      return (
+        <View style={s.highlightsLoader}>
+          <ActivityIndicator size="small" color={colors.primary} />
+        </View>
+      );
+    }
+
+    if (!isViewingOther && highlights.length === 0) {
+      return (
+        <View style={s.highlightsSection}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={s.highlightsScroll}
+          >
+            <TouchableOpacity
+              style={s.highlightItem}
+              onPress={() => {
+                setSelectedHighlight(null);
+                setHighlightModalVisible(true);
+              }}
+              activeOpacity={0.8}
+            >
+              <View style={s.addHighlightCircle}>
+                <Ionicons name="add" size={28} color="#000" />
+              </View>
+              <Text style={s.highlightTitle} numberOfLines={1}>
+                Mới
+              </Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      );
+    }
+
+    if (highlights.length === 0) return null;
+
+    return (
+      <View style={s.highlightsSection}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={s.highlightsScroll}
+        >
+          {/* "+" Button for own profile */}
+          {!isViewingOther && (
+            <TouchableOpacity
+              style={s.highlightItem}
+              onPress={() => {
+                setSelectedHighlight(null);
+                setHighlightModalVisible(true);
+              }}
+              activeOpacity={0.8}
+            >
+              <View style={s.addHighlightCircle}>
+                <Ionicons name="add" size={28} color="#000" />
+              </View>
+              <Text style={s.highlightTitle} numberOfLines={1}>
+                Mới
+              </Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Highlights List */}
+          {highlights.map((hl, idx) => {
+            const hasCoverText = hl.coverImageUrl?.startsWith("text-story:");
+            return (
+              <TouchableOpacity
+                key={hl.id}
+                style={s.highlightItem}
+                onPress={() => handlePlayHighlight(idx)}
+                onLongPress={() => handleLongPressHighlight(hl)}
+                activeOpacity={0.8}
+              >
+                <View style={s.highlightCircleWrap}>
+                  {hasCoverText ? (
+                    (() => {
+                      const text = hl.coverImageUrl!.replace("text-story:", "");
+                      const gradIdx = getGradientIndex(text);
+                      return (
+                        <LinearGradient
+                          colors={TEXT_GRADIENTS[gradIdx]}
+                          style={s.highlightCover}
+                        >
+                          <Text numberOfLines={2} style={s.highlightCoverText}>
+                            {text}
+                          </Text>
+                        </LinearGradient>
+                      );
+                    })()
+                  ) : hl.coverImageUrl ? (
+                    <Image
+                      source={{ uri: buildS3Url(hl.coverImageUrl) }}
+                      style={s.highlightCover}
+                    />
+                  ) : (
+                    <View style={[s.highlightCover, s.highlightCoverFallback]}>
+                      <Ionicons
+                        name="images-outline"
+                        size={24}
+                        color="#8E8E93"
+                      />
+                    </View>
+                  )}
+                </View>
+                <Text style={s.highlightTitle} numberOfLines={1}>
+                  {hl.title}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
+    );
   };
 
   // ── Render: OTHER USER ────────────────────────────────────────────────────
@@ -320,28 +715,66 @@ export default function InstagramProfileScreen() {
         ) : (
           <ScrollView
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingTop: insets.top + 12, paddingBottom: 40 }}
+            contentContainerStyle={{
+              paddingTop: insets.top + 12,
+              paddingBottom: 40,
+            }}
           >
             {/* Avatar (trái) + username / stats (phải) */}
             <View style={s.profileTopRow}>
-              <View style={s.avatarPresenceWrap}>
-                {u?.avatarUrl ? (
-                  <Image source={{ uri: buildS3Url(u.avatarUrl) }} style={s.avatar} />
-                ) : (
-                  <View style={[s.avatar, s.avatarFallback]}>
-                    <Ionicons name="person" size={38} color="#C7C7CC" />
-                  </View>
+              <View>
+                {/* Note bubble - other user */}
+                {note && (
+                  <TouchableOpacity
+                    style={s.noteBubble}
+                    onPress={openNoteModal}
+                    activeOpacity={0.8}
+                  >
+                    {note.content?.trim() ? (
+                      <Text style={s.noteBubbleText} numberOfLines={2}>
+                        {note.content}
+                      </Text>
+                    ) : note.music?.title ? (
+                      <Text style={s.noteBubbleText} numberOfLines={1}>
+                        🎵 {note.music.title}
+                      </Text>
+                    ) : note.location?.trim() ? (
+                      <Text style={s.noteBubbleText} numberOfLines={1}>
+                        📍 {note.location}
+                      </Text>
+                    ) : null}
+                    <View style={s.noteBubbleArrow} />
+                  </TouchableOpacity>
                 )}
-                {isProfileOnline ? <View style={s.onlineDotLarge} /> : null}
+                <View style={s.avatarPresenceWrap}>
+                  {u?.avatarUrl ? (
+                    <Image
+                      source={{ uri: buildS3Url(u.avatarUrl) }}
+                      style={s.avatar}
+                    />
+                  ) : (
+                    <View style={[s.avatar, s.avatarFallback]}>
+                      <Ionicons name="person" size={38} color="#C7C7CC" />
+                    </View>
+                  )}
+                  {isProfileOnline ? <View style={s.onlineDotLarge} /> : null}
+                </View>
               </View>
               <View style={s.profileRightCol}>
                 <Text style={s.profileUsername} numberOfLines={1}>
                   {u?.username || u?.name || "Người dùng"}
                 </Text>
                 <View style={s.statsRow}>
-                  <StatItem value={String(u?.postsCount ?? 0)} label="Bài viết" />
                   <StatItem
-                    value={otherFriendsCount !== null ? String(otherFriendsCount) : "—"}
+                    value={String(u?.postsCount ?? 0)}
+                    label="Bài viết"
+                  />
+                  <StatItem
+                    value={
+                      otherFriendsCount !== null
+                        ? String(otherFriendsCount)
+                        : "—"
+                    }
                     label="Bạn bè"
                   />
                 </View>
@@ -350,20 +783,25 @@ export default function InstagramProfileScreen() {
 
             {/* Info */}
             <View style={s.infoBlock}>
-              {(u?.name || u?.fullName) ? (
+              {u?.name || u?.fullName ? (
                 <Text style={s.displayName}>{u?.name || u?.fullName}</Text>
               ) : null}
               {u?.gender && GENDER_LABEL[u.gender] ? (
                 <Text style={s.infoMeta}>{GENDER_LABEL[u.gender]}</Text>
               ) : null}
-              {u?.birthday ? <Text style={s.infoMeta}>{u.birthday}</Text> : null}
+              {u?.birthday ? (
+                <Text style={s.infoMeta}>{u.birthday}</Text>
+              ) : null}
               {u?.bio ? <Text style={s.bio}>{u.bio}</Text> : null}
             </View>
 
             {/* Action buttons */}
             <View style={s.actionRow}>
               {renderFriendButton()}
-              <TouchableOpacity style={[s.btn, s.btnGray, { flex: 1 }]} activeOpacity={0.75}>
+              <TouchableOpacity
+                style={[s.btn, s.btnGray, { flex: 1 }]}
+                activeOpacity={0.75}
+              >
                 <Text style={s.btnGrayText}>Nhắn tin</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -371,7 +809,11 @@ export default function InstagramProfileScreen() {
                 onPress={() => setInfoModalVisible(true)}
                 activeOpacity={0.75}
               >
-                <Ionicons name="information-circle-outline" size={20} color="#000" />
+                <Ionicons
+                  name="information-circle-outline"
+                  size={20}
+                  color="#000"
+                />
               </TouchableOpacity>
               <TouchableOpacity
                 style={[s.btn, s.btnGray, s.btnIcon]}
@@ -381,6 +823,9 @@ export default function InstagramProfileScreen() {
                 <Ionicons name="ellipsis-horizontal" size={18} color="#000" />
               </TouchableOpacity>
             </View>
+
+            {/* Highlights */}
+            {renderHighlights()}
 
             {/* Info modal */}
             <Modal
@@ -393,24 +838,37 @@ export default function InstagramProfileScreen() {
                 <View style={s.modalHandle} />
                 <View style={s.modalHeader}>
                   <Text style={s.modalTitle}>Thông tin</Text>
-                  <TouchableOpacity onPress={() => setInfoModalVisible(false)} hitSlop={12}>
+                  <TouchableOpacity
+                    onPress={() => setInfoModalVisible(false)}
+                    hitSlop={12}
+                  >
                     <Ionicons name="close" size={24} color="#000" />
                   </TouchableOpacity>
                 </View>
 
-                <ScrollView contentContainerStyle={s.modalBody} showsVerticalScrollIndicator={false}>
+                <ScrollView
+                  contentContainerStyle={s.modalBody}
+                  showsVerticalScrollIndicator={false}
+                >
                   {/* Avatar + name */}
                   <View style={s.modalProfileRow}>
                     {u?.avatarUrl ? (
-                      <Image source={{ uri: buildS3Url(u.avatarUrl) }} style={s.modalAvatar} />
+                      <Image
+                        source={{ uri: buildS3Url(u.avatarUrl) }}
+                        style={s.modalAvatar}
+                      />
                     ) : (
                       <View style={[s.modalAvatar, s.avatarFallback]}>
                         <Ionicons name="person" size={28} color="#C7C7CC" />
                       </View>
                     )}
                     <View style={{ flex: 1 }}>
-                      <Text style={s.modalName}>{u?.name || u?.fullName || u?.username || "Người dùng"}</Text>
-                      {u?.username ? <Text style={s.modalSub}>@{u.username}</Text> : null}
+                      <Text style={s.modalName}>
+                        {u?.name || u?.fullName || u?.username || "Người dùng"}
+                      </Text>
+                      {u?.username ? (
+                        <Text style={s.modalSub}>@{u.username}</Text>
+                      ) : null}
                     </View>
                   </View>
 
@@ -418,22 +876,46 @@ export default function InstagramProfileScreen() {
 
                   {/* Info rows */}
                   {u?.username ? (
-                    <InfoModalRow icon="at" label="Tên người dùng" value={`@${u.username}`} />
+                    <InfoModalRow
+                      icon="at"
+                      label="Tên người dùng"
+                      value={`@${u.username}`}
+                    />
                   ) : null}
-                  {(u?.name || u?.fullName) ? (
-                    <InfoModalRow icon="person-outline" label="Họ và tên" value={u.name || u.fullName || ""} />
+                  {u?.name || u?.fullName ? (
+                    <InfoModalRow
+                      icon="person-outline"
+                      label="Họ và tên"
+                      value={u.name || u.fullName || ""}
+                    />
                   ) : null}
                   {u?.birthday ? (
-                    <InfoModalRow icon="calendar-outline" label="Ngày sinh" value={u.birthday} />
+                    <InfoModalRow
+                      icon="calendar-outline"
+                      label="Ngày sinh"
+                      value={u.birthday}
+                    />
                   ) : null}
                   {u?.gender && GENDER_LABEL[u.gender] ? (
-                    <InfoModalRow icon="people-outline" label="Giới tính" value={GENDER_LABEL[u.gender]} />
+                    <InfoModalRow
+                      icon="people-outline"
+                      label="Giới tính"
+                      value={GENDER_LABEL[u.gender]}
+                    />
                   ) : null}
                   {u?.bio ? (
-                    <InfoModalRow icon="chatbubble-outline" label="Giới thiệu" value={u.bio} />
+                    <InfoModalRow
+                      icon="chatbubble-outline"
+                      label="Giới thiệu"
+                      value={u.bio}
+                    />
                   ) : null}
                   {otherFriendsCount !== null ? (
-                    <InfoModalRow icon="people" label="Bạn bè" value={`${otherFriendsCount} người`} />
+                    <InfoModalRow
+                      icon="people"
+                      label="Bạn bè"
+                      value={`${otherFriendsCount} người`}
+                    />
                   ) : null}
                 </ScrollView>
               </View>
@@ -441,21 +923,98 @@ export default function InstagramProfileScreen() {
 
             {/* Tab bar */}
             <View style={s.tabBar}>
-              <View style={[s.tabItem, s.tabItemActive]}>
-                <Ionicons name="grid" size={22} color="#000" />
-              </View>
+              {OTHER_TABS.map((t) => (
+                <TouchableOpacity
+                  key={t.key}
+                  style={[s.tabItem, selectedTab === t.key && s.tabItemActive]}
+                  onPress={() => {
+                    setSelectedTab(t.key);
+                    if (t.key === "blocked") void loadBlockedUsers();
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons
+                    name={selectedTab === t.key ? t.icon : t.iconOutline}
+                    size={22}
+                    color={selectedTab === t.key ? "#000" : "#8E8E93"}
+                  />
+                </TouchableOpacity>
+              ))}
             </View>
 
-            {/* Empty posts */}
-            <View style={s.emptyWrap}>
-              <View style={s.emptyCircle}>
-                <Ionicons name="camera-outline" size={38} color="#C7C7CC" />
+            {/* Tab content */}
+            {tabLoading ? (
+              <View style={{ paddingVertical: 32 }}>
+                <ActivityIndicator size="small" color={colors.primary} />
               </View>
-              <Text style={s.emptyTitle}>Chưa có bài viết</Text>
-              <Text style={s.emptySub}>Bài viết sẽ hiển thị ở đây</Text>
-            </View>
+            ) : displayPosts.length > 0 ? (
+              <PostGrid
+                posts={displayPosts}
+                onPressPost={(post) =>
+                  router.push({
+                    pathname: "/(stack)/post/[postId]",
+                    params: { postId: post.id },
+                  })
+                }
+              />
+            ) : (
+              <View style={s.emptyWrap}>
+                <View style={s.emptyCircle}>
+                  <Ionicons
+                    name={
+                      selectedTab === "tagged"
+                        ? "at"
+                        : selectedTab === "shared"
+                        ? "paper-plane-outline"
+                        : "camera-outline"
+                    }
+                    size={38}
+                    color="#C7C7CC"
+                  />
+                </View>
+                <Text style={s.emptyTitle}>
+                  {selectedTab === "tagged"
+                    ? "Chưa có bài viết gắn thẻ"
+                    : selectedTab === "shared"
+                    ? "Chưa có bài viết chia sẻ"
+                    : "Chưa có bài viết"}
+                </Text>
+                <Text style={s.emptySub}>
+                  {selectedTab === "tagged"
+                    ? "Bài viết họ được gắn thẻ sẽ hiển thị ở đây"
+                    : selectedTab === "shared"
+                    ? "Bài viết họ đã chia sẻ sẽ hiển thị ở đây"
+                    : "Bài viết của họ sẽ hiển thị ở đây"}
+                </Text>
+              </View>
+            )}
           </ScrollView>
         )}
+
+        <StoryViewer
+          visible={storyViewerVisible}
+          groups={viewerGroups}
+          initialGroupIdx={viewerGroupIdx}
+          currentUser={currentUser}
+          onClose={() => setStoryViewerVisible(false)}
+          onStoryRemovedFromHighlight={loadHighlights}
+          onEditHighlight={(hlId) => {
+            const found = highlights.find((h) => String(h.id) === String(hlId));
+            if (found) {
+              setSelectedHighlight(found);
+              setHighlightModalVisible(true);
+            }
+          }}
+        />
+
+        {/* Note Modal */}
+        <NoteModal
+          visible={showNoteModal}
+          userId={noteUserId}
+          isOwnProfile={false}
+          onClose={closeNoteModal}
+          onNoteChange={setNote}
+        />
       </View>
     );
   }
@@ -465,38 +1024,72 @@ export default function InstagramProfileScreen() {
     return (
       <View style={s.fullCenter}>
         <Ionicons name="person-circle-outline" size={64} color="#C7C7CC" />
-        <Text style={{ fontSize: 15, color: "#8E8E93", marginTop: 8 }}>Không có dữ liệu người dùng</Text>
+        <Text style={{ fontSize: 15, color: "#8E8E93", marginTop: 8 }}>
+          Không có dữ liệu người dùng
+        </Text>
       </View>
     );
   }
 
-  const myPosts      = posts.filter((p) => p.userId === currentUser?.id);
-  const savedPosts   = posts.filter((p) => savedPostIds.includes(p.id));
-  const displayPosts = selectedTab === "posts" ? myPosts : selectedTab === "saved" ? savedPosts : [];
-
-  const OWN_TABS: { key: OwnTab; icon: keyof typeof Ionicons.glyphMap; iconOutline: keyof typeof Ionicons.glyphMap }[] = [
-    { key: "posts",   icon: "grid",   iconOutline: "grid-outline"    },
-    { key: "saved",   icon: "bookmark", iconOutline: "bookmark-outline" },
-    { key: "blocked", icon: "shield",   iconOutline: "shield-outline"   },
-  ];
-
   return (
     <View style={s.screen}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: insets.top, paddingBottom: 40 }}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingTop: insets.top, paddingBottom: 40 }}
+      >
         {/* Avatar (trái) + username / stats / settings (phải) — cùng một hàng */}
         <View style={s.profileTopRow}>
-          <TouchableOpacity onPress={() => router.push("/(stack)/profile/edit")} activeOpacity={0.85}>
-            <View style={s.avatarPresenceWrap}>
-              {currentUser.avatarUrl ? (
-                <Image source={{ uri: buildS3Url(currentUser.avatarUrl) }} style={s.avatar} />
+          <View>
+            {/* Note bubble - own profile */}
+            <TouchableOpacity
+              style={s.noteBubble}
+              onPress={openNoteModal}
+              activeOpacity={0.8}
+            >
+              {note ? (
+                <>
+                  {note.content?.trim() ? (
+                    <Text style={s.noteBubbleText} numberOfLines={2}>
+                      {note.content}
+                    </Text>
+                  ) : note.music?.title ? (
+                    <Text style={s.noteBubbleText} numberOfLines={1}>
+                      🎵 {note.music.title}
+                    </Text>
+                  ) : note.location?.trim() ? (
+                    <Text style={s.noteBubbleText} numberOfLines={1}>
+                      📍 {note.location}
+                    </Text>
+                  ) : (
+                    <Text style={s.noteBubblePlaceholder}>
+                      Bấm để cập nhật ghi chú
+                    </Text>
+                  )}
+                </>
               ) : (
-                <View style={[s.avatar, s.avatarFallback]}>
-                  <Ionicons name="person" size={38} color="#C7C7CC" />
-                </View>
+                <Text style={s.noteBubblePlaceholder}>✏️ Thêm ghi chú...</Text>
               )}
-              {isProfileOnline ? <View style={s.onlineDotLarge} /> : null}
-            </View>
-          </TouchableOpacity>
+              <View style={s.noteBubbleArrow} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => router.push("/(stack)/profile/edit")}
+              activeOpacity={0.85}
+            >
+              <View style={s.avatarPresenceWrap}>
+                {currentUser.avatarUrl ? (
+                  <Image
+                    source={{ uri: buildS3Url(currentUser.avatarUrl) }}
+                    style={s.avatar}
+                  />
+                ) : (
+                  <View style={[s.avatar, s.avatarFallback]}>
+                    <Ionicons name="person" size={38} color="#C7C7CC" />
+                  </View>
+                )}
+                {isProfileOnline ? <View style={s.onlineDotLarge} /> : null}
+              </View>
+            </TouchableOpacity>
+          </View>
 
           <View style={s.profileRightCol}>
             {/* Username + settings */}
@@ -504,7 +1097,11 @@ export default function InstagramProfileScreen() {
               <Text style={s.profileUsername} numberOfLines={1}>
                 {currentUser.username || currentUser.name}
               </Text>
-              <TouchableOpacity onPress={() => router.push("/(stack)/profile/menu")} hitSlop={12} style={s.topRowIcon}>
+              <TouchableOpacity
+                onPress={() => router.push("/(stack)/profile/menu")}
+                hitSlop={12}
+                style={s.topRowIcon}
+              >
                 <Ionicons name="settings-outline" size={24} color="#000" />
               </TouchableOpacity>
             </View>
@@ -513,22 +1110,33 @@ export default function InstagramProfileScreen() {
             <View style={s.statsRow}>
               <StatItem value={String(myPosts.length)} label="Bài viết" />
               <StatItem value={String(friendsCount)} label="Bạn bè" />
-              <StatItem value={String(currentUser.following ?? 0)} label="Theo dõi" />
+              <StatItem
+                value={String(currentUser.following ?? 0)}
+                label="Theo dõi"
+              />
             </View>
           </View>
         </View>
 
         {/* Info */}
         <View style={s.infoBlock}>
-          {(currentUser.name || currentUser.fullName) ? (
-            <Text style={s.displayName}>{currentUser.name || currentUser.fullName}</Text>
+          {currentUser.name || currentUser.fullName ? (
+            <Text style={s.displayName}>
+              {currentUser.name || currentUser.fullName}
+            </Text>
           ) : null}
           {currentUser.gender && GENDER_LABEL[currentUser.gender] ? (
             <Text style={s.infoMeta}>{GENDER_LABEL[currentUser.gender]}</Text>
           ) : null}
-          {currentUser.birthday ? <Text style={s.infoMeta}>{currentUser.birthday}</Text> : null}
-          {currentUser.bio ? <Text style={s.bio}>{currentUser.bio}</Text> : null}
-          {currentUser.phone ? <Text style={s.infoPhone}>{currentUser.phone}</Text> : null}
+          {currentUser.birthday ? (
+            <Text style={s.infoMeta}>{currentUser.birthday}</Text>
+          ) : null}
+          {currentUser.bio ? (
+            <Text style={s.bio}>{currentUser.bio}</Text>
+          ) : null}
+          {currentUser.phone ? (
+            <Text style={s.infoPhone}>{currentUser.phone}</Text>
+          ) : null}
         </View>
 
         {/* Action buttons */}
@@ -540,10 +1148,17 @@ export default function InstagramProfileScreen() {
           >
             <Text style={s.btnGrayText}>Chỉnh sửa hồ sơ</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[s.btn, s.btnGray, s.btnIcon]} onPress={handleLogout} activeOpacity={0.75}>
+          <TouchableOpacity
+            style={[s.btn, s.btnGray, s.btnIcon]}
+            onPress={handleLogout}
+            activeOpacity={0.75}
+          >
             <Ionicons name="log-out-outline" size={18} color={colors.danger} />
           </TouchableOpacity>
         </View>
+
+        {/* Highlights */}
+        {renderHighlights()}
 
         {/* Tab bar */}
         <View style={s.tabBar}>
@@ -551,10 +1166,7 @@ export default function InstagramProfileScreen() {
             <TouchableOpacity
               key={t.key}
               style={[s.tabItem, selectedTab === t.key && s.tabItemActive]}
-              onPress={() => {
-                setSelectedTab(t.key);
-                if (t.key === "blocked") void loadBlockedUsers();
-              }}
+              onPress={() => setSelectedTab(t.key)}
               activeOpacity={0.7}
             >
               <Ionicons
@@ -586,9 +1198,13 @@ export default function InstagramProfileScreen() {
                   </View>
                 )}
                 <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={s.blockedName} numberOfLines={1}>{bu.name || bu.username}</Text>
+                  <Text style={s.blockedName} numberOfLines={1}>
+                    {bu.name || bu.username}
+                  </Text>
                   {bu.username && (
-                    <Text style={s.blockedSub} numberOfLines={1}>@{bu.username}</Text>
+                    <Text style={s.blockedSub} numberOfLines={1}>
+                      @{bu.username}
+                    </Text>
                   )}
                 </View>
                 <TouchableOpacity
@@ -603,52 +1219,154 @@ export default function InstagramProfileScreen() {
           ) : (
             <View style={s.emptyWrap}>
               <View style={s.emptyCircle}>
-                <Ionicons name="shield-checkmark-outline" size={38} color="#C7C7CC" />
+                <Ionicons
+                  name="shield-checkmark-outline"
+                  size={38}
+                  color="#C7C7CC"
+                />
               </View>
               <Text style={s.emptyTitle}>Chưa chặn ai</Text>
-              <Text style={s.emptySub}>Những người bạn chặn sẽ hiển thị ở đây</Text>
+              <Text style={s.emptySub}>
+                Những người bạn chặn sẽ hiển thị ở đây
+              </Text>
             </View>
           )
-        ) : displayPosts.length > 0 ? (
-          <View style={s.grid}>
-            {displayPosts.map((post) => (
-              <TouchableOpacity key={post.id} style={s.gridItem} activeOpacity={0.85}>
-                {post.image ? (
-                  <Image source={{ uri: post.image }} style={s.gridImage} />
-                ) : (
-                  <View style={s.gridPlaceholder}>
-                    <Ionicons name="image-outline" size={30} color="#C7C7CC" />
-                  </View>
-                )}
-              </TouchableOpacity>
-            ))}
+        ) : tabLoading ? (
+          <View style={{ paddingVertical: 32 }}>
+            <ActivityIndicator size="small" color={colors.primary} />
           </View>
+        ) : displayPosts.length > 0 ? (
+          <PostGrid
+            posts={displayPosts}
+            onPressPost={(post) =>
+              router.push({
+                pathname: "/(stack)/post/[postId]",
+                params: { postId: post.id },
+              })
+            }
+          />
         ) : (
           <View style={s.emptyWrap}>
             <View style={s.emptyCircle}>
               <Ionicons
-                name={selectedTab === "saved" ? "bookmark-outline" : "camera-outline"}
+                name={
+                  selectedTab === "saved"
+                    ? "bookmark-outline"
+                    : selectedTab === "tagged"
+                    ? "at"
+                    : selectedTab === "shared"
+                    ? "paper-plane-outline"
+                    : "camera-outline"
+                }
                 size={38}
                 color="#C7C7CC"
               />
             </View>
             <Text style={s.emptyTitle}>
-              {selectedTab === "saved" ? "Chưa lưu bài viết" : "Chưa có bài viết"}
+              {selectedTab === "saved"
+                ? "Chưa lưu bài viết"
+                : selectedTab === "tagged"
+                ? "Chưa có bài viết gắn thẻ"
+                : selectedTab === "shared"
+                ? "Chưa có bài viết chia sẻ"
+                : "Chưa có bài viết"}
             </Text>
             <Text style={s.emptySub}>
               {selectedTab === "saved"
                 ? "Bài viết bạn lưu sẽ hiển thị ở đây"
+                : selectedTab === "tagged"
+                ? "Bài viết bạn được gắn thẻ sẽ hiển thị ở đây"
+                : selectedTab === "shared"
+                ? "Bài viết bạn đã chia sẻ sẽ hiển thị ở đây"
                 : "Bài viết bạn tạo sẽ hiển thị ở đây"}
             </Text>
           </View>
         )}
       </ScrollView>
+
+      {/* Highlight creation and editing modal */}
+      <HighlightModal
+        visible={highlightModalVisible}
+        onClose={() => setHighlightModalVisible(false)}
+        onSaveSuccess={loadHighlights}
+        currentUserId={String(currentUser.id)}
+        highlight={selectedHighlight}
+      />
+
+      {/* Highlight Options Drawer */}
+      <HighlightOptionsModal
+        visible={optionsModalVisible}
+        onClose={() => setOptionsModalVisible(false)}
+        onEdit={() => {
+          setSelectedHighlight(longPressedHighlight);
+          setHighlightModalVisible(true);
+        }}
+        onDelete={() => {
+          if (longPressedHighlight) {
+            Alert.alert(
+              "Xóa tin nổi bật",
+              "Bạn có chắc chắn muốn xóa tin nổi bật này không?",
+              [
+                { text: "Hủy", style: "cancel" },
+                {
+                  text: "Xóa",
+                  style: "destructive",
+                  onPress: async () => {
+                    try {
+                      await deleteHighlight(longPressedHighlight.id);
+                      Alert.alert("Thành công", "Đã xóa tin nổi bật");
+                      void loadHighlights();
+                    } catch (err: any) {
+                      Alert.alert("Lỗi", "Không thể xóa tin nổi bật");
+                    }
+                  },
+                },
+              ]
+            );
+          }
+        }}
+        highlightTitle={longPressedHighlight?.title || ""}
+      />
+
+      {/* StoryViewer for Highlights */}
+      <StoryViewer
+        visible={storyViewerVisible}
+        groups={viewerGroups}
+        initialGroupIdx={viewerGroupIdx}
+        currentUser={currentUser}
+        onClose={() => setStoryViewerVisible(false)}
+        onStoryRemovedFromHighlight={loadHighlights}
+        onEditHighlight={(hlId) => {
+          const found = highlights.find((h) => String(h.id) === String(hlId));
+          if (found) {
+            setSelectedHighlight(found);
+            setHighlightModalVisible(true);
+          }
+        }}
+      />
+
+      {/* Note Modal */}
+      <NoteModal
+        visible={showNoteModal}
+        userId={noteUserId}
+        isOwnProfile={true}
+        onClose={closeNoteModal}
+        onNoteChange={setNote}
+      />
     </View>
   );
 }
 
 // ── Info modal row ───────────────────────────────────────────────────────────
-function InfoModalRow({ icon, label, value }: { icon: keyof typeof Ionicons.glyphMap; label: string; value: string }) {
+function InfoModalRow({
+  icon,
+  label,
+  value,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string;
+}) {
   return (
     <View style={s.infoModalRow}>
       <View style={s.infoModalIconWrap}>
@@ -675,8 +1393,12 @@ function StatItem({ value, label }: { value: string; label: string }) {
 // ── Styles ──────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#fff" },
-  fullCenter: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#fff" },
-
+  fullCenter: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+  },
 
   /* ── Own profile top row: avatar bên trái + cột phải (username+stats) ── */
   profileTopRow: {
@@ -1030,5 +1752,114 @@ const s = StyleSheet.create({
     fontSize: 15,
     color: "#000",
     lineHeight: 20,
+  },
+
+  /* ── Highlights Styles ── */
+  highlightsSection: {
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#E5E5EA",
+    backgroundColor: "#fff",
+  },
+  highlightsScroll: {
+    paddingHorizontal: 16,
+    gap: 18,
+  },
+  highlightItem: {
+    alignItems: "center",
+    width: 68,
+  },
+  highlightCircleWrap: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    borderWidth: 1,
+    borderColor: "#C7C7CC",
+    padding: 2,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
+  },
+  highlightCover: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    justifyContent: "center",
+    alignItems: "center",
+    overflow: "hidden",
+  },
+  highlightCoverFallback: {
+    backgroundColor: "#F2F2F7",
+  },
+  highlightCoverText: {
+    color: "#fff",
+    fontSize: 7,
+    fontWeight: "700",
+    textAlign: "center",
+    paddingHorizontal: 4,
+  },
+  highlightTitle: {
+    fontSize: 12,
+    color: "#000",
+    textAlign: "center",
+    width: "100%",
+  },
+  addHighlightCircle: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    borderWidth: 1,
+    borderColor: "#000",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
+  },
+  highlightsLoader: {
+    paddingVertical: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  /* ── Note bubble ── */
+  noteBubble: {
+    backgroundColor: "#F2F2F7",
+    borderRadius: 12,
+    borderBottomLeftRadius: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 6,
+    maxWidth: 120,
+    alignSelf: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#E5E5EA",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  noteBubbleText: {
+    fontSize: 11,
+    color: "#000",
+    fontWeight: "600",
+    lineHeight: 15,
+  },
+  noteBubblePlaceholder: {
+    fontSize: 11,
+    color: "#8E8E93",
+    fontWeight: "500",
+  },
+  noteBubbleArrow: {
+    position: "absolute",
+    bottom: -5,
+    left: 8,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 5,
+    borderRightWidth: 5,
+    borderTopWidth: 5,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderTopColor: "#F2F2F7",
   },
 });

@@ -1627,6 +1627,22 @@ class WebSocketService {
         this.subscriptions.get(destination)?.unsubscribe();
         this.subscriptions.delete(destination);
     }
+
+    subscribeToStory(storyId: string, onEvent: (event: any) => void) {
+        if (!this.client?.connected) return;
+        const destination = `/topic/stories/${storyId}`;
+        if (this.subscriptions.has(destination)) return;
+        const sub = this.client.subscribe(destination, (msg: IMessage) => {
+            try { onEvent(JSON.parse(msg.body)); } catch { /* ignore */ }
+        });
+        this.subscriptions.set(destination, sub);
+    }
+
+    unsubscribeFromStory(storyId: string) {
+        const destination = `/topic/stories/${storyId}`;
+        this.subscriptions.get(destination)?.unsubscribe();
+        this.subscriptions.delete(destination);
+    }
 }
 
 /**
