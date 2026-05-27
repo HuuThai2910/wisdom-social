@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { X, Check, Search, Loader2, Edit2, Trash2, Users } from "lucide-react";
+import { X, Check, Search, Loader2, Edit2, Users } from "lucide-react";
 import { buildS3Url } from "../../utils/s3";
 import {
   getAllUserStories,

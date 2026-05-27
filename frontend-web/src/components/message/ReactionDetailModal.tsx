@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { type Message } from "../../services/chatService";
 import { type MembersByUserId } from "../../stores/chatRuntimeStore";

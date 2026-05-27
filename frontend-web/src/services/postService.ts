@@ -504,7 +504,7 @@ export const deletePost = async (postId: string, userId: string): Promise<void> 
  * Search users for mentions
  */
 export const searchUsers = async (
-    userId: string,
+    _userId: string,
     query: string
 ): Promise<UserData[]> => {
     try {

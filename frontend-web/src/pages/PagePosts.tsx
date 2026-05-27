@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
     ArrowLeft, Loader2, CheckCircle, XCircle, Clock,
-    FileText, Image as ImageIcon, MoreVertical, Trash2, ShieldAlert
+    FileText, Trash2, ShieldAlert
 } from "lucide-react";
 import pageService from "../services/pageService";
 import { useCurrentUser } from "../hooks/useCurrentUser";

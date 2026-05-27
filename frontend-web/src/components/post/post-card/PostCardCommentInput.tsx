@@ -1,10 +1,10 @@
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState } from "react";
 import { Smile, Loader2 } from "lucide-react";
 import { type EmojiClickData, Theme } from "emoji-picker-react";
 import IconModal from "../../icon-modal/IconModal";
 import useMentions from "../../../hooks/useMentions";
 import { getAvatarUrl } from "../../../utils/s3";
-import type { UserData } from "../../../types/post";
+
 
 interface PostCardCommentInputProps {
   currentUserAvatarUrl: string;

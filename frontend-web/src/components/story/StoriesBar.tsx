@@ -36,7 +36,7 @@ interface StoryFeedItem {
 export default function StoriesBar() {
   const currentUser = useCurrentUser();
   const [feedStories, setFeedStories] = useState<StoryFeedItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
   
   const [activeGroupIdx, setActiveGroupIdx] = useState<number | null>(null);
   const [sortedUserIds, setSortedUserIds] = useState<string[]>([]);

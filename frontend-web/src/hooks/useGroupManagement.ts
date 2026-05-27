@@ -474,10 +474,6 @@ export function useGroupManagement({
         selectedGroupConversation,
     ]);
 
-    const leaveGroupDirectly = useCallback(async () => {
-        return executeLeaveGroup();
-    }, [executeLeaveGroup]);
-
     const transferOwnershipAndLeave = useCallback(
         async (newOwnerUserId: number) => {
             if (!selectedConversationId || !selectedGroupConversation) {

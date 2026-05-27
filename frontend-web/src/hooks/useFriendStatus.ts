@@ -2,7 +2,7 @@ import { useState, useLayoutEffect, useCallback, useEffect, useRef } from "react
 import friendService from "../services/friendService";
 import { useCurrentUser } from "./useCurrentUser";
 import { useFriendDataOptional } from "./useFriendDataOptional";
-import type { User } from "../types";
+
 
 export type FriendshipStatus = "loading" | "none" | "pending_sent" | "pending_received" | "friends";
 
