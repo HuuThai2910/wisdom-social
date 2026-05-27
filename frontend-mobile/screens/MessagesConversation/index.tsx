@@ -17,12 +17,21 @@ import { usePresenceStatus } from "@/hooks/usePresenceStatus";
 import chatService from "@/services/chatService";
 import friendService from "@/services/friendService";
 import type { FriendEvent } from "@/services/friendWebsocketService";
-import type { ChatUserSearchResult, ConversationSidebar, LocalUploadFile, Message } from "@/types/chat";
+import type {
+    ChatUserSearchResult,
+    ConversationMember,
+    ConversationSidebar,
+    LocalUploadFile,
+    Message,
+} from "@/types/chat";
 import { formatRelativeTime } from "@/utils/format";
 import { formatLastActiveText } from "@/utils/presenceText";
 import { focusComposerInput } from "@/utils/focusComposerInput";
 import { buildConversationDisplayInfo } from "@/utils/conversationDisplayInfo";
 import { Ionicons } from "@expo/vector-icons";
+import DateTimePicker, {
+    type DateTimePickerEvent,
+} from "@react-native-community/datetimepicker";
 import { Audio, type AVPlaybackStatus, ResizeMode, Video } from "expo-av";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -79,6 +88,7 @@ import {
     formatDurationMillis,
     formatFileSize,
     resolveMediaUrl,
+    resolveAttachmentUrls,
     isLikelyStoragePathOrUrl,
     formatMessageTime,
     isEmojiOnlyText,
@@ -93,6 +103,10 @@ import {
     buildAudioWaveBars,
 } from "@/utils/messageUtils";
 import { PinnedBanner } from "@/components/PinnedBanner";
+import {
+    ConversationSearchProvider,
+    useConversationSearch,
+} from "@/contexts/ConversationSearchContext";
 import { buildPinnedBannerItemsFromSnapshot } from "@/utils/pinnedMessageSnapshot";
 import { useOneToOneCall } from "@/hooks/useOneToOneCall";
 import { consumeInviteReturnSync } from "@/utils/inviteReturnSync";
@@ -120,6 +134,321 @@ function canForwardToConversation(
     return !FORWARD_BLOCKED_MEMBER_STATUSES.has(String(currentMember.status));
 }
 
+function getLocalDateStart(dateValue: string): string | null {
+    const [year, month, day] = dateValue.split("-").map(Number);
+    if (!year || !month || !day) return null;
+    return new Date(year, month - 1, day, 0, 0, 0, 0).toISOString();
+}
+
+function getLocalDateEndExclusive(dateValue: string): string | null {
+    const [year, month, day] = dateValue.split("-").map(Number);
+    if (!year || !month || !day) return null;
+    return new Date(year, month - 1, day + 1, 0, 0, 0, 0).toISOString();
+}
+
+function formatDateInput(value: Date): string {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, "0");
+    const day = String(value.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+}
+
+function parseDateInput(value: string): Date | undefined {
+    const [year, month, day] = value.split("-").map(Number);
+    if (!year || !month || !day) return undefined;
+    return new Date(year, month - 1, day, 12, 0, 0, 0);
+}
+
+function isInvalidDateRange(fromValue: string, toValue: string): boolean {
+    return Boolean(fromValue && toValue && toValue < fromValue);
+}
+
+function ConversationSearchBar({
+    members,
+    currentUserId,
+    onClose,
+}: {
+    members: ConversationMember[];
+    currentUserId: number;
+    onClose: () => void;
+}) {
+    const [inputValue, setInputValue] = useState("");
+    const [senderMenuOpen, setSenderMenuOpen] = useState(false);
+    const [senderQuery, setSenderQuery] = useState("");
+    const [fromDateValue, setFromDateValue] = useState("");
+    const [toDateValue, setToDateValue] = useState("");
+    const [activeDatePicker, setActiveDatePicker] = useState<"from" | "to" | null>(null);
+    const {
+        keyword,
+        senderId,
+        results,
+        currentIndex,
+        hasMore,
+        loading,
+        search,
+        setSenderFilter,
+        setDateFilter,
+        next,
+        prev,
+        clear,
+    } = useConversationSearch();
+    const applyDateRange = useCallback(
+        (nextFromValue: string, nextToValue: string) => {
+            if (isInvalidDateRange(nextFromValue, nextToValue)) {
+                void setDateFilter(null, null);
+                return;
+            }
+            const nextFrom =
+                nextFromValue.length === 10
+                    ? getLocalDateStart(nextFromValue)
+                    : null;
+            const nextTo =
+                nextToValue.length === 10
+                    ? getLocalDateEndExclusive(nextToValue)
+                    : null;
+            void setDateFilter(nextFrom, nextTo);
+        },
+        [setDateFilter],
+    );
+    const invalidDateRange = isInvalidDateRange(fromDateValue, toDateValue);
+    const handleDatePickerChange = useCallback(
+        (event: DateTimePickerEvent, selectedDate?: Date) => {
+            if (event.type === "dismissed") {
+                setActiveDatePicker(null);
+                return;
+            }
+            if (!selectedDate || !activeDatePicker) return;
+
+            const nextValue = formatDateInput(selectedDate);
+            if (activeDatePicker === "from") {
+                setFromDateValue(nextValue);
+                applyDateRange(nextValue, toDateValue);
+            } else {
+                setToDateValue(nextValue);
+                applyDateRange(fromDateValue, nextValue);
+            }
+            setActiveDatePicker(null);
+        },
+        [activeDatePicker, applyDateRange, fromDateValue, toDateValue],
+    );
+    const selectedSender = senderId
+        ? members.find((member) => Number(member.userId) === Number(senderId))
+        : null;
+    const senderLabel = selectedSender
+        ? selectedSender.userId === currentUserId
+            ? "Ban"
+            : selectedSender.nickname || selectedSender.username || `User ${selectedSender.userId}`
+        : "Tat ca";
+    const normalizedSenderQuery = senderQuery.trim().toLowerCase();
+    const filteredMembers = normalizedSenderQuery
+        ? members.filter((member) =>
+              [
+                  member.nickname,
+                  member.username,
+                  member.userId === currentUserId ? "Ban" : "",
+              ]
+                  .filter(Boolean)
+                  .join(" ")
+                  .toLowerCase()
+                  .includes(normalizedSenderQuery),
+          )
+        : members;
+
+    const statusText =
+        results.length === 0
+            ? keyword
+                ? "Khong co ket qua"
+                : "Nhap tu khoa"
+            : hasMore
+              ? `Ket qua thu ${currentIndex + 1}/${results.length}+`
+              : `Ket qua thu ${currentIndex + 1}/${results.length}`;
+
+    return (
+        <View style={searchStyles.wrap}>
+            <View style={searchStyles.inputWrap}>
+                <Ionicons name="search-outline" size={18} color="#64748B" />
+                <TextInput
+                    value={inputValue}
+                    onChangeText={setInputValue}
+                    onSubmitEditing={() => void search(inputValue)}
+                    placeholder="Tim tin nhan"
+                    placeholderTextColor="#94A3B8"
+                    returnKeyType="search"
+                    autoFocus
+                    style={searchStyles.input}
+                />
+            </View>
+            <Pressable
+                style={searchStyles.senderBtn}
+                onPress={() => setSenderMenuOpen((prev) => !prev)}
+                hitSlop={8}
+            >
+                <Ionicons name="person-outline" size={16} color="#334155" />
+                <Text style={searchStyles.senderBtnText} numberOfLines={1}>
+                    {senderLabel}
+                </Text>
+            </Pressable>
+            <Text style={searchStyles.status}>
+                {loading ? "Dang tim..." : statusText}
+            </Text>
+            <Pressable
+                style={[searchStyles.iconBtn, (loading || currentIndex <= 0) && searchStyles.iconBtnDisabled]}
+                disabled={loading || currentIndex <= 0}
+                onPress={() => void prev()}
+                hitSlop={8}
+            >
+                <Ionicons name="chevron-up" size={20} color="#334155" />
+            </Pressable>
+            <Pressable
+                style={[
+                    searchStyles.iconBtn,
+                    (loading || (currentIndex >= results.length - 1 && !hasMore)) &&
+                        searchStyles.iconBtnDisabled,
+                ]}
+                disabled={loading || (currentIndex >= results.length - 1 && !hasMore)}
+                onPress={() => void next()}
+                hitSlop={8}
+            >
+                <Ionicons name="chevron-down" size={20} color="#334155" />
+            </Pressable>
+            <Pressable
+                style={searchStyles.iconBtn}
+                onPress={() => {
+                    clear();
+                    onClose();
+                }}
+                hitSlop={8}
+            >
+                <Ionicons name="close" size={20} color="#334155" />
+            </Pressable>
+            <View style={searchStyles.dateRow}>
+                <Pressable
+                    style={searchStyles.dateInputWrap}
+                    onPress={() => setActiveDatePicker("from")}
+                >
+                    <Ionicons name="calendar-outline" size={16} color="#64748B" />
+                    <Text
+                        style={[
+                            searchStyles.dateInput,
+                            !fromDateValue && searchStyles.datePlaceholder,
+                        ]}
+                    >
+                        {fromDateValue || "Tu ngay"}
+                    </Text>
+                </Pressable>
+                <Pressable
+                    style={searchStyles.dateInputWrap}
+                    onPress={() => setActiveDatePicker("to")}
+                >
+                    <Ionicons name="calendar-outline" size={16} color="#64748B" />
+                    <Text
+                        style={[
+                            searchStyles.dateInput,
+                            !toDateValue && searchStyles.datePlaceholder,
+                        ]}
+                    >
+                        {toDateValue || "Den ngay"}
+                    </Text>
+                </Pressable>
+                {fromDateValue || toDateValue ? (
+                    <Pressable
+                        style={searchStyles.clearDateBtn}
+                        onPress={() => {
+                            setFromDateValue("");
+                            setToDateValue("");
+                            void setDateFilter(null, null);
+                        }}
+                    >
+                        <Text style={searchStyles.clearDateText}>Bo ngay</Text>
+                    </Pressable>
+                ) : null}
+                {invalidDateRange ? (
+                    <Text style={searchStyles.dateError}>
+                        Den ngay khong duoc truoc tu ngay
+                    </Text>
+                ) : null}
+            </View>
+            {senderMenuOpen ? (
+                <View style={searchStyles.senderMenu}>
+                    <View style={searchStyles.senderSearchWrap}>
+                        <Ionicons name="search-outline" size={16} color="#64748B" />
+                        <TextInput
+                            value={senderQuery}
+                            onChangeText={setSenderQuery}
+                            placeholder="Tim nguoi gui"
+                            placeholderTextColor="#94A3B8"
+                            style={searchStyles.senderSearchInput}
+                        />
+                    </View>
+                    <Pressable
+                        style={searchStyles.senderOption}
+                        onPress={() => {
+                            setSenderMenuOpen(false);
+                            setSenderQuery("");
+                            void setSenderFilter(null);
+                        }}
+                    >
+                        <View style={searchStyles.allAvatar}>
+                            <Text style={searchStyles.allAvatarText}>All</Text>
+                        </View>
+                        <Text style={searchStyles.senderOptionText}>Tat ca</Text>
+                    </Pressable>
+                    {filteredMembers.map((member) => {
+                        const name =
+                            member.userId === currentUserId
+                                ? "Ban"
+                                : member.nickname || member.username || `User ${member.userId}`;
+                        return (
+                            <Pressable
+                                key={member.userId}
+                                style={searchStyles.senderOption}
+                                onPress={() => {
+                                    setSenderMenuOpen(false);
+                                    setSenderQuery("");
+                                    void setSenderFilter(member.userId);
+                                }}
+                            >
+                                <UserAvatar
+                                    uri={member.avatar}
+                                    name={name}
+                                    size={30}
+                                />
+                                <Text style={searchStyles.senderOptionText} numberOfLines={1}>
+                                    {name}
+                                </Text>
+                            </Pressable>
+                        );
+                    })}
+                </View>
+            ) : null}
+            {activeDatePicker ? (
+                <DateTimePicker
+                    value={
+                        parseDateInput(
+                            activeDatePicker === "from"
+                                ? fromDateValue
+                                : toDateValue,
+                        ) || new Date()
+                    }
+                    mode="date"
+                    display="default"
+                    maximumDate={
+                        activeDatePicker === "from"
+                            ? parseDateInput(toDateValue)
+                            : undefined
+                    }
+                    minimumDate={
+                        activeDatePicker === "to"
+                            ? parseDateInput(fromDateValue)
+                            : undefined
+                    }
+                    onChange={handleDatePickerChange}
+                />
+            ) : null}
+        </View>
+    );
+}
+
 export default function MessagesConversationScreen() {
     const {
         conversationId: conversationIdParam,
@@ -129,6 +458,7 @@ export default function MessagesConversationScreen() {
         peerFriendStatus,
         peerMutualGroupsCount,
         openMessageId,
+        openSearch,
     } = useLocalSearchParams<{
         conversationId?: string;
         refreshAt?: string;
@@ -137,6 +467,7 @@ export default function MessagesConversationScreen() {
         peerFriendStatus?: string;
         peerMutualGroupsCount?: string;
         openMessageId?: string;
+        openSearch?: string;
     }>();
     const conversationId = Number(conversationIdParam ?? 0);
     const router = useRouter();
@@ -257,6 +588,13 @@ export default function MessagesConversationScreen() {
     const [highlightedMessageId, setHighlightedMessageId] = useState<
         string | null
     >(null);
+    const [searchOpen, setSearchOpen] = useState(false);
+
+    useEffect(() => {
+        if (openSearch === "1") {
+            setSearchOpen(true);
+        }
+    }, [openSearch]);
     const [showScrollToBottomButton, setShowScrollToBottomButton] =
         useState(false);
     const [pendingNewMessages, setPendingNewMessages] = useState(0);
@@ -1500,6 +1838,24 @@ export default function MessagesConversationScreen() {
         setForwardError(null);
     }, [forwardSubmitting]);
 
+    const forwardViewerImage = useCallback(
+        (url: string) => {
+            const source = messages.find((message) =>
+                resolveAttachmentUrls(message).includes(url),
+            );
+            if (!source) {
+                Alert.alert(
+                    "Thong bao",
+                    "Chi co the chuyen tiep anh da tai trong doan chat hien tai.",
+                );
+                return;
+            }
+            setMediaViewer(null);
+            void openForwardModal(source.id);
+        },
+        [messages, openForwardModal],
+    );
+
     const toggleForwardTarget = useCallback((targetId: number) => {
         setForwardSelectedIds((prev) => {
             const next = new Set(prev);
@@ -1766,6 +2122,7 @@ export default function MessagesConversationScreen() {
         return (
             <SafeAreaView style={styles.container}>
                 {/* Header tĩnh cho trạng thái lỗi */}
+                {!searchOpen ? (
                 <View style={styles.header}>
                     <Pressable
                         style={styles.headerBackBtn}
@@ -1795,6 +2152,7 @@ export default function MessagesConversationScreen() {
                     </View>
                     <View style={styles.headerActions} />
                 </View>
+                ) : null}
 
                 {/* Nội dung lỗi giống web */}
                 <View style={disbandedStyles.body}>
@@ -1812,6 +2170,10 @@ export default function MessagesConversationScreen() {
     }
 
     return (
+        <ConversationSearchProvider
+            conversationId={Number.isFinite(conversationId) ? conversationId : 0}
+            jumpToMessage={requestJumpToMessage}
+        >
         <SafeAreaView style={styles.container}>
             <KeyboardAvoidingView
                 style={styles.flex}
@@ -1863,6 +2225,20 @@ export default function MessagesConversationScreen() {
                     </View>
 
                     <View style={styles.headerActions}>
+                        <Pressable
+                            style={[
+                                styles.headerActionBtn,
+                                searchOpen && searchStyles.activeHeaderBtn,
+                            ]}
+                            hitSlop={8}
+                            onPress={() => setSearchOpen((prev) => !prev)}
+                        >
+                            <Ionicons
+                                name="search-outline"
+                                size={22}
+                                color={searchOpen ? "#2563EB" : colors.text}
+                            />
+                        </Pressable>
                         <Pressable style={styles.headerActionBtn} hitSlop={8}>
                             <Ionicons
                                 name="sparkles-outline"
@@ -1905,6 +2281,14 @@ export default function MessagesConversationScreen() {
                         </Pressable>
                     </View>
                 </View>
+
+                {searchOpen ? (
+                    <ConversationSearchBar
+                        members={Object.values(membersById)}
+                        currentUserId={currentUserId}
+                        onClose={() => setSearchOpen(false)}
+                    />
+                ) : null}
 
                 {effectiveRelationshipInfo &&
                 effectiveRelationshipInfo.friendStatus !== "FRIEND" ? (
@@ -2225,38 +2609,40 @@ export default function MessagesConversationScreen() {
                     </Pressable>
                 ) : null}
 
-                <MessageComposer
-                    replyToMessage={replyToMessage}
-                    setReplyToMessage={setReplyToMessage}
-                    isRecordingVoice={isRecordingVoice}
-                    onCancelRecording={onCancelRecording}
-                    onStopRecordingAndSend={onStopRecordingAndSend}
-                    onStartRecording={onStartRecording}
-                    uploading={uploading}
-                    sending={sending}
-                    recordingSeconds={recordingSeconds}
-                    messageInputRef={messageInputRef}
-                    messageText={messageText}
-                    setMessageText={setMessageText}
-                    sendTypingSignal={sendTypingSignal}
-                    inputSelection={inputSelection}
-                    setInputSelection={setInputSelection}
-                    onSend={onSend}
-                    hasTypedText={hasTypedText}
-                    emojiPickerOpen={emojiPickerOpen}
-                    setEmojiPickerOpen={setEmojiPickerOpen}
-                    onToggleEmojiPicker={onToggleEmojiPicker}
-                    onCapturePhotoAndSend={onCapturePhotoAndSend}
-                    onPickMediaAndSend={onPickMediaAndSend}
-                    onPickDocumentAndSend={onPickDocumentAndSend}
-                    loading={loading}
-                    uploadProgressLabel={uploadProgressLabel || ""}
-                    uploadProgressPercent={uploadProgressPercent}
-                    uploadFailedFileNames={uploadFailedFileNames}
-                    readOnlyNotice={readOnlyNotice}
-                    error={error}
-                    onPickEmoji={onPickEmoji}
-                />
+                {!searchOpen ? (
+                    <MessageComposer
+                        replyToMessage={replyToMessage}
+                        setReplyToMessage={setReplyToMessage}
+                        isRecordingVoice={isRecordingVoice}
+                        onCancelRecording={onCancelRecording}
+                        onStopRecordingAndSend={onStopRecordingAndSend}
+                        onStartRecording={onStartRecording}
+                        uploading={uploading}
+                        sending={sending}
+                        recordingSeconds={recordingSeconds}
+                        messageInputRef={messageInputRef}
+                        messageText={messageText}
+                        setMessageText={setMessageText}
+                        sendTypingSignal={sendTypingSignal}
+                        inputSelection={inputSelection}
+                        setInputSelection={setInputSelection}
+                        onSend={onSend}
+                        hasTypedText={hasTypedText}
+                        emojiPickerOpen={emojiPickerOpen}
+                        setEmojiPickerOpen={setEmojiPickerOpen}
+                        onToggleEmojiPicker={onToggleEmojiPicker}
+                        onCapturePhotoAndSend={onCapturePhotoAndSend}
+                        onPickMediaAndSend={onPickMediaAndSend}
+                        onPickDocumentAndSend={onPickDocumentAndSend}
+                        loading={loading}
+                        uploadProgressLabel={uploadProgressLabel || ""}
+                        uploadProgressPercent={uploadProgressPercent}
+                        uploadFailedFileNames={uploadFailedFileNames}
+                        readOnlyNotice={readOnlyNotice}
+                        error={error}
+                        onPickEmoji={onPickEmoji}
+                    />
+                ) : null}
             </KeyboardAvoidingView>
 
             <Modal
@@ -2435,6 +2821,7 @@ export default function MessagesConversationScreen() {
             <MediaViewerModal
                 mediaViewer={mediaViewer}
                 closeMediaViewer={closeMediaViewer}
+                onForwardImage={forwardViewerImage}
             />
 
             <SelectGroupMembersModal
@@ -2474,9 +2861,187 @@ export default function MessagesConversationScreen() {
                 onEndCall={() => void endCall()}
             />
         </SafeAreaView>
+        </ConversationSearchProvider>
     );
 }
 
+const searchStyles = StyleSheet.create({
+    wrap: {
+        flexDirection: "row",
+        alignItems: "center",
+        flexWrap: "wrap",
+        gap: 8,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: "#E5E7EB",
+        backgroundColor: "#F8FAFC",
+    },
+    inputWrap: {
+        flex: 1,
+        minWidth: 0,
+        height: 38,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        borderRadius: 10,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: "#CBD5E1",
+        backgroundColor: colors.white,
+        paddingHorizontal: 10,
+    },
+    input: {
+        flex: 1,
+        minWidth: 0,
+        color: colors.text,
+        fontSize: 14,
+        paddingVertical: 0,
+    },
+    status: {
+        width: 62,
+        textAlign: "center",
+        color: "#64748B",
+        fontSize: 12,
+        fontWeight: "600",
+    },
+    senderBtn: {
+        maxWidth: 90,
+        height: 34,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+        borderRadius: 9,
+        paddingHorizontal: 8,
+        backgroundColor: colors.white,
+    },
+    senderBtnText: {
+        flexShrink: 1,
+        color: "#334155",
+        fontSize: 12,
+        fontWeight: "700",
+    },
+    senderMenu: {
+        position: "absolute",
+        top: 50,
+        right: 10,
+        zIndex: 30,
+        width: 240,
+        maxHeight: 310,
+        borderRadius: 14,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: "#E5E7EB",
+        backgroundColor: colors.white,
+        padding: 8,
+        shadowColor: "#000",
+        shadowOpacity: 0.16,
+        shadowRadius: 14,
+        shadowOffset: { width: 0, height: 8 },
+        elevation: 8,
+    },
+    senderSearchWrap: {
+        height: 36,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        borderRadius: 10,
+        backgroundColor: "#F1F5F9",
+        paddingHorizontal: 10,
+        marginBottom: 6,
+    },
+    senderSearchInput: {
+        flex: 1,
+        minWidth: 0,
+        color: colors.text,
+        fontSize: 13,
+        paddingVertical: 0,
+    },
+    senderOption: {
+        minHeight: 42,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 10,
+        borderRadius: 10,
+        paddingHorizontal: 8,
+    },
+    senderOptionText: {
+        flex: 1,
+        minWidth: 0,
+        color: colors.text,
+        fontSize: 14,
+        fontWeight: "600",
+    },
+    allAvatar: {
+        width: 30,
+        height: 30,
+        borderRadius: 15,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#DBEAFE",
+    },
+    allAvatarText: {
+        color: "#1D4ED8",
+        fontSize: 10,
+        fontWeight: "800",
+    },
+    dateRow: {
+        width: "100%",
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+    },
+    dateInputWrap: {
+        flex: 1,
+        minWidth: 130,
+        height: 36,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        borderRadius: 10,
+        backgroundColor: colors.white,
+        paddingHorizontal: 10,
+    },
+    dateInput: {
+        flex: 1,
+        minWidth: 0,
+        color: colors.text,
+        fontSize: 13,
+    },
+    datePlaceholder: {
+        color: "#94A3B8",
+    },
+    clearDateBtn: {
+        height: 36,
+        justifyContent: "center",
+        borderRadius: 10,
+        paddingHorizontal: 10,
+        backgroundColor: "#DBEAFE",
+    },
+    clearDateText: {
+        color: "#1D4ED8",
+        fontSize: 12,
+        fontWeight: "800",
+    },
+    dateError: {
+        width: "100%",
+        color: "#DC2626",
+        fontSize: 12,
+        fontWeight: "700",
+    },
+    iconBtn: {
+        width: 34,
+        height: 34,
+        borderRadius: 9,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: colors.white,
+    },
+    iconBtnDisabled: {
+        opacity: 0.35,
+    },
+    activeHeaderBtn: {
+        backgroundColor: "#DBEAFE",
+    },
+});
 
 const disbandedStyles = StyleSheet.create({
     body: {

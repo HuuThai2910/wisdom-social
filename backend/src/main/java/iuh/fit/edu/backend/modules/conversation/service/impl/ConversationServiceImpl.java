@@ -306,6 +306,34 @@ public class ConversationServiceImpl implements ConversationService {
         return updateGroupSetting(conversationId, requesterId, isRequired, false);
     }
 
+    @Transactional(rollbackFor = Exception.class)
+    @Override
+    public ConversationResponse updateGroupImage(Long conversationId, Long requesterId, String imageUrl) {
+        String normalizedImageUrl = imageUrl == null ? "" : imageUrl.trim();
+        if (normalizedImageUrl.isEmpty()) {
+            throw new IllegalArgumentException("Ảnh nhóm không được để trống");
+        }
+
+        Conversation conv = conversationRepository.findById(conversationId)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy cuộc trò chuyện"));
+
+        if (conv.getType() != ConversationType.GROUP) {
+            throw new IllegalArgumentException("Chỉ nhóm chat mới có thể cập nhật ảnh nhóm");
+        }
+
+        conversationMemberRepository
+                .findByConversation_IdAndUser_IdAndStatus(conversationId, requesterId, ConversationMemberStatus.ACTIVE)
+                .orElseThrow(() -> new RuntimeException("Bạn không nằm trong nhóm này"));
+
+        if (normalizedImageUrl.equals(conv.getImageUrl())) {
+            return conversationMapper.toConversationResponse(conv, requesterId);
+        }
+
+        conv.setImageUrl(normalizedImageUrl);
+        updateConversationAndNotify(conv, requesterId, "đã cập nhật ảnh nhóm");
+        return conversationMapper.toConversationResponse(conv, requesterId);
+    }
+
     // =======================================================
     // QUẢN LÝ LINK MỜI VÀ THAM GIA QUA LINK
     // =======================================================

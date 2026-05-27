@@ -756,7 +756,9 @@ export function useMessagesController() {
                 normalizedLastMessage.lastMessageType,
             );
             const shouldForceDetailRefresh =
-                normalizedLastMessage.lastMessageType === "SYSTEM_UPDATE_ROLE";
+                normalizedLastMessage.lastMessageType === "SYSTEM_UPDATE_ROLE" ||
+                normalizedLastMessage.lastMessageType === "SYSTEM_UPDATE_SETTING" ||
+                normalizedLastMessage.lastMessageType === "SYSTEM_REQUIRE_APPROVAL";
             const shouldPreserveEmptyPendingRequests =
                 PRESERVE_EMPTY_PENDING_REQUEST_TYPES.has(
                     normalizedLastMessage.lastMessageType,

@@ -43,7 +43,7 @@ public class FormatApiResponse implements ResponseBodyAdvice<Object> {
         ApiMessage apiMessage = returnType.getMethodAnnotation(ApiMessage.class);
         String message = apiMessage != null ? apiMessage.value() : "CALL API SUCCESS";
 
-        if (body instanceof ApiResponse || body instanceof String || body instanceof Resource) {
+        if (body instanceof ApiResponse || body instanceof String || body instanceof Resource || body instanceof byte[]) {
             return body;
         }
         String path = request.getURI().getPath();

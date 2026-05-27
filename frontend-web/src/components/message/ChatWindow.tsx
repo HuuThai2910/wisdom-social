@@ -8,12 +8,14 @@ import {
 } from "react";
 import {
   Send,
+  Calendar,
   CheckCircle2,
   Phone,
   Video,
   Info,
   ChevronDown,
   ArrowDown,
+  ArrowUp,
   Plus,
   X,
   MoreVertical,
@@ -24,6 +26,8 @@ import {
   StickyNote,
   Film,
   Smile,
+  Search,
+  UserRound,
 } from "lucide-react";
 import EmojiPicker, {
   Emoji,
@@ -33,8 +37,10 @@ import EmojiPicker, {
 } from "emoji-picker-react";
 import { useChatWindowController } from "../../hooks/useChatWindowController";
 import { MessageBubble } from "./MessageBubble";
+import MediaViewer, { type MediaViewerImage } from "./MediaViewer";
 import chatService, {
   type ChatUserSearchResult,
+  type ConversationMember,
   type ConversationSidebar,
   type Message,
 } from "../../services/chatService";
@@ -51,6 +57,10 @@ import AIResultPanel from "../../features/chat-ai/components/AIResultPanel";
 import type { MessagePreviewDTO } from "../../features/chat-ai/types/chatAI";
 import { usePresenceStatus } from "../../hooks/usePresenceStatus";
 import { formatLastActiveText } from "../../utils/presenceText";
+import {
+  ConversationSearchProvider,
+  useConversationSearch,
+} from "../../contexts/ConversationSearchContext";
 
 interface ChatWindowProps {
   conversationId: number;
@@ -66,6 +76,7 @@ interface ChatWindowProps {
   openPollMessageId?: string | null;
   openPollModalToken?: number;
   onPollModalClose?: () => void;
+  searchOpenSignal?: number;
   peerRelationshipInfo?: {
     friendStatus?: string | null;
     mutualGroupsCount?: number | null;
@@ -130,7 +141,479 @@ function AccessBlockedState({ message }: { message: string }) {
   );
 }
 
-export default function ChatWindow({
+function getLocalDateStart(dateValue: string): string | null {
+  if (!dateValue) return null;
+  const [year, month, day] = dateValue.split("-").map(Number);
+  if (!year || !month || !day) return null;
+  return new Date(year, month - 1, day, 0, 0, 0, 0).toISOString();
+}
+
+function getLocalDateEndExclusive(dateValue: string): string | null {
+  if (!dateValue) return null;
+  const [year, month, day] = dateValue.split("-").map(Number);
+  if (!year || !month || !day) return null;
+  return new Date(year, month - 1, day + 1, 0, 0, 0, 0).toISOString();
+}
+
+function formatDateInput(value: Date): string {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function isInvalidDateRange(fromValue: string, toValue: string): boolean {
+  return Boolean(fromValue && toValue && toValue < fromValue);
+}
+
+function formatSearchResultDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const targetDay = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const oneDay = 24 * 60 * 60 * 1000;
+
+  if (targetDay === today) {
+    return date.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+  }
+  if (targetDay === today - oneDay) return "Hôm qua";
+  return date.toLocaleDateString("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: date.getFullYear() === now.getFullYear() ? undefined : "numeric",
+  });
+}
+
+function getMessageImageUrls(message: Message): string[] {
+  if (message.type !== "IMAGE") return [];
+  const attachmentUrls = Array.isArray(message.attachments)
+    ? message.attachments
+        .map((attachment) => attachment.url)
+        .filter((url): url is string => Boolean(url))
+    : [];
+  if (attachmentUrls.length > 0) return attachmentUrls;
+  return message.content ? [message.content] : [];
+}
+
+function renderHighlightedContent(content: string, keyword: string): ReactNode {
+  const normalizedKeyword = keyword.trim();
+  if (!normalizedKeyword) return content;
+
+  const lowerContent = content.toLowerCase();
+  const lowerKeyword = normalizedKeyword.toLowerCase();
+  const chunks: ReactNode[] = [];
+  let cursor = 0;
+  let matchIndex = lowerContent.indexOf(lowerKeyword);
+
+  while (matchIndex >= 0) {
+    if (matchIndex > cursor) {
+      chunks.push(content.slice(cursor, matchIndex));
+    }
+    chunks.push(
+      <mark key={`${matchIndex}-${chunks.length}`} className="rounded bg-transparent font-semibold text-blue-600 dark:text-blue-300">
+        {content.slice(matchIndex, matchIndex + normalizedKeyword.length)}
+      </mark>,
+    );
+    cursor = matchIndex + normalizedKeyword.length;
+    matchIndex = lowerContent.indexOf(lowerKeyword, cursor);
+  }
+
+  if (cursor < content.length) {
+    chunks.push(content.slice(cursor));
+  }
+
+  return chunks;
+}
+
+function ConversationSearchPanel({
+  members,
+  currentUserId,
+  fallbackAvatarUrl,
+  onClose,
+}: {
+  members: ConversationMember[];
+  currentUserId: number;
+  fallbackAvatarUrl: string;
+  onClose: () => void;
+}) {
+  const [inputValue, setInputValue] = useState("");
+  const [senderMenuOpen, setSenderMenuOpen] = useState(false);
+  const [dateMenuOpen, setDateMenuOpen] = useState(false);
+  const [senderQuery, setSenderQuery] = useState("");
+  const [fromDateValue, setFromDateValue] = useState("");
+  const [toDateValue, setToDateValue] = useState("");
+  const {
+    keyword,
+    senderId,
+    fromDate,
+    toDate,
+    results,
+    currentIndex,
+    hasMore,
+    loading,
+    search,
+    setSenderFilter,
+    setDateFilter,
+    selectResult,
+    loadMore,
+    next,
+    prev,
+    clear,
+  } = useConversationSearch();
+  const selectedSender = senderId
+    ? members.find((member) => Number(member.userId) === Number(senderId))
+    : null;
+  const senderLabel = selectedSender
+    ? selectedSender.userId === currentUserId
+      ? "Bạn"
+      : selectedSender.nickname || selectedSender.username || `User ${selectedSender.userId}`
+    : "Tất cả";
+  const normalizedSenderQuery = senderQuery.trim().toLowerCase();
+  const filteredMembers = normalizedSenderQuery
+    ? members.filter((member) =>
+        [
+          member.nickname,
+          member.username,
+          member.userId === currentUserId ? "Bạn" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+          .includes(normalizedSenderQuery),
+      )
+    : members;
+  const applyDateRange = useCallback(
+    (nextFromValue: string, nextToValue: string) => {
+      if (isInvalidDateRange(nextFromValue, nextToValue)) {
+        void setDateFilter(null, null);
+        return;
+      }
+      const nextFrom = getLocalDateStart(nextFromValue);
+      const nextTo = getLocalDateEndExclusive(nextToValue);
+      void setDateFilter(nextFrom, nextTo);
+    },
+    [setDateFilter],
+  );
+
+  const applyPresetDays = useCallback(
+    (days: number) => {
+      const to = new Date();
+      const from = new Date();
+      from.setDate(to.getDate() - days);
+      const fromValue = formatDateInput(from);
+      const toValue = formatDateInput(to);
+      setFromDateValue(fromValue);
+      setToDateValue(toValue);
+      applyDateRange(fromValue, toValue);
+      setDateMenuOpen(false);
+    },
+    [applyDateRange],
+  );
+
+  const dateLabel =
+    fromDateValue || toDateValue
+      ? `${fromDateValue || "..."} - ${toDateValue || "..."}`
+      : "Ngày gửi";
+  const invalidDateRange = isInvalidDateRange(fromDateValue, toDateValue);
+
+  const statusText =
+    results.length === 0
+      ? keyword
+        ? "Không có kết quả"
+        : "Nhập từ khóa"
+      : hasMore
+        ? `${currentIndex + 1} / ${results.length}+ kết quả`
+        : `${currentIndex + 1} / ${results.length} kết quả`;
+
+  return (
+    <form
+      className="flex h-full w-[360px] max-w-[42vw] shrink-0 flex-col border-l border-gray-200 bg-[#fbfcfe] dark:border-gray-800 dark:bg-black"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void search(inputValue);
+      }}
+    >
+      <div className="flex h-14 items-center justify-between border-b border-gray-200 px-4 dark:border-gray-800">
+        <h2 className="text-sm font-semibold text-gray-900 dark:text-white">
+          Tìm kiếm tin nhắn
+        </h2>
+        <button
+          type="button"
+          onClick={() => {
+            clear();
+            onClose();
+          }}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+          title="Đóng tìm kiếm"
+        >
+          <X size={17} />
+        </button>
+      </div>
+
+      <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 py-4">
+      <div className="flex min-w-0 items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-gray-700 dark:bg-black">
+        <Search size={16} className="shrink-0 text-gray-500" />
+        <input
+          value={inputValue}
+          onChange={(event) => setInputValue(event.target.value)}
+          className="min-w-0 flex-1 bg-transparent text-sm text-gray-900 outline-none placeholder:text-gray-400 dark:text-white"
+          placeholder="Tìm tin nhắn"
+          autoFocus
+        />
+      </div>
+      <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
+        <span className="shrink-0">Lọc theo:</span>
+      <div className="relative min-w-0 flex-1">
+        <button
+          type="button"
+          onClick={() => setSenderMenuOpen((prev) => !prev)}
+          className="inline-flex h-9 w-full items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-black dark:text-gray-200"
+          title="Lọc theo người gửi"
+        >
+          <UserRound size={14} className="shrink-0 text-gray-500" />
+          <span className="truncate">{senderLabel}</span>
+          <ChevronDown size={14} className="ml-auto shrink-0 text-gray-500" />
+        </button>
+        {senderMenuOpen && (
+          <div className="absolute left-0 top-10 z-50 w-64 rounded-xl border border-gray-200 bg-white p-2 shadow-xl dark:border-gray-700 dark:bg-gray-900">
+            <div className="mb-1 flex items-center gap-2 rounded-lg bg-gray-100 px-2 py-1.5 dark:bg-gray-800">
+              <Search size={14} className="text-gray-500" />
+              <input
+                value={senderQuery}
+                onChange={(event) => setSenderQuery(event.target.value)}
+                className="min-w-0 flex-1 bg-transparent text-xs text-gray-900 outline-none placeholder:text-gray-500 dark:text-white"
+                placeholder="Tìm người gửi"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setSenderMenuOpen(false);
+                setSenderQuery("");
+                void setSenderFilter(null);
+              }}
+              className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+            >
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700">
+                All
+              </span>
+              <span>Tất cả</span>
+            </button>
+            {filteredMembers.map((member) => {
+              const name =
+                member.userId === currentUserId
+                  ? "Bạn"
+                  : member.nickname || member.username || `User ${member.userId}`;
+              return (
+                <button
+                  key={member.userId}
+                  type="button"
+                  onClick={() => {
+                    setSenderMenuOpen(false);
+                    setSenderQuery("");
+                    void setSenderFilter(member.userId);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+                >
+                  <img
+                    src={member.avatar || fallbackAvatarUrl}
+                    alt={name}
+                    className="h-7 w-7 rounded-full object-cover"
+                  />
+                  <span className="truncate">{name}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+        <div className="relative min-w-0 flex-1">
+          <button
+            type="button"
+            onClick={() => setDateMenuOpen((prev) => !prev)}
+            className="inline-flex h-9 w-full items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-black dark:text-gray-200"
+            title={dateLabel}
+          >
+            <Calendar size={14} className="shrink-0 text-gray-500" />
+            <span className="truncate">{dateLabel}</span>
+            <ChevronDown size={14} className="ml-auto shrink-0 text-gray-500" />
+          </button>
+          {dateMenuOpen && (
+            <div className="absolute right-0 top-10 z-50 w-72 rounded-xl border border-gray-200 bg-white p-3 shadow-xl dark:border-gray-700 dark:bg-gray-900">
+              <div className="grid grid-cols-1 gap-1 border-b border-gray-100 pb-2 text-sm dark:border-gray-800">
+                <button type="button" onClick={() => applyPresetDays(7)} className="rounded-lg px-2 py-2 text-left text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800">
+                  7 ngày trước
+                </button>
+                <button type="button" onClick={() => applyPresetDays(30)} className="rounded-lg px-2 py-2 text-left text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800">
+                  30 ngày trước
+                </button>
+                <button type="button" onClick={() => applyPresetDays(90)} className="rounded-lg px-2 py-2 text-left text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800">
+                  3 tháng trước
+                </button>
+              </div>
+              <p className="mt-3 text-sm font-medium text-gray-700 dark:text-gray-200">
+                Chọn khoảng thời gian
+              </p>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <input
+                  type="date"
+                  value={fromDateValue}
+                  max={toDateValue || undefined}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setFromDateValue(value);
+                    applyDateRange(value, toDateValue);
+                  }}
+                  className={`h-10 rounded-lg border bg-white px-2 text-xs text-gray-700 outline-none dark:bg-black dark:text-gray-200 ${
+                    invalidDateRange
+                      ? "border-red-400 dark:border-red-500"
+                      : "border-gray-200 dark:border-gray-700"
+                  }`}
+                />
+                <input
+                  type="date"
+                  value={toDateValue}
+                  min={fromDateValue || undefined}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setToDateValue(value);
+                    applyDateRange(fromDateValue, value);
+                  }}
+                  className={`h-10 rounded-lg border bg-white px-2 text-xs text-gray-700 outline-none dark:bg-black dark:text-gray-200 ${
+                    invalidDateRange
+                      ? "border-red-400 dark:border-red-500"
+                      : "border-gray-200 dark:border-gray-700"
+                  }`}
+                />
+              </div>
+              {invalidDateRange && (
+                <p className="mt-2 text-xs font-medium text-red-500">
+                  Ngày kết thúc không được trước ngày bắt đầu.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+      {(fromDate || toDate) && (
+        <button
+          type="button"
+          onClick={() => {
+            setFromDateValue("");
+            setToDateValue("");
+            void setDateFilter(null, null);
+          }}
+          className="text-left text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400"
+        >
+          Bỏ lọc ngày
+        </button>
+      )}
+      <div className="flex items-center justify-between rounded-lg bg-gray-100 px-3 py-2 dark:bg-gray-900">
+        <span className="text-xs text-gray-600 dark:text-gray-300">
+          {loading ? "Đang tìm..." : statusText}
+        </span>
+        <div className="flex items-center gap-1">
+      <button
+        type="button"
+        onClick={() => void prev()}
+        disabled={loading || currentIndex <= 0}
+        className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-gray-600 hover:bg-gray-100 disabled:opacity-40 dark:text-gray-300 dark:hover:bg-gray-800"
+        title="Kết quả trước"
+      >
+        <ArrowUp size={17} />
+      </button>
+      <button
+        type="button"
+        onClick={() => void next()}
+        disabled={loading || (currentIndex >= results.length - 1 && !hasMore)}
+        className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-gray-600 hover:bg-gray-100 disabled:opacity-40 dark:text-gray-300 dark:hover:bg-gray-800"
+        title="Kết quả tiếp theo"
+      >
+        <ArrowDown size={17} />
+      </button>
+        </div>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto pr-1 pt-2">
+        {keyword && results.length > 0 && (
+          <div className="space-y-1">
+            <p className="px-1 pb-1 text-xs font-semibold text-gray-700 dark:text-gray-200">
+              Tin nhắn
+            </p>
+            {results.map((result, index) => {
+              const member = members.find(
+                (item) => Number(item.userId) === Number(result.senderId),
+              );
+              const senderName =
+                Number(result.senderId) === Number(currentUserId)
+                  ? "Bạn"
+                  : result.senderName ||
+                    member?.nickname ||
+                    member?.username ||
+                    `User ${result.senderId}`;
+              const active = index === currentIndex;
+
+              return (
+                <button
+                  key={result.messageId}
+                  type="button"
+                  onClick={() => void selectResult(index)}
+                  className={`flex w-full gap-3 rounded-lg border-b border-gray-200 px-1 py-2.5 text-left transition-colors dark:border-gray-800 ${
+                    active
+                      ? "bg-blue-50 dark:bg-blue-950/30"
+                      : "hover:bg-gray-100 dark:hover:bg-gray-900"
+                  }`}
+                >
+                  <img
+                    src={member?.avatar || fallbackAvatarUrl}
+                    alt={senderName}
+                    className="mt-0.5 h-9 w-9 shrink-0 rounded-full object-cover"
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="truncate text-xs font-medium text-slate-500 dark:text-slate-400">
+                        {senderName}
+                      </span>
+                      <span className="shrink-0 text-[11px] text-slate-500 dark:text-slate-400">
+                        {formatSearchResultDate(result.createdAt)}
+                      </span>
+                    </span>
+                    <span className="mt-0.5 line-clamp-2 text-sm leading-5 text-slate-700 dark:text-slate-200">
+                      {renderHighlightedContent(result.content || "[Tin nhắn]", keyword)}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+            {hasMore && (
+              <button
+                type="button"
+                onClick={() => void loadMore()}
+                disabled={loading}
+                className="mt-2 h-9 w-full rounded-md bg-gray-200 text-sm font-semibold text-slate-700 hover:bg-gray-300 disabled:opacity-60 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+              >
+                {loading ? "Đang tải..." : "Xem thêm"}
+              </button>
+            )}
+          </div>
+        )}
+        {keyword && results.length === 0 && !loading && (
+          <div className="rounded-lg bg-gray-100 px-3 py-4 text-sm text-gray-500 dark:bg-gray-900 dark:text-gray-400">
+            Không có kết quả
+          </div>
+        )}
+      {!keyword && (
+        <p className="pt-28 text-center text-sm text-gray-500 dark:text-gray-400">
+          Hãy nhập từ khóa để tìm kiếm trong cuộc trò chuyện.
+        </p>
+      )}
+      </div>
+      </div>
+    </form>
+  );
+}
+
+function ChatWindowContent({
   conversationId,
   onMarkAsRead,
   onToggleInfoPanel,
@@ -142,11 +625,19 @@ export default function ChatWindow({
   openPollMessageId = null,
   openPollModalToken = 0,
   onPollModalClose,
+  searchOpenSignal = 0,
   peerRelationshipInfo = null,
 }: ChatWindowProps) {
+  const [searchOpen, setSearchOpen] = useState(false);
   const [isAiPanelOpen, setIsAiPanelOpen] = useState(false);
   const [internalOpenPollMessageId, setInternalOpenPollMessageId] = useState<string | null>(null);
   const [internalOpenPollModalToken, setInternalOpenPollModalToken] = useState(0);
+
+  useEffect(() => {
+    if (!searchOpenSignal) return undefined;
+    const timer = window.setTimeout(() => setSearchOpen(true), 0);
+    return () => window.clearTimeout(timer);
+  }, [searchOpenSignal]);
   const [loadedRelationshipInfo, setLoadedRelationshipInfo] =
     useState<ChatUserSearchResult | null>(null);
   const [friendRequestSending, setFriendRequestSending] = useState(false);
@@ -237,6 +728,93 @@ export default function ChatWindow({
   const isConversationReadOnly = Boolean(readOnlyNotice);
   const isAccessBlocked =
     isAccessBlockedNotice(error) || isAccessBlockedNotice(readOnlyNotice);
+  const conversationImages = useMemo<MediaViewerImage[]>(
+    () =>
+      messages.flatMap((message) =>
+        getMessageImageUrls(message).map((url) => ({
+          url,
+          messageId: message.id,
+          senderId: message.senderId,
+          senderName:
+            message.senderName ||
+            membersById[Number(message.senderId)]?.nickname ||
+            undefined,
+          createdAt: message.createdAt,
+        }))
+      ),
+    [membersById, messages]
+  );
+  const [mediaViewerIndex, setMediaViewerIndex] = useState<number | null>(null);
+  const [mediaViewerImages, setMediaViewerImages] = useState<MediaViewerImage[]>([]);
+  const [mediaViewerCursor, setMediaViewerCursor] = useState<string | null>(null);
+  const [mediaViewerHasMore, setMediaViewerHasMore] = useState(false);
+  const [mediaViewerLoadingMore, setMediaViewerLoadingMore] = useState(false);
+  const mergeMediaViewerImages = useCallback(
+    (base: MediaViewerImage[], incoming: MediaViewerImage[]) => {
+      const seen = new Set<string>();
+      return [...base, ...incoming].filter((item) => {
+        if (!item.url || seen.has(item.url)) return false;
+        seen.add(item.url);
+        return true;
+      });
+    },
+    []
+  );
+  const loadMoreViewerImages = useCallback(
+    async (cursor: string | null = mediaViewerCursor) => {
+      if (mediaViewerLoadingMore) return;
+
+      setMediaViewerLoadingMore(true);
+      try {
+        const response = await chatService.getConversationMedia(
+          conversationId,
+          "MEDIA",
+          cursor,
+          20
+        );
+        const incoming = response.items
+          .filter((item) => item.type === "IMAGE" && Boolean(item.url))
+          .map((item) => ({
+            url: item.url,
+            messageId: item.messageId,
+            senderId: item.senderId,
+            senderName:
+              membersById[Number(item.senderId)]?.nickname ||
+              `Người dùng ${item.senderId}`,
+            createdAt: item.createdAt,
+          }));
+        setMediaViewerImages((prev) => mergeMediaViewerImages(prev, incoming));
+        setMediaViewerCursor(response.nextCursor);
+        setMediaViewerHasMore(response.hasMore);
+      } catch {
+        setMediaViewerHasMore(false);
+      } finally {
+        setMediaViewerLoadingMore(false);
+      }
+    },
+    [
+      conversationId,
+      mediaViewerCursor,
+      mediaViewerLoadingMore,
+      membersById,
+      mergeMediaViewerImages,
+    ]
+  );
+  const openMediaViewer = useCallback(
+    (url: string) => {
+      const initialImages = mergeMediaViewerImages(conversationImages, [{ url }]);
+      setMediaViewerImages(initialImages);
+      setMediaViewerCursor(null);
+      setMediaViewerHasMore(true);
+      void loadMoreViewerImages(null);
+      const index = initialImages.findIndex((image) => image.url === url);
+      setMediaViewerIndex(index >= 0 ? index : 0);
+    },
+    [conversationImages, loadMoreViewerImages, mergeMediaViewerImages]
+  );
+  const closeMediaViewer = useCallback(() => {
+    setMediaViewerIndex(null);
+  }, []);
 
 
   const otherMember = useMemo(
@@ -735,6 +1313,31 @@ export default function ChatWindow({
     [userId]
   );
 
+  const forwardViewerImage = useCallback(
+    (image: MediaViewerImage) => {
+      const sourceMessage =
+        messages.find((message) => message.id === image.messageId) ||
+        messages.find((message) => getMessageImageUrls(message).includes(image.url));
+      if (sourceMessage) {
+        void openForwardModal(sourceMessage);
+        return;
+      }
+      if (image.messageId) {
+        void openForwardModal({
+          id: image.messageId,
+          conversationId,
+          content: image.url,
+          type: "IMAGE",
+          createdAt: image.createdAt || new Date().toISOString(),
+          senderId: image.senderId || userId,
+          senderName: image.senderName,
+          attachments: [{ url: image.url }],
+        });
+      }
+    },
+    [conversationId, messages, openForwardModal, userId]
+  );
+
   const closeForwardModal = useCallback(() => {
     if (forwardSubmitting) return;
     setForwardSourceMessage(null);
@@ -1122,6 +1725,7 @@ export default function ChatWindow({
               setInternalOpenPollMessageId(null);
               onPollModalClose?.();
             }}
+            onOpenMediaViewer={openMediaViewer}
             onMediaLoad={() => {
               stabilizeMediaLayoutOnMediaLoad();
               // Chỉ cuộn xuống cuối khi:
@@ -1267,7 +1871,12 @@ export default function ChatWindow({
   }
 
   return (
-    <div className="flex flex-col h-full w-full flex-1 min-w-0">
+    <ConversationSearchProvider
+      conversationId={conversationId}
+      jumpToMessage={requestJumpToMessage}
+    >
+    <div className="flex h-full w-full flex-1 min-w-0 overflow-hidden">
+    <div className="relative flex flex-col h-full min-w-0 flex-1">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-gray-200/80 dark:border-gray-700 px-5 py-3.5 bg-white dark:bg-black backdrop-blur-sm">
         <div className="flex items-center gap-3">
@@ -1296,6 +1905,23 @@ export default function ChatWindow({
           </div>
         </div>
         <div className="flex items-center gap-1.5">
+          <button
+            className={`inline-flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
+              searchOpen
+                ? "bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950/40 dark:text-blue-300"
+                : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white"
+            }`}
+            onClick={() => {
+              if (!searchOpen && showInfoPanel) {
+                onToggleInfoPanel?.();
+              }
+              setSearchOpen((prev) => !prev);
+            }}
+            title="Tìm tin nhắn"
+            type="button"
+          >
+            <Search size={18} />
+          </button>
           <button
             className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white disabled:opacity-40"
             onClick={() => void startCall("audio")}
@@ -2037,7 +2663,7 @@ export default function ChatWindow({
       </div>
 
       {forwardSourceMessage && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/45 px-4 py-6">
+        <div className="fixed inset-0 z-[260] flex items-center justify-center bg-black/45 px-4 py-6">
           <div className="w-full max-w-md overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-gray-200 dark:bg-gray-900 dark:ring-gray-700">
             <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3 dark:border-gray-800">
               <div className="min-w-0">
@@ -2179,5 +2805,30 @@ export default function ChatWindow({
         onEndCall={() => void endCall()}
       />
     </div>
+      <MediaViewer
+        open={mediaViewerIndex !== null}
+        images={mediaViewerImages.length > 0 ? mediaViewerImages : conversationImages}
+        currentIndex={mediaViewerIndex ?? 0}
+        onClose={closeMediaViewer}
+        onIndexChange={setMediaViewerIndex}
+        onForward={forwardViewerImage}
+        hasMore={mediaViewerHasMore}
+        loadingMore={mediaViewerLoadingMore}
+        onLoadMore={() => void loadMoreViewerImages()}
+      />
+      {searchOpen && (
+        <ConversationSearchPanel
+          members={Object.values(membersById)}
+          currentUserId={userId}
+          fallbackAvatarUrl={defaultAvatarSmallUrl}
+          onClose={() => setSearchOpen(false)}
+        />
+      )}
+    </div>
+    </ConversationSearchProvider>
   );
+}
+
+export default function ChatWindow(props: ChatWindowProps) {
+  return <ChatWindowContent {...props} />;
 }

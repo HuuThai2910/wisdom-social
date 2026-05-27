@@ -5,19 +5,30 @@
 package iuh.fit.edu.backend.modules.chat.service.impl;
 
 import iuh.fit.edu.backend.common.dto.response.CursorResponse;
+import iuh.fit.edu.backend.common.util.MediaUrlBuilder;
 import iuh.fit.edu.backend.modules.chat.constant.MessageType;
 import iuh.fit.edu.backend.modules.chat.entity.Message;
 import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationMemberResponse;
 import iuh.fit.edu.backend.modules.chat.dto.response.MessageResponse;
+import iuh.fit.edu.backend.modules.chat.dto.response.MessageSearchResponse;
+import iuh.fit.edu.backend.modules.chat.dto.response.MessageSearchResult;
+import iuh.fit.edu.backend.modules.chat.dto.response.ConversationMediaItem;
+import iuh.fit.edu.backend.modules.chat.dto.response.ConversationMediaResponse;
 import iuh.fit.edu.backend.modules.chat.mapper.MessageMapper;
 import iuh.fit.edu.backend.modules.chat.repository.MessageRepository;
 import iuh.fit.edu.backend.modules.conversation.service.ConversationMemberService;
 import iuh.fit.edu.backend.modules.chat.service.MessageCacheService;
 import iuh.fit.edu.backend.modules.chat.service.PollService;
+import iuh.fit.edu.backend.modules.user.entity.User;
+import iuh.fit.edu.backend.modules.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -25,6 +36,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /*
@@ -42,6 +55,10 @@ public class MessageQueryService {
     private final MessageCacheService messageCacheService;
     private final MessageMapper messageMapper;
     private final PollService pollService;
+    private final MongoTemplate mongoTemplate;
+    private final UserService userService;
+    private final MediaUrlBuilder mediaUrlBuilder;
+    private static final Pattern URL_PATTERN = Pattern.compile("(https?://\\S+|www\\.\\S+)", Pattern.CASE_INSENSITIVE);
 
     public MessageResponse getMessageById(String messageId, Long userId) {
         Message message = messageRepository.findById(messageId)
@@ -272,6 +289,81 @@ public class MessageQueryService {
                 .build();
     }
 
+    public MessageSearchResponse searchMessages(
+            Long conversationId,
+            Long userId,
+            String keyword,
+            Long senderId,
+            Instant fromDate,
+            Instant toDate,
+            Instant cursor,
+            int limit
+    ) {
+        ConversationMemberResponse currentMember = conversationMemberService.getMemberInfo(conversationId, userId);
+        String normalizedKeyword = keyword == null ? "" : keyword.trim();
+        int normalizedLimit = Math.max(1, Math.min(limit, 20));
+
+        if (normalizedKeyword.isBlank()) {
+            return MessageSearchResponse.builder()
+                    .items(Collections.emptyList())
+                    .nextCursor(null)
+                    .hasMore(false)
+                    .build();
+        }
+
+        List<Criteria> criteriaList = new ArrayList<>();
+        criteriaList.add(Criteria.where("conversation_id").is(conversationId));
+        criteriaList.add(Criteria.where("content").regex(
+                Pattern.compile(Pattern.quote(normalizedKeyword), Pattern.CASE_INSENSITIVE)
+        ));
+        criteriaList.add(Criteria.where("isRecalled").ne(true));
+        criteriaList.add(Criteria.where("deletedFor").ne(userId));
+
+        if (senderId != null) {
+            criteriaList.add(Criteria.where("sender_id").is(senderId));
+        }
+
+        if (fromDate != null) {
+            criteriaList.add(Criteria.where("created_at").gte(fromDate));
+        }
+
+        if (toDate != null) {
+            criteriaList.add(Criteria.where("created_at").lt(toDate));
+        }
+
+        if (cursor != null) {
+            criteriaList.add(Criteria.where("created_at").lt(cursor));
+        }
+
+        if (currentMember.getClearedAt() != null) {
+            criteriaList.add(Criteria.where("created_at").gt(currentMember.getClearedAt()));
+        }
+
+        Criteria criteria = new Criteria().andOperator(criteriaList.toArray(new Criteria[0]));
+        Query query = new Query(criteria)
+                .with(Sort.by(Sort.Direction.DESC, "created_at"))
+                .limit(normalizedLimit + 1);
+
+        List<Message> messages = mongoTemplate.find(query, Message.class);
+        boolean hasMore = messages.size() > normalizedLimit;
+        if (hasMore) {
+            messages = messages.subList(0, normalizedLimit);
+        }
+
+        Map<Long, ConversationMemberResponse> membersMap = conversationMemberService.getMembersMap(conversationId);
+        List<MessageSearchResult> items = messages.stream()
+                .map(message -> toSearchResult(message, membersMap))
+                .toList();
+
+        String nextCursor = items.isEmpty() ? null : items.getLast().getCreatedAt().toString();
+
+        return MessageSearchResponse.builder()
+                .items(items)
+                .nextCursor(hasMore ? nextCursor : null)
+                .hasMore(hasMore)
+                .build();
+    }
+
     /**
      * Dùng để lấy dữ liệu từ db
      * Không có before thì sẽ lấy 20 tin nhắn đầu
@@ -285,6 +377,34 @@ public class MessageQueryService {
             return messageRepository.findByConversationIdAndCreatedAtLessThanOrderByCreatedAtDesc(
                     conversationId, before, pageable);
         }
+    }
+
+    private MessageSearchResult toSearchResult(
+            Message message,
+            Map<Long, ConversationMemberResponse> membersMap
+    ) {
+        Long senderId = message.getSenderId();
+        ConversationMemberResponse member = senderId == null ? null : membersMap.get(senderId);
+        String senderName = member == null ? null : member.getNickname();
+        if ((senderName == null || senderName.isBlank()) && senderId != null) {
+            try {
+                User user = userService.findUserById(senderId);
+                senderName = user.getName() != null && !user.getName().isBlank()
+                        ? user.getName()
+                        : user.getUsername();
+            } catch (RuntimeException ignored) {
+                senderName = null;
+            }
+        }
+
+        return MessageSearchResult.builder()
+                .messageId(message.getId())
+                .conversationId(message.getConversationId())
+                .senderId(senderId)
+                .senderName(senderName)
+                .content(message.getContent())
+                .createdAt(message.getCreatedAt())
+                .build();
     }
 
     private void enrichPolls(List<MessageResponse> messages, Long userId) {
@@ -311,5 +431,109 @@ public class MessageQueryService {
     private boolean isAnonymousPollActorMessage(MessageType type) {
         return type == MessageType.SYSTEM_POLL_VOTED
                 || type == MessageType.SYSTEM_POLL_CHANGED;
+    }
+
+    public ConversationMediaResponse getConversationMedia(
+            Long conversationId,
+            Long userId,
+            String type,
+            Instant cursor,
+            int limit) {
+        ConversationMemberResponse member = conversationMemberService.getMemberInfo(conversationId, userId);
+        int safeLimit = Math.max(1, Math.min(limit, 50));
+        String normalizedType = type == null ? "MEDIA" : type.trim().toUpperCase();
+
+        List<Criteria> criteria = new ArrayList<>();
+        criteria.add(Criteria.where("conversation_id").is(conversationId));
+        criteria.add(Criteria.where("isRecalled").ne(true));
+        criteria.add(new Criteria().orOperator(
+                Criteria.where("deletedFor").exists(false),
+                Criteria.where("deletedFor").ne(userId)
+        ));
+        if (member.getClearedAt() != null) {
+            criteria.add(Criteria.where("created_at").gt(member.getClearedAt()));
+        }
+        if (cursor != null) {
+            criteria.add(Criteria.where("created_at").lt(cursor));
+        }
+
+        if ("FILE".equals(normalizedType)) {
+            criteria.add(Criteria.where("message_type").is(MessageType.FILE));
+        } else if ("LINK".equals(normalizedType)) {
+            criteria.add(Criteria.where("content").regex(URL_PATTERN));
+        } else {
+            criteria.add(Criteria.where("message_type").in(MessageType.IMAGE, MessageType.VIDEO));
+        }
+
+        Query query = new Query(new Criteria().andOperator(criteria.toArray(new Criteria[0])))
+                .with(Sort.by(Sort.Direction.DESC, "created_at"))
+                .limit(safeLimit + 1);
+
+        List<Message> messages = mongoTemplate.find(query, Message.class);
+        boolean hasMore = messages.size() > safeLimit;
+        if (hasMore) {
+            messages = messages.subList(0, safeLimit);
+        }
+
+        List<ConversationMediaItem> items = messages.stream()
+                .flatMap(message -> mapMediaItems(message, normalizedType).stream())
+                .toList();
+        Instant nextCursor = messages.isEmpty() ? null : messages.get(messages.size() - 1).getCreatedAt();
+
+        return ConversationMediaResponse.builder()
+                .items(items)
+                .nextCursor(hasMore ? nextCursor : null)
+                .hasMore(hasMore)
+                .build();
+    }
+
+    private List<ConversationMediaItem> mapMediaItems(Message message, String type) {
+        if ("LINK".equals(type)) {
+            String content = message.getContent() == null ? "" : message.getContent();
+            java.util.regex.Matcher matcher = URL_PATTERN.matcher(content);
+            if (!matcher.find()) return Collections.emptyList();
+            String url = matcher.group();
+            if (url.toLowerCase().startsWith("www.")) {
+                url = "https://" + url;
+            }
+            return List.of(ConversationMediaItem.builder()
+                    .messageId(message.getId())
+                    .conversationId(message.getConversationId())
+                    .senderId(message.getSenderId())
+                    .type("LINK")
+                    .url(url)
+                    .content(content)
+                    .createdAt(message.getCreatedAt())
+                    .build());
+        }
+
+        List<Message.MediaAttachment> attachments = message.getAttachments();
+        if (attachments == null || attachments.isEmpty()) {
+            String content = message.getContent();
+            if (content == null || content.isBlank()) return Collections.emptyList();
+            return List.of(ConversationMediaItem.builder()
+                    .messageId(message.getId())
+                    .conversationId(message.getConversationId())
+                    .senderId(message.getSenderId())
+                    .type(message.getMessageType().name())
+                    .url(mediaUrlBuilder.build(content, message.getMessageType()))
+                    .content(mediaUrlBuilder.build(content, message.getMessageType()))
+                    .createdAt(message.getCreatedAt())
+                    .build());
+        }
+
+        return attachments.stream()
+                .map(attachment -> ConversationMediaItem.builder()
+                        .messageId(message.getId())
+                        .conversationId(message.getConversationId())
+                        .senderId(message.getSenderId())
+                        .type(message.getMessageType().name())
+                        .url(mediaUrlBuilder.buildAttachment(attachment.getUrl()))
+                        .content(message.getContent())
+                        .fileName(attachment.getFileName())
+                        .fileSize(attachment.getFileSize())
+                        .createdAt(message.getCreatedAt())
+                        .build())
+                .toList();
     }
 }

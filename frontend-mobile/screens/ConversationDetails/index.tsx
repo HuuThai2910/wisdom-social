@@ -7,10 +7,15 @@ import {
     Pressable,
     Alert,
     SafeAreaView,
+    ActivityIndicator,
+    Modal,
+    Image,
+    Linking,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { colors } from "@/constants";
 import { UserAvatar, TransferOwnershipModal } from "@/components";
 import {
@@ -24,7 +29,12 @@ import chatRuntimeStore from "@/stores/chatRuntimeStore";
 import chatService from "@/services/chatService";
 import chatWebsocketService from "@/services/chatWebsocketService";
 import { buildConversationDisplayInfo } from "@/utils/conversationDisplayInfo";
-import type { Conversation } from "@/types/chat";
+import type {
+    Conversation,
+    ConversationMediaItem,
+    ConversationMediaType,
+    LocalUploadFile,
+} from "@/types/chat";
 
 export function ConversationDetailsScreen() {
     const { conversationId } = useLocalSearchParams<{ conversationId: string }>();
@@ -39,6 +49,14 @@ export function ConversationDetailsScreen() {
     } = useMessagesController();
     const [fetchedConversation, setFetchedConversation] =
         useState<Conversation | null>(null);
+    const [groupImageUploading, setGroupImageUploading] = useState(false);
+    const [groupImageError, setGroupImageError] = useState<string | null>(null);
+    const [mediaPanelType, setMediaPanelType] =
+        useState<ConversationMediaType | null>(null);
+    const [mediaItems, setMediaItems] = useState<ConversationMediaItem[]>([]);
+    const [mediaCursor, setMediaCursor] = useState<string | null>(null);
+    const [mediaHasMore, setMediaHasMore] = useState(false);
+    const [mediaLoading, setMediaLoading] = useState(false);
 
     const selectedConversation = useMemo(
         () =>
@@ -130,6 +148,42 @@ export function ConversationDetailsScreen() {
         }, [clearUnreadCount, currentUserId, id]),
     );
 
+    const loadConversationMedia = React.useCallback(
+        async (type: ConversationMediaType, cursor: string | null = null) => {
+            if (!Number.isFinite(id) || mediaLoading) return;
+            setMediaLoading(true);
+            try {
+                const response = await chatService.getConversationMedia(
+                    id,
+                    type,
+                    cursor,
+                    20,
+                );
+                setMediaItems((prev) =>
+                    cursor ? [...prev, ...response.items] : response.items,
+                );
+                setMediaCursor(response.nextCursor);
+                setMediaHasMore(response.hasMore);
+            } catch {
+                Alert.alert("Thông báo", "Không thể tải nội dung. Vui lòng thử lại.");
+            } finally {
+                setMediaLoading(false);
+            }
+        },
+        [id, mediaLoading],
+    );
+
+    const openMediaPanel = React.useCallback(
+        (type: ConversationMediaType) => {
+            setMediaPanelType(type);
+            setMediaItems([]);
+            setMediaCursor(null);
+            setMediaHasMore(false);
+            void loadConversationMedia(type, null);
+        },
+        [loadConversationMedia],
+    );
+
     const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
         media: true,
         privacy: true,
@@ -155,7 +209,7 @@ export function ConversationDetailsScreen() {
         );
     }
 
-    const isGroup = selectedConversation.type === "GROUP";
+    const isGroup = String(selectedConversation.type).toUpperCase() === "GROUP";
     const cachedMembers = Object.values(chatRuntimeStore.getMembers(id));
     const conversationDisplayInfo = buildConversationDisplayInfo({
         conversation: selectedConversation,
@@ -200,6 +254,100 @@ export function ConversationDetailsScreen() {
         );
     };
 
+    const pickAndUploadGroupImage = async () => {
+        if (groupImageUploading) return;
+        if (!isGroup) {
+            Alert.alert("Thong bao", "Chi nhom chat moi co the doi anh dai dien.");
+            return;
+        }
+
+        try {
+            const permission =
+                await ImagePicker.requestMediaLibraryPermissionsAsync();
+            if (!permission.granted) {
+                const message = "Can cap quyen thu vien anh de doi anh nhom.";
+                setGroupImageError(message);
+                Alert.alert("Thong bao", message);
+                return;
+            }
+
+            const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.All,
+                allowsMultipleSelection: false,
+                quality: 1,
+                selectionLimit: 1,
+            });
+
+            if (result.canceled || result.assets.length === 0) return;
+
+            const asset = result.assets[0];
+            if (asset.type === "video") {
+                const message = "Vui long chon anh de lam anh nhom.";
+                setGroupImageError(message);
+                Alert.alert("Thong bao", message);
+                return;
+            }
+
+            const fileName =
+                asset.fileName ||
+                asset.uri.split("/").pop() ||
+                `group-avatar-${Date.now()}.jpg`;
+            const file: LocalUploadFile = {
+                uri: asset.uri,
+                fileName,
+                mimeType: asset.mimeType || "image/jpeg",
+                fileSize: asset.fileSize ?? 1,
+            };
+
+            setGroupImageUploading(true);
+            setGroupImageError(null);
+            const { presignedUrl, objectKey } = await chatService.getPresignedUrl(
+                "CONVERSATION",
+                String(id),
+                "IMAGE",
+                file.fileName,
+                file.mimeType,
+            );
+            await chatService.uploadToS3(presignedUrl, file);
+            const updatedConversation = await chatService.updateGroupImage(
+                id,
+                objectKey,
+            );
+            chatRuntimeStore.setConversation(id, updatedConversation);
+            setFetchedConversation(updatedConversation);
+            await reload();
+        } catch {
+            const message = "Khong the cap nhat anh nhom. Vui long thu lai.";
+            setGroupImageError(message);
+            Alert.alert("Thong bao", message);
+        } finally {
+            setGroupImageUploading(false);
+        }
+    };
+
+    const mediaPanelTitle =
+        mediaPanelType === "MEDIA"
+            ? "File phương tiện"
+            : mediaPanelType === "FILE"
+              ? "File"
+              : "Link";
+
+    const formatMediaDate = (value?: string) => {
+        if (!value) return "";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return "";
+        return date.toLocaleDateString("vi-VN", {
+            day: "2-digit",
+            month: "2-digit",
+            year: "2-digit",
+        });
+    };
+
+    const openMediaItem = (item: ConversationMediaItem) => {
+        const target = item.url || item.content;
+        if (target) void Linking.openURL(target);
+    };
+
     return (
         <SafeAreaView style={styles.root}>
             {/* Custom Header */}
@@ -214,11 +362,33 @@ export function ConversationDetailsScreen() {
             <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
                 {/* Profile Section */}
                 <View style={styles.profileSection}>
-                    <UserAvatar
-                        uri={conversationDisplayInfo.avatarUrl || undefined}
-                        name={conversationDisplayInfo.name || "?"}
-                        size={80}
-                    />
+                    <Pressable
+                        style={styles.groupAvatarButton}
+                        disabled={groupImageUploading}
+                        onPress={pickAndUploadGroupImage}
+                        hitSlop={12}
+                        android_ripple={{ color: "#E0E7FF", borderless: true }}
+                    >
+                        <UserAvatar
+                            uri={conversationDisplayInfo.avatarUrl || undefined}
+                            name={conversationDisplayInfo.name || "?"}
+                            size={80}
+                        />
+                        {isGroup ? (
+                            <View pointerEvents="none" style={styles.groupAvatarBadge}>
+                                {groupImageUploading ? (
+                                    <ActivityIndicator size="small" color="#fff" />
+                                ) : (
+                                    <Ionicons name="camera" size={16} color="#fff" />
+                                )}
+                            </View>
+                        ) : null}
+                    </Pressable>
+                    {groupImageError ? (
+                        <Text style={styles.groupImageError}>
+                            {groupImageError}
+                        </Text>
+                    ) : null}
                     <Text style={styles.conversationName}>
                         {conversationDisplayInfo.name}
                     </Text>
@@ -246,7 +416,9 @@ export function ConversationDetailsScreen() {
                         <QuickActionBtn
                             icon="search-outline"
                             label="Tìm kiếm"
-                            onPress={() => {}}
+                            onPress={() =>
+                                router.replace(`/messages/${id}?openSearch=1`)
+                            }
                         />
                         {isGroup && (
                             <QuickActionBtn
@@ -323,9 +495,9 @@ export function ConversationDetailsScreen() {
                     isOpen={expandedSections.media}
                     onToggle={() => toggleSection("media")}
                 >
-                    <DetailItem icon="images-outline" label="File phương tiện" onPress={() => {}} />
-                    <DetailItem icon="document-text-outline" label="File" onPress={() => {}} />
-                    <DetailItem icon="link-outline" label="Link" onPress={() => {}} />
+                    <DetailItem icon="images-outline" label="File phương tiện" onPress={() => openMediaPanel("MEDIA")} />
+                    <DetailItem icon="document-text-outline" label="File" onPress={() => openMediaPanel("FILE")} />
+                    <DetailItem icon="link-outline" label="Link" onPress={() => openMediaPanel("LINK")} />
                 </CollapsibleSection>
 
                 <View style={styles.divider} />
@@ -371,6 +543,103 @@ export function ConversationDetailsScreen() {
                 pendingUserId={groupManagement.pendingTransferOwnerUserId}
                 error={groupManagement.actionError}
             />
+            <Modal
+                visible={Boolean(mediaPanelType)}
+                animationType="slide"
+                presentationStyle="pageSheet"
+                onRequestClose={() => setMediaPanelType(null)}
+            >
+                <SafeAreaView style={styles.mediaModalRoot}>
+                    <View style={styles.mediaModalHeader}>
+                        <Text style={styles.mediaModalTitle}>{mediaPanelTitle}</Text>
+                        <Pressable
+                            onPress={() => setMediaPanelType(null)}
+                            hitSlop={10}
+                            style={styles.mediaModalCloseBtn}
+                        >
+                            <Ionicons name="close" size={22} color={colors.text} />
+                        </Pressable>
+                    </View>
+                    <ScrollView
+                        contentContainerStyle={styles.mediaModalContent}
+                        showsVerticalScrollIndicator
+                    >
+                        {mediaItems.length === 0 && !mediaLoading ? (
+                            <View style={styles.mediaEmptyState}>
+                                <Text style={styles.mediaEmptyText}>Chưa có nội dung</Text>
+                            </View>
+                        ) : mediaPanelType === "MEDIA" ? (
+                            <View style={styles.mediaGrid}>
+                                {mediaItems.map((item) => (
+                                    <Pressable
+                                        key={`${item.messageId}-${item.url}`}
+                                        style={styles.mediaGridItem}
+                                        onPress={() => openMediaItem(item)}
+                                    >
+                                        {item.type === "VIDEO" ? (
+                                            <>
+                                                <Image
+                                                    source={{ uri: item.url }}
+                                                    style={styles.mediaGridImage}
+                                                />
+                                                <View style={styles.mediaVideoBadge}>
+                                                    <Ionicons name="play" size={16} color="#fff" />
+                                                </View>
+                                            </>
+                                        ) : (
+                                            <Image
+                                                source={{ uri: item.url }}
+                                                style={styles.mediaGridImage}
+                                            />
+                                        )}
+                                    </Pressable>
+                                ))}
+                            </View>
+                        ) : (
+                            <View style={styles.mediaList}>
+                                {mediaItems.map((item) => (
+                                    <Pressable
+                                        key={`${item.messageId}-${item.url}`}
+                                        style={styles.mediaListItem}
+                                        onPress={() => openMediaItem(item)}
+                                    >
+                                        <View style={styles.mediaListIcon}>
+                                            <Ionicons
+                                                name={mediaPanelType === "LINK" ? "link-outline" : "document-text-outline"}
+                                                size={20}
+                                                color={colors.primary}
+                                            />
+                                        </View>
+                                        <View style={styles.mediaListBody}>
+                                            <Text numberOfLines={2} style={styles.mediaListTitle}>
+                                                {item.fileName || item.content || item.url}
+                                            </Text>
+                                            <Text style={styles.mediaListMeta}>
+                                                {formatMediaDate(item.createdAt)}
+                                            </Text>
+                                        </View>
+                                    </Pressable>
+                                ))}
+                            </View>
+                        )}
+                        {mediaLoading ? (
+                            <ActivityIndicator style={styles.mediaLoading} color={colors.primary} />
+                        ) : null}
+                        {mediaHasMore ? (
+                            <Pressable
+                                style={styles.mediaLoadMoreBtn}
+                                disabled={mediaLoading}
+                                onPress={() =>
+                                    mediaPanelType &&
+                                    loadConversationMedia(mediaPanelType, mediaCursor)
+                                }
+                            >
+                                <Text style={styles.mediaLoadMoreText}>Xem thêm</Text>
+                            </Pressable>
+                        ) : null}
+                    </ScrollView>
+                </SafeAreaView>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -489,6 +758,34 @@ const styles = StyleSheet.create({
         paddingTop: 32,
         paddingBottom: 24,
         paddingHorizontal: 16,
+    },
+    groupAvatarButton: {
+        position: "relative",
+        width: 96,
+        height: 96,
+        borderRadius: 48,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    groupAvatarBadge: {
+        position: "absolute",
+        right: -2,
+        bottom: -2,
+        width: 28,
+        height: 28,
+        borderRadius: 14,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#2563EB",
+        borderWidth: 2,
+        borderColor: "#fff",
+    },
+    groupImageError: {
+        marginTop: 8,
+        color: colors.danger,
+        fontSize: 12,
+        fontWeight: "600",
+        textAlign: "center",
     },
     conversationName: {
         fontSize: 22,
@@ -637,5 +934,118 @@ const styles = StyleSheet.create({
     errorText: {
         color: colors.textMuted,
         fontSize: 16,
+    },
+    mediaModalRoot: {
+        flex: 1,
+        backgroundColor: "#fff",
+    },
+    mediaModalHeader: {
+        height: 56,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        paddingHorizontal: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+    },
+    mediaModalTitle: {
+        fontSize: 16,
+        fontWeight: "700",
+        color: colors.text,
+    },
+    mediaModalCloseBtn: {
+        width: 36,
+        height: 36,
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: 18,
+    },
+    mediaModalContent: {
+        padding: 16,
+        paddingBottom: 32,
+    },
+    mediaEmptyState: {
+        minHeight: 220,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    mediaEmptyText: {
+        color: colors.textMuted,
+        fontSize: 14,
+    },
+    mediaGrid: {
+        flexDirection: "row",
+        flexWrap: "wrap",
+        gap: 4,
+    },
+    mediaGridItem: {
+        width: "32.5%",
+        aspectRatio: 1,
+        borderRadius: 6,
+        overflow: "hidden",
+        backgroundColor: "#f3f4f6",
+    },
+    mediaGridImage: {
+        width: "100%",
+        height: "100%",
+    },
+    mediaVideoBadge: {
+        position: "absolute",
+        left: 8,
+        bottom: 8,
+        width: 28,
+        height: 28,
+        borderRadius: 14,
+        backgroundColor: "rgba(0, 0, 0, 0.55)",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    mediaList: {
+        gap: 8,
+    },
+    mediaListItem: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+        paddingVertical: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+    },
+    mediaListIcon: {
+        width: 40,
+        height: 40,
+        borderRadius: 8,
+        backgroundColor: "#eef4ff",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    mediaListBody: {
+        flex: 1,
+    },
+    mediaListTitle: {
+        fontSize: 14,
+        fontWeight: "600",
+        color: colors.text,
+    },
+    mediaListMeta: {
+        marginTop: 4,
+        fontSize: 12,
+        color: colors.textMuted,
+    },
+    mediaLoading: {
+        marginVertical: 16,
+    },
+    mediaLoadMoreBtn: {
+        marginTop: 16,
+        height: 42,
+        borderRadius: 8,
+        backgroundColor: "#eef2f7",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    mediaLoadMoreText: {
+        color: colors.text,
+        fontSize: 14,
+        fontWeight: "700",
     },
 });

@@ -16,6 +16,8 @@ import iuh.fit.edu.backend.modules.chat.dto.request.SendMessageRequest;
 import iuh.fit.edu.backend.modules.chat.dto.request.poll.CreatePollRequest;
 import iuh.fit.edu.backend.modules.chat.dto.response.MessageRecalledResponse;
 import iuh.fit.edu.backend.modules.chat.dto.response.MessageResponse;
+import iuh.fit.edu.backend.modules.chat.dto.response.MessageSearchResponse;
+import iuh.fit.edu.backend.modules.chat.dto.response.ConversationMediaResponse;
 import iuh.fit.edu.backend.modules.chat.service.MessageService;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -97,5 +99,28 @@ public class MessageServiceImpl implements MessageService{
     @Override
     public CursorResponse<List<MessageResponse>> jumpToMessage(Long conversationId, String targetMessageId, Long userId) {
         return queryService.jumpToMessage(conversationId, targetMessageId, userId);
+    }
+
+    @Override
+    public MessageSearchResponse searchMessages(
+            Long conversationId,
+            Long userId,
+            String keyword,
+            Long senderId,
+            Instant fromDate,
+            Instant toDate,
+            Instant cursor,
+            int limit) {
+        return queryService.searchMessages(conversationId, userId, keyword, senderId, fromDate, toDate, cursor, limit);
+    }
+
+    @Override
+    public ConversationMediaResponse getConversationMedia(
+            Long conversationId,
+            Long userId,
+            String type,
+            Instant cursor,
+            int limit) {
+        return queryService.getConversationMedia(conversationId, userId, type, cursor, limit);
     }
 }

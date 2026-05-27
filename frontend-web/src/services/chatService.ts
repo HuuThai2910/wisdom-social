@@ -282,6 +282,41 @@ export interface MessageSeenPayload {
     seenAt: string;
 }
 
+export interface MessageSearchResult {
+    messageId: string;
+    conversationId: number;
+    senderId?: number;
+    senderName?: string;
+    content: string;
+    createdAt: string;
+}
+
+export interface MessageSearchResponse {
+    items: MessageSearchResult[];
+    nextCursor: string | null;
+    hasMore: boolean;
+}
+
+export type ConversationMediaType = "MEDIA" | "FILE" | "LINK";
+
+export interface ConversationMediaItem {
+    messageId: string;
+    conversationId: number;
+    senderId: number;
+    type: "IMAGE" | "VIDEO" | "FILE" | "LINK";
+    url: string;
+    content?: string;
+    fileName?: string;
+    fileSize?: number;
+    createdAt: string;
+}
+
+export interface ConversationMediaResponse {
+    items: ConversationMediaItem[];
+    nextCursor: string | null;
+    hasMore: boolean;
+}
+
 export interface UpdateNicknameRequest {
     conversationId: number;
     targetUserId: number;
@@ -423,6 +458,54 @@ const chatService = {
             `/conversations/${conversationId}/messages/${targetMessageId}/jump`,
         );
         return response.data;
+    },
+
+    async searchMessages(
+        conversationId: number,
+        keyword: string,
+        senderId?: number | null,
+        fromDate?: string | null,
+        toDate?: string | null,
+        cursor?: string | null,
+        limit: number = 5,
+    ): Promise<MessageSearchResponse> {
+        const response = await axiosClient.get(
+            `/conversations/${conversationId}/messages/search`,
+            {
+                params: {
+                    keyword,
+                    senderId: senderId || undefined,
+                    fromDate: fromDate || undefined,
+                    toDate: toDate || undefined,
+                    cursor: cursor || undefined,
+                    limit,
+                },
+            },
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<MessageSearchResponse> | MessageSearchResponse,
+        );
+    },
+
+    async getConversationMedia(
+        conversationId: number,
+        type: ConversationMediaType,
+        cursor?: string | null,
+        limit = 20,
+    ): Promise<ConversationMediaResponse> {
+        const response = await axiosClient.get(
+            `/conversations/${conversationId}/messages/media`,
+            {
+                params: {
+                    type,
+                    cursor: cursor || undefined,
+                    limit,
+                },
+            },
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<ConversationMediaResponse> | ConversationMediaResponse,
+        );
     },
 
     async sendMessage(
@@ -713,6 +796,19 @@ const chatService = {
                     isRequired,
                 },
             },
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async updateGroupImage(
+        conversationId: number,
+        imageUrl: string,
+    ): Promise<Conversation> {
+        const response = await axiosClient.patch(
+            `/conversations/${conversationId}/image`,
+            { imageUrl },
         );
         return unwrapApiData(
             response.data as ApiResponse<Conversation> | Conversation,

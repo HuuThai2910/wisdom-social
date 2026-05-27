@@ -44,6 +44,8 @@ public interface ConversationService {
 
     ConversationResponse updateJoinApprovalRequired(Long conversationId, Long requesterId, boolean isRequired);
 
+    ConversationResponse updateGroupImage(Long conversationId, Long requesterId, String imageUrl);
+
 
     String getOrGenerateInviteLink(Long conversationId, Long requesterId);
 
@@ -58,4 +60,3 @@ public interface ConversationService {
 
     Object joinGroupFromToken(String token, Long userId, String message);
 }
-

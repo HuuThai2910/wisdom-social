@@ -10,12 +10,15 @@ import iuh.fit.edu.backend.modules.conversation.dto.request.AddMemberWithInvites
 import iuh.fit.edu.backend.modules.conversation.dto.request.CreateGroupRequest;
 import iuh.fit.edu.backend.modules.conversation.dto.request.CreateGroupWithInvitesRequest;
 import iuh.fit.edu.backend.modules.conversation.dto.request.ResolveDirectConversationRequest;
+import iuh.fit.edu.backend.modules.conversation.dto.request.UpdateGroupImageRequest;
 import iuh.fit.edu.backend.common.dto.response.CursorResponse;
 import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationMemberResponse;
 import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationPreviewResponse;
 import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationResponse;
 import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationSidebarResponse;
 import iuh.fit.edu.backend.modules.chat.dto.response.MessageResponse;
+import iuh.fit.edu.backend.modules.chat.dto.response.MessageSearchResponse;
+import iuh.fit.edu.backend.modules.chat.dto.response.ConversationMediaResponse;
 import iuh.fit.edu.backend.modules.conversation.service.ConversationMemberService;
 import iuh.fit.edu.backend.modules.conversation.service.ConversationService;
 import iuh.fit.edu.backend.modules.conversation.service.DirectConversationService;
@@ -82,6 +85,36 @@ public class ConversationController {
                 )
         );
     }
+
+    @GetMapping("/{conversationId}/messages/search")
+    public ResponseEntity<MessageSearchResponse> searchMessages(
+            @PathVariable Long conversationId,
+            @RequestParam String keyword,
+            @RequestParam(required = false) Long senderId,
+            @RequestParam(required = false) Instant fromDate,
+            @RequestParam(required = false) Instant toDate,
+            @RequestParam(required = false) Instant cursor,
+            @RequestParam(defaultValue = "5") int limit
+    ) {
+        Long userId = this.userService.getCurrentUser().getId();
+        return ResponseEntity.ok(
+                messageService.searchMessages(conversationId, userId, keyword, senderId, fromDate, toDate, cursor, limit)
+        );
+    }
+
+    @GetMapping("/{conversationId}/messages/media")
+    public ResponseEntity<ConversationMediaResponse> getConversationMedia(
+            @PathVariable Long conversationId,
+            @RequestParam(defaultValue = "MEDIA") String type,
+            @RequestParam(required = false) Instant cursor,
+            @RequestParam(defaultValue = "20") int limit
+    ) {
+        Long userId = this.userService.getCurrentUser().getId();
+        return ResponseEntity.ok(
+                messageService.getConversationMedia(conversationId, userId, type, cursor, limit)
+        );
+    }
+
     @GetMapping("/{conversationId}/messages/newer")
     public ResponseEntity<CursorResponse<List<MessageResponse>>> getNewerMessages(
             @PathVariable Long conversationId,
@@ -247,6 +280,14 @@ public class ConversationController {
             @RequestParam boolean isRequired) {
         Long userId = this.userService.getCurrentUser().getId();
         return ResponseEntity.ok(conversationService.updateJoinApprovalRequired(conversationId, userId, isRequired));
+    }
+
+    @PatchMapping("/{conversationId}/image")
+    public ResponseEntity<ConversationResponse> updateGroupImage(
+            @PathVariable Long conversationId,
+            @Valid @RequestBody UpdateGroupImageRequest request) {
+        Long userId = this.userService.getCurrentUser().getId();
+        return ResponseEntity.ok(conversationService.updateGroupImage(conversationId, userId, request.getImageUrl()));
     }
 
     @GetMapping("/{conversationId}/invite-link")

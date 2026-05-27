@@ -21,6 +21,8 @@ import iuh.fit.edu.backend.modules.chat.dto.request.SendMessageRequest;
 import iuh.fit.edu.backend.modules.chat.dto.request.poll.CreatePollRequest;
 import iuh.fit.edu.backend.modules.chat.dto.response.MessageRecalledResponse;
 import iuh.fit.edu.backend.modules.chat.dto.response.MessageResponse;
+import iuh.fit.edu.backend.modules.chat.dto.response.MessageSearchResponse;
+import iuh.fit.edu.backend.modules.chat.dto.response.ConversationMediaResponse;
 
 public interface MessageService {
     MessageResponse sendMessage(SendMessageRequest sendMessageRequest, Long userId);
@@ -54,4 +56,21 @@ public interface MessageService {
             Long conversationId, Long userId, Instant after, int limit);
 
     CursorResponse<List<MessageResponse>> jumpToMessage(Long conversationId, String targetMessageId, Long userId);
+
+    MessageSearchResponse searchMessages(
+            Long conversationId,
+            Long userId,
+            String keyword,
+            Long senderId,
+            Instant fromDate,
+            Instant toDate,
+            Instant cursor,
+            int limit);
+
+    ConversationMediaResponse getConversationMedia(
+            Long conversationId,
+            Long userId,
+            String type,
+            Instant cursor,
+            int limit);
 }
