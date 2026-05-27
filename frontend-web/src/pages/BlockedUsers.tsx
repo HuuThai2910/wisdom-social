@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+
 import { UserX, Loader2, AlertCircle } from "lucide-react";
 import userService from "../services/userService";
 import blockService from "../services/blockService";
@@ -12,7 +12,7 @@ export default function BlockedUsers() {
     const currentUser = useCurrentUser();
     const [activeTab, setActiveTab] = useState<"blocked-by-me" | "blocked-me">("blocked-by-me");
     const [blockedByMe, setBlockedByMe] = useState<User[]>([]);
-    const [blockedMe, setBlockedMe] = useState<User[]>([]);
+    const [blockedMe] = useState<User[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
     const [unblockingUserId, setUnblockingUserId] = useState<Number | null>(null);

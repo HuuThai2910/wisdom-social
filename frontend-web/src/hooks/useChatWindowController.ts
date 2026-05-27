@@ -21,7 +21,6 @@ import {
 } from "../services/messageOutbox";
 import websocketService, {
     type MemberUpdatedEvent,
-    type MessageReactionEvent,
     type MessageSeenEvent,
     type PinUpdatedEvent,
     type TypingEvent,

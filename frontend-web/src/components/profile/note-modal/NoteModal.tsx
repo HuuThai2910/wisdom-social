@@ -49,7 +49,7 @@ export default function NoteModal({
   // audio preview
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playingUrl, setPlayingUrl] = useState<string | null>(null);
-  const [isMusicSelectorOpen, setIsMusicSelectorOpen] = useState(false);
+  const [_isMusicSelectorOpen, setIsMusicSelectorOpen] = useState(false);
 
   const mapNoteMusicToSelectedMusic = (
     currentNote: Note

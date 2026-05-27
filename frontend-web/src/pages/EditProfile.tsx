@@ -317,7 +317,7 @@ export default function EditProfile() {
                 src={
                   previewAvatar.startsWith("data:")
                     ? previewAvatar
-                    : buildS3Url(previewAvatar)
+                    : buildS3Url(previewAvatar) ?? undefined
                 }
                 alt="avatar"
                 className="w-20 h-20 rounded-full object-cover"

@@ -28,7 +28,7 @@ export const convertPhoneToInternational = (phone: string | undefined): string =
 
 export function useCurrentUser() {
     const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
-    const [loading, setLoading] = useState(true);
+    const [, setLoading] = useState(true);
     const fetchUserDataRef = useRef<() => Promise<void>>(null!);
 
     // Fetch current user from API - wrapped in useCallback

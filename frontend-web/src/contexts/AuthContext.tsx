@@ -319,46 +319,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUserCache({});
   };
 
-  const updateUser = async (
-    userId: string,
-    updateData: any
-  ): Promise<boolean> => {
-    try {
-      // Call update endpoint - should return User object
-      const updateResponse = await axiosClient.put(
-        `/auth/users/${userId}`,
-        updateData
-      );
-
-      // Check if update was successful (status 200)
-      if (updateResponse.status === 200) {
-        // Response should contain User object
-        const updatedUserData = updateResponse.data;
-
-        if (!updatedUserData?.id) {
-          console.error("Invalid response: no user id");
-          return false;
-        }
-
-        // Normalize id to string and update currentUser state
-        const updatedUser: User = mapUserFromApi(updatedUserData, currentUser);
-
-        // Update state and localStorage
-        setCurrentUser(updatedUser);
-        localStorage.setItem("current_user", JSON.stringify(updatedUser));
-
-        // Clear cache to force refresh
-        clearCache();
-
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error("Error updating user:", error);
-      return false;
-    }
-  };
-
   useEffect(() => {
     console.log("🟢 AuthProvider mounted, initializing auth...");
 

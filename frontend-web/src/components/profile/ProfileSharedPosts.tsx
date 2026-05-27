@@ -1,4 +1,3 @@
-import { useState, useEffect } from "react";
 import { Share2, Loader2, AlertCircle } from "lucide-react";
 import PostGrid from "./PostGrid";
 import { useProfileSharedPosts } from "../../hooks/useProfileHooks";
@@ -10,7 +9,7 @@ interface ProfileSharedPostsProps {
 }
 
 export default function ProfileSharedPosts({
-  userId,
+  userId: _userId,
   isOwnProfile,
   user,
 }: ProfileSharedPostsProps & { user: User | null }) {

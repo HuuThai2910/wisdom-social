@@ -1,5 +1,5 @@
 import axiosClient from "../api/axiosClient";
-import type { User } from '../types';
+
 
 export interface UserRequestCreatePage {
     name: string;

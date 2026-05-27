@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Loader2, Upload, X, Save, Globe, Lock, ShieldAlert } from "lucide-react";
+import { ArrowLeft, Loader2, Upload, Save, ShieldAlert } from "lucide-react";
 import pageService, { type Page } from "../services/pageService";
 import { useCurrentUser } from "../hooks/useCurrentUser";
 import { buildS3Url } from "../utils/s3";
