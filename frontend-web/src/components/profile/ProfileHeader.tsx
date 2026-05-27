@@ -82,14 +82,6 @@ export default function ProfileHeader({
     Number.isFinite(profileUserId) && presenceByUserId[profileUserId]?.online
   );
 
-  const {
-    hasStory: hasActiveStory,
-    hasUnviewed: hasUnviewedStory,
-    refresh: refreshActiveStory,
-  } = useHasActiveStory(user?.id);
-  const [activeStories, setActiveStories] = useState<any[]>([]);
-  const [isViewerOpen, setIsViewerOpen] = useState(false);
-
   useEffect(() => {
     if (!user?.id) return;
     getUserPostsWithDetails(user.id)
@@ -110,7 +102,8 @@ export default function ProfileHeader({
   // Highlights state
   const [highlights, setHighlights] = useState<StoryHighlight[]>([]);
   const [showCreateHighlight, setShowCreateHighlight] = useState(false);
-  const [viewingHighlight, setViewingHighlight] = useState<StoryHighlight | null>(null);
+  const [viewingHighlight, setViewingHighlight] =
+    useState<StoryHighlight | null>(null);
 
   // Fetch highlights
   const fetchHighlights = useCallback(async () => {
@@ -232,7 +225,11 @@ export default function ProfileHeader({
                   hasActiveStory
                     ? `p-0.75 rounded-full ${
                         hasUnviewedStory
-                          ? `bg-linear-to-tr ${isOwnProfile ? "from-green-400 to-emerald-500" : "from-blue-400 to-indigo-500"}`
+                          ? `bg-linear-to-tr ${
+                              isOwnProfile
+                                ? "from-green-400 to-emerald-500"
+                                : "from-blue-400 to-indigo-500"
+                            }`
                           : "bg-gray-300 dark:bg-zinc-700"
                       }`
                     : ""
@@ -400,13 +397,14 @@ export default function ProfileHeader({
 
                 {/* Existing Highlights */}
                 {highlights.map((hl) => {
-                  const isTextCover = hl.coverImageUrl?.startsWith("text-story:");
+                  const isTextCover =
+                    hl.coverImageUrl?.startsWith("text-story:");
                   const coverUrl = isTextCover
                     ? null
-                    : (buildS3Url(hl.coverImageUrl) ||
-                       (hl.stories?.[0]?.media?.url
-                         ? buildS3Url(hl.stories[0].media.url)
-                         : null));
+                    : buildS3Url(hl.coverImageUrl) ||
+                      (hl.stories?.[0]?.media?.url
+                        ? buildS3Url(hl.stories[0].media.url)
+                        : null);
 
                   return (
                     <button
@@ -424,17 +422,26 @@ export default function ProfileHeader({
                         <div className="w-full h-full rounded-full overflow-hidden border-2 border-white dark:border-[#1a1a1a] bg-gray-100 dark:bg-[#262626]">
                           {isTextCover ? (
                             (() => {
-                              const storyText = hl.coverImageUrl!.substring("text-story:".length);
+                              const storyText = hl.coverImageUrl!.substring(
+                                "text-story:".length
+                              );
                               const bgMatch = storyText.match(/\[bg:(.*?)\]/);
-                              let bgClass = "bg-gradient-to-br from-purple-500 to-blue-500";
+                              let bgClass =
+                                "bg-gradient-to-br from-purple-500 to-blue-500";
                               let cleanText = storyText;
                               if (bgMatch) {
                                 bgClass = bgMatch[1];
-                                cleanText = storyText.replace(/\[bg:(.*?)\]/, "").trim();
+                                cleanText = storyText
+                                  .replace(/\[bg:(.*?)\]/, "")
+                                  .trim();
                               }
                               return (
-                                <div className={`w-full h-full ${bgClass} flex items-center justify-center p-1 text-center`}>
-                                  <span className="text-white text-[8px] line-clamp-2 leading-tight font-bold">{cleanText}</span>
+                                <div
+                                  className={`w-full h-full ${bgClass} flex items-center justify-center p-1 text-center`}
+                                >
+                                  <span className="text-white text-[8px] line-clamp-2 leading-tight font-bold">
+                                    {cleanText}
+                                  </span>
                                 </div>
                               );
                             })()
