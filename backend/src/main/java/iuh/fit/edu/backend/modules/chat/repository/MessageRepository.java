@@ -13,6 +13,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 /*
  * @description
@@ -26,6 +27,12 @@ public interface MessageRepository extends MongoRepository<Message, String>, Mes
     List<Message> findByConversationIdOrderByCreatedAtDesc(
             Long conversationId,
             Pageable pageable
+    );
+
+    Optional<Message> findByConversationIdAndSenderIdAndClientMessageId(
+            Long conversationId,
+            Long senderId,
+            String clientMessageId
     );
 
     List<Message> findByConversationIdAndCreatedAtLessThanOrderByCreatedAtDesc(

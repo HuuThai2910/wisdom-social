@@ -234,9 +234,7 @@ public class ConversationServiceImpl implements ConversationService {
         ConversationMember savedMember = conversationMemberRepository.save(member);
 
         // DỌN SẠCH CACHE ĐỂ CẬP NHẬT MỐC CLEARED_AT
-        TransactionUtil.executeAfterCommit(() -> {
-            conversationMemberService.updateMemberStateInCache(conversationId, userId, savedMember);
-        });
+        conversationMemberService.updateMemberStateInCache(conversationId, userId, savedMember);
 
     }
 
@@ -249,9 +247,7 @@ public class ConversationServiceImpl implements ConversationService {
         member.setHidden(true);
         ConversationMember savedMember = conversationMemberRepository.save(member);
 
-        TransactionUtil.executeAfterCommit(() -> {
-            conversationMemberService.updateMemberStateInCache(conversationId, userId, savedMember);
-        });
+        conversationMemberService.updateMemberStateInCache(conversationId, userId, savedMember);
     }
 
     @Transactional
@@ -272,9 +268,7 @@ public class ConversationServiceImpl implements ConversationService {
         ConversationMember savedMember = conversationMemberRepository.save(member);
 
         // ĐỒNG BỘ REDIS: Số unreadCount = 0 vừa cập nhật phải được nhét lại vào Redis Hash ngay!
-        TransactionUtil.executeAfterCommit(() -> {
-            conversationMemberService.updateMemberStateInCache(conversationId, userId, savedMember);
-        });
+        conversationMemberService.updateMemberStateInCache(conversationId, userId, savedMember);
 
         // Chuẩn bị dữ liệu bắn Socket
         MessageSeenResponse response = MessageSeenResponse.builder()

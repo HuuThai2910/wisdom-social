@@ -1,4 +1,5 @@
 import type { Message } from "@/types/chat";
+import { buildS3Url } from "@/utils/s3";
 
 export const MENU_WIDTH = 232;
 export const MENU_HORIZONTAL_MARGIN = 12;
@@ -141,8 +142,7 @@ export function formatFileSize(value?: number): string {
 
 export function resolveMediaUrl(value?: string): string {
     if (!value) return "";
-    if (/^https?:\/\//i.test(value)) return value;
-    return value;
+    return buildS3Url(value) ?? "";
 }
 
 export function isLikelyStoragePathOrUrl(value?: string): boolean {

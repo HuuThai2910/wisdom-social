@@ -126,7 +126,14 @@ export const buildS3Url = (s3Key: string | null | undefined): string | null => {
     if (!value) return null;
 
     // Keep fully-qualified URLs, data URLs, blob URLs, and local paths (/path/to/asset) as-is.
-    if (/^https?:\/\//i.test(value) || /^data:/i.test(value) || /^blob:/i.test(value) || value.startsWith("/")) {
+    if (/^https?:\/\//i.test(value)) {
+        const withSlash = value.replace(/(amazonaws\.com)(?!\/)/i, "$1/");
+        const duplicatedUrlMatch = withSlash.match(
+            /^(https?:\/\/[^/]+\/)(https?:\/\/.+)$/i,
+        );
+        return duplicatedUrlMatch?.[2] ?? withSlash;
+    }
+    if (/^data:/i.test(value) || /^blob:/i.test(value) || value.startsWith("/")) {
         return value;
     }
 

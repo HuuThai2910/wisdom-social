@@ -20,6 +20,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -131,16 +132,45 @@ public class MessageCommandService {
         }
 
         // Lưu tin nhắn vào mongo
+        String clientMessageId = normalizeClientMessageId(sendMessageRequest.getClientMessageId());
+        if (clientMessageId != null) {
+            Optional<Message> existingMessage = messageRepository
+                    .findByConversationIdAndSenderIdAndClientMessageId(
+                            conversation.getId(),
+                            senderInfo.getUserId(),
+                            clientMessageId
+                    );
+            if (existingMessage.isPresent()) {
+                return this.messageMapper.toMessageResponse(existingMessage.get());
+            }
+        }
+
         Message newMessage = new Message();
         newMessage.setContent(sendMessageRequest.getContent());
         newMessage.setMessageType(sendMessageRequest.getType());
         newMessage.setSenderId(senderInfo.getUserId());
         newMessage.setConversationId(conversation.getId());
+        newMessage.setClientMessageId(clientMessageId);
         newMessage.setCreatedAt(Instant.now().truncatedTo(ChronoUnit.MILLIS));
         newMessage.setReplyInfo(buildReplyInfo(sendMessageRequest.getReplyToId()));
         newMessage.setAttachments(mapAttachments(sendMessageRequest.getAttachments()));
 
-        Message savedMessage = messageRepository.save(newMessage);
+        Message savedMessage;
+        try {
+            savedMessage = messageRepository.save(newMessage);
+        } catch (DuplicateKeyException ex) {
+            if (clientMessageId == null) {
+                throw ex;
+            }
+            Message existingMessage = messageRepository
+                    .findByConversationIdAndSenderIdAndClientMessageId(
+                            conversation.getId(),
+                            senderInfo.getUserId(),
+                            clientMessageId
+                    )
+                    .orElseThrow(() -> ex);
+            return this.messageMapper.toMessageResponse(existingMessage);
+        }
         MessageResponse messageResponse = this.messageMapper.toMessageResponse(savedMessage);
 
         // XỬ LÝ SIDE EFFECTS (CÁC TÁC VỤ PHỤ)
@@ -838,6 +868,13 @@ public class MessageCommandService {
         return reqs.stream().map(r -> Message.MediaAttachment.builder()
                 .url(r.getUrl()).fileName(r.getFileName()).fileSize(r.getFileSize())
                 .build()).collect(Collectors.toList());
+    }
+
+    private String normalizeClientMessageId(String clientMessageId) {
+        if (clientMessageId == null) return null;
+        String trimmed = clientMessageId.trim();
+        if (trimmed.isEmpty()) return null;
+        return trimmed.length() > 100 ? trimmed.substring(0, 100) : trimmed;
     }
 
     private void handleUnpinOnRecall(Conversation conversation, String messageId, Long userId) {

@@ -8,6 +8,7 @@ import type {
     ConversationPin,
     ConversationSidebar,
     Message,
+    MessageSeenEvent,
 } from "@/types/chat";
 import { useAppContext } from "@/context/AppContext";
 import { useFocusEffect } from "@react-navigation/native";
@@ -122,6 +123,35 @@ function sortConversationsByLatest(
     return [...conversations].sort(
         (a, b) => getConversationSortTime(b) - getConversationSortTime(a),
     );
+}
+
+function resolveLastMessageAt(lastMessage: Conversation["lastMessage"]): string {
+    if (!lastMessage) return new Date().toISOString();
+
+    const candidate =
+        lastMessage.lastMessageAt ||
+        (lastMessage as unknown as { createdAt?: string }).createdAt ||
+        (lastMessage as unknown as { updatedAt?: string }).updatedAt ||
+        (lastMessage as unknown as { timestamp?: string }).timestamp;
+
+    if (candidate && !Number.isNaN(new Date(candidate).getTime())) {
+        return candidate;
+    }
+
+    return new Date().toISOString();
+}
+
+function isSeenAtCurrentForConversation(
+    conversation: Conversation | undefined,
+    seenAt?: string,
+): boolean {
+    if (!conversation?.lastMessage?.lastMessageAt || !seenAt) return false;
+
+    const seenTime = new Date(seenAt).getTime();
+    const lastMessageTime = new Date(conversation.lastMessage.lastMessageAt).getTime();
+    if (Number.isNaN(seenTime) || Number.isNaN(lastMessageTime)) return false;
+
+    return seenTime >= lastMessageTime;
 }
 
 function shouldShowInConversationList(conversation: Conversation): boolean {
@@ -323,6 +353,12 @@ export function useMessagesController() {
             cancelled = true;
         };
     }, [conversations, currentUserId]);
+
+    useFocusEffect(
+        useCallback(() => {
+            setActiveConversationId(null);
+        }, []),
+    );
 
     const loadConversations = useCallback(async () => {
         try {
@@ -612,6 +648,10 @@ export function useMessagesController() {
                                       lastMessage:
                                           updatedConversation.lastMessage ??
                                           conversation.lastMessage,
+                                      unreadCount: Math.max(
+                                          updatedConversation.unreadCount ?? 0,
+                                          conversation.unreadCount ?? 0,
+                                      ),
                                   }
                                 : conversation,
                         ).filter(shouldShowInConversationList),
@@ -726,10 +766,14 @@ export function useMessagesController() {
                 return;
             }
 
-            const normalizedSenderId = Number(lastMessage.lastSenderId);
+            const rawSenderId =
+                lastMessage.lastSenderId ??
+                (lastMessage as unknown as { senderId?: unknown }).senderId ??
+                (lastMessage as unknown as { sender?: { id?: unknown } }).sender?.id;
+            const normalizedSenderId = Number(rawSenderId);
             const isMyMessage = Number.isFinite(normalizedSenderId)
                 ? normalizedSenderId === latestUserId
-                : lastMessage.lastSenderId === latestUserId;
+                : rawSenderId === latestUserId;
             const readFlagRaw =
                 (
                     lastMessage as unknown as {
@@ -750,6 +794,7 @@ export function useMessagesController() {
                 readFlagRaw === "1";
             const normalizedLastMessage = {
                 ...lastMessage,
+                lastMessageAt: resolveLastMessageAt(lastMessage),
                 read: isReadUpdate,
             };
             const shouldRefreshSnapshot = GROUP_SYSTEM_SYNC_TYPES.has(
@@ -881,6 +926,7 @@ export function useMessagesController() {
                     const baseConversation = mergedSnapshot
                         ? { ...conv, ...mergedSnapshot }
                         : conv;
+                    const currentUnreadCount = conv.unreadCount || 0;
                     const pendingRequests =
                         mergedSnapshot &&
                         "pendingRequests" in mergedSnapshot
@@ -892,15 +938,15 @@ export function useMessagesController() {
                             : baseConversation.pendingRequests;
 
                     let newUnreadCount: number;
-                    if (isReadUpdate) {
-                        // Thu hồi tin nhắn: giữ nguyên unreadCount hiện tại.
-                        newUnreadCount = baseConversation.unreadCount || 0;
-                    } else if (!isMyMessage) {
+                    if (!isMyMessage) {
                         // Tin nhắn mới từ người khác:
                         // Đang xem conversation → reset 0; không xem → +1.
                         newUnreadCount = isViewingThisConversation
                             ? 0
-                            : (baseConversation.unreadCount || 0) + 1;
+                            : currentUnreadCount + 1;
+                    } else if (isReadUpdate) {
+                        // Thu hồi tin nhắn: giữ nguyên unreadCount hiện tại.
+                        newUnreadCount = baseConversation.unreadCount || 0;
                     } else {
                         // Tin nhắn của chính mình: không thay đổi unreadCount.
                         newUnreadCount = baseConversation.unreadCount || 0;
@@ -967,6 +1013,7 @@ export function useMessagesController() {
         useCallback(() => {
             let disposed = false;
             let retryTimeout: ReturnType<typeof setTimeout> | null = null;
+            let syncInterval: ReturnType<typeof setInterval> | null = null;
 
             const setup = async () => {
                 try {
@@ -987,6 +1034,11 @@ export function useMessagesController() {
                     // Re-sync when the screen regains focus so stack screens
                     // don't keep stale members/roles after child screens update.
                     void loadConversations();
+                    if (!syncInterval) {
+                        syncInterval = setInterval(() => {
+                            void loadConversations();
+                        }, 10000);
+                    }
                 } catch {
                     if (!disposed) {
                         retryTimeout = setTimeout(() => {
@@ -1002,6 +1054,9 @@ export function useMessagesController() {
                 disposed = true;
                 if (retryTimeout) {
                     clearTimeout(retryTimeout);
+                }
+                if (syncInterval) {
+                    clearInterval(syncInterval);
                 }
                 chatWebsocketService.unsubscribeFromUserConversations(
                     currentUserId,
@@ -1052,6 +1107,48 @@ export function useMessagesController() {
             unreadCount: 0,
         });
     }, []);
+
+    useEffect(() => {
+        const unreadConversationIds = conversations
+            .filter((conversation) => (conversation.unreadCount ?? 0) > 0)
+            .map((conversation) => conversation.id);
+
+        if (!currentUserId || unreadConversationIds.length === 0) return;
+
+        let disposed = false;
+        const handleMessageSeen = (event: MessageSeenEvent) => {
+            const payload = event.messageSeenResponse;
+            if (Number(payload.userId) !== Number(currentUserId)) return;
+            const conversationId = Number(payload.conversationId);
+            const conversation = conversations.find(
+                (item) => item.id === conversationId,
+            );
+            if (!isSeenAtCurrentForConversation(conversation, payload.seenAt)) {
+                return;
+            }
+            clearUnreadCount(conversationId);
+        };
+
+        void chatWebsocketService.connect().then(() => {
+            if (disposed) return;
+            unreadConversationIds.forEach((conversationId) => {
+                chatWebsocketService.subscribeToConversationSeen(
+                    conversationId,
+                    handleMessageSeen,
+                );
+            });
+        }).catch(() => undefined);
+
+        return () => {
+            disposed = true;
+            unreadConversationIds.forEach((conversationId) => {
+                chatWebsocketService.unsubscribeFromConversationSeen(
+                    conversationId,
+                    handleMessageSeen,
+                );
+            });
+        };
+    }, [clearUnreadCount, conversations, currentUserId]);
 
     const deleteConversationForMe = useCallback(
         async (conversationId: number) => {

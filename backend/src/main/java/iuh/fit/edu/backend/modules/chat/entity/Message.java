@@ -17,6 +17,7 @@ import jakarta.persistence.Enumerated;
 import lombok.*;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.index.CompoundIndex;
+import org.springframework.data.mongodb.core.index.CompoundIndexes;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
 
@@ -28,10 +29,18 @@ import java.util.Set;
 @Getter
 @Setter
 // Taọ index giúp tăng tốc độ truy vấn message
-@CompoundIndex(
-        name = "conversation_createdAt_idx",
-        def = "{ 'conversation_id': 1, 'created_at': -1 }"
-)
+@CompoundIndexes({
+        @CompoundIndex(
+                name = "conversation_createdAt_idx",
+                def = "{ 'conversation_id': 1, 'created_at': -1 }"
+        ),
+        @CompoundIndex(
+                name = "conversation_sender_client_msg_idx",
+                def = "{ 'conversation_id': 1, 'sender_id': 1, 'client_message_id': 1 }",
+                unique = true,
+                partialFilter = "{ 'client_message_id': { '$exists': true, '$type': 'string' } }"
+        )
+})
 @ToString
 public class Message {
 
@@ -47,6 +56,8 @@ public class Message {
     private Instant modifiedAt;
     @Field(name = "conversation_id")
     private Long conversationId;
+    @Field(name = "client_message_id")
+    private String clientMessageId;
     @Field(name = "poll_id")
     private String pollId;
 

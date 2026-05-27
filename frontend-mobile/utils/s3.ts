@@ -46,8 +46,15 @@ export function buildS3Url(url?: string | null): string | undefined {
     const value = url?.trim();
     if (!value) return undefined;
 
+    if (/^https?:\/\//i.test(value)) {
+        const withSlash = value.replace(/(amazonaws\.com)(?!\/)/i, "$1/");
+        const duplicatedUrlMatch = withSlash.match(
+            /^(https?:\/\/[^/]+\/)(https?:\/\/.+)$/i,
+        );
+        return duplicatedUrlMatch?.[2] ?? withSlash;
+    }
+
     if (
-        /^https?:\/\//i.test(value) ||
         /^data:/i.test(value) ||
         /^blob:/i.test(value) ||
         value.startsWith("file://") ||

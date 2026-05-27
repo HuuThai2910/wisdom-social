@@ -782,6 +782,12 @@ export default function MessagesConversationScreen() {
         otherUserPresence?.lastActiveAt,
         presenceNow,
     );
+    const headerStatusText =
+        conversation?.type === "DIRECT"
+            ? otherUserOnline
+                ? "Đang hoạt động"
+                : otherUserLastActiveText || peerRelationshipText || "Không hoạt động"
+            : null;
 
     useFriendNotifications(
         useCallback(
@@ -971,12 +977,6 @@ export default function MessagesConversationScreen() {
         },
         [isCallSupported, startCall],
     );
-
-
-    const activityText = useMemo(() => {
-        if (!conversation?.updatedAt) return "Dang hoat dong";
-        return `Hoat dong ${formatRelativeTime(conversation.updatedAt)} truoc`;
-    }, [conversation?.updatedAt]);
 
     const typingParticipantIds = useMemo(
         () =>
@@ -2214,13 +2214,11 @@ export default function MessagesConversationScreen() {
                                     otherUser?.username ||
                                     "Conversation"}
                             </Text>
-                            <Text style={styles.headerStatus} numberOfLines={1}>
-                                {otherUserOnline
-                                    ? "Đang hoạt động"
-                                    : otherUserLastActiveText ||
-                                      peerRelationshipText ||
-                                      (conversation?.type === "DIRECT" ? "Không hoạt động" : activityText)}
-                            </Text>
+                            {headerStatusText ? (
+                                <Text style={styles.headerStatus} numberOfLines={1}>
+                                    {headerStatusText}
+                                </Text>
+                            ) : null}
                         </View>
                     </View>
 

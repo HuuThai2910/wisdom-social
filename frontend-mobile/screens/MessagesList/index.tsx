@@ -569,7 +569,7 @@ export default function MessagesListScreen() {
     return (
         <SafeAreaView style={styles.container}>
             <AppHeader
-                title="Messages"
+                title="Đoạn chat"
                 leftAction={
                     segments[0] === "(stack)"
                         ? { icon: "arrow-back", onPress: () => router.back() }
@@ -732,7 +732,7 @@ export default function MessagesListScreen() {
                             unreadCount={item.unreadCount ?? 0}
                             isPinned={isPinned}
                             online={isDirectPartnerOnline}
-                            updatedAt={item.updatedAt}
+                            updatedAt={item.lastMessage?.lastMessageAt ?? item.updatedAt}
                             onPress={() => {
                                 if (suppressNextPressRef.current) {
                                     suppressNextPressRef.current = false;
@@ -1090,7 +1090,9 @@ export default function MessagesListScreen() {
                                         }
                                         isPinned={selectedConversationPinned}
                                         updatedAt={
-                                            selectedConversation?.updatedAt ?? ""
+                                            selectedConversation?.lastMessage?.lastMessageAt ??
+                                            selectedConversation?.updatedAt ??
+                                            ""
                                         }
                                         onPress={() => undefined}
                                     />

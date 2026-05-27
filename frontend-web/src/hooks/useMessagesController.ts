@@ -9,6 +9,7 @@ import chatService, {
 import websocketService, {
     type ConversationSnapshot,
     type LastMessageUpdate,
+    type MessageSeenEvent,
 } from "../services/websocket";
 import { useAuth } from "../contexts/AuthContext";
 import { useChatUnread } from "../contexts/ChatUnreadContext";
@@ -569,6 +570,44 @@ export function useMessagesController() {
         );
         clearConversationUnread(conversationId);
     }, [clearConversationUnread]);
+
+    useEffect(() => {
+        const unreadConversationIds = conversations
+            .filter((conversation) => (conversation.unreadCount ?? 0) > 0)
+            .map((conversation) => conversation.id);
+
+        if (!currentUserId || unreadConversationIds.length === 0) return;
+
+        let cancelled = false;
+        const handleMessageSeen = (event: MessageSeenEvent) => {
+            const payload = event.messageSeenResponse;
+            if (Number(payload.userId) !== Number(currentUserId)) return;
+            clearUnreadCount(Number(payload.conversationId));
+        };
+
+        const subscribe = async () => {
+            await websocketService.connect();
+            if (cancelled) return;
+            unreadConversationIds.forEach((conversationId) => {
+                websocketService.subscribeToConversationSeen(
+                    conversationId,
+                    handleMessageSeen,
+                );
+            });
+        };
+
+        void subscribe();
+
+        return () => {
+            cancelled = true;
+            unreadConversationIds.forEach((conversationId) => {
+                websocketService.unsubscribeFromConversationSeen(
+                    conversationId,
+                    handleMessageSeen,
+                );
+            });
+        };
+    }, [clearUnreadCount, conversations, currentUserId]);
 
     const refreshConversationById = useCallback(
         (

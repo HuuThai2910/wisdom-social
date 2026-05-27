@@ -16,6 +16,7 @@ import { useFriendData } from "../contexts/FriendDataContext";
 import blockService from "../services/blockService";
 import { useCurrentUser } from "../hooks/useCurrentUser";
 import { useBlockNotifications } from "../hooks/useBlockNotifications";
+import { usePresenceStatus } from "../hooks/usePresenceStatus";
 import { buildS3Url } from "../utils/s3";
 import type { User } from "../types";
 import ConfirmModal from "../components/common/ConfirmModal";
@@ -55,17 +56,25 @@ const EMPTY: Record<
   },
 };
 
-function Avatar({ user }: { user: User }) {
+function Avatar({ user, online = false }: { user: User; online?: boolean }) {
   const src =
     buildS3Url(user.avatarUrl) ||
     user.avatarUrl ||
     "https://i.pravatar.cc/150";
   return (
-    <img
-      src={src}
-      alt={user.username}
-      className="w-12 h-12 rounded-full object-cover shrink-0 border border-gray-100 dark:border-[#262626]"
-    />
+    <span className="relative inline-flex shrink-0">
+      <img
+        src={src}
+        alt={user.username}
+        className="w-12 h-12 rounded-full object-cover border border-gray-100 dark:border-[#262626]"
+      />
+      {online && (
+        <span
+          className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-white bg-green-500 dark:border-black"
+          title="Đang hoạt động"
+        />
+      )}
+    </span>
   );
 }
 
@@ -100,6 +109,9 @@ export default function FriendRequests() {
     cancelSentRequest,
     refreshTrigger,
   } = useFriendData();
+  const friendPresenceByUserId = usePresenceStatus(
+    friends.map((friend) => Number(friend.id))
+  );
 
   // Load blocked users when the blocked tab opens (or on refresh)
   const loadBlocked = useCallback(async () => {
@@ -247,7 +259,10 @@ export default function FriendRequests() {
       key={u.id}
       className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-[#1a1a1a] transition-colors"
     >
-      <Avatar user={u} />
+      <Avatar
+        user={u}
+        online={Boolean(friendPresenceByUserId[Number(u.id)]?.online)}
+      />
       <div className="flex-1 min-w-0">
         <p className="font-semibold text-[15px] dark:text-white truncate">
           {u.fullName || u.name || u.username}

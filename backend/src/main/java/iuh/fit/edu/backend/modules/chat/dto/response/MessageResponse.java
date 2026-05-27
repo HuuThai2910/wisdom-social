@@ -31,6 +31,7 @@ import java.util.Set;
 public class MessageResponse {
     private String id;
     private Long conversationId;
+    private String clientMessageId;
     private String content;
     private MessageType type;
     private Instant createdAt;

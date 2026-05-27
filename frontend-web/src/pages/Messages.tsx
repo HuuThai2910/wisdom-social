@@ -1366,7 +1366,7 @@ export default function Messages() {
                         <div className="mb-4 flex items-center justify-between">
                             <div className="flex items-center gap-2">
                                 <h2 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-white">
-                                    Messages
+                                    Đoạn chat
                                 </h2>
                             </div>
                             <button

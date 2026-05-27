@@ -18,19 +18,17 @@ import { useGroupManagement } from "@/hooks/useGroupManagement";
 import { useGroupConversationRealtime } from "@/hooks/useGroupConversationRealtime";
 
 export function ManageGroupScreen() {
-    const { conversationId } = useLocalSearchParams<{ conversationId: string }>();
+    const { conversationId } = useLocalSearchParams<{
+        conversationId: string;
+    }>();
     const router = useRouter();
     const id = Number(conversationId);
 
-    const {
-        conversations,
-        currentUserId,
-        reload,
-    } = useMessagesController();
+    const { conversations, currentUserId, reload } = useMessagesController();
 
     const selectedConversation = useMemo(
         () => conversations.find((c) => c.id === id) || null,
-        [conversations, id]
+        [conversations, id],
     );
 
     const groupManagement = useGroupManagement({
@@ -46,7 +44,9 @@ export function ManageGroupScreen() {
         reloadConversations: reload,
     });
 
-    const [canSendMessages, setCanSendMessages] = useState(!selectedConversation?.isMessageRestricted);
+    const [canSendMessages, setCanSendMessages] = useState(
+        !selectedConversation?.isMessageRestricted,
+    );
     const [joinApprovalRequired, setJoinApprovalRequired] = useState(
         Boolean(selectedConversation?.isJoinApprovalRequired),
     );
@@ -56,7 +56,9 @@ export function ManageGroupScreen() {
     }, [selectedConversation?.isMessageRestricted]);
 
     useEffect(() => {
-        setJoinApprovalRequired(Boolean(selectedConversation?.isJoinApprovalRequired));
+        setJoinApprovalRequired(
+            Boolean(selectedConversation?.isJoinApprovalRequired),
+        );
     }, [selectedConversation?.isJoinApprovalRequired]);
 
     if (!selectedConversation) return null;
@@ -68,17 +70,15 @@ export function ManageGroupScreen() {
     const handleToggleSendMessage = async (value: boolean) => {
         const nextIsRestricted = !value;
         setCanSendMessages(value);
-        const success = await groupManagement.updateMessageRestriction(nextIsRestricted);
+        const success =
+            await groupManagement.updateMessageRestriction(nextIsRestricted);
         if (!success) {
             setCanSendMessages(!value);
         }
     };
 
     const handleToggleJoinApproval = async (value: boolean) => {
-        if (
-            joinApprovalRequired &&
-            !value
-        ) {
+        if (joinApprovalRequired && !value) {
             const localPendingCount =
                 selectedConversation.pendingRequests?.length ?? 0;
             const pendingJoinRequestCount =
@@ -133,7 +133,7 @@ export function ManageGroupScreen() {
                         if (success) router.replace("/(tabs)/activity");
                     },
                 },
-            ]
+            ],
         );
     };
 
@@ -150,50 +150,68 @@ export function ManageGroupScreen() {
             <ScrollView contentContainerStyle={styles.content}>
                 {!isAdmin && (
                     <View style={styles.notice}>
-                        <Ionicons name="lock-closed-outline" size={14} color={colors.textMuted} />
-                        <Text style={styles.noticeText}>Tính năng chỉ dành cho quản trị viên</Text>
+                        <Ionicons
+                            name="lock-closed-outline"
+                            size={14}
+                            color={colors.textMuted}
+                        />
+                        <Text style={styles.noticeText}>
+                            Tính năng chỉ dành cho quản trị viên
+                        </Text>
                     </View>
                 )}
 
                 <View style={styles.section}>
                     <View style={styles.sectionHeader}>
-                        <Text style={styles.sectionTitle}>Cho phép thành viên:</Text>
+                        <Text style={styles.sectionTitle}>
+                            Cho phép thành viên:
+                        </Text>
                     </View>
-                    
+
                     <ToggleRow
                         label="Gửi tin nhắn"
                         value={canSendMessages}
-                        onValueChange={isAdmin ? handleToggleSendMessage : undefined}
-                        disabled={!isAdmin || groupManagement.isUpdatingMessageRestriction}
+                        onValueChange={
+                            isAdmin ? handleToggleSendMessage : undefined
+                        }
+                        disabled={
+                            !isAdmin ||
+                            groupManagement.isUpdatingMessageRestriction
+                        }
                         loading={groupManagement.isUpdatingMessageRestriction}
                         isAdmin={isAdmin}
                     />
-                    
-                    <ToggleRow label="Thay đổi tên & ảnh nhóm" value={true} disabled isAdmin={isAdmin} />
-                    <ToggleRow label="Ghim tin nhắn" value={true} disabled isAdmin={isAdmin} />
-                    <ToggleRow label="Tạo bình chọn" value={true} disabled isAdmin={isAdmin} />
                 </View>
 
                 <View style={styles.section}>
                     <ToggleRow
                         label="Chế độ phê duyệt thành viên"
                         value={joinApprovalRequired}
-                        onValueChange={isAdmin ? handleToggleJoinApproval : undefined}
-                        disabled={!isAdmin || groupManagement.isUpdatingJoinApproval}
+                        onValueChange={
+                            isAdmin ? handleToggleJoinApproval : undefined
+                        }
+                        disabled={
+                            !isAdmin || groupManagement.isUpdatingJoinApproval
+                        }
                         loading={groupManagement.isUpdatingJoinApproval}
                         isAdmin={isAdmin}
                     />
-                    <ToggleRow label="Cho phép thành viên mới đọc tin nhắn cũ" value={false} disabled isAdmin={isAdmin} />
                 </View>
 
                 {isOwner && (
                     <View style={[styles.section, { borderTopWidth: 0 }]}>
-                        <Pressable 
+                        <Pressable
                             style={styles.dangerAction}
                             onPress={handleDisbandGroup}
                         >
-                            <Ionicons name="trash-outline" size={20} color={colors.danger} />
-                            <Text style={styles.dangerActionText}>Giải tán nhóm</Text>
+                            <Ionicons
+                                name="trash-outline"
+                                size={20}
+                                color={colors.danger}
+                            />
+                            <Text style={styles.dangerActionText}>
+                                Giải tán nhóm
+                            </Text>
                         </Pressable>
                     </View>
                 )}
@@ -219,11 +237,16 @@ function ToggleRow({
 }) {
     return (
         <View style={styles.toggleRow}>
-            <Text style={[
-                styles.toggleLabel, 
-                isAdmin && styles.adminLabel,
-                disabled && !onValueChange && !isAdmin && styles.disabledText
-            ]}>
+            <Text
+                style={[
+                    styles.toggleLabel,
+                    isAdmin && styles.adminLabel,
+                    disabled &&
+                        !onValueChange &&
+                        !isAdmin &&
+                        styles.disabledText,
+                ]}
+            >
                 {label}
             </Text>
             {loading ? (

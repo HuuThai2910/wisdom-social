@@ -605,11 +605,31 @@ export const MessageBubble = React.memo(
         // ===== read receipts (common) =====
         const receiptsForThisMessage =
             mine && !item.isRecalled
-                ? readReceipts.filter(
-                      (receipt) =>
-                          receipt.lastMessageId === item.id &&
-                          receipt.userId !== currentUserId,
-                  )
+                ? readReceipts.filter((receipt) => {
+                      if (receipt.userId === currentUserId) return false;
+                      if (receipt.lastMessageId === item.id) return true;
+
+                      const readIndex = messages.findIndex(
+                          (message) => message.id === receipt.lastMessageId,
+                      );
+                      if (readIndex < 0 || readIndex < index) return false;
+
+                      const latestOwnReadableIndex = messages
+                          .slice(0, readIndex + 1)
+                          .map((message, messageIndex) => ({
+                              message,
+                              messageIndex,
+                          }))
+                          .filter(
+                              ({ message }) =>
+                                  Number(message.senderId) ===
+                                      Number(currentUserId) &&
+                                  !message.isRecalled,
+                          )
+                          .at(-1)?.messageIndex;
+
+                      return latestOwnReadableIndex === index;
+                  })
                 : [];
 
         // ===== media handling =====
@@ -2706,7 +2726,7 @@ export const MessageBubble = React.memo(
                     </View>
                 ) : null}
 
-                {isLastInGroup && messageTime ? (
+                {isLastInGroup && !mine && messageTime ? (
                     <View
                         style={[
                             styles.messageMetaRow,
@@ -2715,40 +2735,75 @@ export const MessageBubble = React.memo(
                                 : styles.messageMetaRowOther,
                         ]}
                     >
-                        <Text
-                            style={[
-                                styles.messageTime,
-                                mine && styles.messageTimeMine,
-                            ]}
-                        >
-                            {messageTime}
-                        </Text>
+                        <View style={styles.deliveryMetaPill}>
+                            <Text style={styles.deliveryMetaPillText}>
+                                {messageTime}
+                            </Text>
+                        </View>
                     </View>
                 ) : null}
 
-                {receiptsForThisMessage.length > 0 ? (
+                {mine && isLastInGroup ? (
                     <View
                         style={[
                             styles.messageMetaRow,
                             styles.messageMetaRowMine,
                         ]}
                     >
-                        <View style={styles.seenReceiptsRow}>
-                            {receiptsForThisMessage.map((receipt) => {
-                                const member = membersById[receipt.userId];
-                                return (
-                                    <UserAvatar
-                                        key={`${item.id}-${receipt.userId}`}
-                                        uri={member?.avatar}
-                                        name={
-                                            member?.nickname ||
-                                            member?.username ||
-                                            "?"
-                                        }
-                                        size={16}
-                                    />
-                                );
-                            })}
+                        <View style={styles.deliveryMetaPillRow}>
+                            {messageTime ? (
+                                <View style={styles.deliveryMetaPill}>
+                                    <Text style={styles.deliveryMetaPillText}>
+                                        {messageTime}
+                                    </Text>
+                                </View>
+                            ) : null}
+                            {receiptsForThisMessage.length > 0 ? (
+                                <View style={styles.deliverySeenAvatarRow}>
+                                    {receiptsForThisMessage.map((receipt) => {
+                                        const member = membersById[receipt.userId];
+                                        return (
+                                            <View
+                                                key={`${item.id}-${receipt.userId}`}
+                                                style={styles.deliverySeenAvatar}
+                                            >
+                                                <UserAvatar
+                                                    uri={member?.avatar}
+                                                    name={
+                                                        member?.nickname ||
+                                                        member?.username ||
+                                                        "?"
+                                                    }
+                                                    size={20}
+                                                />
+                                            </View>
+                                        );
+                                    })}
+                                </View>
+                            ) : (
+                                <View
+                                    style={[
+                                        styles.deliveryMetaPill,
+                                        (item.deliveryStatus ?? "sent") === "failed" &&
+                                            styles.deliveryMetaPillFailed,
+                                    ]}
+                                >
+                                    <Text
+                                        style={[
+                                            styles.deliveryMetaPillText,
+                                            (item.deliveryStatus ?? "sent") ===
+                                                "failed" &&
+                                                styles.deliveryMetaPillTextFailed,
+                                        ]}
+                                    >
+                                        {(item.deliveryStatus ?? "sent") === "sending"
+                                            ? "Dang gui"
+                                            : (item.deliveryStatus ?? "sent") === "failed"
+                                              ? "Chua gui"
+                                              : "Da gui"}
+                                    </Text>
+                                </View>
+                            )}
                         </View>
                     </View>
                 ) : null}
@@ -3997,6 +4052,54 @@ const styles = StyleSheet.create({
         alignSelf: "flex-end",
         flexDirection: "row",
         gap: 4,
+    },
+    deliveryMetaPillRow: {
+        marginTop: 4,
+        marginRight: 2,
+        alignSelf: "flex-end",
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+    },
+    deliveryMetaPill: {
+        minHeight: 20,
+        borderRadius: 999,
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        backgroundColor: "#B8BDC5",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    deliveryMetaPillFailed: {
+        backgroundColor: "#FEE2E2",
+    },
+    deliveryMetaPillText: {
+        color: colors.white,
+        fontSize: 11,
+        lineHeight: 12,
+        fontWeight: "700",
+        includeFontPadding: false,
+    },
+    deliveryMetaPillTextFailed: {
+        color: "#DC2626",
+    },
+    deliverySeenAvatarRow: {
+        minHeight: 20,
+        flexDirection: "row",
+        alignItems: "center",
+        marginHorizontal: -1,
+    },
+    deliverySeenAvatar: {
+        marginHorizontal: -1,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: colors.white,
+        overflow: "hidden",
+        shadowColor: "#0F172A",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.12,
+        shadowRadius: 2,
+        elevation: 1,
     },
     loadingOlderText: {
         alignSelf: "center",

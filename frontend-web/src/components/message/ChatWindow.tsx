@@ -90,6 +90,16 @@ function createClientFileId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function formatMessageMetaTime(value?: string | null): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  return date.toLocaleTimeString("vi-VN", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function isAccessBlockedNotice(value?: string | null): boolean {
   if (!value) return false;
   const normalized = value.toLowerCase();
@@ -882,6 +892,12 @@ function ChatWindowContent({
       ? `Bạn bè · Nhóm chung (${mutualGroupsCount})`
       : "Bạn bè";
   }, [effectiveRelationshipInfo, isFriend, relationshipText]);
+  const headerStatusText =
+    conversation?.type === "DIRECT"
+      ? otherMemberOnline
+        ? "Đang hoạt động"
+        : otherMemberLastActiveText || resolvedRelationshipText || "Không hoạt động"
+      : null;
   const canShowFriendBanner =
     Boolean(effectiveRelationshipInfo) &&
     !isFriend &&
@@ -1684,7 +1700,23 @@ function ChatWindowContent({
       // Chỉ hiển thị cho tin nhắn KHÔNG bị thu hồi và là tin của mình
       const receiptsForThisMessage =
         isOwn && !message.isRecalled
-          ? readReceipts.filter((r) => r.lastMessageId === message.id)
+          ? readReceipts.filter((r) => {
+              if (r.lastMessageId === message.id) return true;
+
+              const readIndex = messages.findIndex((item) => item.id === r.lastMessageId);
+              if (readIndex < 0 || readIndex < idx) return false;
+
+              const latestOwnReadableIndex = messages
+                .slice(0, readIndex + 1)
+                .map((item, messageIndex) => ({ item, messageIndex }))
+                .filter(
+                  ({ item }) =>
+                    Number(item.senderId) === Number(userId) && !item.isRecalled,
+                )
+                .at(-1)?.messageIndex;
+
+              return latestOwnReadableIndex === idx;
+            })
           : [];
 
       items.push(
@@ -1747,8 +1779,48 @@ function ChatWindowContent({
             membersById={membersById}
           />
 
+          {isOwn && isLastInGroup && !message.isRecalled && (
+            <div className="mt-1 mr-1 flex justify-end gap-1.5">
+              {formatMessageMetaTime(message.createdAt) && (
+                <span className="inline-flex h-5 items-center rounded-full bg-gray-300 px-2 text-[11px] font-semibold leading-none text-white shadow-sm dark:bg-gray-700 dark:text-gray-200">
+                  {formatMessageMetaTime(message.createdAt)}
+                </span>
+              )}
+              {receiptsForThisMessage.length > 0 ? (
+                  <span className="flex h-5 items-center -space-x-1">
+                    {receiptsForThisMessage.map((receipt) => {
+                      const member = membersById[receipt.userId];
+                      return (
+                        <img
+                          key={receipt.userId}
+                          src={member?.avatar || defaultAvatarSmallUrl}
+                          alt={member?.nickname || "User"}
+                          title={`Đã xem bởi ${member?.nickname || "User"}`}
+                          className="h-5 w-5 rounded-full border border-white object-cover shadow-sm dark:border-gray-800"
+                        />
+                      );
+                    })}
+                  </span>
+                ) : (
+                  <span
+                    className={`inline-flex h-5 min-w-0 items-center rounded-full px-2 text-[11px] font-semibold leading-none shadow-sm ${
+                      (message.deliveryStatus ?? "sent") === "failed"
+                        ? "bg-rose-100 text-rose-600 dark:bg-rose-950/50 dark:text-rose-300"
+                        : "bg-gray-300 text-white dark:bg-gray-700 dark:text-gray-200"
+                    }`}
+                  >
+                    {(message.deliveryStatus ?? "sent") === "sending"
+                      ? "Đang gửi"
+                      : (message.deliveryStatus ?? "sent") === "failed"
+                        ? "Chưa gửi"
+                        : "Đã gửi"}
+                  </span>
+                )}
+            </div>
+          )}
+
           {/* Read Receipt Avatars - hiển thị avatar "đã xem" bên dưới tin nhắn */}
-          {receiptsForThisMessage.length > 0 && (
+          {false && receiptsForThisMessage.length > 0 && (
             <div className="flex justify-end mt-1 mr-1 gap-1">
               {receiptsForThisMessage.map((receipt) => {
                 // Lấy thông tin member từ conversation
@@ -1765,6 +1837,17 @@ function ChatWindowContent({
               })}
             </div>
           )}
+          {false && receiptsForThisMessage.length === 0 &&
+            isOwn &&
+            isLastInGroup && (
+              <div className="mt-1 mr-1 text-right text-[11px] text-gray-400 dark:text-gray-500">
+                {(message.deliveryStatus ?? "sent") === "sending"
+                  ? "Dang gui..."
+                  : (message.deliveryStatus ?? "sent") === "failed"
+                    ? "Chua gui duoc"
+                    : "Da gui"}
+              </div>
+            )}
         </div>
       );
     }
@@ -1897,11 +1980,11 @@ function ChatWindowContent({
             <p className="text-sm font-semibold text-gray-900 dark:text-white">
               {headerDisplayName}
             </p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              {otherMemberOnline
-                ? "Đang hoạt động"
-                : otherMemberLastActiveText || resolvedRelationshipText || "Không hoạt động"}
-            </p>
+            {headerStatusText && (
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {headerStatusText}
+              </p>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-1.5">

@@ -7,6 +7,12 @@ import chatRuntimeStore, {
     type MembersByUserId,
 } from "@/stores/chatRuntimeStore";
 import chatService from "@/services/chatService";
+import {
+    createClientMessageId,
+    messageOutbox,
+    persistOutboxMediaFiles,
+    type OutboxMessage,
+} from "@/services/messageOutbox";
 import chatWebsocketService from "@/services/chatWebsocketService";
 import type {
     BulkPresignedRequest,
@@ -19,6 +25,7 @@ import type {
     MessageSeenEvent,
     PinnedMessageDetail,
     PollResponse,
+    SendMessageRequest,
     TypingEvent,
 } from "@/types/chat";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -29,6 +36,7 @@ import { isMessageDeletedForUser } from "@/utils/chatMessageGuards";
 
 const MARK_AS_READ_DEBOUNCE_MS = 1000;
 const TYPING_STOP_TIMEOUT_MS = 10000;
+const OUTBOX_RETRY_INTERVAL_MS = 3000;
 const REALTIME_FALLBACK_POLL_MS = 1500;
 const MAX_FILES_PER_SEND = 20;
 const MAX_IMAGE_SIZE_BYTES = 25 * 1024 * 1024;
@@ -52,6 +60,142 @@ const GROUP_SYSTEM_MEMBER_SYNC_TYPES = new Set<Message["type"]>([
     "SYSTEM_JOIN_VIA_LINK",
     "SYSTEM_GROUP_INVITE_LINK_SENT",
 ]);
+
+function buildOptimisticTextMessage(
+    request: SendMessageRequest,
+    currentUserId: number,
+    clientMessageId: string,
+): Message {
+    const now = new Date().toISOString();
+    return {
+        id: `local-${clientMessageId}`,
+        conversationId: request.conversationId ?? 0,
+        clientMessageId,
+        content: request.content,
+        type: request.type,
+        createdAt: now,
+        senderId: currentUserId,
+        replyInfo: request.replyToId
+            ? {
+                  messageId: request.replyToId,
+              }
+            : undefined,
+        attachments: request.attachments,
+        deliveryStatus: "sending",
+    };
+}
+
+function buildOptimisticMediaMessage(
+    files: LocalUploadFile[],
+    conversationId: number,
+    currentUserId: number,
+    clientMessageId: string,
+    replyToId?: string,
+): Message {
+    const now = new Date().toISOString();
+    const hasImage = files.some(isImageFile);
+    const firstFile = files[0];
+    const type: Message["type"] = hasImage
+        ? "IMAGE"
+        : firstFile.mimeType.startsWith("video/")
+          ? "VIDEO"
+          : firstFile.mimeType.startsWith("audio/")
+            ? "AUDIO"
+            : "FILE";
+
+    return {
+        id: `local-${clientMessageId}`,
+        conversationId,
+        clientMessageId,
+        content: "",
+        type,
+        createdAt: now,
+        senderId: currentUserId,
+        replyInfo: replyToId ? { messageId: replyToId } : undefined,
+        attachments: files
+            .filter((file) => (hasImage ? isImageFile(file) : true))
+            .map((file) => ({
+                url: file.uri,
+                type: file.mimeType || "application/octet-stream",
+                fileName: file.fileName,
+                fileSize: file.fileSize,
+            })),
+        deliveryStatus: "sending",
+    };
+}
+
+function resolveUploadedMediaUrl(presignedUrl: string, objectKey: string): string {
+    try {
+        const url = new URL(presignedUrl);
+        return `${url.origin}${url.pathname}`;
+    } catch {
+        return objectKey;
+    }
+}
+
+function dedupeMessagesByIdentity(messages: Message[]): Message[] {
+    const seenIds = new Set<string>();
+    const seenClientIds = new Set<string>();
+    const deduped: Message[] = [];
+
+    for (const message of messages) {
+        const messageId = String(message.id);
+        if (messageId && !messageId.startsWith("local-")) {
+            if (seenIds.has(messageId)) continue;
+            seenIds.add(messageId);
+        }
+
+        if (message.clientMessageId) {
+            if (seenClientIds.has(message.clientMessageId)) continue;
+            seenClientIds.add(message.clientMessageId);
+        }
+
+        deduped.push(message);
+    }
+
+    return deduped;
+}
+
+function isLikelyNetworkSendError(error: unknown): boolean {
+    if (!error || typeof error !== "object") {
+        return false;
+    }
+
+    const candidate = error as {
+        code?: string;
+        message?: string;
+        response?: {
+            status?: number;
+            data?: unknown;
+        };
+    };
+    const message = candidate.message?.toLowerCase() ?? "";
+    const status = candidate.response?.status;
+    const responseData = candidate.response?.data;
+    const responseText =
+        typeof responseData === "string" ? responseData.toLowerCase() : "";
+
+    return (
+        ((status === 401 || status === 403) &&
+            (responseData == null ||
+                responseData === "" ||
+                (typeof responseData === "object" &&
+                    Object.keys(responseData as Record<string, unknown>).length === 0))) ||
+        status === 502 ||
+        status === 503 ||
+        status === 504 ||
+        (status === 500 &&
+            (responseData == null ||
+                responseData === "" ||
+                responseText.includes("econnrefused") ||
+                responseText.includes("network"))) ||
+        (!candidate.response &&
+            (candidate.code === "ERR_NETWORK" ||
+                candidate.code === "ECONNABORTED" ||
+                message.includes("network") ||
+                message.includes("failed to fetch")))
+    );
+}
 
 export interface ReadReceipt {
     userId: number;
@@ -530,6 +674,9 @@ export function useChatWindowController(args: {
     const typingTimeoutsRef = useRef<
         Map<number, ReturnType<typeof setTimeout>>
     >(new Map());
+    const readReceiptCatchupTimeoutsRef = useRef<
+        ReturnType<typeof setTimeout>[]
+    >([]);
 
     const showJumpToast = useCallback(
         (message: string = JUMP_NOT_FOUND_TOAST) => {
@@ -669,7 +816,6 @@ export function useChatWindowController(args: {
                 // Align with web UX: entering a conversation should clear unread immediately.
                 if (isScreenFocusedRef.current) {
                     clearUnreadLocally();
-                    void executeMarkAsRead(undefined, { force: true });
                 }
 
                 const cachedConversation =
@@ -1029,15 +1175,63 @@ if (token !== loadTokenRef.current) return;
         (incomingMessage: Message) => {
             const normalizedIncoming =
                 normalizeReplyPreviewContent(incomingMessage);
+            const incomingClientMessageId = normalizedIncoming.clientMessageId;
+
+            if (incomingClientMessageId) {
+                let replacedOptimistic = false;
+                setMessages((prev) => {
+                    const existingIndex = prev.findIndex(
+                        (item) => item.clientMessageId === incomingClientMessageId,
+                    );
+                    if (existingIndex < 0) return prev;
+
+                    replacedOptimistic = true;
+                    const next = [...prev];
+                    next[existingIndex] = {
+                        ...normalizedIncoming,
+                        deliveryStatus: "sent",
+                    };
+                    const deduped = dedupeMessagesByIdentity(next);
+                    chatRuntimeStore.setMessages(conversationId, deduped);
+                    return deduped;
+                });
+
+                if (replacedOptimistic) {
+                    void messageOutbox.remove(incomingClientMessageId);
+                }
+            }
 
             setMessages((prev) => {
                 if (prev.some((item) => item.id === normalizedIncoming.id)) {
                     return prev;
                 }
+                if (
+                    normalizedIncoming.clientMessageId &&
+                    prev.some(
+                        (item) =>
+                            item.clientMessageId ===
+                            normalizedIncoming.clientMessageId,
+                    )
+                ) {
+                    const next = prev.map((item) =>
+                        item.clientMessageId === normalizedIncoming.clientMessageId
+                            ? { ...normalizedIncoming, deliveryStatus: "sent" as const }
+                            : item,
+                    );
+                    const deduped = dedupeMessagesByIdentity(next);
+                    chatRuntimeStore.setMessages(conversationId, deduped);
+                    return deduped;
+                }
 
-                const next = [...prev, normalizedIncoming];
-                chatRuntimeStore.setMessages(conversationId, next);
-                return next;
+                const next = [
+                    ...prev,
+                    normalizedIncoming.senderId === currentUserId
+                        ? { ...normalizedIncoming, deliveryStatus: "sent" as const }
+                        : normalizedIncoming,
+                ];
+                const deduped = dedupeMessagesByIdentity(next);
+                chatRuntimeStore.setMessages(conversationId, deduped);
+                return deduped;
             });
 
             setConversation((prev) => {
@@ -1235,6 +1429,79 @@ if (token !== loadTokenRef.current) return;
             });
         },
         [currentUserId],
+    );
+
+    const syncReadReceiptsFromMembers = useCallback(async () => {
+        try {
+            const memberPayload =
+                await chatService.getConversationMembers(conversationId);
+            const normalizedMembers = toMembersByUserId(memberPayload);
+            const receipts = Object.values(normalizedMembers)
+                .filter(
+                    (member) =>
+                        Number(member.userId) !== Number(currentUserId) &&
+                        Boolean(member.lastReadMessageId),
+                )
+                .map((member) => ({
+                    userId: Number(member.userId),
+                    lastMessageId: member.lastReadMessageId!,
+                    seenAt: new Date().toISOString(),
+                }));
+
+            setMembersById((prev) => {
+                const merged = {
+                    ...prev,
+                    ...normalizedMembers,
+                };
+                chatRuntimeStore.setMembers(conversationId, merged);
+                return merged;
+            });
+
+            if (receipts.length === 0) return;
+
+            setReadReceipts((prev) => {
+                const byUserId = new Map(
+                    prev.map((receipt) => [receipt.userId, receipt]),
+                );
+
+                for (const receipt of receipts) {
+                    byUserId.set(receipt.userId, {
+                        ...byUserId.get(receipt.userId),
+                        ...receipt,
+                    });
+                }
+
+                return Array.from(byUserId.values());
+            });
+        } catch {
+            // Best-effort fallback for missed MESSAGE_SEEN events after reconnect.
+        }
+    }, [conversationId, currentUserId]);
+
+    const scheduleReadReceiptCatchup = useCallback(() => {
+        void syncReadReceiptsFromMembers();
+
+        [1200, 3000, 6000].forEach((delayMs) => {
+            const timeoutId = setTimeout(() => {
+                readReceiptCatchupTimeoutsRef.current =
+                    readReceiptCatchupTimeoutsRef.current.filter(
+                        (item) => item !== timeoutId,
+                    );
+                void syncReadReceiptsFromMembers();
+            }, delayMs);
+
+            readReceiptCatchupTimeoutsRef.current.push(timeoutId);
+        });
+    }, [syncReadReceiptsFromMembers]);
+
+    useEffect(
+        () => () => {
+            readReceiptCatchupTimeoutsRef.current.forEach((timeoutId) =>
+                clearTimeout(timeoutId),
+            );
+            readReceiptCatchupTimeoutsRef.current = [];
+        },
+        [],
     );
 
     const handleTyping = useCallback(
@@ -1474,6 +1741,348 @@ if (token !== loadTokenRef.current) return;
         isScreenFocused,
     ]);
 
+    const replaceLocalMessage = useCallback(
+        (clientMessageId: string, message: Message) => {
+            setMessages((prev) => {
+                const next = prev.map((item) =>
+                    item.clientMessageId === clientMessageId
+                        ? { ...message, deliveryStatus: "sent" as const }
+                        : item,
+                );
+                const deduped = dedupeMessagesByIdentity(next);
+                chatRuntimeStore.setMessages(conversationId, deduped);
+                return deduped;
+            });
+        },
+        [conversationId],
+    );
+
+    const setLocalMessageDeliveryStatus = useCallback(
+        (
+            clientMessageId: string,
+            deliveryStatus: NonNullable<Message["deliveryStatus"]>,
+        ) => {
+            setMessages((prev) => {
+                const next = prev.map((item) =>
+                    item.clientMessageId === clientMessageId
+                        ? { ...item, deliveryStatus }
+                        : item,
+                );
+                chatRuntimeStore.setMessages(conversationId, next);
+                return next;
+            });
+        },
+        [conversationId],
+    );
+
+    const appendCreatedMessagesFromOutbox = useCallback(
+        (clientMessageId: string, createdMessages: Message[]) => {
+            if (createdMessages.length === 0) return;
+
+            setMessages((prev) => {
+                let replaced = false;
+                const next = prev.map((item) => {
+                    if (item.clientMessageId !== clientMessageId) return item;
+
+                    replaced = true;
+                    return {
+                        ...createdMessages[0],
+                        deliveryStatus: "sent" as const,
+                    };
+                });
+                const existingIds = new Set(next.map((item) => item.id));
+                const rest = createdMessages
+                    .slice(replaced ? 1 : 0)
+                    .filter((message) => !existingIds.has(message.id))
+                    .map((message) => ({
+                        ...message,
+                        deliveryStatus: "sent" as const,
+                    }));
+                const merged = dedupeMessagesByIdentity([...next, ...rest]);
+                chatRuntimeStore.setMessages(conversationId, merged);
+                return merged;
+            });
+        },
+        [conversationId],
+    );
+
+    const uploadAndSendOutboxMedia = useCallback(
+        async (item: OutboxMessage): Promise<Message[]> => {
+            const files = item.mediaFiles ?? [];
+            if (files.length === 0) {
+                const createdMessage = await chatService.sendMessage(
+                    item.request,
+                    item.userId,
+                );
+                return [createdMessage];
+            }
+
+            const presignedPayload: BulkPresignedRequest = {
+                module: "CONVERSATION",
+                targetId: String(item.conversationId),
+                files: files.map((file) => ({
+                    type: toAttachmentCategory(file),
+                    fileName: file.fileName,
+                    contentType: file.mimeType || "application/octet-stream",
+                })),
+            };
+
+            let presignedList = await chatService
+                .getBulkPresignedUrls(presignedPayload)
+                .catch(() => []);
+
+            if (presignedList.length !== files.length) {
+                presignedList = await Promise.all(
+                    files.map((file) =>
+                        chatService.getPresignedUrl(
+                            "CONVERSATION",
+                            String(item.conversationId),
+                            toAttachmentCategory(file),
+                            file.fileName,
+                            file.mimeType || "application/octet-stream",
+                        ),
+                    ),
+                );
+            }
+
+            await Promise.all(
+                files.map((file, index) =>
+                    chatService.uploadToS3(
+                        presignedList[index].presignedUrl,
+                        file,
+                    ),
+                ),
+            );
+
+            const uploaded = files.map((file, index) => ({
+                file,
+                objectKey: resolveUploadedMediaUrl(
+                    presignedList[index].presignedUrl,
+                    presignedList[index].objectKey,
+                ),
+            }));
+            const imageAttachments = uploaded
+                .filter((entry) => isImageFile(entry.file))
+                .map((entry) => ({
+                    url: entry.objectKey,
+                    type: entry.file.mimeType || "application/octet-stream",
+                    fileName: entry.file.fileName,
+                    fileSize: entry.file.fileSize,
+                }));
+            const audioAttachments = uploaded
+                .filter((entry) => entry.file.mimeType.startsWith("audio/"))
+                .map((entry) => ({
+                    url: entry.objectKey,
+                    type: entry.file.mimeType || "application/octet-stream",
+                    fileName: entry.file.fileName,
+                    fileSize: entry.file.fileSize,
+                }));
+            const videoAttachments = uploaded
+                .filter((entry) => entry.file.mimeType.startsWith("video/"))
+                .map((entry) => ({
+                    url: entry.objectKey,
+                    type: entry.file.mimeType || "application/octet-stream",
+                    fileName: entry.file.fileName,
+                    fileSize: entry.file.fileSize,
+                }));
+            const fileAttachments = uploaded
+                .filter(
+                    (entry) =>
+                        !isImageFile(entry.file) &&
+                        !entry.file.mimeType.startsWith("audio/") &&
+                        !entry.file.mimeType.startsWith("video/"),
+                )
+                .map((entry) => ({
+                    url: entry.objectKey,
+                    type: entry.file.mimeType || "application/octet-stream",
+                    fileName: entry.file.fileName,
+                    fileSize: entry.file.fileSize,
+                }));
+
+            const createdMessages: Message[] = [];
+            if (imageAttachments.length > 0) {
+                createdMessages.push(
+                    await chatService.sendMessage(
+                        {
+                            content: "",
+                            type: "IMAGE",
+                            conversationId: item.conversationId,
+                            attachments: imageAttachments,
+                            clientMessageId: `${item.clientMessageId}-image`,
+                            ...(item.replyToId ? { replyToId: item.replyToId } : {}),
+                        },
+                        item.userId,
+                    ),
+                );
+            }
+            for (const [index, attachment] of audioAttachments.entries()) {
+                createdMessages.push(
+                    await chatService.sendMessage(
+                        {
+                            content: "",
+                            type: "AUDIO",
+                            conversationId: item.conversationId,
+                            attachments: [attachment],
+                            clientMessageId: `${item.clientMessageId}-audio-${index}`,
+                            ...(item.replyToId ? { replyToId: item.replyToId } : {}),
+                        },
+                        item.userId,
+                    ),
+                );
+            }
+            for (const [index, attachment] of videoAttachments.entries()) {
+                createdMessages.push(
+                    await chatService.sendMessage(
+                        {
+                            content: "",
+                            type: "VIDEO",
+                            conversationId: item.conversationId,
+                            attachments: [attachment],
+                            clientMessageId: `${item.clientMessageId}-video-${index}`,
+                            ...(item.replyToId ? { replyToId: item.replyToId } : {}),
+                        },
+                        item.userId,
+                    ),
+                );
+            }
+            for (const [index, attachment] of fileAttachments.entries()) {
+                createdMessages.push(
+                    await chatService.sendMessage(
+                        {
+                            content: "",
+                            type: "FILE",
+                            conversationId: item.conversationId,
+                            attachments: [attachment],
+                            clientMessageId: `${item.clientMessageId}-file-${index}`,
+                            ...(item.replyToId ? { replyToId: item.replyToId } : {}),
+                        },
+                        item.userId,
+                    ),
+                );
+            }
+
+            const textContent = item.textContent?.trim();
+            if (textContent) {
+                createdMessages.push(
+                    await chatService.sendMessage(
+                        {
+                            content: textContent,
+                            type: "TEXT",
+                            conversationId: item.conversationId,
+                            clientMessageId: `${item.clientMessageId}-text`,
+                            ...(item.replyToId ? { replyToId: item.replyToId } : {}),
+                        },
+                        item.userId,
+                    ),
+                );
+            }
+
+            return createdMessages;
+        },
+        [],
+    );
+
+    const sendOutboxItem = useCallback(
+        async (item: OutboxMessage) => {
+            await messageOutbox.updateStatus(item.clientMessageId, "sending");
+            setLocalMessageDeliveryStatus(item.clientMessageId, "sending");
+
+            try {
+                const createdMessages = await uploadAndSendOutboxMedia(item);
+                if (item.mediaFiles?.length) {
+                    appendCreatedMessagesFromOutbox(
+                        item.clientMessageId,
+                        createdMessages,
+                    );
+                } else {
+                    replaceLocalMessage(item.clientMessageId, createdMessages[0]);
+                }
+                await messageOutbox.remove(item.clientMessageId);
+                createdMessages.forEach(handleNewMessage);
+                scheduleReadReceiptCatchup();
+                setError(null);
+            } catch (error) {
+                if (isLikelyNetworkSendError(error)) {
+                    setLocalMessageDeliveryStatus(item.clientMessageId, "sending");
+                    await messageOutbox.updateStatus(item.clientMessageId, "pending");
+                } else {
+                    setLocalMessageDeliveryStatus(item.clientMessageId, "failed");
+                    await messageOutbox.updateStatus(item.clientMessageId, "failed");
+                }
+                throw new Error("SEND_OUTBOX_FAILED");
+            }
+        },
+        [
+            appendCreatedMessagesFromOutbox,
+            handleNewMessage,
+            replaceLocalMessage,
+            scheduleReadReceiptCatchup,
+            setLocalMessageDeliveryStatus,
+            uploadAndSendOutboxMedia,
+        ],
+    );
+
+    useEffect(() => {
+        let disposed = false;
+
+        void messageOutbox
+            .listByConversation(conversationId)
+            .then((items) => {
+                if (disposed || items.length === 0) return;
+                setMessages((prev) => {
+                    const missing = items
+                        .map((item) => ({
+                            ...item.preview,
+                            deliveryStatus:
+                                item.status === "failed"
+                                    ? ("failed" as const)
+                                    : ("sending" as const),
+                        }))
+                        .filter(
+                            (message) =>
+                                !prev.some(
+                                    (existing) =>
+                                        existing.clientMessageId ===
+                                        message.clientMessageId,
+                                ),
+                        );
+                    if (missing.length === 0) return prev;
+                    const next = dedupeMessagesByIdentity([...prev, ...missing]);
+                    chatRuntimeStore.setMessages(conversationId, next);
+                    return next;
+                });
+            })
+            .catch(() => undefined);
+
+        return () => {
+            disposed = true;
+        };
+    }, [conversationId]);
+
+    useEffect(() => {
+        if (!isScreenFocused) return;
+        let flushing = false;
+
+        const flush = async () => {
+            if (flushing) return;
+            flushing = true;
+            try {
+                const items = await messageOutbox.listPending();
+                for (const item of items) {
+                    await sendOutboxItem(item).catch(() => undefined);
+                }
+            } catch {
+                // Retry stays quiet; the next focus/interval pass will try again.
+            } finally {
+                flushing = false;
+            }
+        };
+
+        void flush();
+        const intervalId = setInterval(flush, OUTBOX_RETRY_INTERVAL_MS);
+        return () => clearInterval(intervalId);
+    }, [isScreenFocused, sendOutboxItem]);
+
     const handleSend = useCallback(
         async (replyToId?: string) => {
             const trimmed = messageText.trim();
@@ -1488,16 +2097,42 @@ if (token !== loadTokenRef.current) return;
                 setSending(true);
                 setError(null);
 
-                const createdMessage = await chatService.sendMessage(
-                    {
-                        content: trimmed,
-                        type: "TEXT",
-                        conversationId,
-                        ...(replyToId ? { replyToId } : {}),
-                    },
+                const clientMessageId = createClientMessageId();
+                const request: SendMessageRequest = {
+                    content: trimmed,
+                    type: "TEXT",
+                    conversationId,
+                    clientMessageId,
+                    ...(replyToId ? { replyToId } : {}),
+                };
+                const optimisticMessage = buildOptimisticTextMessage(
+                    request,
                     currentUserId,
+                    clientMessageId,
                 );
-                handleNewMessage(createdMessage);
+                const outboxItem: OutboxMessage = {
+                    clientMessageId,
+                    conversationId,
+                    userId: currentUserId,
+                    request,
+                    preview: optimisticMessage,
+                    status: "pending",
+                    retryCount: 0,
+                    createdAt: optimisticMessage.createdAt,
+                    updatedAt: optimisticMessage.createdAt,
+                };
+
+                setMessages((prev) => {
+                    const next = dedupeMessagesByIdentity([
+                        ...prev,
+                        optimisticMessage,
+                    ]);
+                    chatRuntimeStore.setMessages(conversationId, next);
+                    return next;
+                });
+
+                await messageOutbox.save(outboxItem);
+                setMessageText("");
 
                 if (typingStopTimeoutRef.current) {
                     clearTimeout(typingStopTimeoutRef.current);
@@ -1513,7 +2148,7 @@ if (token !== loadTokenRef.current) return;
                     isTypingSentRef.current = false;
                 }
 
-                setMessageText("");
+                await sendOutboxItem(outboxItem).catch(() => undefined);
                 return true;
             } catch (error) {
                 const apiMessage = extractApiErrorMessage(error);
@@ -1525,7 +2160,7 @@ if (token !== loadTokenRef.current) return;
                     setReadOnlyNotice(readOnlyReason);
                     setError(readOnlyReason);
                 } else {
-                    setError(apiMessage || "Khong the gui tin nhan");
+                    setError(apiMessage || "Tin nhan se duoc gui lai khi co mang");
                 }
                 return false;
             } finally {
@@ -1538,6 +2173,7 @@ if (token !== loadTokenRef.current) return;
             handleNewMessage,
             messageText,
             readOnlyNotice,
+            sendOutboxItem,
         ],
     );
 
@@ -1566,12 +2202,12 @@ if (token !== loadTokenRef.current) return;
             textOverride?: string,
             replyToId?: string,
         ): Promise<boolean> => {
-            if (files.length === 0) return false;
-
             if (readOnlyNotice) {
                 setError(readOnlyNotice || GROUP_READ_ONLY_COMPOSER_NOTICE);
                 return false;
             }
+
+            if (files.length === 0) return false;
 
             const validationError = getValidationErrorForFiles(files);
             if (validationError) {
@@ -1582,302 +2218,77 @@ if (token !== loadTokenRef.current) return;
             const trimmed = (textOverride ?? messageText).trim();
 
             try {
-                setUploading(true);
-                setUploadProgressPercent(0);
-                setUploadProgressLabel(`Dang tai tep 0/${files.length}`);
-                setUploadFileProgressMap(
-                    Object.fromEntries(
-                        files.map((file) => [getFileClientKey(file), 0]),
-                    ),
-                );
-                setUploadFailedFileNames([]);
                 setError(null);
 
-                const presignedPayload: BulkPresignedRequest = {
-                    module: "CONVERSATION",
-                    targetId: String(conversationId),
-                    files: files.map((file) => ({
-                        type: toAttachmentCategory(file),
-                        fileName: file.fileName,
-                        contentType:
-                            file.mimeType || "application/octet-stream",
-                    })),
+                const clientMessageId = createClientMessageId("mobile-media");
+                const persistedFiles = await persistOutboxMediaFiles(
+                    files,
+                    clientMessageId,
+                );
+                const optimisticMessage = buildOptimisticMediaMessage(
+                    persistedFiles,
+                    conversationId,
+                    currentUserId,
+                    clientMessageId,
+                    replyToId,
+                );
+                const outboxItem: OutboxMessage = {
+                    clientMessageId,
+                    conversationId,
+                    userId: currentUserId,
+                    request: {
+                        content: trimmed,
+                        type: optimisticMessage.type,
+                        conversationId,
+                        clientMessageId,
+                        ...(replyToId ? { replyToId } : {}),
+                    },
+                    preview: optimisticMessage,
+                    mediaFiles: persistedFiles,
+                    textContent: trimmed,
+                    replyToId,
+                    status: "pending",
+                    retryCount: 0,
+                    createdAt: optimisticMessage.createdAt,
+                    updatedAt: optimisticMessage.createdAt,
                 };
 
-                let presignedList = await chatService
-                    .getBulkPresignedUrls(presignedPayload)
-                    .catch(() => []);
-
-                if (presignedList.length !== files.length) {
-                    presignedList = await Promise.all(
-                        files.map((file) =>
-                            chatService.getPresignedUrl(
-                                "CONVERSATION",
-                                String(conversationId),
-                                toAttachmentCategory(file),
-                                file.fileName,
-                                file.mimeType || "application/octet-stream",
-                            ),
-                        ),
-                    );
-                }
-
-                const perFileLoaded = files.map(() => 0);
-                const totalBytes = files.reduce(
-                    (sum, file) => sum + Math.max(file.fileSize, 1),
-                    0,
-                );
-
-                await Promise.all(
-                    files.map(async (file, index) => {
-                        try {
-                            await chatService.uploadToS3(
-                                presignedList[index].presignedUrl,
-                                file,
-                                (loaded, total) => {
-                                    const safeTotal =
-                                        total > 0
-                                            ? total
-                                            : Math.max(file.fileSize, 1);
-
-                                    perFileLoaded[index] = Math.min(
-                                        loaded,
-                                        safeTotal,
-                                    );
-
-                                    const loadedBytes = perFileLoaded.reduce(
-                                        (sum, value) => sum + value,
-                                        0,
-                                    );
-                                    const completed = perFileLoaded.filter(
-                                        (value, fileIndex) =>
-                                            value >=
-                                            Math.max(
-                                                files[fileIndex].fileSize,
-                                                1,
-                                            ),
-                                    ).length;
-
-                                    const percent = Math.min(
-                                        99,
-                                        Math.round(
-                                            (loadedBytes /
-                                                Math.max(totalBytes, 1)) *
-                                                100,
-                                        ),
-                                    );
-
-                                    const filePercent = Math.min(
-                                        100,
-                                        Math.round(
-                                            (perFileLoaded[index] / safeTotal) *
-                                                100,
-                                        ),
-                                    );
-
-                                    setUploadProgressPercent(percent);
-                                    setUploadProgressLabel(
-                                        `Dang tai tep ${completed}/${files.length}`,
-                                    );
-                                    setUploadFileProgressMap((prev) => ({
-                                        ...prev,
-                                        [getFileClientKey(file)]: filePercent,
-                                    }));
-                                },
-                            );
-                        } catch {
-                            throw new Error(`UPLOAD_FAILED::${file.fileName}`);
-                        }
-                    }),
-                );
-
-                const uploaded = files.map((file, index) => ({
-                    file,
-                    objectKey: presignedList[index].objectKey,
-                }));
-
-                const imageAttachments = uploaded
-                    .filter((item) => isImageFile(item.file))
-                    .map((item) => ({
-                        url: item.objectKey,
-                        type: item.file.mimeType || "application/octet-stream",
-                        fileName: item.file.fileName,
-                        fileSize: item.file.fileSize,
-                    }));
-
-                const audioAttachments = uploaded
-                    .filter((item) => item.file.mimeType.startsWith("audio/"))
-                    .map((item) => ({
-                        url: item.objectKey,
-                        type: item.file.mimeType || "application/octet-stream",
-                        fileName: item.file.fileName,
-                        fileSize: item.file.fileSize,
-                    }));
-
-                const videoAttachments = uploaded
-                    .filter((item) => item.file.mimeType.startsWith("video/"))
-                    .map((item) => ({
-                        url: item.objectKey,
-                        type: item.file.mimeType || "application/octet-stream",
-                        fileName: item.file.fileName,
-                        fileSize: item.file.fileSize,
-                    }));
-
-                const fileAttachments = uploaded
-                    .filter(
-                        (item) =>
-                            !isImageFile(item.file) &&
-                            !item.file.mimeType.startsWith("audio/") &&
-                            !item.file.mimeType.startsWith("video/"),
-                    )
-                    .map((item) => ({
-                        url: item.objectKey,
-                        type: item.file.mimeType || "application/octet-stream",
-                        fileName: item.file.fileName,
-                        fileSize: item.file.fileSize,
-                    }));
-
-                if (
-                    imageAttachments.length === 0 &&
-                    audioAttachments.length === 0 &&
-                    videoAttachments.length === 0 &&
-                    fileAttachments.length === 0
-                ) {
-                    if (!trimmed) return false;
-
-                    const createdMessage = await chatService.sendMessage(
-                        {
-                            content: trimmed,
-                            type: "TEXT",
-                            conversationId,
-                            ...(replyToId ? { replyToId } : {}),
-                        },
-                        currentUserId,
-                    );
-                    handleNewMessage(createdMessage);
-                }
-
-                if (
-                    trimmed &&
-                    (imageAttachments.length > 0 ||
-                        audioAttachments.length > 0 ||
-                        videoAttachments.length > 0 ||
-                        fileAttachments.length > 0)
-                ) {
-                    const createdMessage = await chatService.sendMessage(
-                        {
-                            content: trimmed,
-                            type: "TEXT",
-                            conversationId,
-                            ...(replyToId ? { replyToId } : {}),
-                        },
-                        currentUserId,
-                    );
-                    handleNewMessage(createdMessage);
-                }
-
-                if (imageAttachments.length > 0) {
-                    const createdMessage = await chatService.sendMessage(
-                        {
-                            content: "",
-                            type: "IMAGE",
-                            conversationId,
-                            attachments: imageAttachments,
-                            ...(replyToId ? { replyToId } : {}),
-                        },
-                        currentUserId,
-                    );
-                    handleNewMessage(createdMessage);
-                }
-
-                for (const attachment of audioAttachments) {
-                    const createdMessage = await chatService.sendMessage(
-                        {
-                            content: "",
-                            type: "AUDIO",
-                            conversationId,
-                            attachments: [attachment],
-                            ...(replyToId ? { replyToId } : {}),
-                        },
-                        currentUserId,
-                    );
-                    handleNewMessage(createdMessage);
-                }
-
-                for (const attachment of videoAttachments) {
-                    const createdMessage = await chatService.sendMessage(
-                        {
-                            content: "",
-                            type: "VIDEO",
-                            conversationId,
-                            attachments: [attachment],
-                            ...(replyToId ? { replyToId } : {}),
-                        },
-                        currentUserId,
-                    );
-                    handleNewMessage(createdMessage);
-                }
-
-                for (const attachment of fileAttachments) {
-                    const createdMessage = await chatService.sendMessage(
-                        {
-                            content: "",
-                            type: "FILE",
-                            conversationId,
-                            attachments: [attachment],
-                            ...(replyToId ? { replyToId } : {}),
-                        },
-                        currentUserId,
-                    );
-                    handleNewMessage(createdMessage);
-                }
-
-                setMessageText("");
-                setUploadProgressPercent(100);
-                setUploadProgressLabel(
-                    `Da tai ${files.length}/${files.length}`,
-                );
-                setUploadFileProgressMap((prev) => {
-                    const next = { ...prev };
-                    for (const file of files) {
-                        next[getFileClientKey(file)] = 100;
-                    }
+                setMessages((prev) => {
+                    const next = dedupeMessagesByIdentity([
+                        ...prev,
+                        optimisticMessage,
+                    ]);
+                    chatRuntimeStore.setMessages(conversationId, next);
                     return next;
                 });
 
+                await messageOutbox.save(outboxItem);
+                setMessageText("");
+                await sendOutboxItem(outboxItem).catch(() => undefined);
                 return true;
             } catch (error) {
-                const errMsg = error instanceof Error ? error.message : "";
-                const apiMessage = extractApiErrorMessage(error) || errMsg;
+                const apiMessage = extractApiErrorMessage(error);
                 const readOnlyReason = apiMessage
                     ? resolveReadOnlyReasonFromApiMessage(apiMessage)
                     : null;
-                const failedName = errMsg.startsWith("UPLOAD_FAILED::")
-                    ? errMsg.replace("UPLOAD_FAILED::", "")
-                    : "";
-                if (failedName) {
-                    setUploadFailedFileNames([failedName]);
-                }
+
                 if (readOnlyReason) {
                     setReadOnlyNotice(readOnlyReason);
                     setError(readOnlyReason);
+                } else if (isLikelyNetworkSendError(error)) {
+                    setError("Tep se duoc gui lai khi co mang");
                 } else {
-                    setError("Khong the gui tep dinh kem");
+                    setError("Khong the luu tep de gui lai");
                 }
                 return false;
-            } finally {
-                setUploading(false);
-                setUploadProgressPercent(null);
-                setUploadProgressLabel("");
-                setUploadFileProgressMap({});
             }
         },
         [
             conversationId,
             currentUserId,
-            handleNewMessage,
             messageText,
             readOnlyNotice,
+            sendOutboxItem,
         ],
     );
 

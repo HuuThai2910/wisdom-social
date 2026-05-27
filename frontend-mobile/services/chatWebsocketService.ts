@@ -200,6 +200,10 @@ class ChatWebsocketService {
         number,
         Map<UserConversationUpdateHandler, UserConversationListener>
     >();
+    private conversationSeenListeners = new Map<
+        number,
+        Set<(event: MessageSeenEvent) => void>
+    >();
     private nextUniqueSubscriptionId = 0;
     private presenceLoginPhone: string | null = null;
     private presenceHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -750,6 +754,83 @@ class ChatWebsocketService {
         this.removeSubscription(destination);
     }
 
+    subscribeToConversationSeen(
+        conversationId: number,
+        onSeen: (event: MessageSeenEvent) => void,
+    ): void {
+        const listeners =
+            this.conversationSeenListeners.get(conversationId) ?? new Set();
+        listeners.add(onSeen);
+        this.conversationSeenListeners.set(conversationId, listeners);
+
+        const destination = `/topic/conversation/${conversationId}`;
+        const key = `${destination}::seen-sync`;
+
+        if (this.subscriptionFactories.has(key)) {
+            this.syncSubscriptions();
+            return;
+        }
+
+        this.subscriptionFactories.set(key, () => {
+            const client = this.client;
+            if (!client?.connected) {
+                throw new Error("WebSocket not connected");
+            }
+
+            return client.subscribe(destination, (message: IMessage) => {
+                try {
+                    const raw = JSON.parse(message.body) as
+                        | MessageSeenEvent
+                        | { payload?: unknown; data?: unknown };
+                    const container =
+                        (raw as { payload?: unknown }).payload ??
+                        (raw as { data?: unknown }).data ??
+                        raw;
+                    const domainType = String(
+                        (container as { domainEventType?: unknown; type?: unknown })
+                            .domainEventType ??
+                            (container as { domainEventType?: unknown; type?: unknown })
+                                .type ??
+                            "",
+                    );
+
+                    if (domainType === "MESSAGE_SEEN") {
+                        this.conversationSeenListeners
+                            .get(conversationId)
+                            ?.forEach((listener) =>
+                                listener(container as MessageSeenEvent),
+                            );
+                    }
+                } catch {
+                    // no-op: this lightweight listener only cares about MESSAGE_SEEN.
+                }
+            });
+        });
+
+        if (this.client?.connected && !this.subscriptions.has(key)) {
+            try {
+                const subscription = this.subscriptionFactories.get(key)!();
+                this.subscriptions.set(key, subscription);
+            } catch {
+                // syncSubscriptions will retry after reconnect.
+            }
+        }
+    }
+
+    unsubscribeFromConversationSeen(
+        conversationId: number,
+        onSeen?: (event: MessageSeenEvent) => void,
+    ): void {
+        const listeners = this.conversationSeenListeners.get(conversationId);
+        if (listeners && onSeen) {
+            listeners.delete(onSeen);
+            if (listeners.size > 0) return;
+        }
+
+        this.conversationSeenListeners.delete(conversationId);
+        this.removeSubscription(`/topic/conversation/${conversationId}::seen-sync`);
+    }
+
     subscribeToConversationMessages(
         conversationId: number,
         onMessage: (message: Message) => void,
@@ -968,7 +1049,14 @@ class ChatWebsocketService {
 
             return client.subscribe(destination, (message: IMessage) => {
                 try {
-                    const payload = JSON.parse(message.body) as UserConversationEvent;
+                    const rawPayload = JSON.parse(message.body) as
+                        | UserConversationEvent
+                        | { payload?: unknown; data?: unknown };
+                    const payload = (
+                        (rawPayload as { payload?: unknown }).payload ??
+                        (rawPayload as { data?: unknown }).data ??
+                        rawPayload
+                    ) as UserConversationEvent;
                     const listeners = Array.from(
                         this.userConversationListeners
                             .get(userId)
@@ -977,16 +1065,22 @@ class ChatWebsocketService {
 
                     const blockedMembersPayload = payload as {
                         domainEventType?: string;
-                        conversationId?: number;
+                        conversationId?: unknown;
                     };
+                    const blockedConversationId = toFiniteNumber(
+                        blockedMembersPayload.conversationId,
+                    );
                     if (
                         blockedMembersPayload.domainEventType ===
                             "CONVERSATION_BLOCKED_MEMBERS_UPDATED" &&
-                        typeof blockedMembersPayload.conversationId === "number"
+                        blockedConversationId !== null
                     ) {
                         DeviceEventEmitter.emit(
                             "conversation-blocked-members-updated",
-                            blockedMembersPayload,
+                            {
+                                ...blockedMembersPayload,
+                                conversationId: blockedConversationId,
+                            },
                         );
                         return;
                     }
@@ -1028,11 +1122,14 @@ class ChatWebsocketService {
                     }
 
                     const disbandPayload = payload as GroupDisbandedEvent;
+                    const disbandConversationId = toFiniteNumber(
+                        disbandPayload.conversationId,
+                    );
                     if (
                         disbandPayload.domainEventType === "GROUP_DISBANDED" &&
-                        typeof disbandPayload.conversationId === "number"
+                        disbandConversationId !== null
                     ) {
-                        const conversationId = disbandPayload.conversationId;
+                        const conversationId = disbandConversationId;
                         // Gọi callback chuyên biệt nếu có (dùng trong useChatWindowController)
                         listeners.forEach((listener) =>
                             listener.onDisbanded?.(conversationId),
@@ -1051,9 +1148,12 @@ class ChatWebsocketService {
                     }
 
                     const joinRequestPayload = payload as NewJoinRequestEvent;
+                    const joinRequestConversationId = toFiniteNumber(
+                        joinRequestPayload.conversationId,
+                    );
                     if (
                         joinRequestPayload.domainEventType === "NEW_JOIN_REQUEST" &&
-                        typeof joinRequestPayload.conversationId === "number" &&
+                        joinRequestConversationId !== null &&
                         joinRequestPayload.requestData
                     ) {
                         const request = joinRequestPayload.requestData;
@@ -1067,7 +1167,7 @@ class ChatWebsocketService {
                             ]);
                         listeners.forEach((listener) =>
                             listener.onConversationUpdated(
-                                joinRequestPayload.conversationId,
+                                joinRequestConversationId,
                                 {
                                     lastMessageContent: requestSnapshotContent,
                                     lastMessageType: "SYSTEM_REQUIRE_APPROVAL",
@@ -1079,7 +1179,7 @@ class ChatWebsocketService {
                                     read: false,
                                 },
                                 {
-                                    id: joinRequestPayload.conversationId,
+                                    id: joinRequestConversationId,
                                     type: "GROUP",
                                     updatedAt:
                                         request.createdAt ||
@@ -1129,15 +1229,23 @@ class ChatWebsocketService {
                         return;
                     }
 
-                    const updatedEvent = payload as ConversationUpdatedEvent;
-                    if (
-                        typeof updatedEvent.conversationId === "number" &&
-                        updatedEvent.lastMessage
-                    ) {
+                    const updatedEvent = payload as ConversationUpdatedEvent & {
+                        conversationId?: unknown;
+                        lastMessageResponse?: LastMessage;
+                        lastMessageRespone?: LastMessage;
+                    };
+                    const updatedConversationId = toFiniteNumber(
+                        updatedEvent.conversationId,
+                    );
+                    const updatedLastMessage =
+                        updatedEvent.lastMessage ??
+                        updatedEvent.lastMessageResponse ??
+                        updatedEvent.lastMessageRespone;
+                    if (updatedConversationId !== null && updatedLastMessage) {
                         listeners.forEach((listener) =>
                             listener.onConversationUpdated(
-                                updatedEvent.conversationId,
-                                updatedEvent.lastMessage,
+                                updatedConversationId,
+                                updatedLastMessage,
                             ),
                         );
                     }

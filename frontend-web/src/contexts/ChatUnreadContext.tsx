@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { useLocation } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 import chatService from "../services/chatService";
-import websocketService, { type LastMessageUpdate } from "../services/websocket";
+import websocketService, { type LastMessageUpdate, type MessageSeenEvent } from "../services/websocket";
 
 interface ChatUnreadContextValue {
     unreadCount: number;
@@ -15,6 +15,14 @@ const ChatUnreadContext = createContext<ChatUnreadContextValue>({
     refreshUnreadCount: async () => {},
     clearConversationUnread: () => {},
 });
+
+function getSelectedMessagesConversationId(pathname: string): number | null {
+    const match = pathname.match(/^\/messages\/(\d+)/);
+    if (!match) return null;
+
+    const conversationId = Number(match[1]);
+    return Number.isFinite(conversationId) ? conversationId : null;
+}
 
 export function ChatUnreadProvider({ children }: { children: ReactNode }) {
     const { currentUser } = useAuth();
@@ -65,7 +73,10 @@ export function ChatUnreadProvider({ children }: { children: ReactNode }) {
             if (lastSenderId === userId) {
                 return;
             }
-            if (window.location.pathname.startsWith("/messages")) {
+            const selectedConversationId = getSelectedMessagesConversationId(
+                window.location.pathname,
+            );
+            if (selectedConversationId === conversationId) {
                 setUnreadByConversation((prev) => ({
                     ...prev,
                     [conversationId]: 0,
@@ -91,6 +102,47 @@ export function ChatUnreadProvider({ children }: { children: ReactNode }) {
             websocketService.unsubscribeFromUserConversations(userId, handleConversationUpdate);
         };
     }, [currentUser?.id]);
+
+    useEffect(() => {
+        if (!currentUser?.id) return;
+        const userId = Number(currentUser.id);
+        const unreadConversationIds = Object.entries(unreadByConversation)
+            .filter(([, count]) => count > 0)
+            .map(([conversationId]) => Number(conversationId))
+            .filter((conversationId) => Number.isFinite(conversationId));
+
+        if (unreadConversationIds.length === 0) return;
+
+        let cancelled = false;
+        const handleMessageSeen = (event: MessageSeenEvent) => {
+            const payload = event.messageSeenResponse;
+            if (Number(payload.userId) !== userId) return;
+            clearConversationUnread(Number(payload.conversationId));
+        };
+
+        const subscribe = async () => {
+            await websocketService.connect();
+            if (cancelled) return;
+            unreadConversationIds.forEach((conversationId) => {
+                websocketService.subscribeToConversationSeen(
+                    conversationId,
+                    handleMessageSeen,
+                );
+            });
+        };
+
+        void subscribe();
+
+        return () => {
+            cancelled = true;
+            unreadConversationIds.forEach((conversationId) => {
+                websocketService.unsubscribeFromConversationSeen(
+                    conversationId,
+                    handleMessageSeen,
+                );
+            });
+        };
+    }, [clearConversationUnread, currentUser?.id, unreadByConversation]);
 
     const unreadCount = useMemo(
         () => Object.values(unreadByConversation).reduce((sum, count) => sum + count, 0),

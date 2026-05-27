@@ -24,6 +24,7 @@ public class SendMessageRequest {
     private MessageType type;
     private Long conversationId;
     private Long receiverId;
+    private String clientMessageId;
     private String replyToId;
     private List<AttachmentRequest> attachments;
 

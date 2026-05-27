@@ -14,6 +14,11 @@ import chatService, {
     type PollResponse,
     type SendMessageRequest,
 } from "../services/chatService";
+import {
+    createClientMessageId,
+    messageOutbox,
+    type OutboxMessage,
+} from "../services/messageOutbox";
 import websocketService, {
     type MemberUpdatedEvent,
     type MessageReactionEvent,
@@ -58,6 +63,8 @@ import {
 } from "../utils/chatWindowControllerUtils";
 
 export type { ReadReceipt } from "../utils/chatWindowControllerUtils";
+
+const OUTBOX_RETRY_INTERVAL_MS = 3000;
 
 function incrementMessageReaction(
     message: Message,
@@ -112,6 +119,250 @@ function incrementMessageReaction(
         ...message,
         iconName: nextReactions,
     };
+}
+
+function buildOptimisticTextMessage(
+    request: SendMessageRequest,
+    userId: number,
+    clientMessageId: string,
+): Message {
+    const now = new Date().toISOString();
+    return {
+        id: `local-${clientMessageId}`,
+        conversationId: request.conversationId ?? 0,
+        clientMessageId,
+        content: request.content,
+        type: request.type,
+        createdAt: now,
+        senderId: userId,
+        replyInfo: request.replyToId
+            ? {
+                  messageId: request.replyToId,
+              }
+            : undefined,
+        attachments: request.attachments,
+        deliveryStatus: "sending",
+    };
+}
+
+function buildOptimisticMediaMessage(
+    files: File[],
+    conversationId: number,
+    userId: number,
+    clientMessageId: string,
+    replyToId?: string,
+): Message {
+    const now = new Date().toISOString();
+    const hasImage = files.some(isImageFile);
+    const firstFile = files[0];
+    const type: MessageType = hasImage
+        ? "IMAGE"
+        : firstFile.type.startsWith("video/")
+          ? "VIDEO"
+          : firstFile.type.startsWith("audio/")
+            ? "AUDIO"
+            : "FILE";
+
+    return {
+        id: `local-${clientMessageId}`,
+        conversationId,
+        clientMessageId,
+        content: "",
+        type,
+        createdAt: now,
+        senderId: userId,
+        replyInfo: replyToId ? { messageId: replyToId } : undefined,
+        attachments: files
+            .filter((file) => (hasImage ? isImageFile(file) : true))
+            .map((file) => ({
+                url: URL.createObjectURL(file),
+                type: file.type || "application/octet-stream",
+                fileName: file.name,
+                fileSize: file.size,
+            })),
+        deliveryStatus: "sending",
+    };
+}
+
+function isAudioUploadFile(file: File): boolean {
+    return file.type.startsWith("audio/");
+}
+
+function isVideoUploadFile(file: File): boolean {
+    return file.type.startsWith("video/");
+}
+
+function buildMixedMediaOptimisticMessages(
+    files: File[],
+    conversationId: number,
+    userId: number,
+    clientMessageId: string,
+    textContent?: string,
+    replyToId?: string,
+): Message[] {
+    const imageFiles = files.filter(isImageFile);
+    const audioFiles = files.filter(isAudioUploadFile);
+    const videoFiles = files.filter(isVideoUploadFile);
+    const otherFiles = files.filter(
+        (file) =>
+            !isImageFile(file) &&
+            !isAudioUploadFile(file) &&
+            !isVideoUploadFile(file),
+    );
+    const messages: Message[] = [];
+
+    if (imageFiles.length > 0) {
+        messages.push(
+            buildOptimisticMediaMessage(
+                imageFiles,
+                conversationId,
+                userId,
+                `${clientMessageId}-image`,
+                replyToId,
+            ),
+        );
+    }
+
+    audioFiles.forEach((file, index) => {
+        messages.push(
+            buildOptimisticMediaMessage(
+                [file],
+                conversationId,
+                userId,
+                `${clientMessageId}-audio-${index}`,
+                replyToId,
+            ),
+        );
+    });
+
+    videoFiles.forEach((file, index) => {
+        messages.push(
+            buildOptimisticMediaMessage(
+                [file],
+                conversationId,
+                userId,
+                `${clientMessageId}-video-${index}`,
+                replyToId,
+            ),
+        );
+    });
+
+    otherFiles.forEach((file, index) => {
+        messages.push(
+            buildOptimisticMediaMessage(
+                [file],
+                conversationId,
+                userId,
+                `${clientMessageId}-file-${index}`,
+                replyToId,
+            ),
+        );
+    });
+
+    const trimmed = textContent?.trim();
+    if (!trimmed) return messages;
+
+    const lastCreatedAt = messages.at(-1)?.createdAt ?? new Date().toISOString();
+
+    const textCreatedAt = new Date(
+        new Date(lastCreatedAt).getTime() + 1,
+    ).toISOString();
+
+    return [
+        ...messages,
+        {
+            id: `local-${clientMessageId}-text`,
+            conversationId,
+            clientMessageId: `${clientMessageId}-text`,
+            content: trimmed,
+            type: "TEXT",
+            createdAt: textCreatedAt,
+            senderId: userId,
+            replyInfo: replyToId ? { messageId: replyToId } : undefined,
+            deliveryStatus: "sending",
+        },
+    ];
+}
+
+function resolveUploadedMediaUrl(presignedUrl: string, objectKey: string): string {
+    try {
+        const url = new URL(presignedUrl);
+        return `${url.origin}${url.pathname}`;
+    } catch {
+        return objectKey;
+    }
+}
+
+function dedupeMessagesByIdentity(messages: Message[]): Message[] {
+    const seenIds = new Set<string>();
+    const seenClientIds = new Set<string>();
+    const deduped: Message[] = [];
+
+    for (const message of messages) {
+        const messageId = String(message.id);
+        if (messageId && !messageId.startsWith("local-")) {
+            if (seenIds.has(messageId)) continue;
+            seenIds.add(messageId);
+        }
+
+        if (message.clientMessageId) {
+            if (seenClientIds.has(message.clientMessageId)) continue;
+            seenClientIds.add(message.clientMessageId);
+        }
+
+        deduped.push(message);
+    }
+
+    return deduped;
+}
+
+function isLikelyNetworkSendError(error: unknown): boolean {
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+        return true;
+    }
+
+    if (!error || typeof error !== "object") {
+        return false;
+    }
+
+    const candidate = error as {
+        code?: string;
+        message?: string;
+        request?: unknown;
+        response?: {
+            status?: number;
+            data?: unknown;
+        };
+    };
+    const message = candidate.message?.toLowerCase() ?? "";
+    const status = candidate.response?.status;
+    const responseData = candidate.response?.data;
+    const responseText =
+        typeof responseData === "string" ? responseData.toLowerCase() : "";
+
+    return (
+        (status === 401 || status === 403) &&
+        (responseData == null ||
+            responseData === "" ||
+            (typeof responseData === "object" &&
+                Object.keys(responseData as Record<string, unknown>).length === 0))
+    ) || (
+        (status === 502 || status === 503 || status === 504) &&
+        true
+    ) || (
+        status === 500 &&
+        (responseData == null ||
+            responseData === "" ||
+            responseText.includes("econnrefused") ||
+            responseText.includes("proxy") ||
+            responseText.includes("network"))
+    ) || (
+        !candidate.response &&
+        (candidate.code === "ERR_NETWORK" ||
+            candidate.code === "ECONNABORTED" ||
+            message.includes("network") ||
+            message.includes("failed to fetch"))
+    );
 }
 
 /**
@@ -664,11 +915,12 @@ export function useChatWindowController(args: {
         scrollOnNextRenderRef.current = null;
         requestAnimationFrame(() => {
             scrollToBottom(behavior);
-            if (behavior === "auto") {
-                setTimeout(() => scrollToBottom("auto"), 50);
-            }
+            setTimeout(
+                () => scrollToBottom(behavior === "auto" ? "auto" : "smooth"),
+                80,
+            );
         });
-    }, [loadingMore, messages.length, scrollToBottom]);
+    }, [loadingMore, messages, scrollToBottom]);
 
     const loadInitialData = useCallback(
         async (
@@ -1321,6 +1573,36 @@ const list = Array.isArray(cursorData?.data)
                 Number(normalizedIncoming.senderId) ===
                 Number(userIdRef.current);
             const currentlyNearBottom = isNearBottom();
+            const incomingClientMessageId = normalizedIncoming.clientMessageId;
+
+            if (incomingClientMessageId) {
+                let replacedOptimistic = false;
+                setMessages((prev) => {
+                    const existingIndex = prev.findIndex(
+                        (m) => m.clientMessageId === incomingClientMessageId,
+                    );
+                    if (existingIndex < 0) return prev;
+
+                    replacedOptimistic = true;
+                    const nextMessages = [...prev];
+                    nextMessages[existingIndex] = {
+                        ...normalizedIncoming,
+                        deliveryStatus: "sent",
+                    };
+                    const dedupedMessages =
+                        dedupeMessagesByIdentity(nextMessages);
+                    chatRuntimeStore.setMessages(
+                        conversationId,
+                        dedupedMessages,
+                    );
+                    return dedupedMessages;
+                });
+
+                if (replacedOptimistic) {
+                    void messageOutbox.remove(incomingClientMessageId);
+                    scrollOnNextRenderRef.current = "smooth";
+                }
+            }
 
             if (isHistoricalModeRef.current) {
                 setShowScrollToBottomButton(true);
@@ -1332,12 +1614,36 @@ const list = Array.isArray(cursorData?.data)
                 if (prev.some((m) => m.id === normalizedIncoming.id)) {
                     return prev;
                 }
+                if (
+                    normalizedIncoming.clientMessageId &&
+                    prev.some(
+                        (m) =>
+                            m.clientMessageId ===
+                            normalizedIncoming.clientMessageId,
+                    )
+                ) {
+                    const nextMessages = prev.map((m) =>
+                        m.clientMessageId === normalizedIncoming.clientMessageId
+                            ? { ...normalizedIncoming, deliveryStatus: "sent" as const }
+                            : m,
+                    );
+                    const dedupedMessages =
+                        dedupeMessagesByIdentity(nextMessages);
+                    chatRuntimeStore.setMessages(
+                        conversationId,
+                        dedupedMessages,
+                    );
+                    return dedupedMessages;
+                }
                 const nextMessages = applyWindowForNewer([
                     ...prev,
-                    normalizedIncoming,
+                    isMyMessage
+                        ? { ...normalizedIncoming, deliveryStatus: "sent" as const }
+                        : normalizedIncoming,
                 ]);
-                chatRuntimeStore.setMessages(conversationId, nextMessages);
-                return nextMessages;
+                const dedupedMessages = dedupeMessagesByIdentity(nextMessages);
+                chatRuntimeStore.setMessages(conversationId, dedupedMessages);
+                return dedupedMessages;
             });
 
             if (isMyMessage || currentlyNearBottom) {
@@ -2250,6 +2556,377 @@ const list = Array.isArray(cursorData?.data)
         scrollToBottom,
     ]);
 
+    const replaceLocalMessage = useCallback(
+        (clientMessageId: string, message: Message) => {
+            setMessages((prev) => {
+                const nextMessages = prev.map((item) =>
+                    item.clientMessageId === clientMessageId
+                        ? { ...message, deliveryStatus: "sent" as const }
+                        : item,
+                );
+                chatRuntimeStore.setMessages(conversationId, nextMessages);
+                return nextMessages;
+            });
+        },
+        [conversationId],
+    );
+
+    const setLocalMessageDeliveryStatus = useCallback(
+        (
+            clientMessageId: string,
+            deliveryStatus: NonNullable<Message["deliveryStatus"]>,
+        ) => {
+            setMessages((prev) => {
+                const nextMessages = prev.map((item) =>
+                    item.clientMessageId === clientMessageId ||
+                    item.clientMessageId?.startsWith(`${clientMessageId}-`)
+                        ? { ...item, deliveryStatus }
+                        : item,
+                );
+                chatRuntimeStore.setMessages(conversationId, nextMessages);
+                return nextMessages;
+            });
+        },
+        [conversationId],
+    );
+
+    const appendCreatedMessagesFromOutbox = useCallback(
+        (clientMessageId: string, createdMessages: Message[]) => {
+            if (createdMessages.length === 0) return;
+            setMessages((prev) => {
+                let replaced = false;
+                const createdByClientId = new Map(
+                    createdMessages
+                        .filter((message) => message.clientMessageId)
+                        .map((message) => [message.clientMessageId!, message]),
+                );
+                const nextMessages = prev.map((item) => {
+                    if (!item.clientMessageId) return item;
+                    const created = createdByClientId.get(item.clientMessageId);
+                    if (created) {
+                        replaced = true;
+                        return {
+                            ...created,
+                            deliveryStatus: "sent" as const,
+                        };
+                    }
+                    if (item.clientMessageId === clientMessageId) {
+                        replaced = true;
+                        return {
+                            ...createdMessages[0],
+                            deliveryStatus: "sent" as const,
+                        };
+                    }
+                    return item;
+                });
+                const existingIds = new Set(nextMessages.map((item) => item.id));
+                const existingClientIds = new Set(
+                    nextMessages
+                        .map((item) => item.clientMessageId)
+                        .filter(Boolean),
+                );
+                const rest = createdMessages
+                    .slice(replaced ? 1 : 0)
+                    .filter(
+                        (message) =>
+                            !existingIds.has(message.id) &&
+                            (!message.clientMessageId ||
+                                !existingClientIds.has(message.clientMessageId)),
+                    )
+                    .map((message) => ({
+                        ...message,
+                        deliveryStatus: "sent" as const,
+                    }));
+                const merged = applyWindowForNewer(
+                    dedupeMessagesByIdentity([...nextMessages, ...rest]),
+                );
+                chatRuntimeStore.setMessages(conversationId, merged);
+                return merged;
+            });
+        },
+        [applyWindowForNewer, conversationId],
+    );
+
+    const uploadAndSendOutboxMedia = useCallback(
+        async (item: OutboxMessage): Promise<Message[]> => {
+            const mediaFiles = item.mediaFiles ?? [];
+            if (mediaFiles.length === 0) {
+                const createdMessage = await chatService.sendMessage(
+                    item.request,
+                    item.userId,
+                );
+                return [createdMessage];
+            }
+
+            const files = mediaFiles.map((mediaFile) => mediaFile.file);
+            const presignedPayload: BulkPresignedRequest = {
+                module: "CONVERSATION",
+                targetId: String(item.conversationId),
+                files: files.map((file) => ({
+                    type: toAttachmentCategory(file),
+                    fileName: file.name,
+                    contentType: file.type || "application/octet-stream",
+                })),
+            };
+
+            let presignedList = await chatService
+                .getBulkPresignedUrls(presignedPayload)
+                .catch(() => []);
+
+            if (presignedList.length !== files.length) {
+                presignedList = await Promise.all(
+                    files.map((file) =>
+                        chatService.getPresignedUrl(
+                            "CONVERSATION",
+                            String(item.conversationId),
+                            toAttachmentCategory(file),
+                            file.name,
+                            file.type || "application/octet-stream",
+                        ),
+                    ),
+                );
+            }
+
+            await Promise.all(
+                files.map((file, index) =>
+                    chatService.uploadToS3(
+                        presignedList[index].presignedUrl,
+                        file,
+                    ),
+                ),
+            );
+
+            const uploaded = files.map((file, index) => ({
+                file,
+                objectKey: resolveUploadedMediaUrl(
+                    presignedList[index].presignedUrl,
+                    presignedList[index].objectKey,
+                ),
+            }));
+            const toAttachment = (itemFile: (typeof uploaded)[number]) => ({
+                url: itemFile.objectKey,
+                type: itemFile.file.type || "application/octet-stream",
+                fileName: itemFile.file.name,
+                fileSize: itemFile.file.size,
+            });
+            const imageAttachments = uploaded
+                .filter((itemFile) => isImageFile(itemFile.file))
+                .map(toAttachment);
+            const audioAttachments = uploaded
+                .filter((itemFile) => isAudioUploadFile(itemFile.file))
+                .map(toAttachment);
+            const videoAttachments = uploaded
+                .filter((itemFile) => isVideoUploadFile(itemFile.file))
+                .map(toAttachment);
+            const fileAttachments = uploaded
+                .filter(
+                    (itemFile) =>
+                        !isImageFile(itemFile.file) &&
+                        !isAudioUploadFile(itemFile.file) &&
+                        !isVideoUploadFile(itemFile.file),
+                )
+                .map(toAttachment);
+
+            const createdMessages: Message[] = [];
+            if (imageAttachments.length > 0) {
+                createdMessages.push(
+                    await chatService.sendMessage(
+                        {
+                            content: "",
+                            type: "IMAGE",
+                            conversationId: item.conversationId,
+                            attachments: imageAttachments,
+                            clientMessageId: `${item.clientMessageId}-image`,
+                            ...(item.replyToId ? { replyToId: item.replyToId } : {}),
+                        },
+                        item.userId,
+                    ),
+                );
+            }
+
+            for (const [index, attachment] of audioAttachments.entries()) {
+                createdMessages.push(
+                    await chatService.sendMessage(
+                        {
+                            content: "",
+                            type: "AUDIO",
+                            conversationId: item.conversationId,
+                            attachments: [attachment],
+                            clientMessageId: `${item.clientMessageId}-audio-${index}`,
+                            ...(item.replyToId ? { replyToId: item.replyToId } : {}),
+                        },
+                        item.userId,
+                    ),
+                );
+            }
+
+            for (const [index, attachment] of videoAttachments.entries()) {
+                createdMessages.push(
+                    await chatService.sendMessage(
+                        {
+                            content: "",
+                            type: "VIDEO",
+                            conversationId: item.conversationId,
+                            attachments: [attachment],
+                            clientMessageId: `${item.clientMessageId}-video-${index}`,
+                            ...(item.replyToId ? { replyToId: item.replyToId } : {}),
+                        },
+                        item.userId,
+                    ),
+                );
+            }
+
+            for (const [index, attachment] of fileAttachments.entries()) {
+                createdMessages.push(
+                    await chatService.sendMessage(
+                        {
+                            content: "",
+                            type: "FILE",
+                            conversationId: item.conversationId,
+                            attachments: [attachment],
+                            clientMessageId: `${item.clientMessageId}-file-${index}`,
+                            ...(item.replyToId ? { replyToId: item.replyToId } : {}),
+                        },
+                        item.userId,
+                    ),
+                );
+            }
+
+            const textContent = item.textContent?.trim();
+            if (textContent) {
+                createdMessages.push(
+                    await chatService.sendMessage(
+                        {
+                            content: textContent,
+                            type: "TEXT",
+                            conversationId: item.conversationId,
+                            clientMessageId: `${item.clientMessageId}-text`,
+                            ...(item.replyToId ? { replyToId: item.replyToId } : {}),
+                        },
+                        item.userId,
+                    ),
+                );
+            }
+
+            return createdMessages;
+        },
+        [],
+    );
+
+    const sendOutboxItem = useCallback(
+        async (item: OutboxMessage) => {
+            scrollOnNextRenderRef.current = "smooth";
+            await messageOutbox.updateStatus(item.clientMessageId, "sending");
+            setLocalMessageDeliveryStatus(item.clientMessageId, "sending");
+            try {
+                const createdMessages = await uploadAndSendOutboxMedia(item);
+                scrollOnNextRenderRef.current = "smooth";
+                if (item.mediaFiles?.length) {
+                    appendCreatedMessagesFromOutbox(
+                        item.clientMessageId,
+                        createdMessages,
+                    );
+                } else {
+                    replaceLocalMessage(item.clientMessageId, createdMessages[0]);
+                }
+                await messageOutbox.remove(item.clientMessageId);
+                setError(null);
+            } catch (error) {
+                if (isLikelyNetworkSendError(error)) {
+                    scrollOnNextRenderRef.current = "smooth";
+                    setLocalMessageDeliveryStatus(item.clientMessageId, "sending");
+                    await messageOutbox.updateStatus(item.clientMessageId, "pending");
+                } else {
+                    scrollOnNextRenderRef.current = "smooth";
+                    setLocalMessageDeliveryStatus(item.clientMessageId, "failed");
+                    await messageOutbox.updateStatus(item.clientMessageId, "failed");
+                }
+                throw new Error("SEND_OUTBOX_FAILED");
+            }
+        },
+        [
+            appendCreatedMessagesFromOutbox,
+            replaceLocalMessage,
+            setLocalMessageDeliveryStatus,
+            uploadAndSendOutboxMedia,
+        ],
+    );
+
+    useEffect(() => {
+        let disposed = false;
+
+        void messageOutbox.listByConversation(conversationId).then((items) => {
+            if (disposed || items.length === 0) return;
+            setMessages((prev) => {
+                const missing = items
+                    .flatMap((item) => {
+                        const mediaFiles =
+                            item.mediaFiles?.map((mediaFile) => mediaFile.file) ??
+                            [];
+                        return buildMixedMediaOptimisticMessages(
+                            mediaFiles,
+                            item.conversationId,
+                            item.userId,
+                            item.clientMessageId,
+                            item.textContent,
+                            item.replyToId,
+                        ).map((message) => ({
+                            ...message,
+                            deliveryStatus:
+                                item.status === "failed"
+                                    ? ("failed" as const)
+                                    : ("sending" as const),
+                        }));
+                    })
+                    .filter(
+                        (message) =>
+                            !prev.some(
+                                (existing) =>
+                                    existing.clientMessageId ===
+                                    message.clientMessageId,
+                            ),
+                    );
+                if (missing.length === 0) return prev;
+                const nextMessages = applyWindowForNewer([...prev, ...missing]);
+                chatRuntimeStore.setMessages(conversationId, nextMessages);
+                return nextMessages;
+            });
+        }).catch(() => undefined);
+
+        return () => {
+            disposed = true;
+        };
+    }, [applyWindowForNewer, conversationId]);
+
+    useEffect(() => {
+        let flushing = false;
+
+        const flush = async () => {
+            if (flushing) return;
+            flushing = true;
+            try {
+                const items = await messageOutbox.listPending();
+                for (const item of items) {
+                    await sendOutboxItem(item).catch(() => undefined);
+                }
+            } finally {
+                flushing = false;
+            }
+        };
+
+        void flush();
+        const intervalId = window.setInterval(flush, OUTBOX_RETRY_INTERVAL_MS);
+        window.addEventListener("online", flush);
+        document.addEventListener("visibilitychange", flush);
+        window.addEventListener("focus", flush);
+        return () => {
+            window.clearInterval(intervalId);
+            window.removeEventListener("online", flush);
+            document.removeEventListener("visibilitychange", flush);
+            window.removeEventListener("focus", flush);
+        };
+    }, [sendOutboxItem]);
+
     const handleSend = useCallback(
         async (textOverride?: string, replyToId?: string) => {
             if (readOnlyNotice) {
@@ -2264,10 +2941,12 @@ const list = Array.isArray(cursorData?.data)
                 setSending(true);
                 setError(null);
 
+                const clientMessageId = createClientMessageId();
                 const request: SendMessageRequest = {
                     content: trimmed,
                     type: "TEXT",
                     conversationId,
+                    clientMessageId,
                 };
                 if (replyToId) {
                     // Backend hiện nhận reply theo trường replyToId.
@@ -2275,18 +2954,52 @@ const list = Array.isArray(cursorData?.data)
                     request.replyToId = replyToId;
                 }
 
-                await chatService.sendMessage(request, userId);
+                const optimisticMessage = buildOptimisticTextMessage(
+                    request,
+                    userId,
+                    clientMessageId,
+                );
+                const outboxItem: OutboxMessage = {
+                    clientMessageId,
+                    conversationId,
+                    userId,
+                    request,
+                    preview: optimisticMessage,
+                    status: "pending",
+                    retryCount: 0,
+                    createdAt: optimisticMessage.createdAt,
+                    updatedAt: optimisticMessage.createdAt,
+                };
 
+                scrollOnNextRenderRef.current = "smooth";
+                setMessages((prev) => {
+                    const nextMessages = applyWindowForNewer([
+                        ...prev,
+                        optimisticMessage,
+                    ]);
+                    chatRuntimeStore.setMessages(conversationId, nextMessages);
+                    return nextMessages;
+                });
+
+                await messageOutbox.save(outboxItem);
                 setMessageText("");
                 // Sau khi send, thường server sẽ broadcast lại qua WS; dù vậy ta vẫn chủ động scroll.
                 scrollOnNextRenderRef.current = "smooth";
+                await sendOutboxItem(outboxItem).catch(() => undefined);
             } catch {
                 setError("Không thể gửi tin nhắn");
             } finally {
                 setSending(false);
             }
         },
-        [conversationId, messageText, readOnlyNotice, userId],
+        [
+            applyWindowForNewer,
+            conversationId,
+            messageText,
+            readOnlyNotice,
+            sendOutboxItem,
+            userId,
+        ],
     );
 
     const refreshPinnedMessages = useCallback(async () => {
@@ -2482,238 +3195,74 @@ const list = Array.isArray(cursorData?.data)
             const trimmed = (textOverride ?? messageText).trim();
 
             try {
-                setUploading(true);
-                setUploadProgressPercent(0);
-                setUploadProgressLabel(`Đang tải tệp 0/${files.length}`);
-                setUploadFileProgressMap(
-                    Object.fromEntries(
-                        files.map((file) => [getFileClientKey(file), 0]),
-                    ),
+                const clientMessageId = createClientMessageId("web-media");
+                const optimisticMessages = buildMixedMediaOptimisticMessages(
+                    files,
+                    conversationId,
+                    userId,
+                    clientMessageId,
+                    trimmed,
+                    replyToId,
                 );
-                setUploadFailedFileNames([]);
-                setError(null);
-
-                const presignedPayload: BulkPresignedRequest = {
-                    module: "CONVERSATION",
-                    targetId: String(conversationId),
-                    files: files.map((file) => ({
-                        type: toAttachmentCategory(file),
+                const optimisticMessage = optimisticMessages[0];
+                if (!optimisticMessage) return false;
+                const outboxItem: OutboxMessage = {
+                    clientMessageId,
+                    conversationId,
+                    userId,
+                    request: {
+                        content: "",
+                        type: optimisticMessage.type,
+                        conversationId,
+                        clientMessageId,
+                        ...(replyToId ? { replyToId } : {}),
+                    },
+                    preview: optimisticMessage,
+                    mediaFiles: files.map((file) => ({
+                        file,
                         fileName: file.name,
-                        contentType: file.type || "application/octet-stream",
+                        mimeType: file.type || "application/octet-stream",
+                        fileSize: file.size,
                     })),
+                    textContent: trimmed,
+                    replyToId,
+                    status: "pending",
+                    retryCount: 0,
+                    createdAt: optimisticMessage.createdAt,
+                    updatedAt: optimisticMessage.createdAt,
                 };
 
-                let presignedList: Array<{
-                    presignedUrl: string;
-                    objectKey: string;
-                    fileName: string;
-                }> = [];
-
-                try {
-                    presignedList =
-                        await chatService.getBulkPresignedUrls(
-                            presignedPayload,
-                        );
-                } catch {
-                    presignedList = [];
-                }
-
-                if (presignedList.length !== files.length) {
-                    presignedList = await Promise.all(
-                        files.map((file) =>
-                            chatService.getPresignedUrl(
-                                "CONVERSATION",
-                                String(conversationId),
-                                toAttachmentCategory(file),
-                                file.name,
-                                file.type || "application/octet-stream",
-                            ),
-                        ),
-                    );
-                }
-
-                const perFileLoaded = files.map(() => 0);
-                const totalBytes = files.reduce(
-                    (sum, file) => sum + Math.max(file.size, 1),
-                    0,
-                );
-
-                await Promise.all(
-                    files.map(async (file, index) => {
-                        try {
-                            await chatService.uploadToS3(
-                                presignedList[index].presignedUrl,
-                                file,
-                                (loaded, total) => {
-                                    const safeTotal =
-                                        total > 0
-                                            ? total
-                                            : Math.max(file.size, 1);
-                                    perFileLoaded[index] = Math.min(
-                                        loaded,
-                                        safeTotal,
-                                    );
-
-                                    const loadedBytes = perFileLoaded.reduce(
-                                        (sum, value) => sum + value,
-                                        0,
-                                    );
-                                    const completed = perFileLoaded.filter(
-                                        (value, fileIndex) =>
-                                            value >=
-                                            Math.max(files[fileIndex].size, 1),
-                                    ).length;
-
-                                    const percent = Math.min(
-                                        99,
-                                        Math.round(
-                                            (loadedBytes / totalBytes) * 100,
-                                        ),
-                                    );
-                                    const filePercent = Math.min(
-                                        100,
-                                        Math.round(
-                                            (perFileLoaded[index] / safeTotal) *
-                                                100,
-                                        ),
-                                    );
-                                    setUploadProgressPercent(percent);
-                                    setUploadProgressLabel(
-                                        `Đang tải tệp ${completed}/${files.length}`,
-                                    );
-                                    setUploadFileProgressMap((prev) => ({
-                                        ...prev,
-                                        [getFileClientKey(file)]: filePercent,
-                                    }));
-                                },
-                            );
-                        } catch {
-                            throw new Error(`UPLOAD_FAILED::${file.name}`);
-                        }
-                    }),
-                );
-
-                const uploaded = files.map((file, index) => ({
-                    file,
-                    objectKey: presignedList[index].objectKey,
-                }));
-
-                const imageAttachments = uploaded
-                    .filter((item) => isImageFile(item.file))
-                    .map((item) => ({
-                        url: item.objectKey,
-                        type: item.file.type || "application/octet-stream",
-                        fileName: item.file.name,
-                        fileSize: item.file.size,
-                    }));
-
-                const fileAttachments = uploaded
-                    .filter((item) => !isImageFile(item.file))
-                    .map((item) => ({
-                        url: item.objectKey,
-                        type: item.file.type || "application/octet-stream",
-                        fileName: item.file.name,
-                        fileSize: item.file.size,
-                    }));
-
-                // Text-only fallback nếu có thao tác nhưng không có media hợp lệ.
-                if (
-                    imageAttachments.length === 0 &&
-                    fileAttachments.length === 0
-                ) {
-                    if (!trimmed) return false;
-                    await chatService.sendMessage(
-                        {
-                            content: trimmed,
-                            type: "TEXT",
-                            conversationId,
-                            ...(replyToId ? { replyToId } : {}),
-                        },
-                        userId,
-                    );
-                }
-
-                // Có media + có text => luôn gửi TEXT thành message riêng.
-                if (
-                    trimmed &&
-                    (imageAttachments.length > 0 || fileAttachments.length > 0)
-                ) {
-                    await chatService.sendMessage(
-                        {
-                            content: trimmed,
-                            type: "TEXT",
-                            conversationId,
-                            ...(replyToId ? { replyToId } : {}),
-                        },
-                        userId,
-                    );
-                }
-
-                // Rule: toàn bộ ảnh gộp vào 1 message IMAGE và KHÔNG kèm text.
-                if (imageAttachments.length > 0) {
-                    await chatService.sendMessage(
-                        {
-                            content: "",
-                            type: "IMAGE",
-                            conversationId,
-                            attachments: imageAttachments,
-                            ...(replyToId ? { replyToId } : {}),
-                        },
-                        userId,
-                    );
-                }
-
-                // Rule: các file không phải ảnh tách lẻ từng message FILE, không kẹp text.
-                for (const attachment of fileAttachments) {
-                    await chatService.sendMessage(
-                        {
-                            content: "",
-                            type: "FILE",
-                            conversationId,
-                            attachments: [attachment],
-                        },
-                        userId,
-                    );
-                }
-
-                setMessageText("");
-                setUploadProgressPercent(100);
-                setUploadProgressLabel(
-                    `Đã tải ${files.length}/${files.length}`,
-                );
-                setUploadFileProgressMap((prev) => {
-                    const next = { ...prev };
-                    for (const file of files) {
-                        next[getFileClientKey(file)] = 100;
-                    }
-                    return next;
+                setMessages((prev) => {
+                    const nextMessages = applyWindowForNewer([
+                        ...prev,
+                        ...optimisticMessages,
+                    ]);
+                    chatRuntimeStore.setMessages(conversationId, nextMessages);
+                    return nextMessages;
                 });
+                await messageOutbox.save(outboxItem);
+                setMessageText("");
                 scrollOnNextRenderRef.current = shouldForceAutoScroll()
                     ? "auto"
                     : "smooth";
+                await sendOutboxItem(outboxItem).catch(() => undefined);
                 return true;
             } catch (error) {
-                const errMsg = error instanceof Error ? error.message : "";
-                const failedName = errMsg.startsWith("UPLOAD_FAILED::")
-                    ? errMsg.replace("UPLOAD_FAILED::", "")
-                    : "";
-                if (failedName) {
-                    setUploadFailedFileNames([failedName]);
-                    setRecallToast(`Tải tệp thất bại: ${failedName}`);
+                if (isLikelyNetworkSendError(error)) {
+                    setError("Tệp sẽ được gửi lại khi có mạng");
+                } else {
+                    setError("Không thể lưu tệp để gửi lại");
                 }
-                setError("Không thể gửi tệp đính kèm");
                 return false;
-            } finally {
-                setUploading(false);
-                setUploadProgressPercent(null);
-                setUploadProgressLabel("");
-                setUploadFileProgressMap({});
             }
+
         },
         [
+            applyWindowForNewer,
             conversationId,
             messageText,
             readOnlyNotice,
+            sendOutboxItem,
             setMessageText,
             shouldForceAutoScroll,
             userId,

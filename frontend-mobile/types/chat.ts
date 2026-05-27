@@ -57,6 +57,7 @@ export interface MessageAttachment {
 export interface Message {
     id: string;
     conversationId: number;
+    clientMessageId?: string;
     content: string;
     type: MessageType;
     createdAt: string;
@@ -74,6 +75,7 @@ export interface Message {
     iconName?: MessageReaction[];
     conversation?: Conversation;
     newConversation?: boolean;
+    deliveryStatus?: "sending" | "sent" | "failed";
 }
 
 export interface PollOptionResponse {
@@ -236,6 +238,7 @@ export interface SendMessageRequest {
     type: MessageType;
     conversationId?: number;
     receiverId?: number;
+    clientMessageId?: string;
     replyToId?: string;
     attachments?: Array<{
         url: string;

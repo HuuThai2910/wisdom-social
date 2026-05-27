@@ -66,6 +66,7 @@ import {
     resolveLocalAvailabilityLabel,
     resolveVideoPosterUrl,
 } from "../../utils/messageBubbleUtils";
+import { buildS3Url } from "../../utils/s3";
 import { buildSystemGroupMessage } from "../../utils/systemCreateGroupMessage";
 import AudioPlayer from "./AudioPlayer";
 import ReactionDetailModal from "./ReactionDetailModal";
@@ -627,16 +628,17 @@ export function MessageBubble({
     const messageAttachments = Array.isArray(message.attachments)
         ? message.attachments
         : [];
+    const normalizeMediaUrl = (url?: string) => buildS3Url(url) || url || "";
     const imageUrls =
         message.type === "IMAGE"
             ? messageAttachments
-                  .map((attachment) => attachment.url)
+                  .map((attachment) => normalizeMediaUrl(attachment.url))
                   .filter((url): url is string => Boolean(url))
             : [];
     const audioUrls =
         message.type === "AUDIO"
             ? messageAttachments
-                  .map((attachment) => attachment.url)
+                  .map((attachment) => normalizeMediaUrl(attachment.url))
                   .filter((url): url is string => Boolean(url))
             : [];
     const fileAttachment =
@@ -646,7 +648,7 @@ export function MessageBubble({
     const resolvedFileName =
         fileAttachment?.fileName ||
         getFileNameFromUrl(fileAttachment?.url, fileNameFromUrl);
-    const resolvedFileUrl = fileAttachment?.url || message.content;
+    const resolvedFileUrl = normalizeMediaUrl(fileAttachment?.url || message.content);
     const resolvedFileSize = formatBytes(fileAttachment?.fileSize);
     const resolvedFileMimeType = fileAttachment?.type;
     const resolvedFileCategory = resolveFileCategory(
@@ -2643,6 +2645,7 @@ export function MessageBubble({
                 {/* Giờ dưới bubble cho tin nhắn của mình */}
                 {!message.isRecalled &&
                     isLastInGroup &&
+                    false &&
                     isOwn &&
                     !isFileMessageBubble &&
                     !groupInviteUrl && (
@@ -2660,7 +2663,7 @@ export function MessageBubble({
                     !isFileMessageBubble &&
                     !groupInviteUrl &&
                     message.type !== "CALL" && (
-                        <p className="text-xs mt-0.5 px-1 text-gray-400 dark:text-gray-500 self-start">
+                        <p className="mt-1 inline-flex h-5 self-start rounded-full bg-gray-300 px-2 text-[11px] font-semibold leading-5 text-white shadow-sm dark:bg-gray-800 dark:text-gray-300">
                             {timeStr}
                         </p>
                     )}

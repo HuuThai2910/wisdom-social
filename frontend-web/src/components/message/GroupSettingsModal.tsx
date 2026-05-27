@@ -137,11 +137,7 @@ export default function GroupSettingsModal({
                         </div>
                         
                         <div className="flex flex-col">
-                            {/* Disabled settings */}
-                            <ToggleRow label="Thay đổi tên & ảnh đại diện của nhóm" disabled checked={true} isStaff={canManageSettings} />
-                            <ToggleRow label="Ghim tin nhắn, ghi chú, bình chọn lên đầu hội thoại" disabled checked={true} isStaff={canManageSettings} />
-                            <ToggleRow label="Tạo mới ghi chú, nhắc hẹn" disabled checked={true} isStaff={canManageSettings} />
-                            <ToggleRow label="Tạo mới bình chọn" disabled checked={true} isStaff={canManageSettings} />
+                            
                             
                             {/* Active setting for messaging */}
                             <ToggleRow 
@@ -163,8 +159,7 @@ export default function GroupSettingsModal({
                                 disabled={!canManageSettings || isUpdatingJoinApproval}
                                 isStaff={canManageSettings}
                             />
-                            <ToggleRow label="Đánh dấu tin nhắn từ trưởng/phó nhóm" disabled checked={false} isStaff={canManageSettings} />
-                            <ToggleRow label="Cho phép thành viên mới đọc tin nhắn gần nhất" disabled checked={false} isStaff={canManageSettings} />
+                            
                         </div>
                     </div>
 

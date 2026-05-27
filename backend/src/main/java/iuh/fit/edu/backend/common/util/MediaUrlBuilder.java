@@ -13,14 +13,29 @@ public class MediaUrlBuilder {
         if (url == null || url.isEmpty()) return url;
 
         if (isMedia(type)) {
-            return cdnDomain + url;
+            return buildCdnUrl(url);
         }
         return url;
     }
 
     public String buildAttachment(String url) {
         if (url == null || url.isEmpty()) return url;
-        return cdnDomain + url;
+        return buildCdnUrl(url);
+    }
+
+    private String buildCdnUrl(String url) {
+        if (url.startsWith("http://") || url.startsWith("https://")) {
+            return url;
+        }
+
+        String base = cdnDomain == null ? "" : cdnDomain.trim();
+        if (base.isEmpty()) {
+            return url;
+        }
+
+        String normalizedBase = base.endsWith("/") ? base.substring(0, base.length() - 1) : base;
+        String normalizedPath = url.startsWith("/") ? url.substring(1) : url;
+        return normalizedBase + "/" + normalizedPath;
     }
 
     private boolean isMedia(MessageType type) {

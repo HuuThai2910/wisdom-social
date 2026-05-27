@@ -425,6 +425,10 @@ class WebSocketService {
         number,
         Set<(event: { userId: number; online: boolean; lastActiveAt?: string | null }) => void>
     > = new Map();
+    private conversationSeenCallbacks: Map<
+        number,
+        Set<(event: MessageSeenEvent) => void>
+    > = new Map();
 
     /**
      * Promise theo dõi trạng thái kết nối
@@ -762,6 +766,60 @@ class WebSocketService {
             // Xóa khỏi Map
             this.subscriptions.delete(destination);
             // console.log(`Unsubscribed from ${destination}`);
+        }
+    }
+
+    subscribeToConversationSeen(
+        conversationId: number,
+        onMessageSeen: (event: MessageSeenEvent) => void,
+    ) {
+        const callbacks =
+            this.conversationSeenCallbacks.get(conversationId) ?? new Set();
+        callbacks.add(onMessageSeen);
+        this.conversationSeenCallbacks.set(conversationId, callbacks);
+
+        if (!this.client?.connected) {
+            console.error("WebSocket not connected, cannot subscribe to seen sync");
+            return;
+        }
+
+        const destination = `/topic/conversation/${conversationId}`;
+        const key = `${destination}::seen-sync`;
+        if (this.subscriptions.has(key)) return;
+
+        const subscription = this.client.subscribe(destination, (message: IMessage) => {
+            try {
+                const event = JSON.parse(message.body) as MessageSeenEvent;
+                if (event.domainEventType === "MESSAGE_SEEN") {
+                    this.conversationSeenCallbacks
+                        .get(conversationId)
+                        ?.forEach((callback) => callback(event));
+                }
+            } catch {
+                // no-op: this lightweight listener only cares about MESSAGE_SEEN.
+            }
+        });
+
+        this.subscriptions.set(key, subscription);
+    }
+
+    unsubscribeFromConversationSeen(
+        conversationId: number,
+        onMessageSeen?: (event: MessageSeenEvent) => void,
+    ) {
+        const key = `/topic/conversation/${conversationId}::seen-sync`;
+        const callbacks = this.conversationSeenCallbacks.get(conversationId);
+        if (callbacks && onMessageSeen) {
+            callbacks.delete(onMessageSeen);
+            if (callbacks.size > 0) return;
+        }
+
+        this.conversationSeenCallbacks.delete(conversationId);
+        const subscription = this.subscriptions.get(key);
+
+        if (subscription) {
+            subscription.unsubscribe();
+            this.subscriptions.delete(key);
         }
     }
 

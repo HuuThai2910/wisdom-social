@@ -50,33 +50,37 @@ export default function Sidebar() {
   const friendRequestsCount = friendRequests?.length || 0;
 
   const navItems = [
-    { icon: Home, label: "Home", path: "/" },
-    { icon: Search, label: "Search", path: "/search" },
-    { icon: Compass, label: "Explore", path: "/explore" },
-    { icon: Clapperboard, label: "Reels", path: "/reels" },
+    { icon: Home, label: "Tường nhà", path: "/" },
+    { icon: Search, label: "Tìm kiếm", path: "/search" },
+    { icon: Compass, label: "Khám phá", path: "/explore" },
+    { icon: Clapperboard, label: "Bảng tin", path: "/reels" },
     {
       icon: MessageCircle,
-      label: "Messages",
+      label: "Tin nhắn",
       path: "/messages",
       badge: chatUnreadCount,
     },
     {
       icon: Heart,
-      label: "Notifications",
+      label: "Thông báo",
       path: "/notifications",
       badge: unreadCount,
     },
     {
       icon: UserPlus,
-      label: "Friend Requests",
+      label: "Bạn bè",
       path: "/friend-requests",
       badge: friendRequestsCount,
     },
-    { icon: Flag, label: "Pages", path: "/pages" },
+    { icon: Flag, label: "Trang", path: "/pages" },
   ];
 
   const isActive = (path: string) => {
-    return location.pathname === path;
+    if (path === "/") {
+      return location.pathname === "/";
+    }
+
+    return location.pathname === path || location.pathname.startsWith(`${path}/`);
   };
 
   return (
@@ -181,7 +185,7 @@ export default function Sidebar() {
                     : 1.5
                 }
               />
-              {showLabels && <span className="text-[16px]">Create</span>}
+              {showLabels && <span className="text-[16px]">Tạo</span>}
             </button>
 
             {showCreateMenu && (
@@ -245,7 +249,7 @@ export default function Sidebar() {
                     }`}
                   />
                 </div>
-                {showLabels && <span className="text-[16px]">Profile</span>}
+                {showLabels && <span className="text-[16px]">Cá nhân</span>}
               </Link>
             </li>
           )}
