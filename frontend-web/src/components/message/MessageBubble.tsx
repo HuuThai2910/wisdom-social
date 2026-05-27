@@ -243,6 +243,7 @@ export interface MessageBubbleProps {
     openPollModalToken?: number;
     onPollModalClose?: () => void;
     onMediaLoad?: () => void;
+    onOpenMediaViewer?: (url: string) => void;
     isFirstInGroup?: boolean;
     isLastInGroup?: boolean;
     isHighlighted?: boolean;
@@ -274,6 +275,7 @@ export function MessageBubble({
     openPollModalToken,
     onPollModalClose,
     onMediaLoad,
+    onOpenMediaViewer,
     isFirstInGroup = true,
     isLastInGroup = true,
     isHighlighted = false,
@@ -2114,12 +2116,7 @@ export function MessageBubble({
                                                                     ? "h-72 md:h-80 rounded-2xl"
                                                                     : "aspect-square rounded-xl"
                                                             }`}
-                                                            onClick={() =>
-                                                                window.open(
-                                                                    url,
-                                                                    "_blank",
-                                                                )
-                                                            }
+                                                            onClick={() => onOpenMediaViewer?.(url)}
                                                         >
                                                             <img
                                                                 src={url}
@@ -2146,12 +2143,7 @@ export function MessageBubble({
                                         <button
                                             type="button"
                                             className="block w-64 sm:w-72 md:w-76 h-72 md:h-80 cursor-zoom-in"
-                                            onClick={() =>
-                                                window.open(
-                                                    message.content,
-                                                    "_blank",
-                                                )
-                                            }
+                                            onClick={() => onOpenMediaViewer?.(message.content)}
                                         >
                                             <img
                                                 src={message.content}

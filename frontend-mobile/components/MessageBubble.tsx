@@ -615,6 +615,15 @@ export const MessageBubble = React.memo(
         // ===== media handling =====
         const imageUrls =
             item.type === "IMAGE" ? resolveAttachmentUrls(item) : [];
+        const conversationImageUrls = React.useMemo(
+            () =>
+                messages.flatMap((message) =>
+                    message.type === "IMAGE"
+                        ? resolveAttachmentUrls(message)
+                        : [],
+                ),
+            [messages],
+        );
 
         const videoUrls =
             item.type === "VIDEO" ? resolveAttachmentUrls(item) : [];
@@ -1485,6 +1494,16 @@ export const MessageBubble = React.memo(
                                                                                 {
                                                                                     type: "IMAGE",
                                                                                     url,
+                                                                                    conversationId: item.conversationId,
+                                                                                    items: conversationImageUrls.length > 0
+                                                                                        ? conversationImageUrls
+                                                                                        : imageUrls,
+                                                                                    index: Math.max(
+                                                                                        0,
+                                                                                        conversationImageUrls.indexOf(url) >= 0
+                                                                                            ? conversationImageUrls.indexOf(url)
+                                                                                            : imageIndex,
+                                                                                    ),
                                                                                 },
                                                                             ),
                                                                     )

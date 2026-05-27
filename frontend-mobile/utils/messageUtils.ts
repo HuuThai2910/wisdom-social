@@ -75,6 +75,9 @@ export type ReplyComposerState = {
 export type MediaViewerState = {
     type: "IMAGE" | "VIDEO";
     url: string;
+    items?: string[];
+    index?: number;
+    conversationId?: number;
 };
 
 export type AudioProgress = {

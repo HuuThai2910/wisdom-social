@@ -9,6 +9,8 @@ import type {
     ConversationPreview,
     ConversationPin,
     ConversationSidebar,
+    ConversationMediaResponse,
+    ConversationMediaType,
     ConversationMember,
     CreatePollRequest,
     CreateGroupWithInvitesRequest,
@@ -19,6 +21,7 @@ import type {
     JoinRequest,
     MemberRole,
     Message,
+    MessageSearchResponse,
     PollResponse,
     PinnedMessageDetail,
     PresignedUrlResponse,
@@ -195,6 +198,54 @@ const chatService = {
         );
 
         return response.data;
+    },
+
+    async searchMessages(
+        conversationId: number,
+        keyword: string,
+        senderId?: number | null,
+        fromDate?: string | null,
+        toDate?: string | null,
+        cursor?: string | null,
+        limit = 5,
+    ): Promise<MessageSearchResponse> {
+        const response = await apiClient.get(
+            `/conversations/${conversationId}/messages/search`,
+            {
+                params: {
+                    keyword,
+                    senderId: senderId || undefined,
+                    fromDate: fromDate || undefined,
+                    toDate: toDate || undefined,
+                    cursor: cursor || undefined,
+                    limit,
+                },
+            },
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<MessageSearchResponse> | MessageSearchResponse,
+        );
+    },
+
+    async getConversationMedia(
+        conversationId: number,
+        type: ConversationMediaType,
+        cursor?: string | null,
+        limit = 20,
+    ): Promise<ConversationMediaResponse> {
+        const response = await apiClient.get(
+            `/conversations/${conversationId}/messages/media`,
+            {
+                params: {
+                    type,
+                    cursor: cursor || undefined,
+                    limit,
+                },
+            },
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<ConversationMediaResponse> | ConversationMediaResponse,
+        );
     },
 
     async sendMessage(
@@ -505,6 +556,19 @@ const chatService = {
                     isRequired,
                 },
             },
+        );
+        return unwrapApiData(
+            response.data as ApiResponse<Conversation> | Conversation,
+        );
+    },
+
+    async updateGroupImage(
+        conversationId: number,
+        imageUrl: string,
+    ): Promise<Conversation> {
+        const response = await apiClient.patch(
+            `/conversations/${conversationId}/image`,
+            { imageUrl },
         );
         return unwrapApiData(
             response.data as ApiResponse<Conversation> | Conversation,

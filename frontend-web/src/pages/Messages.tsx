@@ -25,7 +25,7 @@ import {
     User,
     X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import ChatWindow from "../components/message/ChatWindow";
 import ConfirmModal from "../components/message/ConfirmModal";
 import ConversationAvatar from "../components/message/ConversationAvatar";
@@ -38,7 +38,12 @@ import { useGroupManagement } from "../hooks/useGroupManagement";
 import { useMessagesController } from "../hooks/useMessagesController";
 import { useSidebarLayout } from "../hooks/useSidebarLayout";
 import { useAuth } from "../contexts/AuthContext";
-import chatService, { type ChatUserSearchResult, type Message } from "../services/chatService";
+import chatService, {
+    type ChatUserSearchResult,
+    type ConversationMediaItem,
+    type ConversationMediaType,
+    type Message,
+} from "../services/chatService";
 import chatRuntimeStore from "../stores/chatRuntimeStore";
 import { buildConversationLastMessagePreview } from "../utils/conversationLastMessagePreview";
 import { usePresenceStatus } from "../hooks/usePresenceStatus";
@@ -147,9 +152,19 @@ export default function Messages() {
     const [showInfoPanel, setShowInfoPanel] = useState(false);
     const [isInfoPanelRendered, setIsInfoPanelRendered] = useState(false);
     const [infoPanelView, setInfoPanelView] = useState<InfoPanelView>("main");
+    const [searchOpenSignal, setSearchOpenSignal] = useState(0);
     const [isGroupSettingsModalOpen, setIsGroupSettingsModalOpen] =
         useState(false);
     const [isInviteLinkModalOpen, setIsInviteLinkModalOpen] = useState(false);
+    const groupImageInputRef = useRef<HTMLInputElement>(null);
+    const [groupImageUploading, setGroupImageUploading] = useState(false);
+    const [groupImageError, setGroupImageError] = useState<string | null>(null);
+    const [mediaPanelType, setMediaPanelType] = useState<ConversationMediaType | null>(null);
+    const [mediaItems, setMediaItems] = useState<ConversationMediaItem[]>([]);
+    const [mediaCursor, setMediaCursor] = useState<string | null>(null);
+    const [mediaHasMore, setMediaHasMore] = useState(false);
+    const [mediaLoading, setMediaLoading] = useState(false);
+    const [mediaPreview, setMediaPreview] = useState<{ url: string; type: "IMAGE" | "VIDEO" } | null>(null);
     const [pendingPinConversationId, setPendingPinConversationId] = useState<
         number | null
     >(null);
@@ -729,6 +744,91 @@ export default function Messages() {
         setInfoPanelView("main");
     }, []);
 
+    const handleOpenConversationSearch = useCallback(() => {
+        if (!selectedConversationId) {
+            return;
+        }
+        setShowInfoPanel(false);
+        setInfoPanelView("main");
+        setSearchOpenSignal((value) => value + 1);
+    }, [selectedConversationId]);
+
+    const handlePickGroupImage = useCallback(() => {
+        if (!isGroupConversation || groupImageUploading) return;
+        groupImageInputRef.current?.click();
+    }, [groupImageUploading, isGroupConversation]);
+
+    const handleGroupImageFileChange = useCallback(
+        async (event: ChangeEvent<HTMLInputElement>) => {
+            const file = event.target.files?.[0];
+            event.target.value = "";
+            if (!file || !selectedConversationId || !isGroupConversation) return;
+
+            if (!file.type.startsWith("image/")) {
+                setGroupImageError("Vui lòng chọn một tệp ảnh.");
+                return;
+            }
+
+            setGroupImageUploading(true);
+            setGroupImageError(null);
+            try {
+                const { presignedUrl, objectKey } = await chatService.getPresignedUrl(
+                    "CONVERSATION",
+                    String(selectedConversationId),
+                    "IMAGE",
+                    file.name,
+                    file.type || "image/jpeg",
+                );
+                await chatService.uploadToS3(presignedUrl, file);
+                const updated = await chatService.updateGroupImage(
+                    selectedConversationId,
+                    objectKey,
+                );
+                chatRuntimeStore.setConversation(selectedConversationId, updated);
+                await reload();
+            } catch {
+                setGroupImageError("Không thể cập nhật ảnh nhóm. Vui lòng thử lại.");
+            } finally {
+                setGroupImageUploading(false);
+            }
+        },
+        [isGroupConversation, reload, selectedConversationId],
+    );
+
+    const loadConversationMedia = useCallback(
+        async (type: ConversationMediaType, cursor: string | null = null) => {
+            if (!selectedConversationId || mediaLoading) return;
+            setMediaLoading(true);
+            try {
+                const response = await chatService.getConversationMedia(
+                    selectedConversationId,
+                    type,
+                    cursor,
+                    20,
+                );
+                setMediaItems((prev) =>
+                    cursor ? [...prev, ...response.items] : response.items,
+                );
+                setMediaCursor(response.nextCursor);
+                setMediaHasMore(response.hasMore);
+            } finally {
+                setMediaLoading(false);
+            }
+        },
+        [mediaLoading, selectedConversationId],
+    );
+
+    const openMediaPanel = useCallback(
+        (type: ConversationMediaType) => {
+            setMediaPanelType(type);
+            setMediaItems([]);
+            setMediaCursor(null);
+            setMediaHasMore(false);
+            void loadConversationMedia(type, null);
+        },
+        [loadConversationMedia],
+    );
+
     const menuItemBase =
         "flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-[#363636]";
 
@@ -838,20 +938,62 @@ export default function Messages() {
             <div className="flex-1 overflow-y-auto px-5 py-5">
                 <div className="flex flex-col items-center pb-4 text-center">
                     {selectedConversation && selectedDisplayInfo && (
-                        <ConversationAvatar
-                            name={selectedDisplayInfo.name}
-                            avatarUrl={selectedDisplayInfo.avatar}
-                            compositeAvatarUrls={
-                                selectedDisplayInfo.hasCompositeAvatar
-                                    ? selectedDisplayInfo.compositeAvatars
-                                    : undefined
-                            }
-                            fallbackAvatarUrl={
-                                selectedDisplayInfo.fallbackAvatar
-                            }
-                            sizeClassName="mb-3 h-20 w-20"
-                            ringClassName="ring-1 ring-gray-200 dark:ring-[#242424]"
+                        <div className="relative mb-3">
+                            <button
+                                type="button"
+                                onClick={handlePickGroupImage}
+                                disabled={!isGroupConversation || groupImageUploading}
+                                className={`group relative block rounded-full ${
+                                    isGroupConversation
+                                        ? "cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-black"
+                                        : "cursor-default"
+                                }`}
+                                title={
+                                    isGroupConversation
+                                        ? "Cập nhật ảnh nhóm"
+                                        : selectedDisplayInfo.name
+                                }
+                            >
+                                <ConversationAvatar
+                                    name={selectedDisplayInfo.name}
+                                    avatarUrl={selectedDisplayInfo.avatar}
+                                    compositeAvatarUrls={
+                                        selectedDisplayInfo.hasCompositeAvatar
+                                            ? selectedDisplayInfo.compositeAvatars
+                                            : undefined
+                                    }
+                                    fallbackAvatarUrl={
+                                        selectedDisplayInfo.fallbackAvatar
+                                    }
+                                    sizeClassName="h-20 w-20"
+                                    ringClassName="ring-1 ring-gray-200 dark:ring-[#242424]"
+                                />
+                                {isGroupConversation && (
+                                    <span className="absolute inset-x-0 bottom-0 rounded-b-full bg-black/55 py-1 text-[10px] font-semibold text-white opacity-0 transition-opacity group-hover:opacity-100">
+                                        {groupImageUploading ? "Đang tải..." : "Đổi ảnh"}
+                                    </span>
+                                )}
+                            </button>
+                            {groupImageUploading && (
+                                <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/35">
+                                    <span className="h-6 w-6 animate-spin rounded-full border-2 border-white/50 border-t-white" />
+                                </span>
+                            )}
+                        </div>
+                    )}
+                    {isGroupConversation && (
+                        <input
+                            ref={groupImageInputRef}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={handleGroupImageFileChange}
                         />
+                    )}
+                    {groupImageError && (
+                        <p className="mb-2 text-xs font-medium text-red-500">
+                            {groupImageError}
+                        </p>
                     )}
                     <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
                         {selectedDisplayInfo?.name || "Không xác định"}
@@ -879,7 +1021,11 @@ export default function Messages() {
                             </span>
                             Tắt thông báo
                         </button>
-                        <button className="flex flex-col items-center gap-1.5 rounded-md px-2 py-2 text-xs text-gray-700 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-gray-800 dark:hover:text-white">
+                        <button
+                            type="button"
+                            onClick={handleOpenConversationSearch}
+                            className="flex flex-col items-center gap-1.5 rounded-md px-2 py-2 text-xs text-gray-700 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-200 dark:hover:bg-gray-800 dark:hover:text-white"
+                        >
                             <span className="flex h-8 w-8 items-center justify-center rounded-md bg-gray-100 dark:bg-gray-900">
                                 <Search size={16} />
                             </span>
@@ -1007,15 +1153,27 @@ export default function Messages() {
                         </button>
                         {expandedSections.media && (
                             <div className="pb-1">
-                                <button className={detailActionButtonClass}>
+                                <button
+                                    type="button"
+                                    onClick={() => openMediaPanel("MEDIA")}
+                                    className={detailActionButtonClass}
+                                >
                                     <Images size={18} />
                                     <span>File phương tiện</span>
                                 </button>
-                                <button className={detailActionButtonClass}>
+                                <button
+                                    type="button"
+                                    onClick={() => openMediaPanel("FILE")}
+                                    className={detailActionButtonClass}
+                                >
                                     <FileText size={18} />
                                     <span>File</span>
                                 </button>
-                                <button className={detailActionButtonClass}>
+                                <button
+                                    type="button"
+                                    onClick={() => openMediaPanel("LINK")}
+                                    className={detailActionButtonClass}
+                                >
                                     <Link2 size={18} />
                                     <span>Link</span>
                                 </button>
@@ -1125,6 +1283,63 @@ export default function Messages() {
                     onClose={() => setIsInviteLinkModalOpen(false)}
                     onChanged={reload}
                 />
+            )}
+            {mediaPanelType && (
+                <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/45 px-4 py-6">
+                    <div className="flex max-h-[86vh] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white shadow-2xl dark:bg-gray-900">
+                        <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-800">
+                            <h3 className="text-base font-semibold text-gray-900 dark:text-white">
+                                {mediaPanelType === "MEDIA" ? "File phương tiện" : mediaPanelType === "FILE" ? "File" : "Link"}
+                            </h3>
+                            <button type="button" onClick={() => setMediaPanelType(null)} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800">
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+                            {mediaItems.length === 0 && !mediaLoading ? (
+                                <p className="py-10 text-center text-sm text-gray-500">Chưa có nội dung</p>
+                            ) : mediaPanelType === "MEDIA" ? (
+                                <div className="grid grid-cols-3 gap-2">
+                                    {mediaItems.map((item) => (
+                                        <button key={`${item.messageId}-${item.url}`} type="button" onClick={() => setMediaPreview({ url: item.url, type: item.type === "VIDEO" ? "VIDEO" : "IMAGE" })} className="aspect-square overflow-hidden rounded-md bg-gray-100 dark:bg-gray-800">
+                                            {item.type === "VIDEO" ? (
+                                                <video src={item.url} className="h-full w-full object-cover" />
+                                            ) : (
+                                                <img src={item.url} alt="" className="h-full w-full object-cover" />
+                                            )}
+                                        </button>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="space-y-2">
+                                    {mediaItems.map((item) => (
+                                        <a key={`${item.messageId}-${item.url}`} href={item.url} target="_blank" rel="noreferrer" className="flex items-center gap-3 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-100 dark:hover:bg-gray-800">
+                                            {mediaPanelType === "LINK" ? <Link2 size={18} /> : <FileText size={18} />}
+                                            <span className="min-w-0 flex-1 truncate">{item.fileName || item.content || item.url}</span>
+                                        </a>
+                                    ))}
+                                </div>
+                            )}
+                            {mediaHasMore && (
+                                <button type="button" onClick={() => loadConversationMedia(mediaPanelType, mediaCursor)} disabled={mediaLoading} className="mt-4 h-10 w-full rounded-md bg-gray-200 text-sm font-semibold text-gray-800 disabled:opacity-60 dark:bg-gray-800 dark:text-gray-100">
+                                    {mediaLoading ? "Đang tải..." : "Xem thêm"}
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+            {mediaPreview && (
+                <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/88 px-4 py-6">
+                    <button type="button" onClick={() => setMediaPreview(null)} className="absolute right-5 top-5 inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/12 text-white hover:bg-white/20" aria-label="Đóng ảnh">
+                        <X size={22} />
+                    </button>
+                    {mediaPreview.type === "VIDEO" ? (
+                        <video src={mediaPreview.url} controls autoPlay className="max-h-full max-w-full rounded-md" />
+                    ) : (
+                        <img src={mediaPreview.url} alt="Hình ảnh" className="max-h-full max-w-full rounded-md object-contain" />
+                    )}
+                </div>
             )}
         </>
     );
@@ -1626,6 +1841,7 @@ export default function Messages() {
                                     onPollModalClose={() =>
                                         setOpenPollMessageId(null)
                                     }
+                                    searchOpenSignal={searchOpenSignal}
                                 />
                             </div>
 

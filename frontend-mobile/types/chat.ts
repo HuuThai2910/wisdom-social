@@ -340,6 +340,41 @@ export interface MessageSeenEvent {
     };
 }
 
+export interface MessageSearchResult {
+    messageId: string;
+    conversationId: number;
+    senderId?: number;
+    senderName?: string;
+    content: string;
+    createdAt: string;
+}
+
+export interface MessageSearchResponse {
+    items: MessageSearchResult[];
+    nextCursor: string | null;
+    hasMore: boolean;
+}
+
+export type ConversationMediaType = "MEDIA" | "FILE" | "LINK";
+
+export interface ConversationMediaItem {
+    messageId: string;
+    conversationId: number;
+    senderId: number;
+    type: "IMAGE" | "VIDEO" | "FILE" | "LINK";
+    url: string;
+    content?: string;
+    fileName?: string;
+    fileSize?: number;
+    createdAt: string;
+}
+
+export interface ConversationMediaResponse {
+    items: ConversationMediaItem[];
+    nextCursor: string | null;
+    hasMore: boolean;
+}
+
 export interface TypingEvent {
     domainEventType: "TYPING";
     typingResponse: {
