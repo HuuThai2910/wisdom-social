@@ -162,7 +162,7 @@ export const userService = {
         return response.data.data;
     },
 
-        async getAllUsersSearch(id:number): Promise<User[]> {
+    async getAllUsersSearch(id: number): Promise<User[]> {
         const response = await axiosClient.get(`auth/users/${id}`);
         return response.data.data;
     },
@@ -178,8 +178,8 @@ export const userService = {
     },
 
     async getUserProfile(id: string | number): Promise<UserProfileResponse> {
-        const response = await axiosClient.get(`auth/user/${id}`);
-        return response.data?.data ?? response.data;
+        const response = await axiosClient.get(`auth/users/${id}`);
+        return response.data.data;
     },
 
     async searchUserByUsername(keyword: string): Promise<User[]> {

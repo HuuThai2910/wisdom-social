@@ -27,15 +27,8 @@ export const convertPhoneToInternational = (phone: string | undefined): string =
 };
 
 export function useCurrentUser() {
-    const [currentUser, setCurrentUser] = useState<CurrentUser | null>(() => {
-        const cached = localStorage.getItem('current_user');
-        try {
-            return cached ? JSON.parse(cached) : null;
-        } catch {
-            return null;
-        }
-    });
-    const [loading, setLoading] = useState(!currentUser);
+    const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+    const [loading, setLoading] = useState(true);
     const fetchUserDataRef = useRef<() => Promise<void>>(null!);
 
     // Fetch current user from API - wrapped in useCallback
