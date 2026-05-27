@@ -93,7 +93,7 @@ export default function Sidebar() {
       <div className="mb-8 mt-2 flex items-center justify-between px-2">
         {showLabels ? (
           <h1 className="text-2xl font-semibold font-serif dark:text-white">
-            Instagram
+            Wisdom-Social
           </h1>
         ) : (
           <h1 className="w-full text-center text-xl font-semibold font-serif dark:text-white">
