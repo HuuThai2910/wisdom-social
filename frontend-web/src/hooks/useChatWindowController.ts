@@ -3245,7 +3245,7 @@ const list = Array.isArray(cursorData?.data)
                 scrollOnNextRenderRef.current = shouldForceAutoScroll()
                     ? "auto"
                     : "smooth";
-                await sendOutboxItem(outboxItem).catch(() => undefined);
+                void sendOutboxItem(outboxItem).catch(() => undefined);
                 return true;
             } catch (error) {
                 if (isLikelyNetworkSendError(error)) {
