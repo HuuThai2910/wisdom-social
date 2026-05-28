@@ -112,6 +112,7 @@ export function useMessagesController() {
     const conversationListCatchupRef = useRef({
         inFlight: false,
         lastRunAt: 0,
+        needsCatchup: false,
     });
 
     useEffect(() => {
@@ -196,6 +197,7 @@ export function useMessagesController() {
                 const conversationData = Array.isArray(convs.data)
                     ? convs.data
                     : [];
+                conversationListCatchupRef.current.needsCatchup = false;
                 setError(null);
                 // API trả về ok: set list hội thoại.
                 setConversations(
@@ -215,6 +217,7 @@ export function useMessagesController() {
                     return next;
                 });
             } else {
+                conversationListCatchupRef.current.needsCatchup = true;
                 setConversations([]);
                 setConversationReadOnlyNotices({});
                 setError(convs.message || "Không thể tải danh sách hội thoại");
@@ -223,6 +226,7 @@ export function useMessagesController() {
             // Network/exception: cố gắng fail-safe với list rỗng + thông báo.
             setConversations([]);
             setConversationReadOnlyNotices({});
+            conversationListCatchupRef.current.needsCatchup = true;
             setError("Không thể tải danh sách hội thoại");
         } finally {
             setLoading(false);
@@ -258,6 +262,17 @@ export function useMessagesController() {
             });
         };
 
+        const markNeedsCatchup = () => {
+            conversationListCatchupRef.current.needsCatchup = true;
+        };
+
+        const catchupIntervalId = window.setInterval(() => {
+            if (document.visibilityState !== "visible") return;
+            if (!navigator.onLine) return;
+            if (!conversationListCatchupRef.current.needsCatchup) return;
+            runCatchup();
+        }, 3000);
+
         const handleVisibilityChange = () => {
             if (document.visibilityState === "visible") {
                 scheduleCatchup();
@@ -265,12 +280,15 @@ export function useMessagesController() {
         };
 
         window.addEventListener("online", scheduleCatchup);
+        window.addEventListener("offline", markNeedsCatchup);
         window.addEventListener("focus", scheduleCatchup);
         document.addEventListener("visibilitychange", handleVisibilityChange);
 
         return () => {
             catchupTimers.forEach((timerId) => window.clearTimeout(timerId));
+            window.clearInterval(catchupIntervalId);
             window.removeEventListener("online", scheduleCatchup);
+            window.removeEventListener("offline", markNeedsCatchup);
             window.removeEventListener("focus", scheduleCatchup);
             document.removeEventListener(
                 "visibilitychange",

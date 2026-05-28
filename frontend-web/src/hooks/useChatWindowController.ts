@@ -553,6 +553,7 @@ export function useChatWindowController(args: {
     const activeConversationCatchupRef = useRef({
         inFlight: false,
         lastRunAt: 0,
+        needsCatchup: false,
     });
 
     // userIdRef dùng cho websocket callback (tránh stale closure nếu userId thay đổi).
@@ -1936,6 +1937,7 @@ const list = Array.isArray(cursorData?.data)
         try {
             if (isHistoricalModeRef.current) {
                 await syncConversationData();
+                activeConversationCatchupRef.current.needsCatchup = false;
                 return;
             }
 
@@ -2038,7 +2040,9 @@ const list = Array.isArray(cursorData?.data)
             }
 
             await syncConversationData();
+            activeConversationCatchupRef.current.needsCatchup = false;
         } catch {
+            activeConversationCatchupRef.current.needsCatchup = true;
             // Best-effort catch-up. WebSocket hoặc lần focus/online tiếp theo sẽ thử lại.
         } finally {
             activeConversationCatchupRef.current.inFlight = false;
@@ -2066,6 +2070,17 @@ const list = Array.isArray(cursorData?.data)
             });
         };
 
+        const markNeedsCatchup = () => {
+            activeConversationCatchupRef.current.needsCatchup = true;
+        };
+
+        const catchupIntervalId = window.setInterval(() => {
+            if (document.visibilityState !== "visible") return;
+            if (!navigator.onLine) return;
+            if (!activeConversationCatchupRef.current.needsCatchup) return;
+            void catchUpActiveConversationMessages();
+        }, 3000);
+
         const handleVisibilityChange = () => {
             if (document.visibilityState === "visible") {
                 scheduleCatchup();
@@ -2073,12 +2088,15 @@ const list = Array.isArray(cursorData?.data)
         };
 
         window.addEventListener("online", scheduleCatchup);
+        window.addEventListener("offline", markNeedsCatchup);
         window.addEventListener("focus", scheduleCatchup);
         document.addEventListener("visibilitychange", handleVisibilityChange);
 
         return () => {
             catchupTimers.forEach((timerId) => window.clearTimeout(timerId));
+            window.clearInterval(catchupIntervalId);
             window.removeEventListener("online", scheduleCatchup);
+            window.removeEventListener("offline", markNeedsCatchup);
             window.removeEventListener("focus", scheduleCatchup);
             document.removeEventListener(
                 "visibilitychange",
