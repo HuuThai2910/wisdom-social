@@ -144,6 +144,28 @@ export function ManageMembersScreen() {
         ];
 
         if (isOwner) {
+            options.push({
+                text: "Chuyển trưởng nhóm",
+                onPress: () => {
+                    Alert.alert(
+                        "Chuyển trưởng nhóm?",
+                        `Bạn có chắc muốn chuyển quyền trưởng nhóm cho ${label}? Sau khi chuyển, bạn sẽ trở thành thành viên thường.`,
+                        [
+                            { text: "Hủy", style: "cancel" },
+                            {
+                                text: "Chuyển quyền",
+                                onPress: () => {
+                                    void groupManagement.updateMemberRole(
+                                        member.userId,
+                                        "OWNER",
+                                    );
+                                },
+                            },
+                        ],
+                    );
+                },
+            });
+
             if (member.role === "MEMBER") {
                 options.push({
                     text: "Chỉ định Phó nhóm",
@@ -182,7 +204,24 @@ export function ManageMembersScreen() {
             options.push({
                 text: "Chặn khỏi nhóm",
                 style: "destructive",
-                onPress: () => groupManagement.blockMember(member.userId),
+                onPress: () => {
+                    Alert.alert(
+                        "Chặn thành viên",
+                        `Bạn có chắc muốn chặn ${label} khỏi nhóm? Người này sẽ không thể tham gia lại nếu chưa được bỏ chặn.`,
+                        [
+                            { text: "Hủy", style: "cancel" },
+                            {
+                                text: "Chặn",
+                                style: "destructive",
+                                onPress: () => {
+                                    void groupManagement.blockMember(
+                                        member.userId,
+                                    );
+                                },
+                            },
+                        ],
+                    );
+                },
             });
         }
 

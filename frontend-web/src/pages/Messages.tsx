@@ -168,6 +168,12 @@ export default function Messages() {
     const [pendingPinConversationId, setPendingPinConversationId] = useState<
         number | null
     >(null);
+    const [blockTargetUserId, setBlockTargetUserId] = useState<number | null>(
+        null,
+    );
+    const [transferOwnerTargetUserId, setTransferOwnerTargetUserId] = useState<
+        number | null
+    >(null);
     const [selectedUnpinConversationId, setSelectedUnpinConversationId] =
         useState<number | null>(null);
     const [isReplacingPin, setIsReplacingPin] = useState(false);
@@ -635,6 +641,10 @@ export default function Messages() {
         }
     }, [selectedConversationId]);
 
+    const closeConfirmTransferOwner = useCallback(() => {
+        setTransferOwnerTargetUserId(null);
+    }, []);
+
     const closeGroupDetailSurfaces = useCallback(() => {
         setShowInfoPanel(false);
         setIsGroupSettingsModalOpen(false);
@@ -644,9 +654,11 @@ export default function Messages() {
         setIsConfirmLeaveModalOpen(false);
         setIsConfirmDisbandModalOpen(false);
         closeConfirmKick();
+        closeConfirmTransferOwner();
     }, [
         closeAddMembersModal,
         closeConfirmKick,
+        closeConfirmTransferOwner,
         closeTransferOwnerModal,
         setIsConfirmDisbandModalOpen,
         setIsConfirmLeaveModalOpen,
@@ -655,6 +667,10 @@ export default function Messages() {
     const handleConversationForbidden = useCallback(() => {
         closeGroupDetailSurfaces();
     }, [closeGroupDetailSurfaces]);
+
+    const closeConfirmBlock = useCallback(() => {
+        setBlockTargetUserId(null);
+    }, []);
 
     useEffect(() => {
         if (!selectedConversationReadOnlyNotice) return;
@@ -1075,7 +1091,10 @@ export default function Messages() {
                                 transferOwnershipAndLeave
                             }
                             onGetBlockedMembers={getBlockedMembers}
-                            onBlockMember={blockMember}
+                            onOpenConfirmBlock={setBlockTargetUserId}
+                            onOpenConfirmTransferOwner={
+                                setTransferOwnerTargetUserId
+                            }
                             onUnblockMember={unblockMember}
                             onUpdateMemberRole={updateMemberRole}
                             onProcessJoinRequest={processJoinRequest}
@@ -2428,6 +2447,56 @@ export default function Messages() {
                         void kickMember(kickTargetUserId).then((success) => {
                             if (success) {
                                 closeConfirmKick();
+                            }
+                        });
+                    }
+                }}
+            />
+
+            <ConfirmModal
+                open={blockTargetUserId != null}
+                title="Chặn thành viên?"
+                description={`Bạn có chắc chắn muốn chặn ${
+                    blockTargetUserId && selectedGroupConversation?.members
+                        ? selectedGroupConversation.members.find(
+                              (m) => m.userId === blockTargetUserId,
+                          )?.nickname || "thành viên này"
+                        : "thành viên"
+                } khỏi nhóm? Người này sẽ không thể tham gia lại nếu chưa được bỏ chặn.`}
+                confirmLabel="Chặn khỏi nhóm"
+                isDanger={true}
+                onClose={closeConfirmBlock}
+                onConfirm={() => {
+                    if (blockTargetUserId) {
+                        void blockMember(blockTargetUserId).then((success) => {
+                            if (success) {
+                                closeConfirmBlock();
+                            }
+                        });
+                    }
+                }}
+            />
+            <ConfirmModal
+                open={transferOwnerTargetUserId != null}
+                title="Chuyển trưởng nhóm?"
+                description={`Bạn có chắc chắn muốn chuyển quyền trưởng nhóm cho ${
+                    transferOwnerTargetUserId &&
+                    selectedGroupConversation?.members
+                        ? selectedGroupConversation.members.find(
+                              (m) => m.userId === transferOwnerTargetUserId,
+                          )?.nickname || "thành viên này"
+                        : "thành viên"
+                }? Sau khi chuyển, bạn sẽ trở thành thành viên thường.`}
+                confirmLabel="Chuyển quyền"
+                onClose={closeConfirmTransferOwner}
+                onConfirm={() => {
+                    if (transferOwnerTargetUserId) {
+                        void updateMemberRole(
+                            transferOwnerTargetUserId,
+                            "OWNER",
+                        ).then((success) => {
+                            if (success) {
+                                closeConfirmTransferOwner();
                             }
                         });
                     }

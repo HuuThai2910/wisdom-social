@@ -438,7 +438,12 @@ export function useMessagesController() {
                 // If the user is not in the cached members list, they might have left/kicked
                 // and the backend list API didn't include them. We must fetch detail to know.
                 hasRestrictedStatus = true;
-            } else if (me.status === "LEFT" || me.status === "KICKED" || me.status === "GROUP_DISBANDED") {
+            } else if (
+                me.status === "LEFT" ||
+                me.status === "KICKED" ||
+                me.status === "BLOCKED" ||
+                me.status === "GROUP_DISBANDED"
+            ) {
                 hasRestrictedStatus = true;
             }
         }
@@ -557,6 +562,74 @@ export function useMessagesController() {
             isCancelled = true;
         };
     }, [conversations, currentUserId, selectedConversationId]);
+
+    useEffect(() => {
+        const convId = selectedConversationId;
+        if (convId == null || !currentUserId) return;
+        if (!conversationReadOnlyNotices[convId]) return;
+
+        let cancelled = false;
+
+        const tryRecoverConversation = async () => {
+            try {
+                const response = await chatService.getConversation(
+                    convId,
+                    currentUserId,
+                );
+                if (cancelled || !response.success || !response.data) return;
+
+                const detailConversation = response.data;
+                const detailNotice = resolveReadOnlyNoticeFromConversation(
+                    detailConversation,
+                    currentUserId,
+                );
+                if (detailNotice) return;
+
+                chatRuntimeStore.setConversation(convId, detailConversation);
+                setConversations((prev) => {
+                    const exists = prev.some((conv) => conv.id === convId);
+                    const next = exists
+                        ? prev.map((conv) =>
+                              conv.id === convId
+                                  ? {
+                                        ...conv,
+                                        ...detailConversation,
+                                        lastMessage:
+                                            detailConversation.lastMessage ??
+                                            conv.lastMessage,
+                                        unreadCount:
+                                            conv.unreadCount ??
+                                            detailConversation.unreadCount,
+                                    }
+                                  : conv,
+                          )
+                        : [detailConversation, ...prev];
+
+                    return sortConversationsByLastMessageAt(next);
+                });
+                setConversationReadOnlyNotices((prev) => {
+                    if (!(convId in prev)) return prev;
+                    const next = { ...prev };
+                    delete next[convId];
+                    return next;
+                });
+            } catch {
+                // User is still blocked/removed, or backend has not committed the re-add yet.
+            }
+        };
+
+        void tryRecoverConversation();
+        const intervalId = window.setInterval(tryRecoverConversation, 5000);
+
+        return () => {
+            cancelled = true;
+            window.clearInterval(intervalId);
+        };
+    }, [
+        conversationReadOnlyNotices,
+        currentUserId,
+        selectedConversationId,
+    ]);
 
     /**
      * clearUnreadCount - Callback để ChatWindow gọi khi đánh dấu đã đọc
@@ -739,6 +812,7 @@ export function useMessagesController() {
                 lastMessage.lastMessageType,
             );
             const shouldForceDetailRefresh =
+                lastMessage.lastMessageType === "SYSTEM_ADD_MEMBER" ||
                 lastMessage.lastMessageType === "SYSTEM_UPDATE_ROLE" ||
                 lastMessage.lastMessageType === "SYSTEM_UPDATE_SETTING" ||
                 lastMessage.lastMessageType === "SYSTEM_REQUIRE_APPROVAL";
