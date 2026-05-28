@@ -10,8 +10,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.index.CompoundIndexDefinition;
 import org.springframework.data.mongodb.core.index.Index;
+import org.springframework.data.mongodb.core.index.IndexDefinition;
 import org.springframework.data.mongodb.core.index.IndexOperations;
+import org.springframework.data.mongodb.core.index.PartialIndexFilter;
+import org.bson.Document;
 
 import java.util.concurrent.TimeUnit;
 
@@ -57,6 +61,7 @@ public class MongoIndexConfig {
 
             // Posts - lastActivityAt index DESC
             createIndex("posts", "lastActivityAt", Sort.Direction.DESC);
+            createMessageClientMessageIdUniqueIndex();
 
             log.info("MongoDB indexes initialized successfully (TTL enabled for Notes only)");
         } catch (Exception e) {
@@ -105,6 +110,27 @@ public class MongoIndexConfig {
         } catch (Exception e) {
             log.warn("Failed to create index for collection '{}': {}",
                     collectionName, e.getMessage());
+        }
+    }
+
+    private void createMessageClientMessageIdUniqueIndex() {
+        try {
+            IndexOperations indexOps = mongoTemplate.indexOps("messages");
+            Document keys = new Document()
+                    .append("conversation_id", 1)
+                    .append("sender_id", 1)
+                    .append("client_message_id", 1);
+            IndexDefinition index = new CompoundIndexDefinition(keys)
+                    .named("conversation_sender_client_msg_idx")
+                    .unique()
+                    .partial(PartialIndexFilter.of(new Document("client_message_id",
+                            new Document("$exists", true).append("$type", "string"))));
+
+            indexOps.createIndex(index);
+            log.info("Created unique clientMessageId index for messages");
+        } catch (Exception e) {
+            log.warn("Failed to create unique clientMessageId index for messages: {}",
+                    e.getMessage());
         }
     }
 }
