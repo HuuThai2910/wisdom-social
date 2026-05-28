@@ -138,14 +138,50 @@ export type Post = {
     };
 };
 
-export type AppNotification = {
-    id: string;
-    type: "like" | "follow" | "comment" | "mention";
-    userId: string;
-    postId?: string;
+export interface ApiResponse<T> {
+    status: number;
+    success: boolean;
     message: string;
+    data: T | null;
+    errors?: unknown;
+    timestamp: string;
+}
+
+export type NotificationType =
+    | "REACTION_POST" | "REACTION_COMMENT" | "REACTION_STORY" | "REACTION_NOTE"
+    | "COMMENT_POST" | "COMMENT_MENTION" | "REPLY_COMMENT"
+    | "SHARE_POST"
+    | "TAG_POST" | "TAG_COMMENT";
+
+export type TargetType = "POST" | "POST_SHARE" | "NOTE" | "STORY" | "COMMENT";
+
+export interface NotificationMetadata {
+    imageUrl?: string;
+    count?: number;
+    deepLink?: string;
+    extraData?: string;
+}
+
+export interface Notification {
+    id: string;
+    recipientId: string;
+    actorIds: string[];
+    type: NotificationType;
+    targetType?: TargetType;
+    targetId?: string;
+    content?: string;
+    metadata?: NotificationMetadata;
+    isRead: boolean;
+    readAt?: string;
     createdAt: string;
-    read: boolean;
+}
+
+export type AppNotification = Omit<Notification, "type"> & {
+    type: NotificationType | "like" | "comment" | "mention";
+    userId?: string;
+    postId?: string;
+    message?: string;
+    read?: boolean;
 };
 
 export type Message = {

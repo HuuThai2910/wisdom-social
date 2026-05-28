@@ -9,13 +9,16 @@ interface NotificationItemProps {
 
 export default function NotificationItem({
   notification,
-  onMarkAsRead
+  onMarkAsRead,
 }: NotificationItemProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const primaryActorId = notification.actorIds && notification.actorIds.length > 0 ? notification.actorIds[0] : "";
+  const primaryActorId =
+    notification.actorIds && notification.actorIds.length > 0
+      ? notification.actorIds[0]
+      : "";
   const avatarUrl = notification.metadata?.imageUrl || "/default-avatar.png";
-  
+
   const handleItemClick = () => {
     // 1. Mark as read
     if (!notification.isRead && onMarkAsRead) {
@@ -26,7 +29,7 @@ export default function NotificationItem({
     const deepLink = notification.metadata?.deepLink;
     if (deepLink) {
       const postId = deepLink.split("/").pop();
-      
+
       // Parse extraData for commentId
       let expandCommentId = undefined;
       if (notification.metadata?.extraData) {
@@ -40,42 +43,49 @@ export default function NotificationItem({
 
       if (expandCommentId) {
         // Comment notification -> Open Modal
-        navigate(deepLink, { 
-          state: { 
-            backgroundLocation: location, 
-            expandCommentId: expandCommentId 
-          } 
+        navigate(deepLink, {
+          state: {
+            backgroundLocation: location,
+            expandCommentId: expandCommentId,
+          },
         });
       } else {
         // Post notification -> Go to Feed and boost post
-        navigate("/", { 
-          state: { 
-            boostPostId: postId 
-          } 
+        navigate("/", {
+          state: {
+            boostPostId: postId,
+          },
         });
       }
-    } else if (notification.type === 'FRIEND_REQUEST' || notification.type === 'FRIEND_ACCEPT') {
-        // Fallback for friend notifications if deepLink is missing
-        navigate(`/profile/${primaryActorId}`);
+    } else if (
+      notification.type === "FRIEND_REQUEST" ||
+      notification.type === "FRIEND_ACCEPT"
+    ) {
+      // Fallback for friend notifications if deepLink is missing
+      navigate(`/profile/${primaryActorId}`);
     }
   };
 
   return (
-    <div 
+    <div
       onClick={handleItemClick}
       className={`flex items-center gap-3 px-4 py-3 cursor-pointer rounded-lg transition-colors ${
-        !notification.isRead 
-          ? "bg-blue-50/50 dark:bg-blue-900/20 hover:bg-blue-50 dark:hover:bg-blue-900/30" 
+        !notification.isRead
+          ? "bg-blue-50/50 dark:bg-blue-900/20 hover:bg-blue-50 dark:hover:bg-blue-900/30"
           : "hover:bg-gray-50 dark:hover:bg-[#262626]"
       }`}
     >
       <Link
         to={`/profile/${primaryActorId}`}
         className="flex-shrink-0"
-        onClick={(e) => e.stopPropagation()} 
+        onClick={(e) => e.stopPropagation()}
       >
         <img
-          src={(avatarUrl.startsWith("http") ? avatarUrl : buildS3Url(avatarUrl)) || undefined}
+          src={
+            (avatarUrl.startsWith("http")
+              ? avatarUrl
+              : buildS3Url(avatarUrl)) || undefined
+          }
           alt="Avatar"
           className="w-11 h-11 rounded-full object-cover"
         />
@@ -86,8 +96,14 @@ export default function NotificationItem({
           <span className="text-gray-900 dark:text-white">
             {notification.content || getNotificationText(notification.type)}
           </span>
-          <br/>
-          <span className={`text-xs ${!notification.isRead ? "text-blue-600 font-medium" : "text-gray-500"}`}>
+          <br />
+          <span
+            className={`text-xs ${
+              !notification.isRead
+                ? "text-blue-600 font-medium"
+                : "text-gray-500"
+            }`}
+          >
             {formatDate(notification.createdAt)}
           </span>
         </p>
@@ -102,20 +118,43 @@ export default function NotificationItem({
 
 function getNotificationText(type: string): string {
   switch (type) {
-    case 'REACTION_POST': return 'Đã thích bài viết của bạn';
-    case 'COMMENT_POST': return 'Đã bình luận bài viết của bạn';
-    case 'FRIEND_REQUEST': return 'Đã gửi lời mời kết bạn';
-    case 'FRIEND_ACCEPT': return 'Đã chấp nhận lời mời kết bạn';
-    default: return 'Có thông báo mới';
+    case "REACTION_POST":
+      return "Đã thích bài viết của bạn";
+    case "REACTION_COMMENT":
+      return "Đã thích bình luận của bạn";
+    case "REACTION_STORY":
+      return "Đã thích story của bạn";
+    case "REACTION_NOTE":
+      return "Đã thích ghi chú của bạn";
+    case "COMMENT_POST":
+      return "Đã bình luận bài viết của bạn";
+    case "COMMENT_MENTION":
+      return "Đã mention bạn trong bình luận";
+    case "REPLY_COMMENT":
+      return "Đã trả lời bình luận của bạn";
+    case "SHARE_POST":
+      return "Đã chia sẻ bài viết của bạn";
+    case "TAG_POST":
+      return "Đã tag bạn trong bài viết";
+    case "TAG_COMMENT":
+      return "Đã tag bạn trong bình luận";
+    case "STORY_REPLY":
+      return "Đã trả lời story của bạn";
+    default:
+      return "Có thông báo mới";
   }
 }
 
 function formatDate(isoString: string): string {
   try {
-    if (!isoString) return 'Gần đây';
+    if (!isoString) return "Gần đây";
     const date = new Date(isoString);
-    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+    return (
+      date.toLocaleDateString() +
+      " " +
+      date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    );
   } catch {
-    return 'Gần đây';
+    return "Gần đây";
   }
 }
