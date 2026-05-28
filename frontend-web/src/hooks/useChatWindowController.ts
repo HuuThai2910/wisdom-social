@@ -599,6 +599,9 @@ export function useChatWindowController(args: {
     const returningToPresentRef = useRef(false);
     const membersSyncInFlightRef = useRef(false);
     const sendingOutboxIdsRef = useRef<Set<string>>(new Set());
+    const readReceiptCatchupTimeoutsRef = useRef<ReturnType<
+        typeof setTimeout
+    >[]>([]);
     const mediaLoadStabilizerRef = useRef<{
         activeUntil: number;
         lastScrollHeight: number;
@@ -853,6 +856,69 @@ export function useChatWindowController(args: {
         [],
     );
 
+    const applyReadReceiptsFromMembers = useCallback(
+        (members: MembersByUserId) => {
+            const receipts: ReadReceipt[] = Object.values(members)
+                .filter(
+                    (member) =>
+                        Number(member.userId) !== Number(userIdRef.current) &&
+                        member.lastReadMessageId,
+                )
+                .map((member) => ({
+                    userId: Number(member.userId),
+                    lastMessageId: member.lastReadMessageId!,
+                    seenAt: new Date().toISOString(),
+                }));
+
+            setReadReceipts(receipts);
+        },
+        [],
+    );
+
+    const syncReadReceiptsFromMembers = useCallback(async () => {
+        try {
+            const membersResponse =
+                await chatService.getConversationMembers(conversationId);
+            const normalizedMembers = toMembersByUserId(membersResponse);
+
+            setMembersById((prev) => {
+                const merged = {
+                    ...prev,
+                    ...normalizedMembers,
+                };
+                chatRuntimeStore.setMembers(conversationId, merged);
+                return merged;
+            });
+            setConversation((previousConversation) => {
+                if (!previousConversation) return previousConversation;
+                const nextConversation = {
+                    ...previousConversation,
+                    members: Object.values({
+                        ...toMembersByUserId(previousConversation.members ?? []),
+                        ...normalizedMembers,
+                    }),
+                };
+                chatRuntimeStore.setConversation(conversationId, nextConversation);
+                return nextConversation;
+            });
+            applyReadReceiptsFromMembers(normalizedMembers);
+        } catch {
+            // Best-effort catch-up only. Realtime websocket/F5 still covers this.
+        }
+    }, [applyReadReceiptsFromMembers, conversationId]);
+
+    const scheduleReadReceiptCatchup = useCallback(() => {
+        readReceiptCatchupTimeoutsRef.current.forEach((timerId) =>
+            clearTimeout(timerId),
+        );
+        readReceiptCatchupTimeoutsRef.current = [0, 1200, 3000, 6000].map(
+            (delay) =>
+                setTimeout(() => {
+                    void syncReadReceiptsFromMembers();
+                }, delay),
+        );
+    }, [syncReadReceiptsFromMembers]);
+
     const syncConversationData = useCallback(async () => {
         if (membersSyncInFlightRef.current) return;
         membersSyncInFlightRef.current = true;
@@ -883,12 +949,13 @@ export function useChatWindowController(args: {
                 chatRuntimeStore.setMembers(conversationId, merged);
                 return merged;
             });
+            applyReadReceiptsFromMembers(normalizedMembers);
         } catch (err) {
             console.error("Failed to sync conversation data:", err);
         } finally {
             membersSyncInFlightRef.current = false;
         }
-    }, [conversationId]);
+    }, [applyReadReceiptsFromMembers, conversationId]);
 
     const applyWindowForOlder = useCallback((nextMessages: Message[]) => {
         if (nextMessages.length <= MESSAGE_WINDOW_LIMIT) {
@@ -2389,6 +2456,10 @@ const list = Array.isArray(cursorData?.data)
                 clearTimeout(timeoutId),
             );
             typingTimeoutsRef.current.clear();
+            readReceiptCatchupTimeoutsRef.current.forEach((timeoutId) =>
+                clearTimeout(timeoutId),
+            );
+            readReceiptCatchupTimeoutsRef.current = [];
 
             // Cleanup recording: dừng MediaRecorder nếu đang ghi, tránh leak stream
             if (mediaRecorderRef.current) {
@@ -2836,6 +2907,7 @@ const list = Array.isArray(cursorData?.data)
                 }
                 await messageOutbox.remove(item.clientMessageId);
                 setError(null);
+                scheduleReadReceiptCatchup();
             } catch (error) {
                 if (isLikelyNetworkSendError(error)) {
                     scrollOnNextRenderRef.current = "smooth";
@@ -2854,6 +2926,7 @@ const list = Array.isArray(cursorData?.data)
         [
             appendCreatedMessagesFromOutbox,
             replaceLocalMessage,
+            scheduleReadReceiptCatchup,
             setLocalMessageDeliveryStatus,
             uploadAndSendOutboxMedia,
         ],
