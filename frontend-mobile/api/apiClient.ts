@@ -36,7 +36,7 @@ function resolveExpoLanHost(): string | null {
 
 const EXPO_LAN_HOST = resolveExpoLanHost();
 
-const API_URL = Platform.select({
+const resolvedLocalApiUrl = Platform.select({
     android: EXPO_LAN_HOST
         ? `http://${EXPO_LAN_HOST}:8080/api`
         : "http://10.0.2.2:8080/api",
@@ -47,6 +47,11 @@ const API_URL = Platform.select({
         ? `http://${EXPO_LAN_HOST}:8080/api`
         : "http://192.168.1.153:8080/api",
 });
+
+const API_URL =
+    process.env.EXPO_PUBLIC_API_URL ||
+    resolvedLocalApiUrl ||
+    "http://10.0.2.2:8080/api";
 
 const PUBLIC_ENDPOINTS = [
     "/auth/login",
