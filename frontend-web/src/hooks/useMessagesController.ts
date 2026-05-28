@@ -109,6 +109,10 @@ export function useMessagesController() {
     const currentUserIdRef = useRef<number>(currentUserId);
     const refreshingConversationIdsRef = useRef<Set<number>>(new Set());
     const presenceHydratedConversationIdsRef = useRef<Set<number>>(new Set());
+    const conversationListCatchupRef = useRef({
+        inFlight: false,
+        lastRunAt: 0,
+    });
 
     useEffect(() => {
         // Đồng bộ ref mỗi khi URL param đổi.
@@ -228,6 +232,43 @@ export function useMessagesController() {
         // Reload lại list khi userId thay đổi.
         void loadConversations();
     }, [loadConversations]);
+
+    useEffect(() => {
+        if (!currentUserId) return;
+
+        const runCatchup = () => {
+            const now = Date.now();
+            if (conversationListCatchupRef.current.inFlight) return;
+            if (now - conversationListCatchupRef.current.lastRunAt < 2500) {
+                return;
+            }
+
+            conversationListCatchupRef.current.inFlight = true;
+            conversationListCatchupRef.current.lastRunAt = now;
+            void loadConversations().finally(() => {
+                conversationListCatchupRef.current.inFlight = false;
+            });
+        };
+
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === "visible") {
+                runCatchup();
+            }
+        };
+
+        window.addEventListener("online", runCatchup);
+        window.addEventListener("focus", runCatchup);
+        document.addEventListener("visibilitychange", handleVisibilityChange);
+
+        return () => {
+            window.removeEventListener("online", runCatchup);
+            window.removeEventListener("focus", runCatchup);
+            document.removeEventListener(
+                "visibilitychange",
+                handleVisibilityChange,
+            );
+        };
+    }, [currentUserId, loadConversations]);
 
     useEffect(() => {
         for (const conv of conversations) {

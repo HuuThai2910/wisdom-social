@@ -550,6 +550,11 @@ export function useChatWindowController(args: {
     // Refs: DOM anchors cho scroll.
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const messagesContainerRef = useRef<HTMLDivElement>(null);
+    const messagesRef = useRef<Message[]>([]);
+    const activeConversationCatchupRef = useRef({
+        inFlight: false,
+        lastRunAt: 0,
+    });
 
     // userIdRef dùng cho websocket callback (tránh stale closure nếu userId thay đổi).
     const userIdRef = useRef(userId);
@@ -579,6 +584,10 @@ export function useChatWindowController(args: {
     const armForceAutoScroll = useCallback((durationMs = 2500) => {
         forceAutoScrollUntilRef.current = Date.now() + durationMs;
     }, []);
+
+    useEffect(() => {
+        messagesRef.current = messages;
+    }, [messages]);
 
     const shouldForceAutoScroll = useCallback(
         () => Date.now() < forceAutoScrollUntilRef.current,
@@ -1914,6 +1923,139 @@ const list = Array.isArray(cursorData?.data)
         },
         [conversationId, userId, onMarkAsRead],
     );
+
+    const catchUpActiveConversationMessages = useCallback(async () => {
+        const now = Date.now();
+        if (activeConversationCatchupRef.current.inFlight) return;
+        if (now - activeConversationCatchupRef.current.lastRunAt < 2500) {
+            return;
+        }
+
+        activeConversationCatchupRef.current.inFlight = true;
+        activeConversationCatchupRef.current.lastRunAt = now;
+
+        try {
+            if (isHistoricalModeRef.current) {
+                await syncConversationData();
+                return;
+            }
+
+            const newest = messagesRef.current.at(-1);
+            if (!newest?.createdAt) {
+                await syncConversationData();
+                return;
+            }
+
+            const wasNearBottom = isNearBottom();
+            const response = await chatService.getNewerMessages(
+                conversationId,
+                userIdRef.current,
+                newest.createdAt,
+                PAGE_SIZE,
+            );
+            const cursorData = response?.success ? response.data : null;
+            const newer = Array.isArray(cursorData?.data)
+                ? normalizeMessagesForUi(cursorData.data)
+                : [];
+
+            setMembersById((prev) => {
+                const merged = mergeReferenceUsers(
+                    prev,
+                    cursorData?.referenceUsers ?? {},
+                );
+                chatRuntimeStore.setMembers(conversationId, merged);
+                return merged;
+            });
+
+            let lastReadableIncomingId: string | null = null;
+            setMessages((prev) => {
+                const existingIds = new Set(prev.map((message) => message.id));
+                const existingClientIds = new Set(
+                    prev
+                        .map((message) => message.clientMessageId)
+                        .filter(Boolean),
+                );
+                const missing = newer.filter(
+                    (message) =>
+                        !existingIds.has(message.id) &&
+                        (!message.clientMessageId ||
+                            !existingClientIds.has(message.clientMessageId)),
+                );
+
+                if (missing.length === 0) return prev;
+
+                for (const message of missing) {
+                    if (Number(message.senderId) !== Number(userIdRef.current)) {
+                        lastReadableIncomingId = message.id;
+                    }
+                }
+
+                const nextMessages = applyWindowForNewer(
+                    dedupeMessagesByIdentity([
+                        ...prev,
+                        ...missing.map((message) =>
+                            Number(message.senderId) === Number(userIdRef.current)
+                                ? { ...message, deliveryStatus: "sent" as const }
+                                : message,
+                        ),
+                    ]),
+                );
+                chatRuntimeStore.setMessages(conversationId, nextMessages);
+                return nextMessages;
+            });
+
+            if (lastReadableIncomingId && wasNearBottom) {
+                markAsRead(lastReadableIncomingId);
+            }
+
+            if (newer.length > 0) {
+                if (wasNearBottom) {
+                    scrollOnNextRenderRef.current = "smooth";
+                    setShowScrollToBottomButton(false);
+                    setPendingNewMessages(0);
+                } else {
+                    setShowScrollToBottomButton(true);
+                    setPendingNewMessages((count) => count + newer.length);
+                }
+            }
+
+            await syncConversationData();
+        } catch {
+            // Best-effort catch-up. WebSocket hoặc lần focus/online tiếp theo sẽ thử lại.
+        } finally {
+            activeConversationCatchupRef.current.inFlight = false;
+        }
+    }, [
+        applyWindowForNewer,
+        conversationId,
+        isNearBottom,
+        markAsRead,
+        mergeReferenceUsers,
+        syncConversationData,
+    ]);
+
+    useEffect(() => {
+        if (!userId) return;
+
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === "visible") {
+                void catchUpActiveConversationMessages();
+            }
+        };
+
+        window.addEventListener("online", catchUpActiveConversationMessages);
+        window.addEventListener("focus", catchUpActiveConversationMessages);
+        document.addEventListener("visibilitychange", handleVisibilityChange);
+
+        return () => {
+            window.removeEventListener("online", catchUpActiveConversationMessages);
+            window.removeEventListener("focus", catchUpActiveConversationMessages);
+            document.removeEventListener(
+                "visibilitychange",
+                handleVisibilityChange,
+            );
+        };
+    }, [catchUpActiveConversationMessages, userId]);
 
     /**
      * handleMessageSeen - Xử lý khi nhận được event "Người khác đã xem"
