@@ -53,11 +53,11 @@ export interface Post {
     allowShares?: boolean;
     music?: NoteMusic;
     location?:
-        | string
-        | {
-            name?: string;
-            address?: string;
-        };
+    | string
+    | {
+        name?: string;
+        address?: string;
+    };
 }
 
 export interface Comment {
@@ -94,15 +94,11 @@ export interface Chat {
 }
 
 // Notification Types
-export type NotificationType = 
+export type NotificationType =
     | 'REACTION_POST' | 'REACTION_COMMENT' | 'REACTION_STORY' | 'REACTION_NOTE'
     | 'COMMENT_POST' | 'COMMENT_MENTION' | 'REPLY_COMMENT'
     | 'SHARE_POST'
-    | 'FRIEND_REQUEST' | 'FRIEND_ACCEPT'
-    | 'TAG_POST' | 'TAG_COMMENT' | 'TAG_STORY'
-    | 'STORY_MENTION' | 'STORY_REPLY'
-    | 'GROUP_INVITE' | 'GROUP_POST' | 'GROUP_MENTION'
-    | 'SYSTEM_ANNOUNCEMENT' | 'BIRTHDAY_REMINDER' | 'MEMORY_REMINDER';
+    | 'TAG_POST' | 'TAG_COMMENT' | 'STORY_REPLY';
 
 export type TargetType = 'POST' | 'POST_SHARE' | 'NOTE' | 'STORY' | 'COMMENT';
 

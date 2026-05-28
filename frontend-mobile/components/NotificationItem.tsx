@@ -23,8 +23,14 @@ const notificationIconByType = (type: string) => {
     case "COMMENT_POST":
     case "COMMENT_MENTION":
     case "REPLY_COMMENT":
+    case "STORY_REPLY":
     case "comment":
       return "chatbubble-ellipses";
+    case "SHARE_POST":
+      return "share-social";
+    case "TAG_POST":
+    case "TAG_COMMENT":
+      return "pricetags";
     default:
       return "notifications";
   }
@@ -44,8 +50,18 @@ const getFallbackText = (type: string): string => {
     case "COMMENT_POST":
     case "comment":
       return "Đã bình luận bài viết của bạn";
+    case "COMMENT_MENTION":
+      return "Đã mention bạn trong bình luận";
     case "REPLY_COMMENT":
       return "Đã trả lời bình luận của bạn";
+    case "SHARE_POST":
+      return "Đã chia sẻ bài viết của bạn";
+    case "TAG_POST":
+      return "Đã tag bạn trong bài viết";
+    case "TAG_COMMENT":
+      return "Đã tag bạn trong bình luận";
+    case "STORY_REPLY":
+      return "Đã trả lời story của bạn";
     default:
       return "Có thông báo mới";
   }

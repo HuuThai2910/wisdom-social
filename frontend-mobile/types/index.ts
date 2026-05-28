@@ -151,7 +151,7 @@ export type NotificationType =
     | "REACTION_POST" | "REACTION_COMMENT" | "REACTION_STORY" | "REACTION_NOTE"
     | "COMMENT_POST" | "COMMENT_MENTION" | "REPLY_COMMENT"
     | "SHARE_POST"
-    | "TAG_POST" | "TAG_COMMENT";
+    | "TAG_POST" | "TAG_COMMENT" | "STORY_REPLY";
 
 export type TargetType = "POST" | "POST_SHARE" | "NOTE" | "STORY" | "COMMENT";
 
