@@ -598,6 +598,7 @@ export function useChatWindowController(args: {
     const olderMessagesAbortRef = useRef<AbortController | null>(null);
     const returningToPresentRef = useRef(false);
     const membersSyncInFlightRef = useRef(false);
+    const sendingOutboxIdsRef = useRef<Set<string>>(new Set());
     const mediaLoadStabilizerRef = useRef<{
         activeUntil: number;
         lastScrollHeight: number;
@@ -2815,10 +2816,14 @@ const list = Array.isArray(cursorData?.data)
 
     const sendOutboxItem = useCallback(
         async (item: OutboxMessage) => {
+            if (sendingOutboxIdsRef.current.has(item.clientMessageId)) {
+                return;
+            }
+            sendingOutboxIdsRef.current.add(item.clientMessageId);
             scrollOnNextRenderRef.current = "smooth";
-            await messageOutbox.updateStatus(item.clientMessageId, "sending");
-            setLocalMessageDeliveryStatus(item.clientMessageId, "sending");
             try {
+                await messageOutbox.updateStatus(item.clientMessageId, "sending");
+                setLocalMessageDeliveryStatus(item.clientMessageId, "sending");
                 const createdMessages = await uploadAndSendOutboxMedia(item);
                 scrollOnNextRenderRef.current = "smooth";
                 if (item.mediaFiles?.length) {
@@ -2842,6 +2847,8 @@ const list = Array.isArray(cursorData?.data)
                     await messageOutbox.updateStatus(item.clientMessageId, "failed");
                 }
                 throw new Error("SEND_OUTBOX_FAILED");
+            } finally {
+                sendingOutboxIdsRef.current.delete(item.clientMessageId);
             }
         },
         [
