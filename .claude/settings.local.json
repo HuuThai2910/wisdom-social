@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "WebSearch",
-      "Bash(npx tsc *)",
-      "Bash(echo \"EXIT=$?\")"
-    ]
-  }
-}

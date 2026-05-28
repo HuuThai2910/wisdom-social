@@ -1,7 +1,6 @@
 import axios, { type AxiosInstance } from "axios";
 import { getCookie, setCookie, clearAuthStorage } from "../utils/cookies";
-
-const API_BASE_URL = "/api";
+import { API_BASE_URL } from "../config/backend";
 
 const TOKEN_TTL_DAYS = 1/24;
 const REFRESH_MARGIN = 5 * 60 * 1000; 

@@ -7,6 +7,7 @@
 import { Client, type IMessage } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
 import type { Conversation, JoinRequest, Message, MessageType, PollResponse } from "./chatService";
+import { SOCKJS_URL } from "../config/backend";
 
 const normalizePresencePhone = (phone?: string | null): string | null => {
     if (!phone) return null;
@@ -513,9 +514,10 @@ class WebSocketService {
                  */
                 webSocketFactory: () => {
                     console.log(
-                        "🟡 Creating SockJS connection to http://localhost:8080/ws",
+                        "🟡 Creating SockJS connection to",
+                        SOCKJS_URL,
                     );
-                    return new SockJS("http://localhost:8080/ws");
+                    return new SockJS(SOCKJS_URL);
                 },
 
                 /**

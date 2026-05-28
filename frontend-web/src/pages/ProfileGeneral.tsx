@@ -8,8 +8,7 @@ import { useCurrentUser } from "../hooks/useCurrentUser";
 import websocketService from "../services/websocket";
 import { convertPhoneToInternational } from "../hooks/useCurrentUser";
 import { buildS3Url } from "../utils/s3";
-
-const API_BASE_URL = "http://localhost:8080/api";
+import { API_BASE_URL } from "../config/backend";
 
 export default function ProfileGeneral() {
   const { username } = useParams();
