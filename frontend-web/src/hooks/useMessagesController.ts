@@ -196,6 +196,7 @@ export function useMessagesController() {
                 const conversationData = Array.isArray(convs.data)
                     ? convs.data
                     : [];
+                setError(null);
                 // API trả về ok: set list hội thoại.
                 setConversations(
                     sortWithPinnedConversations(conversationData, pins),
@@ -235,6 +236,7 @@ export function useMessagesController() {
 
     useEffect(() => {
         if (!currentUserId) return;
+        const catchupTimers: number[] = [];
 
         const runCatchup = () => {
             const now = Date.now();
@@ -250,19 +252,26 @@ export function useMessagesController() {
             });
         };
 
+        const scheduleCatchup = () => {
+            [0, 3000, 8000].forEach((delay) => {
+                catchupTimers.push(window.setTimeout(runCatchup, delay));
+            });
+        };
+
         const handleVisibilityChange = () => {
             if (document.visibilityState === "visible") {
-                runCatchup();
+                scheduleCatchup();
             }
         };
 
-        window.addEventListener("online", runCatchup);
-        window.addEventListener("focus", runCatchup);
+        window.addEventListener("online", scheduleCatchup);
+        window.addEventListener("focus", scheduleCatchup);
         document.addEventListener("visibilitychange", handleVisibilityChange);
 
         return () => {
-            window.removeEventListener("online", runCatchup);
-            window.removeEventListener("focus", runCatchup);
+            catchupTimers.forEach((timerId) => window.clearTimeout(timerId));
+            window.removeEventListener("online", scheduleCatchup);
+            window.removeEventListener("focus", scheduleCatchup);
             document.removeEventListener(
                 "visibilitychange",
                 handleVisibilityChange,

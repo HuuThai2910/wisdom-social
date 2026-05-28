@@ -21,7 +21,6 @@ import {
 } from "../services/messageOutbox";
 import websocketService, {
     type MemberUpdatedEvent,
-    type MessageReactionEvent,
     type MessageSeenEvent,
     type PinUpdatedEvent,
     type TypingEvent,
@@ -1940,21 +1939,15 @@ const list = Array.isArray(cursorData?.data)
                 return;
             }
 
-            const newest = messagesRef.current.at(-1);
-            if (!newest?.createdAt) {
-                await syncConversationData();
-                return;
-            }
-
             const wasNearBottom = isNearBottom();
-            const response = await chatService.getNewerMessages(
+            const response = await chatService.getMessages(
                 conversationId,
                 userIdRef.current,
-                newest.createdAt,
+                null,
                 PAGE_SIZE,
             );
             const cursorData = response?.success ? response.data : null;
-            const newer = Array.isArray(cursorData?.data)
+            const latest = Array.isArray(cursorData?.data)
                 ? normalizeMessagesForUi(cursorData.data)
                 : [];
 
@@ -1967,7 +1960,31 @@ const list = Array.isArray(cursorData?.data)
                 return merged;
             });
 
-            let lastReadableIncomingId: string | null = null;
+            const currentMessages = messagesRef.current;
+            const currentIds = new Set(
+                currentMessages.map((message) => message.id),
+            );
+            const currentClientIds = new Set(
+                currentMessages
+                    .map((message) => message.clientMessageId)
+                    .filter(Boolean),
+            );
+            const missingLatest = latest.filter(
+                (message) =>
+                    !currentIds.has(message.id) &&
+                    (!message.clientMessageId ||
+                        !currentClientIds.has(message.clientMessageId)),
+            );
+            const lastReadableIncomingId =
+                [...missingLatest]
+                    .reverse()
+                    .find(
+                        (message) =>
+                            Number(message.senderId) !==
+                            Number(userIdRef.current),
+                    )?.id ?? null;
+            const missingMessageCount = missingLatest.length;
+
             setMessages((prev) => {
                 const existingIds = new Set(prev.map((message) => message.id));
                 const existingClientIds = new Set(
@@ -1975,7 +1992,7 @@ const list = Array.isArray(cursorData?.data)
                         .map((message) => message.clientMessageId)
                         .filter(Boolean),
                 );
-                const missing = newer.filter(
+                const missing = missingLatest.filter(
                     (message) =>
                         !existingIds.has(message.id) &&
                         (!message.clientMessageId ||
@@ -1983,12 +2000,6 @@ const list = Array.isArray(cursorData?.data)
                 );
 
                 if (missing.length === 0) return prev;
-
-                for (const message of missing) {
-                    if (Number(message.senderId) !== Number(userIdRef.current)) {
-                        lastReadableIncomingId = message.id;
-                    }
-                }
 
                 const nextMessages = applyWindowForNewer(
                     dedupeMessagesByIdentity([
@@ -1998,7 +2009,14 @@ const list = Array.isArray(cursorData?.data)
                                 ? { ...message, deliveryStatus: "sent" as const }
                                 : message,
                         ),
-                    ]),
+                    ]).sort((a, b) => {
+                        const timeA = Date.parse(a.createdAt ?? "");
+                        const timeB = Date.parse(b.createdAt ?? "");
+                        const safeTimeA = Number.isFinite(timeA) ? timeA : 0;
+                        const safeTimeB = Number.isFinite(timeB) ? timeB : 0;
+                        if (safeTimeA !== safeTimeB) return safeTimeA - safeTimeB;
+                        return String(a.id).localeCompare(String(b.id));
+                    }),
                 );
                 chatRuntimeStore.setMessages(conversationId, nextMessages);
                 return nextMessages;
@@ -2008,14 +2026,14 @@ const list = Array.isArray(cursorData?.data)
                 markAsRead(lastReadableIncomingId);
             }
 
-            if (newer.length > 0) {
+            if (missingMessageCount > 0) {
                 if (wasNearBottom) {
                     scrollOnNextRenderRef.current = "smooth";
                     setShowScrollToBottomButton(false);
                     setPendingNewMessages(0);
                 } else {
                     setShowScrollToBottomButton(true);
-                    setPendingNewMessages((count) => count + newer.length);
+                    setPendingNewMessages((count) => count + missingMessageCount);
                 }
             }
 
@@ -2036,20 +2054,32 @@ const list = Array.isArray(cursorData?.data)
 
     useEffect(() => {
         if (!userId) return;
+        const catchupTimers: number[] = [];
+
+        const scheduleCatchup = () => {
+            [0, 3000, 8000].forEach((delay) => {
+                catchupTimers.push(
+                    window.setTimeout(() => {
+                        void catchUpActiveConversationMessages();
+                    }, delay),
+                );
+            });
+        };
 
         const handleVisibilityChange = () => {
             if (document.visibilityState === "visible") {
-                void catchUpActiveConversationMessages();
+                scheduleCatchup();
             }
         };
 
-        window.addEventListener("online", catchUpActiveConversationMessages);
-        window.addEventListener("focus", catchUpActiveConversationMessages);
+        window.addEventListener("online", scheduleCatchup);
+        window.addEventListener("focus", scheduleCatchup);
         document.addEventListener("visibilitychange", handleVisibilityChange);
 
         return () => {
-            window.removeEventListener("online", catchUpActiveConversationMessages);
-            window.removeEventListener("focus", catchUpActiveConversationMessages);
+            catchupTimers.forEach((timerId) => window.clearTimeout(timerId));
+            window.removeEventListener("online", scheduleCatchup);
+            window.removeEventListener("focus", scheduleCatchup);
             document.removeEventListener(
                 "visibilitychange",
                 handleVisibilityChange,
