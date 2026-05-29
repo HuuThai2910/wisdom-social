@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import toast from 'react-hot-toast';
 import {
   Search,
@@ -12,6 +12,7 @@ import {
 import musicService from '../services/musicService';
 import type { MusicTrack, PaginatedResponse } from '../types/models';
 import { buildS3Url } from '../utils/s3';
+import { audioPlayer } from '../utils/audioPlayer';
 
 const PAGE_SIZE = 20;
 
@@ -36,8 +37,8 @@ export default function Music() {
   const [searchMode, setSearchMode] = useState<'title' | 'artist'>('title');
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<MusicTrack[] | null>(null);
-  const [playingId, setPlayingId] = useState<string | null>(null);
-  const [audioEl, setAudioEl] = useState<HTMLAudioElement | null>(null);
+  // Trạng thái phát được giữ ở singleton -> không mất khi chuyển trang rồi quay lại
+  const playingId = useSyncExternalStore(audioPlayer.subscribe, audioPlayer.getPlayingId);
 
   const loadPage = async (p: number) => {
     setLoading(true);
@@ -83,21 +84,15 @@ export default function Music() {
 
   const togglePlay = (track: MusicTrack) => {
     if (playingId === track.id) {
-      audioEl?.pause();
-      setPlayingId(null);
-      setAudioEl(null);
+      audioPlayer.toggle(track.id, '');
       return;
     }
-    audioEl?.pause();
-    if (!track.audioUrl) {
+    const src = buildS3Url(track.audioUrl);
+    if (!src) {
       toast.error('Không có URL phát nhạc');
       return;
     }
-    const audio = new Audio(track.audioUrl);
-    audio.play().catch(() => toast.error('Không thể phát nhạc'));
-    audio.onended = () => { setPlayingId(null); setAudioEl(null); };
-    setPlayingId(track.id);
-    setAudioEl(audio);
+    audioPlayer.toggle(track.id, src, () => toast.error('Không thể phát nhạc'));
   };
 
   const tracks = searchResults ?? data.content;

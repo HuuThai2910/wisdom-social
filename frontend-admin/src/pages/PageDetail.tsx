@@ -11,7 +11,6 @@ import {
   Trash2,
   Check,
   X,
-  UserCog,
 } from 'lucide-react';
 import pageService from '../services/pageService';
 import type { Page, PageMember, Post } from '../types/models';

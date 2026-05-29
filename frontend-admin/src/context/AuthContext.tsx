@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import authService from '../services/authService';
 import type { User } from '../types/models';
 import { clearAuthStorage, getCookie } from '../utils/cookies';
+import { setAuditActor } from '../services/auditLogService';
 
 interface AuthContextValue {
   user: User | null;
@@ -16,6 +17,12 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Đồng bộ chủ thể thực hiện cho nhật ký hoạt động
+  useEffect(() => {
+    if (user) setAuditActor({ id: user.id, name: user.name || user.username || user.phone || 'Admin' });
+    else setAuditActor(null);
+  }, [user]);
 
   const refreshMe = async () => {
     const token = getCookie('accessToken');

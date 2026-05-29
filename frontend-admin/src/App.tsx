@@ -10,6 +10,7 @@ import PageDetail from './pages/PageDetail';
 import Posts from './pages/Posts';
 import Stories from './pages/Stories';
 import Music from './pages/Music';
+import ActivityLog from './pages/ActivityLog';
 import Settings from './pages/Settings';
 import './App.css';
 
@@ -33,6 +34,7 @@ function App() {
           <Route path="posts" element={<Posts />} />
           <Route path="stories" element={<Stories />} />
           <Route path="music" element={<Music />} />
+          <Route path="activity-log" element={<ActivityLog />} />
           <Route path="settings" element={<Settings />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
