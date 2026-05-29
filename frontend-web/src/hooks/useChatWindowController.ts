@@ -64,6 +64,7 @@ import {
 export type { ReadReceipt } from "../utils/chatWindowControllerUtils";
 
 const OUTBOX_RETRY_INTERVAL_MS = 3000;
+const MAX_TEXT_MESSAGE_LENGTH = 3500;
 
 function incrementMessageReaction(
     message: Message,
@@ -124,15 +125,15 @@ function buildOptimisticTextMessage(
     request: SendMessageRequest,
     userId: number,
     clientMessageId: string,
+    createdAt = new Date().toISOString(),
 ): Message {
-    const now = new Date().toISOString();
     return {
         id: `local-${clientMessageId}`,
         conversationId: request.conversationId ?? 0,
         clientMessageId,
         content: request.content,
         type: request.type,
-        createdAt: now,
+        createdAt,
         senderId: userId,
         replyInfo: request.replyToId
             ? {
@@ -142,6 +143,39 @@ function buildOptimisticTextMessage(
         attachments: request.attachments,
         deliveryStatus: "sending",
     };
+}
+
+function splitLongTextMessage(
+    content: string,
+    maxLength = MAX_TEXT_MESSAGE_LENGTH,
+): string[] {
+    const trimmed = content.trim();
+    if (!trimmed) return [];
+    if (trimmed.length <= maxLength) return [trimmed];
+
+    const parts: string[] = [];
+    let remaining = trimmed;
+
+    while (remaining.length > maxLength) {
+        const windowText = remaining.slice(0, maxLength + 1);
+        const breakAt = Math.max(
+            windowText.lastIndexOf("\n"),
+            windowText.lastIndexOf(" "),
+            windowText.lastIndexOf("\t"),
+        );
+        const splitAt = breakAt >= Math.floor(maxLength * 0.6) ? breakAt : maxLength;
+        const part = remaining.slice(0, splitAt).trim();
+        if (part) {
+            parts.push(part);
+        }
+        remaining = remaining.slice(splitAt).trimStart();
+    }
+
+    if (remaining.trim()) {
+        parts.push(remaining.trim());
+    }
+
+    return parts;
 }
 
 function buildOptimisticMediaMessage(
@@ -549,6 +583,14 @@ export function useChatWindowController(args: {
     // Refs: DOM anchors cho scroll.
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const messagesContainerRef = useRef<HTMLDivElement>(null);
+    const messagesRef = useRef<Message[]>([]);
+    const activeConversationCatchupRef = useRef({
+        inFlight: false,
+        lastRunAt: 0,
+        needsCatchup: false,
+        retryTimerId: null as number | null,
+        retryAttempts: 0,
+    });
 
     // userIdRef dùng cho websocket callback (tránh stale closure nếu userId thay đổi).
     const userIdRef = useRef(userId);
@@ -579,6 +621,10 @@ export function useChatWindowController(args: {
         forceAutoScrollUntilRef.current = Date.now() + durationMs;
     }, []);
 
+    useEffect(() => {
+        messagesRef.current = messages;
+    }, [messages]);
+
     const shouldForceAutoScroll = useCallback(
         () => Date.now() < forceAutoScrollUntilRef.current,
         [],
@@ -598,6 +644,9 @@ export function useChatWindowController(args: {
     const returningToPresentRef = useRef(false);
     const membersSyncInFlightRef = useRef(false);
     const sendingOutboxIdsRef = useRef<Set<string>>(new Set());
+    const readReceiptCatchupTimeoutsRef = useRef<ReturnType<
+        typeof setTimeout
+    >[]>([]);
     const mediaLoadStabilizerRef = useRef<{
         activeUntil: number;
         lastScrollHeight: number;
@@ -852,6 +901,69 @@ export function useChatWindowController(args: {
         [],
     );
 
+    const applyReadReceiptsFromMembers = useCallback(
+        (members: MembersByUserId) => {
+            const receipts: ReadReceipt[] = Object.values(members)
+                .filter(
+                    (member) =>
+                        Number(member.userId) !== Number(userIdRef.current) &&
+                        member.lastReadMessageId,
+                )
+                .map((member) => ({
+                    userId: Number(member.userId),
+                    lastMessageId: member.lastReadMessageId!,
+                    seenAt: new Date().toISOString(),
+                }));
+
+            setReadReceipts(receipts);
+        },
+        [],
+    );
+
+    const syncReadReceiptsFromMembers = useCallback(async () => {
+        try {
+            const membersResponse =
+                await chatService.getConversationMembers(conversationId);
+            const normalizedMembers = toMembersByUserId(membersResponse);
+
+            setMembersById((prev) => {
+                const merged = {
+                    ...prev,
+                    ...normalizedMembers,
+                };
+                chatRuntimeStore.setMembers(conversationId, merged);
+                return merged;
+            });
+            setConversation((previousConversation) => {
+                if (!previousConversation) return previousConversation;
+                const nextConversation = {
+                    ...previousConversation,
+                    members: Object.values({
+                        ...toMembersByUserId(previousConversation.members ?? []),
+                        ...normalizedMembers,
+                    }),
+                };
+                chatRuntimeStore.setConversation(conversationId, nextConversation);
+                return nextConversation;
+            });
+            applyReadReceiptsFromMembers(normalizedMembers);
+        } catch {
+            // Best-effort catch-up only. Realtime websocket/F5 still covers this.
+        }
+    }, [applyReadReceiptsFromMembers, conversationId]);
+
+    const scheduleReadReceiptCatchup = useCallback(() => {
+        readReceiptCatchupTimeoutsRef.current.forEach((timerId) =>
+            clearTimeout(timerId),
+        );
+        readReceiptCatchupTimeoutsRef.current = [0, 1200, 3000, 6000].map(
+            (delay) =>
+                setTimeout(() => {
+                    void syncReadReceiptsFromMembers();
+                }, delay),
+        );
+    }, [syncReadReceiptsFromMembers]);
+
     const syncConversationData = useCallback(async () => {
         if (membersSyncInFlightRef.current) return;
         membersSyncInFlightRef.current = true;
@@ -882,12 +994,13 @@ export function useChatWindowController(args: {
                 chatRuntimeStore.setMembers(conversationId, merged);
                 return merged;
             });
+            applyReadReceiptsFromMembers(normalizedMembers);
         } catch (err) {
             console.error("Failed to sync conversation data:", err);
         } finally {
             membersSyncInFlightRef.current = false;
         }
-    }, [conversationId]);
+    }, [applyReadReceiptsFromMembers, conversationId]);
 
     const applyWindowForOlder = useCallback((nextMessages: Message[]) => {
         if (nextMessages.length <= MESSAGE_WINDOW_LIMIT) {
@@ -1847,6 +1960,221 @@ const list = Array.isArray(cursorData?.data)
         [conversationId, userId, onMarkAsRead],
     );
 
+    const catchUpActiveConversationMessages = useCallback(async () => {
+        const now = Date.now();
+        if (activeConversationCatchupRef.current.inFlight) return;
+        if (now - activeConversationCatchupRef.current.lastRunAt < 2500) {
+            return;
+        }
+
+        activeConversationCatchupRef.current.inFlight = true;
+        activeConversationCatchupRef.current.lastRunAt = now;
+
+        try {
+            if (isHistoricalModeRef.current) {
+                await syncConversationData();
+                activeConversationCatchupRef.current.needsCatchup = false;
+                return;
+            }
+
+            const wasNearBottom = isNearBottom();
+            const response = await chatService.getMessages(
+                conversationId,
+                userIdRef.current,
+                null,
+                PAGE_SIZE,
+            );
+            const cursorData = response?.success ? response.data : null;
+            const latest = Array.isArray(cursorData?.data)
+                ? normalizeMessagesForUi(cursorData.data)
+                : [];
+
+            setMembersById((prev) => {
+                const merged = mergeReferenceUsers(
+                    prev,
+                    cursorData?.referenceUsers ?? {},
+                );
+                chatRuntimeStore.setMembers(conversationId, merged);
+                return merged;
+            });
+
+            const currentMessages = messagesRef.current;
+            const currentIds = new Set(
+                currentMessages.map((message) => message.id),
+            );
+            const currentClientIds = new Set(
+                currentMessages
+                    .map((message) => message.clientMessageId)
+                    .filter(Boolean),
+            );
+            const missingLatest = latest.filter(
+                (message) =>
+                    !currentIds.has(message.id) &&
+                    (!message.clientMessageId ||
+                        !currentClientIds.has(message.clientMessageId)),
+            );
+            const lastReadableIncomingId =
+                [...missingLatest]
+                    .reverse()
+                    .find(
+                        (message) =>
+                            Number(message.senderId) !==
+                            Number(userIdRef.current),
+                    )?.id ?? null;
+            const missingMessageCount = missingLatest.length;
+
+            setMessages((prev) => {
+                const existingIds = new Set(prev.map((message) => message.id));
+                const existingClientIds = new Set(
+                    prev
+                        .map((message) => message.clientMessageId)
+                        .filter(Boolean),
+                );
+                const missing = missingLatest.filter(
+                    (message) =>
+                        !existingIds.has(message.id) &&
+                        (!message.clientMessageId ||
+                            !existingClientIds.has(message.clientMessageId)),
+                );
+
+                if (missing.length === 0) return prev;
+
+                const nextMessages = applyWindowForNewer(
+                    dedupeMessagesByIdentity([
+                        ...prev,
+                        ...missing.map((message) =>
+                            Number(message.senderId) === Number(userIdRef.current)
+                                ? { ...message, deliveryStatus: "sent" as const }
+                                : message,
+                        ),
+                    ]).sort((a, b) => {
+                        const timeA = Date.parse(a.createdAt ?? "");
+                        const timeB = Date.parse(b.createdAt ?? "");
+                        const safeTimeA = Number.isFinite(timeA) ? timeA : 0;
+                        const safeTimeB = Number.isFinite(timeB) ? timeB : 0;
+                        if (safeTimeA !== safeTimeB) return safeTimeA - safeTimeB;
+                        return String(a.id).localeCompare(String(b.id));
+                    }),
+                );
+                chatRuntimeStore.setMessages(conversationId, nextMessages);
+                return nextMessages;
+            });
+
+            if (lastReadableIncomingId && wasNearBottom) {
+                markAsRead(lastReadableIncomingId);
+            }
+
+            if (missingMessageCount > 0) {
+                if (wasNearBottom) {
+                    scrollOnNextRenderRef.current = "smooth";
+                    setShowScrollToBottomButton(false);
+                    setPendingNewMessages(0);
+                } else {
+                    setShowScrollToBottomButton(true);
+                    setPendingNewMessages((count) => count + missingMessageCount);
+                }
+            }
+
+            await syncConversationData();
+            activeConversationCatchupRef.current.needsCatchup = false;
+        } catch {
+            activeConversationCatchupRef.current.needsCatchup = true;
+            // Best-effort catch-up. WebSocket hoặc lần focus/online tiếp theo sẽ thử lại.
+        } finally {
+            activeConversationCatchupRef.current.inFlight = false;
+        }
+    }, [
+        applyWindowForNewer,
+        conversationId,
+        isNearBottom,
+        markAsRead,
+        mergeReferenceUsers,
+        syncConversationData,
+    ]);
+
+    useEffect(() => {
+        if (!userId) return;
+        const catchupTimers: number[] = [];
+        const clearRetryTimer = () => {
+            const timerId = activeConversationCatchupRef.current.retryTimerId;
+            if (timerId !== null) {
+                window.clearTimeout(timerId);
+                activeConversationCatchupRef.current.retryTimerId = null;
+            }
+        };
+
+        const scheduleRetryLoop = () => {
+            if (activeConversationCatchupRef.current.retryTimerId !== null) return;
+            activeConversationCatchupRef.current.retryTimerId = window.setTimeout(() => {
+                activeConversationCatchupRef.current.retryTimerId = null;
+                if (!activeConversationCatchupRef.current.needsCatchup) {
+                    activeConversationCatchupRef.current.retryAttempts = 0;
+                    return;
+                }
+                if (document.visibilityState !== "visible" || !navigator.onLine) {
+                    scheduleRetryLoop();
+                    return;
+                }
+                if (activeConversationCatchupRef.current.retryAttempts >= 20) {
+                    activeConversationCatchupRef.current.retryAttempts = 0;
+                    return;
+                }
+                activeConversationCatchupRef.current.retryAttempts += 1;
+                void catchUpActiveConversationMessages();
+                scheduleRetryLoop();
+            }, 3000);
+        };
+
+        const scheduleCatchup = () => {
+            if (!activeConversationCatchupRef.current.needsCatchup) return;
+            activeConversationCatchupRef.current.retryAttempts = 0;
+            [0, 3000, 8000].forEach((delay) => {
+                catchupTimers.push(
+                    window.setTimeout(() => {
+                        void catchUpActiveConversationMessages();
+                    }, delay),
+                );
+            });
+            scheduleRetryLoop();
+        };
+
+        const forceCatchup = () => {
+            activeConversationCatchupRef.current.needsCatchup = true;
+            scheduleCatchup();
+        };
+
+        const markNeedsCatchup = () => {
+            activeConversationCatchupRef.current.needsCatchup = true;
+            activeConversationCatchupRef.current.retryAttempts = 0;
+            scheduleRetryLoop();
+        };
+
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === "visible") {
+                scheduleCatchup();
+            }
+        };
+
+        window.addEventListener("online", forceCatchup);
+        window.addEventListener("wisdom-websocket-reconnected", forceCatchup);
+        window.addEventListener("offline", markNeedsCatchup);
+        window.addEventListener("focus", scheduleCatchup);
+        document.addEventListener("visibilitychange", handleVisibilityChange);
+
+        return () => {
+            catchupTimers.forEach((timerId) => window.clearTimeout(timerId));
+            clearRetryTimer();
+            window.removeEventListener("online", forceCatchup);
+            window.removeEventListener("wisdom-websocket-reconnected", forceCatchup);
+            window.removeEventListener("offline", markNeedsCatchup);
+            window.removeEventListener("focus", scheduleCatchup);
+            document.removeEventListener(
+                "visibilitychange",
+                handleVisibilityChange,
+            );
+        };
+    }, [catchUpActiveConversationMessages, userId]);
+
     /**
      * handleMessageSeen - Xử lý khi nhận được event "Người khác đã xem"
      *
@@ -2388,6 +2716,10 @@ const list = Array.isArray(cursorData?.data)
                 clearTimeout(timeoutId),
             );
             typingTimeoutsRef.current.clear();
+            readReceiptCatchupTimeoutsRef.current.forEach((timeoutId) =>
+                clearTimeout(timeoutId),
+            );
+            readReceiptCatchupTimeoutsRef.current = [];
 
             // Cleanup recording: dừng MediaRecorder nếu đang ghi, tránh leak stream
             if (mediaRecorderRef.current) {
@@ -2835,6 +3167,7 @@ const list = Array.isArray(cursorData?.data)
                 }
                 await messageOutbox.remove(item.clientMessageId);
                 setError(null);
+                scheduleReadReceiptCatchup();
             } catch (error) {
                 if (isLikelyNetworkSendError(error)) {
                     scrollOnNextRenderRef.current = "smooth";
@@ -2853,6 +3186,7 @@ const list = Array.isArray(cursorData?.data)
         [
             appendCreatedMessagesFromOutbox,
             replaceLocalMessage,
+            scheduleReadReceiptCatchup,
             setLocalMessageDeliveryStatus,
             uploadAndSendOutboxMedia,
         ],
@@ -2947,51 +3281,67 @@ const list = Array.isArray(cursorData?.data)
                 setSending(true);
                 setError(null);
 
-                const clientMessageId = createClientMessageId();
-                const request: SendMessageRequest = {
-                    content: trimmed,
-                    type: "TEXT",
-                    conversationId,
-                    clientMessageId,
-                };
-                if (replyToId) {
-                    // Backend hiện nhận reply theo trường replyToId.
-                    // Không gửi replyInfo từ FE để tránh lỗi parse JSON (500).
-                    request.replyToId = replyToId;
-                }
+                const textParts = splitLongTextMessage(trimmed);
+                const baseClientMessageId = createClientMessageId();
+                const baseCreatedAt = Date.now();
+                const outboxItems = textParts.map((content, partIndex) => {
+                    const clientMessageId =
+                        textParts.length === 1
+                            ? baseClientMessageId
+                            : `${baseClientMessageId}-part-${partIndex}`;
+                    const request: SendMessageRequest = {
+                        content,
+                        type: "TEXT",
+                        conversationId,
+                        clientMessageId,
+                    };
+                    if (replyToId && partIndex === 0) {
+                        // Backend hiện nhận reply theo trường replyToId.
+                        // Chỉ part đầu giữ reply preview để chuỗi text dài không bị lặp khung reply.
+                        request.replyToId = replyToId;
+                    }
 
-                const optimisticMessage = buildOptimisticTextMessage(
-                    request,
-                    userId,
-                    clientMessageId,
-                );
-                const outboxItem: OutboxMessage = {
-                    clientMessageId,
-                    conversationId,
-                    userId,
-                    request,
-                    preview: optimisticMessage,
-                    status: "pending",
-                    retryCount: 0,
-                    createdAt: optimisticMessage.createdAt,
-                    updatedAt: optimisticMessage.createdAt,
-                };
+                    const createdAt = new Date(
+                        baseCreatedAt + partIndex,
+                    ).toISOString();
+                    const optimisticMessage = buildOptimisticTextMessage(
+                        request,
+                        userId,
+                        clientMessageId,
+                        createdAt,
+                    );
+                    return {
+                        clientMessageId,
+                        conversationId,
+                        userId,
+                        request,
+                        preview: optimisticMessage,
+                        status: "pending" as const,
+                        retryCount: 0,
+                        createdAt: optimisticMessage.createdAt,
+                        updatedAt: optimisticMessage.createdAt,
+                    };
+                });
 
                 scrollOnNextRenderRef.current = "smooth";
                 setMessages((prev) => {
                     const nextMessages = applyWindowForNewer([
                         ...prev,
-                        optimisticMessage,
+                        ...outboxItems.map((item) => item.preview),
                     ]);
                     chatRuntimeStore.setMessages(conversationId, nextMessages);
                     return nextMessages;
                 });
 
-                await messageOutbox.save(outboxItem);
+                for (const outboxItem of outboxItems) {
+                    await messageOutbox.save(outboxItem);
+                }
                 setMessageText("");
                 // Sau khi send, thường server sẽ broadcast lại qua WS; dù vậy ta vẫn chủ động scroll.
                 scrollOnNextRenderRef.current = "smooth";
-                await sendOutboxItem(outboxItem).catch(() => undefined);
+                for (const outboxItem of outboxItems) {
+                    await sendOutboxItem(outboxItem).catch(() => undefined);
+                }
             } catch {
                 setError("Không thể gửi tin nhắn");
             } finally {
