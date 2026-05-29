@@ -68,6 +68,7 @@ export type DomainEventType =
     | "PIN_MESSAGE"
     | "UPIN_MESSAGE"
     | "MEMBER_UPDATED"
+    | "MEMBER_ACCOUNT_LOCK_CHANGED"
     | "NEW_JOIN_REQUEST"
     | "JOIN_REQUEST_PROCESSED";
 
@@ -103,6 +104,18 @@ export interface MemberUpdatedEvent {
     userId: number;
     newNickname: string;
     newAvatar?: string;
+}
+
+/**
+ * Sự kiện realtime khi tài khoản của 1 thành viên bị khóa/mở khóa.
+ * Phát trên cùng topic /topic/conversations/{id}/members.
+ * FE dùng để mask (hoặc bỏ mask) tên + avatar cho các user khác cùng hội thoại.
+ */
+export interface MemberAccountLockChangedEvent {
+    domainEventType: "MEMBER_ACCOUNT_LOCK_CHANGED";
+    conversationId: number;
+    userId: number;
+    accountLocked: boolean;
 }
 
 /**
@@ -924,6 +937,7 @@ class WebSocketService {
     subscribeToConversationMembers(
         conversationId: number,
         onMemberUpdated: (event: MemberUpdatedEvent) => void,
+        onAccountLockChanged?: (event: MemberAccountLockChangedEvent) => void,
     ) {
         if (!this.client?.connected) {
             console.error(
@@ -946,10 +960,20 @@ class WebSocketService {
             destination,
             (message: IMessage) => {
                 try {
-                    const event = JSON.parse(
-                        message.body,
-                    ) as MemberUpdatedEvent;
-                    onMemberUpdated(event);
+                    const event = JSON.parse(message.body) as
+                        | MemberUpdatedEvent
+                        | MemberAccountLockChangedEvent;
+                    // Phân loại theo domainEventType. Mặc định (client cũ/không có
+                    // field) coi như MEMBER_UPDATED để giữ tương thích ngược.
+                    if (
+                        event.domainEventType === "MEMBER_ACCOUNT_LOCK_CHANGED"
+                    ) {
+                        onAccountLockChanged?.(
+                            event as MemberAccountLockChangedEvent,
+                        );
+                    } else {
+                        onMemberUpdated(event as MemberUpdatedEvent);
+                    }
                 } catch (error) {
                     console.error("Error parsing member update:", error);
                 }
@@ -1053,7 +1077,25 @@ class WebSocketService {
                         | GroupDisbandedEvent
                         | NewJoinRequestEvent
                         | JoinRequestProcessedEvent
-                        | BlockedMembersUpdatedEvent;
+                        | BlockedMembersUpdatedEvent
+                        | MemberAccountLockChangedEvent;
+
+                    // Khóa/mở khóa tài khoản của 1 thành viên -> cập nhật SIDEBAR
+                    // (mask/bỏ mask tên + avatar) qua window event, không cần F5.
+                    const lockPayload = payload as MemberAccountLockChangedEvent;
+                    if (
+                        lockPayload.domainEventType ===
+                            "MEMBER_ACCOUNT_LOCK_CHANGED" &&
+                        typeof lockPayload.conversationId === "number"
+                    ) {
+                        window.dispatchEvent(
+                            new CustomEvent(
+                                "conversation-member-lock-changed",
+                                { detail: lockPayload },
+                            ),
+                        );
+                        return;
+                    }
 
                     const createdConversation = (
                         payload as {

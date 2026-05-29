@@ -383,6 +383,58 @@ export function useMessagesController() {
         }
     }, [conversations]);
 
+    // Cập nhật SIDEBAR realtime khi 1 thành viên bị khóa/mở khóa tài khoản.
+    // websocket.ts phát window event này từ topic /topic/user/{id}/conversations.
+    useEffect(() => {
+        const handleMemberLockChanged = (event: Event) => {
+            const detail = (event as CustomEvent).detail as {
+                conversationId?: number;
+                userId?: number;
+                accountLocked?: boolean;
+            } | null;
+            if (!detail || typeof detail.conversationId !== "number") return;
+
+            const lockedUserId = Number(detail.userId);
+            const accountLocked = Boolean(detail.accountLocked);
+
+            setConversations((prev) =>
+                prev.map((conversation) => {
+                    if (conversation.id !== detail.conversationId)
+                        return conversation;
+
+                    // Cập nhật cờ trên member tương ứng (group + direct).
+                    const members = conversation.members?.map((member) =>
+                        Number(member.userId) === lockedUserId
+                            ? { ...member, accountLocked }
+                            : member,
+                    );
+
+                    return {
+                        ...conversation,
+                        members: members ?? conversation.members,
+                        // Direct: đồng bộ cờ đối phương để mask tên/avatar ở sidebar.
+                        directPartnerLocked:
+                            conversation.type === "DIRECT" &&
+                            Number(conversation.directPartnerId) === lockedUserId
+                                ? accountLocked
+                                : conversation.directPartnerLocked,
+                    };
+                }),
+            );
+        };
+
+        window.addEventListener(
+            "conversation-member-lock-changed",
+            handleMemberLockChanged,
+        );
+        return () => {
+            window.removeEventListener(
+                "conversation-member-lock-changed",
+                handleMemberLockChanged,
+            );
+        };
+    }, []);
+
     const fetchPinnedConversations = useCallback(async () => {
         const pins = await chatService.fetchPinnedConversations();
         setPinnedConversations(pins);

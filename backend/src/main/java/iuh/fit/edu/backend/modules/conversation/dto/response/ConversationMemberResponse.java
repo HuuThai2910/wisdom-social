@@ -27,6 +27,11 @@ public class ConversationMemberResponse {
     private Instant clearedAt;
     private String lastReadMessageId; // Mốc tin nhắn đã đọc (watermark)
 
+    // Tài khoản người dùng có đang bị Admin/Hệ thống khóa hay không (User.locked).
+    // KHÁC hoàn toàn với ConversationMemberStatus (trạng thái thành viên trong hội thoại).
+    // Mặc định false để client cũ bỏ qua field này vẫn chạy bình thường.
+    private boolean accountLocked;
+
     private MemberRole role;
     private ConversationMemberStatus status;
     private Instant joinedAt;

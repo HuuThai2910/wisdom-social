@@ -157,6 +157,9 @@ export interface ConversationSidebar {
     type: "DIRECT" | "GROUP";
     imageUrl?: string;
     directPartnerId?: number;
+    // Với hội thoại DIRECT: đối phương có đang bị khóa tài khoản không.
+    // Dùng để mask tên/avatar ở sidebar (không có sẵn danh sách members).
+    directPartnerLocked?: boolean;
     updatedAt: string;
     lastMessage?: LastMessage;
     unreadCount?: number;
@@ -221,6 +224,9 @@ export interface ConversationMember {
     leftAt?: string;
     blockedAt?: string;
     blockedById?: number;
+    // Tài khoản user có đang bị Admin/hệ thống khóa hay không (User.locked).
+    // KHÁC với MemberStatus. Optional để backward-compatible với client/response cũ.
+    accountLocked?: boolean;
 }
 
 export interface SendMessageRequest {
