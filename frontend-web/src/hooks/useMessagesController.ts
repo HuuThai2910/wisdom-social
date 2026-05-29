@@ -358,6 +358,7 @@ export function useMessagesController() {
         };
 
         window.addEventListener("online", forceCatchup);
+        window.addEventListener("wisdom-websocket-reconnected", forceCatchup);
         window.addEventListener("offline", markNeedsCatchup);
         window.addEventListener("focus", scheduleCatchup);
         document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -366,6 +367,7 @@ export function useMessagesController() {
             catchupTimers.forEach((timerId) => window.clearTimeout(timerId));
             clearRetryTimer();
             window.removeEventListener("online", forceCatchup);
+            window.removeEventListener("wisdom-websocket-reconnected", forceCatchup);
             window.removeEventListener("offline", markNeedsCatchup);
             window.removeEventListener("focus", scheduleCatchup);
             document.removeEventListener(

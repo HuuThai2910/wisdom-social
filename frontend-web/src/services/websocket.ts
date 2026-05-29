@@ -403,6 +403,10 @@ class WebSocketService {
      * Value: subscription object để unsubscribe sau này
      */
     private subscriptions: Map<string, any> = new Map();
+    private subscriptionFactories: Map<
+        string,
+        () => { unsubscribe: () => void }
+    > = new Map();
     private userConversationCallbacks: Map<
         number,
         Set<(
@@ -467,6 +471,49 @@ class WebSocketService {
             window.clearInterval(this.presenceHeartbeatTimer);
             this.presenceHeartbeatTimer = null;
         }
+    }
+
+    private syncSubscriptions() {
+        if (!this.client?.connected) return;
+
+        this.subscriptionFactories.forEach((factory, destination) => {
+            if (this.subscriptions.has(destination)) return;
+
+            try {
+                const subscription = factory();
+                this.subscriptions.set(destination, subscription);
+            } catch (error) {
+                console.warn("Không thể đồng bộ lại WebSocket subscription:", {
+                    destination,
+                    error,
+                });
+            }
+        });
+    }
+
+    private registerSubscription(
+        destination: string,
+        factory: () => { unsubscribe: () => void },
+    ) {
+        this.subscriptionFactories.set(destination, factory);
+
+        const activeSubscription = this.subscriptions.get(destination);
+        if (activeSubscription) {
+            activeSubscription.unsubscribe();
+            this.subscriptions.delete(destination);
+        }
+
+        this.syncSubscriptions();
+    }
+
+    private removeSubscription(destination: string) {
+        const activeSubscription = this.subscriptions.get(destination);
+        if (activeSubscription) {
+            activeSubscription.unsubscribe();
+            this.subscriptions.delete(destination);
+        }
+
+        this.subscriptionFactories.delete(destination);
     }
 
     /**
@@ -558,6 +605,8 @@ class WebSocketService {
                     console.log("🟢🟢🟢 STOMP Connected to server 🟢🟢🟢");
                     this.connectPromise = null; // Reset promise
                     this.startPresenceHeartbeat();
+                    this.syncSubscriptions();
+                    window.dispatchEvent(new Event("wisdom-websocket-reconnected"));
                     onConnect?.(); // Gọi callback của caller
                     resolve(); // Resolve promise để caller biết đã kết nối xong
                 },
@@ -585,6 +634,11 @@ class WebSocketService {
                     this.connectPromise = null; // Reset promise
                     onError?.(error);
                     reject(error); // Reject promise
+                },
+                onWebSocketClose: () => {
+                    this.stopPresenceHeartbeat();
+                    this.connectPromise = null;
+                    this.subscriptions.clear();
                 },
             });
 
@@ -620,6 +674,7 @@ class WebSocketService {
                 subscription.unsubscribe();
             });
             this.subscriptions.clear();
+            this.subscriptionFactories.clear();
             this.profileUpdateListeners.clear();
             this.presenceListeners.clear();
 
@@ -670,11 +725,6 @@ class WebSocketService {
     ) {
         // BƯỚC 1: Kiểm tra client đã kết nối chưa
         // client.connected = true chỉ khi STOMP handshake hoàn tất
-        if (!this.client?.connected) {
-            console.error("WebSocket not connected, cannot subscribe");
-            return;
-        }
-
         // BƯỚC 2: Tạo destination theo format của backend: /topic/conversation/{id}
         const destination = `/topic/conversation/${conversationId}`;
 
@@ -697,7 +747,13 @@ class WebSocketService {
          * 3. Phân loại dựa vào domainEventType
          * 4. Gọi callback tương ứng
          */
-        const subscription = this.client.subscribe(
+        this.registerSubscription(destination, () => {
+            const client = this.client;
+            if (!client?.connected) {
+                throw new Error("WebSocket not connected");
+            }
+
+            return client.subscribe(
             destination,
             (message: IMessage) => {
                 try {
@@ -738,10 +794,10 @@ class WebSocketService {
                     console.error("Error parsing message:", error);
                 }
             },
-        );
+            );
+        });
 
         // BƯỚC 5: Lưu subscription vào Map để có thể unsubscribe sau
-        this.subscriptions.set(destination, subscription);
         // console.log(`Subscribed to ${destination}`);
     }
 
@@ -759,6 +815,7 @@ class WebSocketService {
      */
     unsubscribeFromConversation(conversationId: number) {
         const destination = `/topic/conversation/${conversationId}`;
+        this.subscriptionFactories.delete(destination);
         const subscription = this.subscriptions.get(destination);
 
         if (subscription) {
@@ -817,12 +874,7 @@ class WebSocketService {
         }
 
         this.conversationSeenCallbacks.delete(conversationId);
-        const subscription = this.subscriptions.get(key);
-
-        if (subscription) {
-            subscription.unsubscribe();
-            this.subscriptions.delete(key);
-        }
+        this.removeSubscription(key);
     }
 
     subscribeToConversationPins(
@@ -838,7 +890,13 @@ class WebSocketService {
         const existingSubscription = this.subscriptions.get(destination);
         if (existingSubscription) return;
 
-        const subscription = this.client.subscribe(
+        this.registerSubscription(destination, () => {
+            const client = this.client;
+            if (!client?.connected) {
+                throw new Error("WebSocket not connected");
+            }
+
+            return client.subscribe(
             destination,
             (message: IMessage) => {
                 try {
@@ -848,9 +906,9 @@ class WebSocketService {
                     console.error("Error parsing pin update:", error);
                 }
             },
-        );
+            );
+        });
 
-        this.subscriptions.set(destination, subscription);
     }
 
     unsubscribeFromConversationPins(conversationId: number) {
@@ -878,7 +936,13 @@ class WebSocketService {
         const existingSubscription = this.subscriptions.get(destination);
         if (existingSubscription) return;
 
-        const subscription = this.client.subscribe(
+        this.registerSubscription(destination, () => {
+            const client = this.client;
+            if (!client?.connected) {
+                throw new Error("WebSocket not connected");
+            }
+
+            return client.subscribe(
             destination,
             (message: IMessage) => {
                 try {
@@ -890,9 +954,8 @@ class WebSocketService {
                     console.error("Error parsing member update:", error);
                 }
             },
-        );
-
-        this.subscriptions.set(destination, subscription);
+            );
+        });
     }
 
     unsubscribeFromConversationMembers(conversationId: number) {
@@ -936,13 +999,6 @@ class WebSocketService {
     ) {
         // BƯỚC 1: Kiểm tra kết nối WebSocket
         // Phải đảm bảo STOMP handshake đã hoàn tất trước khi subscribe
-        if (!this.client?.connected) {
-            console.error(
-                "WebSocket not connected, cannot subscribe to user conversations",
-            );
-            return;
-        }
-
         // BƯỚC 2: Tạo destination theo format của backend
         // Format: /topic/user/{userId}/conversations
         // VD: /topic/user/1/conversations cho user có ID = 1
@@ -980,7 +1036,13 @@ class WebSocketService {
         // 3. Event có cấu trúc: { type: "ROOM_UPDATED", conversationId: X, lastMessage: {...} }
         // 4. Trích xuất conversationId (từ event) và lastMessage (payload) riêng biệt
         // 5. Gọi callback với 2 tham số: conversationId và lastMessage
-        const subscription = this.client.subscribe(
+        this.registerSubscription(destination, () => {
+            const client = this.client;
+            if (!client?.connected) {
+                throw new Error("WebSocket not connected");
+            }
+
+            return client.subscribe(
             destination,
             (message: IMessage) => {
                 try {
@@ -1139,10 +1201,10 @@ class WebSocketService {
                     console.error("Error parsing conversation update:", error);
                 }
             },
-        );
+            );
+        });
 
         // BƯỚC 5: Lưu subscription vào Map để có thể unsubscribe sau này
-        this.subscriptions.set(destination, subscription);
         // console.log(`Subscribed to ${destination}`);
     }
 
@@ -1183,6 +1245,7 @@ class WebSocketService {
         }
         // Tạo lại destination để tìm subscription
         const destination = `/topic/user/${userId}/conversations`;
+        this.subscriptionFactories.delete(destination);
         const subscription = this.subscriptions.get(destination);
 
         if (subscription) {
