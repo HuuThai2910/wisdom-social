@@ -79,6 +79,28 @@ export const securityService = {
             return { success: false, message: msg || "Không thể xóa mã PIN." };
         }
     },
+
+    async changePassword(
+        currentPassword: string,
+        password: string,
+        confirmPassword: string,
+    ): Promise<SecurityResult> {
+        try {
+            const response = await axiosClient.post("auth/reset-password", {
+                currentPassword,
+                password,
+                confirmPassword,
+            });
+            const data = response.data?.data ?? response.data;
+            return {
+                success: true,
+                message: typeof data === "string" ? data : "Đổi mật khẩu thành công.",
+            };
+        } catch (error: any) {
+            const msg = error?.response?.data?.message || error?.response?.data || error?.message || "";
+            return { success: false, message: msg || "Không thể đổi mật khẩu." };
+        }
+    },
 };
 
 /**

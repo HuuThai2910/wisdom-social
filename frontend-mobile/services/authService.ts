@@ -333,6 +333,34 @@ export async function resetPassword(
     }
 }
 
+export async function changePassword(
+    currentPassword: string,
+    password: string,
+    confirmPassword: string,
+): Promise<{ success: boolean; message?: string }> {
+    try {
+        const response = await apiClient.post("/auth/reset-password", {
+            currentPassword,
+            password,
+            confirmPassword,
+        });
+        const data = response.data?.data ?? response.data;
+        return {
+            success: true,
+            message: typeof data === "string" ? data : "Đổi mật khẩu thành công.",
+        };
+    } catch (error: any) {
+        const msg = error?.response?.data?.message || error?.response?.data || error?.message || "";
+        return {
+            success: false,
+            message:
+                msg === "Current password is incorrect"
+                    ? "Mật khẩu hiện tại không chính xác."
+                    : msg || "Không thể đổi mật khẩu.",
+        };
+    }
+}
+
 export async function getCurrentUser(): Promise<ApiAuthUser | null> {
     try {
         const response = await apiClient.get("/auth/me");

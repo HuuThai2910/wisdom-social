@@ -133,7 +133,12 @@ public class UserController {
     @PostMapping("/reset-password")
     @ApiMessage("Password reset successfully")
     public ResponseEntity<String> resetPassword(@RequestBody UserRequestResetPassword requestResetPassword) {
-        boolean success = userService.resetPassword(requestResetPassword);
+        User currentUser = null;
+        if (requestResetPassword.getCurrentPassword() != null
+                && !requestResetPassword.getCurrentPassword().isBlank()) {
+            currentUser = userService.getCurrentUser();
+        }
+        boolean success = userService.resetPassword(requestResetPassword, currentUser);
         if (success) {
             return ResponseEntity.ok("Password has been reset successfully");
         }

@@ -67,6 +67,7 @@ public class SessionController {
         if (session.getStatus().equals(SessionStatus.CONFIRMED)){
             String accessToken = JwtAuthFilter.generateToken(session.getUser().getPhone());
             String refreshToken = JwtAuthFilter.generateRefreshToken(session.getUser().getPhone());
+            userService.replaceActiveTokensForLogin(session.getUser(), accessToken, refreshToken, null, "WEB");
             return ResponseEntity.ok(
                 UserResponseQRLoginToken.builder()
                     .accessToken(accessToken)

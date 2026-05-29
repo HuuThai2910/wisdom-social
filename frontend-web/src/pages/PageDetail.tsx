@@ -32,7 +32,7 @@ import {
   UserMinus,
   PenSquare,
   ImageIcon,
-  Plus,
+  ImagePlus,
 } from "lucide-react";
 import pageService, {
   type Page,
@@ -168,8 +168,8 @@ export default function PageDetail() {
   // Create post state
   const [showCreatePostModal, setShowCreatePostModal] = useState(false);
   const [createPostContent, setCreatePostContent] = useState("");
-  const [createPostImages, setCreatePostImages] = useState<string[]>([]);
-  const [createPostImageInput, setCreatePostImageInput] = useState("");
+  const [createPostMediaFiles, setCreatePostMediaFiles] = useState<File[]>([]);
+  const [createPostMediaPreviews, setCreatePostMediaPreviews] = useState<string[]>([]);
   const [isCreatingPost, setIsCreatingPost] = useState(false);
   const [createPostSuccess, setCreatePostSuccess] = useState<string | null>(
     null,
@@ -830,18 +830,24 @@ export default function PageDetail() {
 
   const handleCreatePost = async () => {
     if (!numericPageId || !currentUser?.id) return;
-    if (!createPostContent.trim() && createPostImages.length === 0) return;
+    if (!createPostContent.trim() && createPostMediaFiles.length === 0) return;
     setIsCreatingPost(true);
     try {
-      const postData = { content: createPostContent.trim() };
+      const postData = {
+        content: createPostContent.trim(),
+        privacy: "PUBLIC",
+        allowComments: true,
+        allowShares: true,
+      };
       await pageService.addPostToPage(
         numericPageId,
         postData,
-        createPostImages.length > 0 ? createPostImages : undefined,
+        createPostMediaFiles,
       );
       setCreatePostContent("");
-      setCreatePostImages([]);
-      setCreatePostImageInput("");
+      createPostMediaPreviews.forEach((url) => URL.revokeObjectURL(url));
+      setCreatePostMediaFiles([]);
+      setCreatePostMediaPreviews([]);
       setShowCreatePostModal(false);
       if (isOwnerOrAdmin) {
         // owner/admin posts are auto-approved → reload posts
@@ -863,12 +869,94 @@ export default function PageDetail() {
     }
   };
 
-  const handleAddImageUrl = () => {
-    const url = createPostImageInput.trim();
-    if (url && !createPostImages.includes(url)) {
-      setCreatePostImages((prev) => [...prev, url]);
+  const processCreatePostFiles = (files: FileList) => {
+    const nextFiles: File[] = [];
+    const nextPreviews: string[] = [];
+    let videoCount = createPostMediaFiles.filter((file) =>
+      file.type.startsWith("video/"),
+    ).length;
+    let hasError = false;
+
+    Array.from(files).forEach((file) => {
+      if (file.type.startsWith("image/")) {
+        if (file.size > 10 * 1024 * 1024) {
+          setNotification({
+            title: "Ảnh quá lớn",
+            message: `Ảnh ${file.name} vượt quá giới hạn 10MB.`,
+            variant: "warning",
+          });
+          hasError = true;
+          return;
+        }
+      } else if (file.type.startsWith("video/")) {
+        if (file.size > 100 * 1024 * 1024) {
+          setNotification({
+            title: "Video quá lớn",
+            message: `Video ${file.name} vượt quá giới hạn 100MB.`,
+            variant: "warning",
+          });
+          hasError = true;
+          return;
+        }
+        if (videoCount >= 2) {
+          setNotification({
+            title: "Quá số lượng video",
+            message: "Bạn chỉ có thể tải lên tối đa 2 video.",
+            variant: "warning",
+          });
+          hasError = true;
+          return;
+        }
+        videoCount++;
+      } else {
+        return;
+      }
+
+      if (createPostMediaFiles.length + nextFiles.length >= 10) {
+        if (!hasError) {
+          setNotification({
+            title: "Quá số lượng media",
+            message: "Bạn chỉ có thể tải lên tối đa 10 media.",
+            variant: "warning",
+          });
+        }
+        hasError = true;
+        return;
+      }
+
+      nextFiles.push(file);
+      nextPreviews.push(URL.createObjectURL(file));
+    });
+
+    if (nextFiles.length > 0) {
+      setCreatePostMediaFiles((prev) => [...prev, ...nextFiles]);
+      setCreatePostMediaPreviews((prev) => [...prev, ...nextPreviews]);
     }
-    setCreatePostImageInput("");
+  };
+
+  const handleCreatePostMediaSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files) {
+      processCreatePostFiles(files);
+    }
+    e.target.value = "";
+  };
+
+  const handleCreatePostDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer.files?.length) {
+      processCreatePostFiles(e.dataTransfer.files);
+    }
+  };
+
+  const resetCreatePostModal = () => {
+    if (isCreatingPost) return;
+    setShowCreatePostModal(false);
+    setCreatePostContent("");
+    createPostMediaPreviews.forEach((url) => URL.revokeObjectURL(url));
+    setCreatePostMediaFiles([]);
+    setCreatePostMediaPreviews([]);
   };
 
   if (loading) {
@@ -2185,14 +2273,7 @@ export default function PageDetail() {
         <div className="fixed inset-0 z-[9999] flex items-center justify-center">
           <div
             className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => {
-              if (!isCreatingPost) {
-                setShowCreatePostModal(false);
-                setCreatePostContent("");
-                setCreatePostImages([]);
-                setCreatePostImageInput("");
-              }
-            }}
+            onClick={resetCreatePostModal}
           />
           <div className="relative w-full max-w-lg mx-4 bg-white dark:bg-[#242526] rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
             {/* Modal Header */}
@@ -2214,14 +2295,7 @@ export default function PageDetail() {
                 </p>
               </div>
               <button
-                onClick={() => {
-                  if (!isCreatingPost) {
-                    setShowCreatePostModal(false);
-                    setCreatePostContent("");
-                    setCreatePostImages([]);
-                    setCreatePostImageInput("");
-                  }
-                }}
+                onClick={resetCreatePostModal}
                 className="w-9 h-9 flex items-center justify-center bg-gray-100 dark:bg-[#3a3b3c] rounded-full hover:bg-gray-200 dark:hover:bg-[#4e4f50] transition-colors"
               >
                 <X size={18} className="dark:text-white" />
@@ -2263,68 +2337,92 @@ export default function PageDetail() {
                 disabled={isCreatingPost}
               />
 
-              {/* Image URLs section */}
-              <div className="border border-gray-200 dark:border-[#3a3b3c] rounded-xl overflow-hidden">
+              {/* Media upload section */}
+              <div
+                className="border border-gray-200 dark:border-[#3a3b3c] rounded-xl overflow-hidden"
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onDrop={handleCreatePostDrop}
+              >
                 <div className="flex items-center gap-2 px-3 py-2.5 bg-gray-50 dark:bg-[#3a3b3c]">
                   <ImageIcon
                     size={18}
                     className="text-green-500 flex-shrink-0"
                   />
                   <span className="text-[14px] font-semibold text-gray-700 dark:text-gray-300">
-                    Thêm ảnh qua URL
+                    Thêm ảnh và video
                   </span>
                 </div>
                 <div className="p-3 space-y-2">
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={createPostImageInput}
-                      onChange={(e) => setCreatePostImageInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          handleAddImageUrl();
-                        }
-                      }}
-                      placeholder="Dán URL ảnh vào đây..."
-                      className="flex-1 px-3 py-2 bg-gray-100 dark:bg-[#242526] border-0 rounded-lg text-gray-900 dark:text-white placeholder-gray-400 text-[14px] focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      disabled={isCreatingPost}
-                    />
-                    <button
-                      onClick={handleAddImageUrl}
-                      disabled={!createPostImageInput.trim() || isCreatingPost}
-                      className="flex items-center justify-center w-9 h-9 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0"
-                    >
-                      <Plus size={18} />
-                    </button>
-                  </div>
+                  <input
+                    id="page-post-media-upload"
+                    type="file"
+                    accept="image/*,video/*"
+                    multiple
+                    className="hidden"
+                    onChange={handleCreatePostMediaSelect}
+                    disabled={isCreatingPost}
+                  />
+                  <label
+                    htmlFor="page-post-media-upload"
+                    className={`flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-300 dark:border-[#4e4f50] bg-gray-50 dark:bg-[#1f2021] px-4 py-6 text-center transition-colors ${
+                      isCreatingPost
+                        ? "cursor-not-allowed opacity-60"
+                        : "cursor-pointer hover:border-blue-400 dark:hover:border-blue-500"
+                    }`}
+                  >
+                    <ImagePlus size={30} className="text-gray-400" />
+                    <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">
+                      Chọn media hoặc kéo thả vào đây
+                    </span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      Tối đa 10 file, ảnh &lt; 10MB, video &lt; 100MB, tối đa 2 video
+                    </span>
+                  </label>
 
-                  {createPostImages.length > 0 && (
-                    <div className="grid grid-cols-3 gap-2 mt-2">
-                      {createPostImages.map((url, idx) => (
+                  {createPostMediaFiles.length > 0 && (
+                    <div className="grid grid-cols-3 gap-2 mt-3">
+                      {createPostMediaFiles.map((file, idx) => (
                         <div
-                          key={idx}
+                          key={`${file.name}-${idx}`}
                           className="relative group rounded-lg overflow-hidden bg-gray-100 dark:bg-[#3a3b3c] aspect-square"
                         >
-                          <img
-                            src={buildS3Url(url) || url}
-                            alt={`img-${idx}`}
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).src =
-                                "https://via.placeholder.com/100?text=!";
-                            }}
-                          />
+                          {file.type.startsWith("video/") ? (
+                            <video
+                              src={createPostMediaPreviews[idx]}
+                              className="w-full h-full object-cover"
+                              muted
+                            />
+                          ) : (
+                            <img
+                              src={createPostMediaPreviews[idx]}
+                              alt={file.name}
+                              className="w-full h-full object-cover"
+                            />
+                          )}
                           <button
-                            onClick={() =>
-                              setCreatePostImages((prev) =>
+                            type="button"
+                            onClick={() => {
+                              URL.revokeObjectURL(createPostMediaPreviews[idx]);
+                              setCreatePostMediaFiles((prev) =>
                                 prev.filter((_, i) => i !== idx),
-                              )
-                            }
+                              );
+                              setCreatePostMediaPreviews((prev) =>
+                                prev.filter((_, i) => i !== idx),
+                              );
+                            }}
+                            disabled={isCreatingPost}
                             className="absolute top-1 right-1 w-6 h-6 bg-black/60 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                           >
                             <X size={12} />
                           </button>
+                          {file.type.startsWith("video/") && (
+                            <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                              Video
+                            </span>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -2339,12 +2437,12 @@ export default function PageDetail() {
                 onClick={handleCreatePost}
                 disabled={
                   (!createPostContent.trim() &&
-                    createPostImages.length === 0) ||
+                    createPostMediaFiles.length === 0) ||
                   isCreatingPost
                 }
                 className={`w-full py-3 rounded-xl text-[15px] font-bold transition-all ${
                   (!createPostContent.trim() &&
-                    createPostImages.length === 0) ||
+                    createPostMediaFiles.length === 0) ||
                   isCreatingPost
                     ? "bg-gray-100 dark:bg-[#3a3b3c] text-gray-400 cursor-not-allowed"
                     : "bg-blue-500 text-white hover:bg-blue-600 active:scale-[0.98]"

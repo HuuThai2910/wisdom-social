@@ -19,6 +19,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/constants";
 import { useAppContext } from "@/context/AppContext";
+import { changePassword } from "@/services/authService";
 import {
     cancelAccountDeletion,
     logoutAllDevices,
@@ -26,6 +27,7 @@ import {
     setupPinCode,
     removePinCode,
 } from "@/services/securityService";
+import { validateResetPasswordForm } from "@/utils/validators";
 
 export default function SecuritySettingsScreen() {
     const router = useRouter();
@@ -33,6 +35,12 @@ export default function SecuritySettingsScreen() {
     const { currentUser, refreshCurrentUser, logout, deletionPending, deletionRemainingDays, clearDeletionPending } = useAppContext();
 
     const [loadingLogoutAll, setLoadingLogoutAll] = useState(false);
+    const [changePasswordModalVisible, setChangePasswordModalVisible] = useState(false);
+    const [currentPassword, setCurrentPassword] = useState("");
+    const [newPassword, setNewPassword] = useState("");
+    const [confirmNewPassword, setConfirmNewPassword] = useState("");
+    const [changePasswordError, setChangePasswordError] = useState("");
+    const [loadingChangePassword, setLoadingChangePassword] = useState(false);
     const [loadingDelete, setLoadingDelete] = useState(false);
     const [loadingCancel, setLoadingCancel] = useState(false);
 
@@ -158,6 +166,48 @@ export default function SecuritySettingsScreen() {
             ],
         );
     }, [logout, router]);
+
+    const openChangePasswordModal = useCallback(() => {
+        setCurrentPassword("");
+        setNewPassword("");
+        setConfirmNewPassword("");
+        setChangePasswordError("");
+        setChangePasswordModalVisible(true);
+    }, []);
+
+    const closeChangePasswordModal = useCallback(() => {
+        if (loadingChangePassword) return;
+        setChangePasswordModalVisible(false);
+        setCurrentPassword("");
+        setNewPassword("");
+        setConfirmNewPassword("");
+        setChangePasswordError("");
+    }, [loadingChangePassword]);
+
+    const handleChangePassword = useCallback(async () => {
+        if (!currentPassword.trim()) {
+            setChangePasswordError("Vui lòng nhập mật khẩu hiện tại.");
+            return;
+        }
+
+        const validation = validateResetPasswordForm(newPassword, confirmNewPassword);
+        if (!validation.isValid) {
+            setChangePasswordError(validation.error || "Mật khẩu mới không hợp lệ.");
+            return;
+        }
+
+        setLoadingChangePassword(true);
+        setChangePasswordError("");
+        const result = await changePassword(currentPassword, newPassword, confirmNewPassword);
+        setLoadingChangePassword(false);
+
+        if (result.success) {
+            closeChangePasswordModal();
+            Alert.alert("Thành công", "Đổi mật khẩu thành công.");
+        } else {
+            setChangePasswordError(result.message || "Không thể đổi mật khẩu.");
+        }
+    }, [closeChangePasswordModal, confirmNewPassword, currentPassword, newPassword]);
 
     const handleSetupPin = useCallback(async () => {
         const pinCode = setupPin.join('');
@@ -322,6 +372,28 @@ export default function SecuritySettingsScreen() {
                 contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
                 showsVerticalScrollIndicator={false}
             >
+                <Text style={styles.sectionTitle}>Mật khẩu</Text>
+                <View style={styles.card}>
+                    <TouchableOpacity
+                        style={styles.menuItem}
+                        onPress={openChangePasswordModal}
+                        activeOpacity={0.7}
+                    >
+                        <View style={styles.settingInfo}>
+                            <View style={[styles.iconWrap, { backgroundColor: "#E3F2FD" }]}>
+                                <Ionicons name="lock-closed" size={20} color="#3B82F6" />
+                            </View>
+                            <View>
+                                <Text style={styles.settingLabel}>Đổi mật khẩu</Text>
+                                <Text style={styles.settingDesc}>
+                                    Cập nhật mật khẩu đăng nhập của bạn
+                                </Text>
+                            </View>
+                        </View>
+                        <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+                    </TouchableOpacity>
+                </View>
+
                 <Text style={styles.sectionTitle}>Phiên đăng nhập</Text>
                 <View style={styles.card}>
                     <TouchableOpacity
@@ -481,6 +553,104 @@ export default function SecuritySettingsScreen() {
                     )}
                 </View>
             </ScrollView>
+
+            {/* Modal Đổi mật khẩu */}
+            <Modal
+                visible={changePasswordModalVisible}
+                transparent
+                animationType="slide"
+                onRequestClose={closeChangePasswordModal}
+            >
+                <Pressable style={styles.modalOverlay} onPress={closeChangePasswordModal}>
+                    <KeyboardAvoidingView
+                        behavior={Platform.OS === "ios" ? "padding" : "height"}
+                        style={styles.modalKeyboard}
+                    >
+                        <Pressable style={styles.modalSheet}>
+                            <View style={styles.modalHandle} />
+                            <View style={styles.modalIconWrap}>
+                                <Ionicons name="lock-closed" size={32} color={colors.primary} />
+                            </View>
+                            <Text style={styles.modalTitle}>Đổi mật khẩu</Text>
+                            <Text style={styles.modalDesc}>
+                                Nhập mật khẩu hiện tại và mật khẩu mới của bạn.
+                            </Text>
+
+                            <TextInput
+                                style={[
+                                    styles.changePasswordInput,
+                                    changePasswordError ? styles.passwordInputError : null,
+                                ]}
+                                value={currentPassword}
+                                onChangeText={(value) => {
+                                    setCurrentPassword(value);
+                                    setChangePasswordError("");
+                                }}
+                                placeholder="Mật khẩu hiện tại"
+                                placeholderTextColor={colors.textMuted}
+                                secureTextEntry
+                                autoCapitalize="none"
+                            />
+                            <TextInput
+                                style={[
+                                    styles.changePasswordInput,
+                                    changePasswordError ? styles.passwordInputError : null,
+                                ]}
+                                value={newPassword}
+                                onChangeText={(value) => {
+                                    setNewPassword(value);
+                                    setChangePasswordError("");
+                                }}
+                                placeholder="Mật khẩu mới"
+                                placeholderTextColor={colors.textMuted}
+                                secureTextEntry
+                                autoCapitalize="none"
+                            />
+                            <TextInput
+                                style={[
+                                    styles.changePasswordInput,
+                                    changePasswordError ? styles.passwordInputError : null,
+                                ]}
+                                value={confirmNewPassword}
+                                onChangeText={(value) => {
+                                    setConfirmNewPassword(value);
+                                    setChangePasswordError("");
+                                }}
+                                placeholder="Nhập lại mật khẩu mới"
+                                placeholderTextColor={colors.textMuted}
+                                secureTextEntry
+                                autoCapitalize="none"
+                            />
+
+                            {changePasswordError ? (
+                                <Text style={styles.passwordErrorText}>{changePasswordError}</Text>
+                            ) : null}
+
+                            <TouchableOpacity
+                                style={[styles.modalConfirmBtn, loadingChangePassword && { opacity: 0.7 }]}
+                                onPress={handleChangePassword}
+                                disabled={loadingChangePassword}
+                                activeOpacity={0.8}
+                            >
+                                {loadingChangePassword ? (
+                                    <ActivityIndicator size="small" color="#fff" />
+                                ) : (
+                                    <Text style={styles.modalConfirmText}>Cập nhật</Text>
+                                )}
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={styles.modalCancelBtn}
+                                onPress={closeChangePasswordModal}
+                                disabled={loadingChangePassword}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={styles.modalCancelText}>Hủy</Text>
+                            </TouchableOpacity>
+                        </Pressable>
+                    </KeyboardAvoidingView>
+                </Pressable>
+            </Modal>
 
             {/* Modal Thiết lập mã PIN */}
             <Modal
@@ -927,6 +1097,18 @@ const styles = StyleSheet.create({
         marginBottom: 16,
         textAlign: "center",
         letterSpacing: 8,
+    },
+    changePasswordInput: {
+        width: "100%",
+        height: 52,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: 12,
+        paddingHorizontal: 16,
+        fontSize: 15,
+        color: colors.text,
+        backgroundColor: colors.surface,
+        marginBottom: 12,
     },
     passwordInputError: {
         borderColor: colors.danger,

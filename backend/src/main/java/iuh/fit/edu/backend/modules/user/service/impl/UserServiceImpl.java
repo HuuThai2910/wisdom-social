@@ -21,12 +21,14 @@ import iuh.fit.edu.backend.common.exception.AccountLockedException;
 import iuh.fit.edu.backend.common.exception.RateLimitExceededException;
 import iuh.fit.edu.backend.common.service.security.AccountLockService;
 import iuh.fit.edu.backend.common.service.security.RateLimitService;
+import iuh.fit.edu.backend.common.service.sms.EsmsOtpService;
 import iuh.fit.edu.backend.modules.user.service.BlockUserService;
 import iuh.fit.edu.backend.modules.user.service.UserService;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -35,6 +37,7 @@ import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.*;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
@@ -49,6 +52,8 @@ import java.util.stream.Collectors;
  */
 @Service
 public class UserServiceImpl implements UserService {
+    private static final Duration PENDING_REGISTER_TTL = Duration.ofMinutes(15);
+
     @Value("${aws.cognito.clientId}")
     private String userClientId;
     @Value("${aws.cognito.userPoolId}")
@@ -65,6 +70,8 @@ public class UserServiceImpl implements UserService {
     RateLimitService rateLimitService;
     AccountLockService accountLockService;
     FriendRepository friendRepository;
+    EsmsOtpService esmsOtpService;
+    RedisTemplate<String, Object> redisTemplate;
 
 
     public UserServiceImpl(BlackListUserRepository blackListUserRepository,
@@ -75,7 +82,9 @@ public class UserServiceImpl implements UserService {
                            ActiveTokenRepository activeTokenRepository,
                            RateLimitService rateLimitService,
                            AccountLockService accountLockService,
-                           FriendRepository friendRepository
+                           FriendRepository friendRepository,
+                           EsmsOtpService esmsOtpService,
+                           RedisTemplate<String, Object> redisTemplate
                            ) {
         this.blackListUserRepository = blackListUserRepository;
         this.blockUserService = blockUserService;
@@ -88,9 +97,11 @@ public class UserServiceImpl implements UserService {
         this.rateLimitService = rateLimitService;
         this.accountLockService = accountLockService;
         this.friendRepository = friendRepository;
+        this.esmsOtpService = esmsOtpService;
+        this.redisTemplate = redisTemplate;
     }
 
-    /*Đăng kí tài khoản bằng aws cognito
+    /*Gửi OTP đăng kí qua ESMS, chỉ lưu tạm thông tin đăng kí chờ xác thực
     * @params
     * phone:số điện thoại người dùng
     * password:
@@ -100,44 +111,28 @@ public class UserServiceImpl implements UserService {
     @Transactional
     public UserResponseRegister registerUser(UserRequestRegister register) {
         if(register.getPassword().equals(register.getConfirmPassword())){
-            String phone="+84"+register.getPhone().substring(1,10);
             User user=userMapper.UserRegistertoUser(register);
             User temp=userRepository.findByPhone(user.getPhone());
 
             if(user!=null){
+                if (temp != null) {
+                    throw new RuntimeException("Phone number already exists");
+                }
                 String username=randomUsernameGenerator();
                 if (userRepository.existsUserByUsername(username)){
                     username=randomUsernameGenerator();
                 }
                 user.setUsername(username);
                 user.setName("Không rõ");
-                SignUpRequest request=SignUpRequest.builder()
-                        .clientId(userClientId)
-                        .username(phone)
-                        .password(register.getPassword())
-                        .userAttributes(
-                                AttributeType.builder()
-                                        .name("phone_number")
-                                        .value(phone)
-                                        .build()
-                        )
-                        .build();
-                if (checkUserStatus(phone)){
-                    AdminDeleteUserRequest deleteRequest = AdminDeleteUserRequest.builder()
-                            .userPoolId(userPoolId)
-                            .username(phone)
-                            .build();
-                    cognitoClient.adminDeleteUser(deleteRequest);
-                    if(temp!=null && temp.getPhone().equals(user.getPhone())){
-                        deviceRepository.deleteDeviceByUser_Id(temp.getId());
-                        userRepository.deleteById(temp.getId());
-                    }
+                register.setPhone(user.getPhone());
+                try {
+                    storePendingRegister(register, username);
+                    esmsOtpService.sendRegisterOtp(register.getPhone());
+                    return userMapper.UsertoUserRegisterResponse(user);
+                } catch (RuntimeException e) {
+                    deletePendingRegister(register.getPhone());
+                    throw e;
                 }
-
-                cognitoClient.signUp(request);
-                userRepository.save(user);
-                saveDevice(user, register.getDeviceType(), register.getDeviceName(), register.getIpAddress());
-                return userMapper.UsertoUserRegisterResponse(user);
 
             }
         }
@@ -145,42 +140,64 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Transactional
     public UserResponseConfirmRegister confirmRegisterUser(UserRequestConfirmRegister confirm) {
         long otpLock = rateLimitService.checkOtpLock(confirm.getPhone());
         if (otpLock > 0) {
             throw new RateLimitExceededException(otpLock);
         }
 
-        String phone = "+84" + confirm.getPhone().substring(1, 10);
-
-        System.out.println("Confirming registration for phone: " + phone + " with OTP: " + confirm.getOtp());
-        ConfirmSignUpRequest request = ConfirmSignUpRequest.builder()
-                .clientId(userClientId)
-                .username(phone)
-                .confirmationCode(confirm.getOtp())
-                .build();
-
-        try {
-            ConfirmSignUpResponse response = cognitoClient.confirmSignUp(request);
-            if (response != null) {
-                rateLimitService.clearOtpAttempts(confirm.getPhone());
-                return UserResponseConfirmRegister.builder()
-                        .status(true)
-                        .build();
-            }
-            return null;
-        } catch (CodeMismatchException e) {
-            long lockSec = rateLimitService.recordFailedOtp(confirm.getPhone());
-            if (lockSec > 0) {
-                throw new RateLimitExceededException(lockSec);
-            }
-            throw new RuntimeException("Invalid confirmation code: " + e.getMessage());
-        } catch (ExpiredCodeException e) {
-            throw new RuntimeException("Confirmation code expired: " + e.getMessage());
+        PendingRegister pendingRegister = getPendingRegister(confirm.getPhone());
+        if (pendingRegister == null) {
+            throw new RuntimeException("Registration session expired or not found");
         }
+
+        boolean validOtp = esmsOtpService.verifyRegisterOtp(confirm.getPhone(), confirm.getOtp());
+        if (validOtp) {
+            UserRequestRegister register = pendingRegister.getRegister();
+            String cognitoPhone = toCognitoPhone(register.getPhone());
+            User user = userMapper.UserRegistertoUser(register);
+            user.setUsername(pendingRegister.getUsername());
+            user.setName("Không rõ");
+
+            if (userRepository.findByPhone(user.getPhone()) != null) {
+                deletePendingRegister(confirm.getPhone());
+                throw new RuntimeException("Phone number already exists");
+            }
+
+            if (checkUserStatus(cognitoPhone)) {
+                deleteCognitoUserQuietly(cognitoPhone);
+            }
+
+            boolean createdCognitoUser = false;
+            try {
+                createVerifiedCognitoUser(cognitoPhone, register.getPassword());
+                createdCognitoUser = true;
+                userRepository.save(user);
+                saveDevice(user, register.getDeviceType(), register.getDeviceName(), register.getIpAddress());
+                deletePendingRegister(confirm.getPhone());
+            } catch (RuntimeException e) {
+                if (createdCognitoUser) {
+                    deleteCognitoUserQuietly(cognitoPhone);
+                }
+                throw e;
+            }
+
+            rateLimitService.clearOtpAttempts(confirm.getPhone());
+            return UserResponseConfirmRegister.builder()
+                    .status(true)
+                    .build();
+        }
+
+        long lockSec = rateLimitService.recordFailedOtp(confirm.getPhone());
+        if (lockSec > 0) {
+            throw new RateLimitExceededException(lockSec);
+        }
+        throw new RuntimeException("Invalid or expired confirmation code");
     }
 
     @Override
+    @Transactional
     public UserResponseLogin loginUser(UserRequestLogin login) {
         String ip = login.getIpAddress() != null ? login.getIpAddress() : "unknown";
 
@@ -222,15 +239,7 @@ public class UserServiceImpl implements UserService {
                     user = userRepository.findByPhone(login.getPhone());
                 }
                 saveDevice(user, login.getDeviceType(), login.getDeviceName(), login.getIpAddress());
-
-                activeTokenRepository.save(ActiveToken.builder()
-                        .userId(user.getId())
-                        .accessToken(accessToken)
-                        .refreshToken(refreshToken)
-                        .idToken(idToken)
-                        .createdAt(OffsetDateTime.now())
-                        .expiresAt(OffsetDateTime.now().plusHours(1))
-                        .build());
+                replaceActiveTokensForLogin(user, accessToken, refreshToken, idToken, login.getDeviceType());
 
                 UserResponseLogin.UserResponseLoginBuilder builder = UserResponseLogin.builder()
                         .id(user.getId())
@@ -270,12 +279,38 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Transactional
     public void logoutUser(String idToken, String refreshToken) {
         BlackListUser blackListUser=BlackListUser.builder()
                 .idToken(idToken)
                 .refreshToken(refreshToken)
                 .build();
         blackListUserRepository.save(blackListUser);
+        if (idToken != null && !idToken.isBlank()) {
+            activeTokenRepository.deleteByAccessToken(idToken);
+        }
+        if (refreshToken != null && !refreshToken.isBlank()) {
+            activeTokenRepository.deleteByRefreshToken(refreshToken);
+        }
+    }
+
+    @Override
+    @Transactional
+    public void replaceActiveTokensForLogin(User user, String accessToken, String refreshToken, String idToken, String deviceType) {
+        if (user == null) {
+            return;
+        }
+        String deviceCategory = normalizeDeviceCategory(deviceType);
+        invalidateActiveTokens(user, deviceCategory, true);
+        activeTokenRepository.save(ActiveToken.builder()
+                .userId(user.getId())
+                .accessToken(accessToken)
+                .refreshToken(refreshToken)
+                .idToken(idToken)
+                .deviceType(deviceCategory)
+                .createdAt(OffsetDateTime.now())
+                .expiresAt(OffsetDateTime.now().plusHours(1))
+                .build());
     }
     @Override
     public void saveDevice(User user, String deviceType, String deviceName, String ipAddress) {
@@ -314,6 +349,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Transactional
     public String getNewAccessToken(String refreshToken) {
 
         if (blackListUserRepository.existsByAnyToken(refreshToken)) {
@@ -335,10 +371,17 @@ public class UserServiceImpl implements UserService {
         if (resultType == null || resultType.accessToken() == null) {
             throw new RuntimeException("Refresh token invalid or expired");
         }
-        return resultType.accessToken();
+        String newAccessToken = resultType.accessToken();
+        activeTokenRepository.findByRefreshToken(refreshToken).ifPresent(activeToken -> {
+            activeToken.setAccessToken(newAccessToken);
+            activeToken.setExpiresAt(OffsetDateTime.now().plusHours(1));
+            activeTokenRepository.save(activeToken);
+        });
+        return newAccessToken;
     }
 
     @Override
+    @Transactional
     public String getNewQrAccessToken(String refreshToken) {
         if (refreshToken == null || refreshToken.isBlank()) {
             throw new RuntimeException("QR refresh token is missing");
@@ -355,50 +398,45 @@ public class UserServiceImpl implements UserService {
             throw new RuntimeException("Invalid QR refresh token");
         }
 
-        return JwtAuthFilter.generateToken(phone);
+        String newAccessToken = JwtAuthFilter.generateToken(phone);
+        activeTokenRepository.findByRefreshToken(refreshToken).ifPresent(activeToken -> {
+            activeToken.setAccessToken(newAccessToken);
+            activeToken.setExpiresAt(OffsetDateTime.now().plusHours(1));
+            activeTokenRepository.save(activeToken);
+        });
+        return newAccessToken;
     }
 
     @Override
     public void resendConfirmationOtp(String phone) {
-        String formattedPhone = "+84" + phone.substring(1, 10);
-        System.out.println("Test resend OTP:"+phone);
-        try {
-            ResendConfirmationCodeRequest request = ResendConfirmationCodeRequest.builder()
-                    .clientId(userClientId)
-                    .username(formattedPhone)
-                    .build();
-            cognitoClient.resendConfirmationCode(request);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to resend OTP: " + e.getMessage());
+        if (getPendingRegister(phone) == null) {
+            throw new RuntimeException("Registration session expired or not found");
         }
+        esmsOtpService.sendRegisterOtp(phone);
     }
 
     @Override
     public UserResponseOTPPassword forgotPasswordUser(UserRequestForgotPassword requestForgotPassword) {
-        String phone = "+84" + requestForgotPassword.getPhone().substring(1, 10);
-        
-        try {
-            ForgotPasswordRequest request = ForgotPasswordRequest.builder()
-                    .clientId(userClientId)
-                    .username(phone)
-                    .build();
-            
-            ForgotPasswordResponse response = cognitoClient.forgotPassword(request);
-            
-            if (response != null) {
-                UserResponseOTPPassword responseOTP = new UserResponseOTPPassword();
-                responseOTP.setOTP("OTP sent to " + requestForgotPassword.getPhone());
-                return responseOTP;
-            }
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to send OTP: " + e.getMessage());
+        String phone = normalizeLocalPhone(requestForgotPassword.getPhone());
+        User user = userRepository.findByPhone(phone);
+        if (user == null) {
+            throw new RuntimeException("User not found");
         }
-        
-        return null;
+
+        esmsOtpService.sendRegisterOtp(phone);
+
+        UserResponseOTPPassword responseOTP = new UserResponseOTPPassword();
+        responseOTP.setOTP("OTP sent to " + phone);
+        return responseOTP;
     }
 
     @Override
-    public boolean resetPassword(UserRequestResetPassword requestResetPassword) {
+    public boolean resetPassword(UserRequestResetPassword requestResetPassword, User currentUser) {
+        if (requestResetPassword.getCurrentPassword() != null
+                && !requestResetPassword.getCurrentPassword().isBlank()) {
+            return changePasswordWithCurrentPassword(requestResetPassword, currentUser);
+        }
+
         long otpLock = rateLimitService.checkOtpLock(requestResetPassword.getPhone());
         if (otpLock > 0) {
             throw new RateLimitExceededException(otpLock);
@@ -408,34 +446,69 @@ public class UserServiceImpl implements UserService {
             throw new RuntimeException("Password and confirm password do not match");
         }
 
-        String phone = "+84" + requestResetPassword.getPhone().substring(1, 10);
+        String phone = normalizeLocalPhone(requestResetPassword.getPhone());
+        User user = userRepository.findByPhone(phone);
+        if (user == null) {
+            throw new RuntimeException("User not found");
+        }
 
-        try {
-            ConfirmForgotPasswordRequest request = ConfirmForgotPasswordRequest.builder()
-                    .clientId(userClientId)
-                    .username(phone)
-                    .confirmationCode(requestResetPassword.getConfirmationCode())
-                    .password(requestResetPassword.getPassword())
-                    .build();
-
-            ConfirmForgotPasswordResponse response = cognitoClient.confirmForgotPassword(request);
-
-            if (response != null) {
-                rateLimitService.clearOtpAttempts(requestResetPassword.getPhone());
-                return true;
-            }
-            return false;
-        } catch (CodeMismatchException e) {
+        boolean validOtp = esmsOtpService.verifyRegisterOtp(phone, requestResetPassword.getConfirmationCode());
+        if (!validOtp) {
             long lockSec = rateLimitService.recordFailedOtp(requestResetPassword.getPhone());
             if (lockSec > 0) {
                 throw new RateLimitExceededException(lockSec);
             }
-            throw new RuntimeException("Failed to reset password: Invalid code provided");
-        } catch (ExpiredCodeException e) {
-            throw new RuntimeException("Failed to reset password: Code expired");
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to reset password: " + e.getMessage());
+            throw new RuntimeException("Failed to reset password: Invalid or expired code");
         }
+
+        cognitoClient.adminSetUserPassword(AdminSetUserPasswordRequest.builder()
+                .userPoolId(userPoolId)
+                .username(toCognitoPhone(phone))
+                .password(requestResetPassword.getPassword())
+                .permanent(true)
+                .build());
+
+        rateLimitService.clearOtpAttempts(requestResetPassword.getPhone());
+        return true;
+    }
+
+    private boolean changePasswordWithCurrentPassword(UserRequestResetPassword requestResetPassword, User currentUser) {
+        if (currentUser == null) {
+            throw new RuntimeException("User not authenticated");
+        }
+        if (requestResetPassword.getPassword() == null || requestResetPassword.getPassword().isBlank()) {
+            throw new RuntimeException("New password is required");
+        }
+        if (!requestResetPassword.getPassword().equals(requestResetPassword.getConfirmPassword())) {
+            throw new RuntimeException("Password and confirm password do not match");
+        }
+        if (requestResetPassword.getCurrentPassword().equals(requestResetPassword.getPassword())) {
+            throw new RuntimeException("New password must be different from current password");
+        }
+
+        String cognitoPhone = toCognitoPhone(currentUser.getPhone());
+        Map<String, String> authParams = new HashMap<>();
+        authParams.put("USERNAME", cognitoPhone);
+        authParams.put("PASSWORD", requestResetPassword.getCurrentPassword());
+
+        try {
+            cognitoClient.initiateAuth(InitiateAuthRequest.builder()
+                    .clientId(userClientId)
+                    .authFlow(AuthFlowType.USER_PASSWORD_AUTH)
+                    .authParameters(authParams)
+                    .build());
+        } catch (NotAuthorizedException e) {
+            throw new RuntimeException("Current password is incorrect");
+        }
+
+        cognitoClient.adminSetUserPassword(AdminSetUserPasswordRequest.builder()
+                .userPoolId(userPoolId)
+                .username(cognitoPhone)
+                .password(requestResetPassword.getPassword())
+                .permanent(true)
+                .build());
+
+        return true;
     }
 
     @Override
@@ -688,35 +761,194 @@ public class UserServiceImpl implements UserService {
         }
     }
 
+    private void createVerifiedCognitoUser(String phone, String password) {
+        cognitoClient.adminCreateUser(AdminCreateUserRequest.builder()
+                .userPoolId(userPoolId)
+                .username(phone)
+                .messageAction(MessageActionType.SUPPRESS)
+                .userAttributes(
+                        AttributeType.builder()
+                                .name("phone_number")
+                                .value(phone)
+                                .build(),
+                        AttributeType.builder()
+                                .name("phone_number_verified")
+                                .value("true")
+                                .build()
+                )
+                .build());
+
+        cognitoClient.adminSetUserPassword(AdminSetUserPasswordRequest.builder()
+                .userPoolId(userPoolId)
+                .username(phone)
+                .password(password)
+                .permanent(true)
+                .build());
+    }
+
+    private void deleteCognitoUserQuietly(String phone) {
+        try {
+            cognitoClient.adminDeleteUser(AdminDeleteUserRequest.builder()
+                    .userPoolId(userPoolId)
+                    .username(phone)
+                    .build());
+        } catch (Exception ignored) {
+            // best effort cleanup for failed registration side effects
+        }
+    }
+
+    private void storePendingRegister(UserRequestRegister register, String username) {
+        redisTemplate.opsForValue().set(
+                pendingRegisterKey(register.getPhone()),
+                new PendingRegister(register, username),
+                PENDING_REGISTER_TTL
+        );
+    }
+
+    private PendingRegister getPendingRegister(String phone) {
+        Object value = redisTemplate.opsForValue().get(pendingRegisterKey(phone));
+        if (value instanceof PendingRegister pendingRegister) {
+            return pendingRegister;
+        }
+        return null;
+    }
+
+    private void deletePendingRegister(String phone) {
+        redisTemplate.delete(pendingRegisterKey(phone));
+    }
+
+    private String pendingRegisterKey(String phone) {
+        return "auth:register:pending:" + normalizeLocalPhone(phone);
+    }
+
+    private String normalizeLocalPhone(String phone) {
+        if (phone == null || phone.isBlank()) {
+            return phone;
+        }
+        String normalized = phone.trim().replaceAll("\\s+", "");
+        if (normalized.startsWith("+84")) {
+            return "0" + normalized.substring(3);
+        }
+        if (normalized.startsWith("84")) {
+            return "0" + normalized.substring(2);
+        }
+        return normalized;
+    }
+
+    private String toCognitoPhone(String phone) {
+        String normalized = normalizeLocalPhone(phone);
+        if (normalized == null || normalized.isBlank()) {
+            throw new RuntimeException("Invalid phone number");
+        }
+        if (normalized.startsWith("0")) {
+            return "+84" + normalized.substring(1);
+        }
+        return "+84" + normalized;
+    }
+
+    public static class PendingRegister {
+        private UserRequestRegister register;
+        private String username;
+
+        public PendingRegister() {
+        }
+
+        public PendingRegister(UserRequestRegister register, String username) {
+            this.register = register;
+            this.username = username;
+        }
+
+        public UserRequestRegister getRegister() {
+            return register;
+        }
+
+        public void setRegister(UserRequestRegister register) {
+            this.register = register;
+        }
+
+        public String getUsername() {
+            return username;
+        }
+
+        public void setUsername(String username) {
+            this.username = username;
+        }
+    }
+
     @Override
     @Transactional
     public void logoutAllDevices(User user) {
-        // Push WebSocket force-logout event BEFORE invalidating tokens
-        // so connected web clients can gracefully logout in real-time
-        if (user.getPhone() != null) {
-            String userPhone = convertToInternationalFormat(user.getPhone());
-            Map<String, Object> forceLogoutPayload = new HashMap<>();
-            forceLogoutPayload.put("event", "FORCE_LOGOUT");
-            forceLogoutPayload.put("userId", user.getId());
-            forceLogoutPayload.put("timestamp", OffsetDateTime.now().toString());
-            simpMessagingTemplate.convertAndSend(
-                    "/topic/user/" + userPhone + "/force-logout",
-                    forceLogoutPayload
-            );
-            System.out.println("🔴 Force logout WebSocket event sent to /topic/user/" + userPhone + "/force-logout");
+        invalidateActiveTokens(user, null, true);
+        deviceRepository.deleteDeviceByUser_Id(user.getId());
+    }
+
+    private void invalidateActiveTokens(User user, String deviceCategory, boolean notifyClients) {
+        List<ActiveToken> tokens = activeTokenRepository.findByUserId(user.getId());
+        if (deviceCategory != null) {
+            tokens = tokens.stream()
+                    .filter(token -> deviceCategory.equals(normalizeDeviceCategory(token.getDeviceType())))
+                    .toList();
+        }
+        if (tokens.isEmpty()) {
+            return;
         }
 
-        List<ActiveToken> tokens = activeTokenRepository.findByUserId(user.getId());
+        if (notifyClients) {
+            sendForceLogoutEvent(user, deviceCategory);
+        }
+
         for (ActiveToken token : tokens) {
-            BlackListUser bl = BlackListUser.builder()
-                    .idToken(token.getIdToken())
+            blackListUserRepository.save(BlackListUser.builder()
+                    .idToken(token.getAccessToken())
                     .refreshToken(token.getRefreshToken())
                     .userId(user.getId())
-                    .build();
-            blackListUserRepository.save(bl);
+                    .build());
+
+            if (token.getIdToken() != null && !token.getIdToken().isBlank()) {
+                blackListUserRepository.save(BlackListUser.builder()
+                        .idToken(token.getIdToken())
+                        .userId(user.getId())
+                        .build());
+            }
         }
-        activeTokenRepository.deleteByUserId(user.getId());
-        deviceRepository.deleteDeviceByUser_Id(user.getId());
+        for (ActiveToken token : tokens) {
+            activeTokenRepository.delete(token);
+        }
+    }
+
+    private void sendForceLogoutEvent(User user, String deviceCategory) {
+        if (user.getPhone() == null) {
+            return;
+        }
+
+        String userPhone = convertToInternationalFormat(user.getPhone());
+        Map<String, Object> forceLogoutPayload = new HashMap<>();
+        forceLogoutPayload.put("event", "FORCE_LOGOUT");
+        forceLogoutPayload.put("userId", user.getId());
+        if (deviceCategory != null) {
+            forceLogoutPayload.put("deviceType", deviceCategory);
+        }
+        forceLogoutPayload.put("timestamp", OffsetDateTime.now().toString());
+        simpMessagingTemplate.convertAndSend(
+                "/topic/user/" + userPhone + "/force-logout",
+                forceLogoutPayload
+        );
+        System.out.println("Force logout WebSocket event sent to /topic/user/" + userPhone + "/force-logout");
+    }
+
+    private String normalizeDeviceCategory(String deviceType) {
+        if (deviceType == null || deviceType.isBlank()) {
+            return "WEB";
+        }
+
+        String normalized = deviceType.trim().toUpperCase(Locale.ROOT);
+        if (normalized.contains("ANDROID")
+                || normalized.contains("IOS")
+                || normalized.contains("MOBILE")
+                || normalized.contains("REACT_NATIVE")) {
+            return "MOBILE";
+        }
+        return "WEB";
     }
 
     @Override

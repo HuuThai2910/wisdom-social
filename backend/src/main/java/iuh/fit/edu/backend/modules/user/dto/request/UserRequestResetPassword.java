@@ -7,6 +7,7 @@ import java.time.Instant;
 @Data
 public class UserRequestResetPassword {
     private String phone;
+    private String currentPassword;
     private String password;
     private String confirmPassword;
     private String confirmationCode;

@@ -1476,7 +1476,10 @@ class ChatWebsocketService {
             return client.subscribe(destination, (msg: IMessage) => {
                 try {
                     const raw = JSON.parse(msg.body) as Record<string, unknown>;
-                    if (raw.event === "FORCE_LOGOUT") {
+                    if (
+                        raw.event === "FORCE_LOGOUT" &&
+                        (!raw.deviceType || raw.deviceType === "MOBILE")
+                    ) {
                         onForceLogout();
                     }
                 } catch {

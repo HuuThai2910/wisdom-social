@@ -1,4 +1,9 @@
 import apiClient from "@/api/apiClient";
+import { uploadMediaAndGetFormat, type UploadableMediaFile } from "@/utils/s3";
+import {
+  extractMediaUploadMetadata,
+  type MediaUploadMetadataPayload,
+} from "@/services/postService";
 
 export type PageStatus = "PUBLIC" | "PRIVATE" | "BANNED";
 
@@ -547,9 +552,18 @@ class PageService {
       allowComments?: boolean;
       allowShares?: boolean;
     },
-    images?: { uri: string; name: string; type: string }[],
+    mediaFiles: UploadableMediaFile[] = [],
   ): Promise<boolean> {
     try {
+      const uploadedMediaUrls: string[] = [];
+      const mediaMetadatas: MediaUploadMetadataPayload[] = [];
+
+      for (const mediaFile of mediaFiles) {
+        mediaMetadatas.push(extractMediaUploadMetadata(mediaFile));
+        const uploadedKey = await uploadMediaAndGetFormat(mediaFile);
+        uploadedMediaUrls.push(uploadedKey);
+      }
+
       const formData = new FormData();
       formData.append(
         "postData",
@@ -558,11 +572,10 @@ class PageService {
           allowComments: true,
           allowShares: true,
           ...postData,
+          mediaMetadatas,
         }),
       );
-      if (images?.length) {
-        images.forEach((img) => formData.append("images", img as any));
-      }
+      uploadedMediaUrls.forEach((url) => formData.append("images", url));
       const response = await apiClient.post("/page/post/add", formData, {
         params: { pageId },
         headers: { "Content-Type": "multipart/form-data" },

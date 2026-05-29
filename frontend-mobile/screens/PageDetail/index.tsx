@@ -58,12 +58,32 @@ const { width: screenWidth } = Dimensions.get("window");
 const COVER_HEIGHT = 220;
 const FB_BG = "#F0F2F5";
 const FB_BLUE = colors.primary;
+const MAX_MEDIA = 10;
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
+const MAX_VIDEO_SIZE = 100 * 1024 * 1024;
+const MAX_VIDEOS = 2;
 
 const MEMBER_ROLES: { label: string; value: PageRole }[] = [
   { label: "Admin", value: "ADMIN" },
   { label: "Moderator", value: "MODERATOR" },
   { label: "User", value: "USER" },
 ];
+
+const toUploadFile = (asset: ImagePicker.ImagePickerAsset) => {
+  const fallbackName =
+    asset.uri.split("/").pop() ||
+    `page-post-${Date.now()}.${asset.type === "video" ? "mp4" : "jpg"}`;
+  return {
+    uri: asset.uri,
+    name: asset.fileName || fallbackName,
+    type: asset.mimeType || (asset.type === "video" ? "video/mp4" : "image/jpeg"),
+    mimeType: asset.mimeType,
+    fileSize: asset.fileSize,
+    width: asset.width,
+    height: asset.height,
+    duration: asset.duration,
+  };
+};
 
 function fmtCount(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(".0", "") + "M";
@@ -139,9 +159,7 @@ export default function PageDetailScreen() {
 
   const [showCreatePost, setShowCreatePost] = useState(false);
   const [postContent, setPostContent] = useState("");
-  const [postImages, setPostImages] = useState<
-    { uri: string; name: string; type: string }[]
-  >([]);
+  const [postImages, setPostImages] = useState<ImagePicker.ImagePickerAsset[]>([]);
   const [creatingPost, setCreatingPost] = useState(false);
 
   // ── Add member modal ───────────────────────────────────────────────────
@@ -587,8 +605,13 @@ export default function PageDetailScreen() {
     try {
       const ok = await pageService.addPostToPage(
         numericPageId,
-        { content: postContent },
-        postImages.length > 0 ? postImages : undefined,
+        {
+          content: postContent,
+          privacy: "PUBLIC",
+          allowComments: true,
+          allowShares: true,
+        },
+        postImages.map(toUploadFile),
       );
       if (ok) {
         Alert.alert("Thành công", "Đã tạo bài viết.");
@@ -608,18 +631,55 @@ export default function PageDetailScreen() {
   };
 
   const pickPostImages = async () => {
+    if (postImages.length >= MAX_MEDIA) {
+      Alert.alert("Giới hạn", `Tối đa ${MAX_MEDIA} ảnh/video.`);
+      return;
+    }
+
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert("Quyền truy cập", "Bạn cần cấp quyền thư viện ảnh để chọn ảnh/video.");
+      return;
+    }
+
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
+      mediaTypes: ImagePicker.MediaTypeOptions.All,
       allowsMultipleSelection: true,
-      quality: 0.8,
+      quality: 0.9,
+      videoMaxDuration: 180,
     });
     if (!result.canceled && result.assets) {
-      const newImages = result.assets.map((asset, idx) => ({
-        uri: asset.uri,
-        name: `post_${Date.now()}_${idx}.jpg`,
-        type: asset.mimeType ?? "image/jpeg",
-      }));
-      setPostImages(prev => [...prev, ...newImages]);
+      const remaining = MAX_MEDIA - postImages.length;
+      const newAssets = result.assets.slice(0, remaining);
+      const currentVideoCount = postImages.filter((asset) => asset.type === "video").length;
+      let addedVideos = 0;
+      const errors: string[] = [];
+
+      const validated = newAssets.filter((asset) => {
+        if (asset.type === "video") {
+          if (currentVideoCount + addedVideos >= MAX_VIDEOS) {
+            errors.push(`Tối đa ${MAX_VIDEOS} video.`);
+            return false;
+          }
+          if (asset.fileSize && asset.fileSize > MAX_VIDEO_SIZE) {
+            errors.push(`Video "${asset.fileName || "video"}" vượt quá 100MB.`);
+            return false;
+          }
+          addedVideos++;
+        } else if (asset.fileSize && asset.fileSize > MAX_IMAGE_SIZE) {
+          errors.push(`Ảnh "${asset.fileName || "ảnh"}" vượt quá 10MB.`);
+          return false;
+        }
+        return true;
+      });
+
+      if (errors.length > 0) {
+        Alert.alert("Lưu ý", errors.join("\n"));
+      }
+
+      if (validated.length > 0) {
+        setPostImages((prev) => [...prev, ...validated]);
+      }
     }
   };
 
@@ -1392,7 +1452,14 @@ export default function PageDetailScreen() {
                 </TouchableOpacity>
                 {postImages.map((img, idx) => (
                   <View key={idx} style={{ position: "relative", marginTop: 10 }}>
-                    <Image source={{ uri: buildS3Url(img.uri) }} style={{ width: "100%", height: 200, borderRadius: 12 }} />
+                    {img.type === "video" ? (
+                      <View style={[st.videoPreviewBox, { height: 200 }]}>
+                        <Ionicons name="play-circle" size={44} color={colors.white} />
+                        <Text style={st.videoPreviewText}>{img.fileName || "Video"}</Text>
+                      </View>
+                    ) : (
+                      <Image source={{ uri: img.uri }} style={{ width: "100%", height: 200, borderRadius: 12 }} />
+                    )}
                     <TouchableOpacity
                       onPress={() => setPostImages(prev => prev.filter((_, i) => i !== idx))}
                       style={st.removeImageBtn}
@@ -1877,6 +1944,19 @@ const st = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.55)",
     borderRadius: 20,
     padding: 5,
+  },
+  videoPreviewBox: {
+    width: "100%",
+    borderRadius: 12,
+    backgroundColor: "#111827",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  videoPreviewText: {
+    color: colors.white,
+    fontSize: 13,
+    fontWeight: "600",
   },
 
   memberSearchBar: {

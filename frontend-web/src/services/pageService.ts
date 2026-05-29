@@ -1,4 +1,9 @@
 import axiosClient from "../api/axiosClient";
+import { uploadMediaAndGetFormat } from "../utils/s3";
+import {
+    extractMediaUploadMetadata,
+    type MediaUploadMetadataPayload,
+} from "./postService";
 
 
 export interface UserRequestCreatePage {
@@ -239,15 +244,28 @@ export const pageService = {
     },
 
     // Add post to page
-    async addPostToPage(pageId: number, postData: any, images?: string[]): Promise<string> {
+    async addPostToPage(pageId: number, postData: any, mediaFiles: File[] = []): Promise<string> {
+        const uploadedMediaUrls: string[] = [];
+        const mediaMetadatas: MediaUploadMetadataPayload[] = [];
+
+        for (const mediaFile of mediaFiles) {
+            const metadata = await extractMediaUploadMetadata(mediaFile);
+            const uploadedKey = await uploadMediaAndGetFormat(mediaFile);
+            mediaMetadatas.push(metadata);
+            uploadedMediaUrls.push(uploadedKey);
+        }
+
+        const payload = {
+            ...postData,
+            mediaMetadatas,
+        };
+
         const formData = new FormData();
         formData.append('pageId', String(pageId));
-        formData.append('postData', JSON.stringify(postData));
-        if (images) {
-            images.forEach(image => {
-                formData.append('images', image);
-            });
-        }
+        formData.append('postData', JSON.stringify(payload));
+        uploadedMediaUrls.forEach(mediaUrl => {
+            formData.append('images', mediaUrl);
+        });
         const response = await axiosClient.post(`page/post/add`, formData, {
             headers: { 'Content-Type': 'multipart/form-data' }
         });

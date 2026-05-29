@@ -144,7 +144,7 @@ export const transformMediaToS3Urls = (
         .filter(Boolean);
 };
 
-const extractMediaUploadMetadata = (file: UploadableMediaFile): MediaUploadMetadataPayload => ({
+export const extractMediaUploadMetadata = (file: UploadableMediaFile): MediaUploadMetadataPayload => ({
     duration: typeof file.duration === "number" ? Math.max(0, Math.floor(file.duration / (file.duration > 1000 ? 1000 : 1))) : undefined,
     width: typeof file.width === "number" ? file.width : undefined,
     height: typeof file.height === "number" ? file.height : undefined,

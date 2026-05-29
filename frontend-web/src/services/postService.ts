@@ -106,7 +106,7 @@ const readImageMetadata = (file: File): Promise<{ width?: number; height?: numbe
     });
 };
 
-const extractMediaUploadMetadata = async (file: File): Promise<MediaUploadMetadataPayload> => {
+export const extractMediaUploadMetadata = async (file: File): Promise<MediaUploadMetadataPayload> => {
     const base: MediaUploadMetadataPayload = {
         fileSize: file.size,
         mimeType: file.type || undefined,

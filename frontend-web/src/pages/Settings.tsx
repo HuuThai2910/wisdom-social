@@ -19,6 +19,7 @@ import securityService, { computeDeletionStatus } from "../services/securityServ
 import userService from "../services/userService";
 import PinInputModal from "../components/security/PinInputModal";
 import ConfirmModal from "../components/security/ConfirmModal";
+import { validateResetPasswordForm } from "../utils/validation";
 
 type ModalKind =
   | "logoutAll"
@@ -26,6 +27,7 @@ type ModalKind =
   | "cancelDeletion"
   | "setupPin"
   | "removePin"
+  | "changePassword"
   | null;
 
 interface SettingRow {
@@ -51,6 +53,9 @@ export default function SettingsPage() {
   const [deletionPending, setDeletionPending] = useState(false);
   const [deletionRemainingDays, setDeletionRemainingDays] = useState(0);
   const [hasPinCode, setHasPinCode] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -75,6 +80,9 @@ export default function SettingsPage() {
     if (actionLoading) return;
     setModal(null);
     setActionError(null);
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmNewPassword("");
   };
 
   const openModal = (kind: ModalKind) => {
@@ -166,6 +174,42 @@ export default function SettingsPage() {
     }
   };
 
+  const handleChangePassword = async () => {
+    if (!currentPassword.trim()) {
+      setActionError("Vui lòng nhập mật khẩu hiện tại.");
+      return;
+    }
+
+    const validation = validateResetPasswordForm(newPassword, confirmNewPassword);
+    if (!validation.isValid) {
+      setActionError(validation.error || "Mật khẩu mới không hợp lệ.");
+      return;
+    }
+
+    setActionLoading(true);
+    setActionError(null);
+    const result = await securityService.changePassword(
+      currentPassword,
+      newPassword,
+      confirmNewPassword,
+    );
+    setActionLoading(false);
+
+    if (result.success) {
+      setModal(null);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmNewPassword("");
+      setSuccessMsg("Đổi mật khẩu thành công.");
+    } else {
+      setActionError(
+        result.message === "Current password is incorrect"
+          ? "Mật khẩu hiện tại không chính xác."
+          : result.message || "Không thể đổi mật khẩu.",
+      );
+    }
+  };
+
   const pinRow: SettingRow = hasPinCode
     ? {
         icon: KeyRound,
@@ -246,7 +290,7 @@ export default function SettingsPage() {
       title: "Mật khẩu",
       description: "Thay đổi mật khẩu của bạn",
       actionLabel: "Cập nhật",
-      onClick: () => {},
+      onClick: () => openModal("changePassword"),
     },
     pinRow,
     {
@@ -480,6 +524,71 @@ export default function SettingsPage() {
         onConfirm={handleRemovePin}
         onClose={closeModal}
       />
+
+      {modal === "changePassword" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-md rounded-lg bg-white dark:bg-[#121212] p-5 shadow-xl">
+            <div className="flex items-start gap-3">
+              <div className="rounded-full bg-gray-100 dark:bg-[#262626] p-2">
+                <Lock size={20} className="text-gray-700 dark:text-gray-200" />
+              </div>
+              <div>
+                <h2 className="text-base font-semibold dark:text-white">Đổi mật khẩu</h2>
+                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                  Nhập mật khẩu hiện tại và mật khẩu mới của bạn.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 space-y-3">
+              <input
+                type="password"
+                value={currentPassword}
+                onChange={(event) => setCurrentPassword(event.target.value)}
+                placeholder="Mật khẩu hiện tại"
+                className="w-full rounded-lg border border-gray-300 dark:border-[#333] bg-white dark:bg-[#0a0a0a] px-3 py-2 text-sm dark:text-white outline-none focus:border-[#0095f6]"
+              />
+              <input
+                type="password"
+                value={newPassword}
+                onChange={(event) => setNewPassword(event.target.value)}
+                placeholder="Mật khẩu mới"
+                className="w-full rounded-lg border border-gray-300 dark:border-[#333] bg-white dark:bg-[#0a0a0a] px-3 py-2 text-sm dark:text-white outline-none focus:border-[#0095f6]"
+              />
+              <input
+                type="password"
+                value={confirmNewPassword}
+                onChange={(event) => setConfirmNewPassword(event.target.value)}
+                placeholder="Nhập lại mật khẩu mới"
+                className="w-full rounded-lg border border-gray-300 dark:border-[#333] bg-white dark:bg-[#0a0a0a] px-3 py-2 text-sm dark:text-white outline-none focus:border-[#0095f6]"
+              />
+            </div>
+
+            {actionError && (
+              <p className="mt-3 text-sm text-red-600 dark:text-red-400">{actionError}</p>
+            )}
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeModal}
+                disabled={actionLoading}
+                className="rounded-lg px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-60 dark:text-gray-200 dark:hover:bg-[#262626]"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleChangePassword}
+                disabled={actionLoading}
+                className="rounded-lg bg-[#0095f6] px-4 py-2 text-sm font-semibold text-white hover:bg-[#1877f2] disabled:opacity-60"
+              >
+                {actionLoading ? "Đang cập nhật..." : "Cập nhật"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -30,6 +30,8 @@ public class ActiveToken {
     @Column(columnDefinition = "TEXT")
     private String idToken;
 
+    private String deviceType;
+
     private OffsetDateTime createdAt;
     private OffsetDateTime expiresAt;
 }

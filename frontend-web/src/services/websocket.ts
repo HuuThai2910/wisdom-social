@@ -1594,7 +1594,10 @@ class WebSocketService {
                 try {
                     const payload = JSON.parse(message.body);
                     console.log("🔴 Force logout event received:", payload);
-                    if (payload?.event === "FORCE_LOGOUT") {
+                    if (
+                        payload?.event === "FORCE_LOGOUT" &&
+                        (!payload?.deviceType || payload.deviceType === "WEB")
+                    ) {
                         callback();
                     }
                 } catch (error) {
