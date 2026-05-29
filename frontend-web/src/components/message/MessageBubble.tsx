@@ -68,6 +68,10 @@ import {
 } from "../../utils/messageBubbleUtils";
 import { buildS3Url } from "../../utils/s3";
 import { buildSystemGroupMessage } from "../../utils/systemCreateGroupMessage";
+import {
+    LOCKED_ACCOUNT_AVATAR_URL,
+    LOCKED_ACCOUNT_NAME,
+} from "../../utils/lockedAccount";
 import AudioPlayer from "./AudioPlayer";
 import ReactionDetailModal from "./ReactionDetailModal";
 
@@ -853,10 +857,11 @@ export function MessageBubble({
     const pollCreator = localPoll?.creatorId
         ? membersById[localPoll.creatorId]
         : undefined;
-    const pollCreatorName =
-        pollCreator?.nickname ||
-        pollCreator?.username ||
-        (localPoll?.creatorId === currentUserId ? "Ban" : senderName);
+    const pollCreatorName = pollCreator?.accountLocked
+        ? LOCKED_ACCOUNT_NAME
+        : pollCreator?.nickname ||
+          pollCreator?.username ||
+          (localPoll?.creatorId === currentUserId ? "Ban" : senderName);
     const pollUniqueVoterIds = useMemo(() => {
         const ids = new Set<number>();
         for (const option of localPoll?.options ?? []) {
@@ -898,6 +903,7 @@ export function MessageBubble({
         (userIdToFind: number) => {
             const member = getPollMember(userIdToFind);
             if (Number(userIdToFind) === Number(currentUserId)) return "Ban";
+            if (member?.accountLocked) return LOCKED_ACCOUNT_NAME;
             return (
                 member?.nickname ||
                 member?.username ||
@@ -908,8 +914,11 @@ export function MessageBubble({
     );
 
     const getPollMemberAvatar = useCallback(
-        (userIdToFind: number) =>
-            getPollMember(userIdToFind)?.avatar || defaultAvatarSmallUrl,
+        (userIdToFind: number) => {
+            const member = getPollMember(userIdToFind);
+            if (member?.accountLocked) return LOCKED_ACCOUNT_AVATAR_URL;
+            return member?.avatar || defaultAvatarSmallUrl;
+        },
         [defaultAvatarSmallUrl, getPollMember],
     );
 

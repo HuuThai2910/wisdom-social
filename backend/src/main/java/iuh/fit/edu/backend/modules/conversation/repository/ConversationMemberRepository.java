@@ -90,6 +90,11 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
     @Query("SELECT cm.user.id FROM ConversationMember cm WHERE cm.conversation.id = :conversationId")
     Set<Long> findAllUserIdsByConversationId(@Param("conversationId") Long conversationId);
 
+    // Lấy toàn bộ id hội thoại mà user là thành viên (bất kể trạng thái thành viên).
+    // Dùng khi user bị khóa/mở khóa để invalidate cache & đẩy realtime cho các hội thoại đó.
+    @Query("SELECT DISTINCT cm.conversation.id FROM ConversationMember cm WHERE cm.user.id = :userId")
+    Set<Long> findConversationIdsByUserId(@Param("userId") Long userId);
+
     List<ConversationMember> findByConversation_IdInAndUser_IdIn(
             Set<Long> conversationIds,
             Set<Long> userIds

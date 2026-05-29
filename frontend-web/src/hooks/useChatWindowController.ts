@@ -20,6 +20,7 @@ import {
     type OutboxMessage,
 } from "../services/messageOutbox";
 import websocketService, {
+    type MemberAccountLockChangedEvent,
     type MemberUpdatedEvent,
     type MessageSeenEvent,
     type PinUpdatedEvent,
@@ -1114,6 +1115,37 @@ const list = Array.isArray(cursorData?.data)
                     membersFromApi,
                     sideLoadedRefs,
                 );
+
+                // Đồng bộ cờ accountLocked từ response CHI TIẾT (nguồn DB tươi qua
+                // conversationMapper) đè lên members lấy từ API getConversationMembers
+                // (vốn đi qua Redis cache, có thể cũ). Tránh việc tài khoản đã bị khóa
+                // nhưng cache cũ vẫn báo false làm UI hiển thị sai.
+                const detailMembers = Array.isArray(convResponse.data.members)
+                    ? convResponse.data.members
+                    : [];
+                for (const detailMember of detailMembers) {
+                    const detailMemberId = Number(detailMember.userId);
+                    if (mergedMembers[detailMemberId]) {
+                        mergedMembers[detailMemberId] = {
+                            ...mergedMembers[detailMemberId],
+                            accountLocked: Boolean(detailMember.accountLocked),
+                        };
+                    }
+                }
+                // Direct: bảo đảm đối phương bám theo directPartnerLocked (DB tươi),
+                // kể cả khi member tương ứng chưa có trong map.
+                const directPartnerId = convResponse.data.directPartnerId;
+                if (
+                    convResponse.data.type === "DIRECT" &&
+                    convResponse.data.directPartnerLocked &&
+                    directPartnerId != null &&
+                    mergedMembers[Number(directPartnerId)]
+                ) {
+                    mergedMembers[Number(directPartnerId)] = {
+                        ...mergedMembers[Number(directPartnerId)],
+                        accountLocked: true,
+                    };
+                }
 
                 const normalizedConversation: Conversation = {
                     ...convResponse.data,
@@ -2633,6 +2665,52 @@ const list = Array.isArray(cursorData?.data)
             });
         };
 
+        // Tài khoản 1 thành viên bị khóa/mở khóa -> cập nhật cờ accountLocked realtime
+        // để mask/bỏ mask tên + avatar ở mọi nơi (header, message, member list, ...).
+        const handleMemberAccountLockChanged = (
+            event: MemberAccountLockChangedEvent,
+        ) => {
+            if (Number(event.conversationId) !== Number(conversationId)) return;
+
+            setMembersById((prev) => {
+                const existing = prev[event.userId];
+                // Nếu chưa có member trong map (vd: đối phương direct chưa nạp),
+                // vẫn tạo entry tối thiểu để giữ cờ khóa.
+                const next = {
+                    ...prev,
+                    [event.userId]: {
+                        ...(existing ?? {
+                            userId: event.userId,
+                            username: "",
+                            nickname: "Unknown",
+                        }),
+                        accountLocked: event.accountLocked,
+                    },
+                };
+                chatRuntimeStore.setMembers(conversationId, next);
+                setConversation((previousConversation) => {
+                    if (!previousConversation) return previousConversation;
+                    const nextConversation = {
+                        ...previousConversation,
+                        members: Object.values(next),
+                        // Với hội thoại DIRECT cập nhật luôn cờ đối phương để
+                        // sidebar/header mask đúng kể cả khi members chưa đầy đủ.
+                        directPartnerLocked:
+                            previousConversation.type === "DIRECT" &&
+                            Number(event.userId) !== Number(userId)
+                                ? event.accountLocked
+                                : previousConversation.directPartnerLocked,
+                    };
+                    chatRuntimeStore.setConversation(
+                        conversationId,
+                        nextConversation,
+                    );
+                    return nextConversation;
+                });
+                return next;
+            });
+        };
+
         const handlePinUpdated = (event: PinUpdatedEvent) => {
             if (Number(event.conversationId) !== Number(conversationId)) return;
 
@@ -2666,6 +2744,7 @@ const list = Array.isArray(cursorData?.data)
                 websocketService.subscribeToConversationMembers(
                     conversationId,
                     handleMemberUpdated,
+                    handleMemberAccountLockChanged,
                 );
                 websocketService.subscribeToConversationPins(
                     conversationId,

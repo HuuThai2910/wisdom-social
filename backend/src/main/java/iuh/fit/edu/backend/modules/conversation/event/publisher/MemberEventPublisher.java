@@ -6,6 +6,7 @@ package iuh.fit.edu.backend.modules.conversation.event.publisher;
 
 import iuh.fit.edu.backend.common.config.RedisPubSubConfig;
 import iuh.fit.edu.backend.modules.conversation.event.payload.MemberUpdatedEvent;
+import iuh.fit.edu.backend.modules.conversation.event.payload.MemberAccountLockChangedEvent;
 import iuh.fit.edu.backend.common.event.payload.RedisEnvelope;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -36,6 +37,22 @@ public class MemberEventPublisher {
         log.info("Publishing update member {} to redis pub/sub for conversation {}",  event.getUserId(), event.getConversationId());
         RedisEnvelope envelope = new RedisEnvelope(
                 Collections.emptySet(),
+                event.getDomainEventType(),
+                event
+        );
+        redisTemplate.convertAndSend(RedisPubSubConfig.CHAT_CHANNEL, envelope);
+    }
+
+    // Đẩy sự kiện khóa/mở khóa tài khoản của 1 thành viên xuống Redis pub/sub.
+    // targetMemberIds = các thành viên khác cần cập nhật sidebar (fan-out theo user).
+    @EventListener
+    public void handleMemberAccountLockChangedEvent(MemberAccountLockChangedEvent event) {
+        log.info("Publishing account lock change of member {} (locked={}) to redis for conversation {}",
+                event.getUserId(), event.isAccountLocked(), event.getConversationId());
+        RedisEnvelope envelope = new RedisEnvelope(
+                event.getRecipientUserIds() != null
+                        ? event.getRecipientUserIds()
+                        : Collections.emptySet(),
                 event.getDomainEventType(),
                 event
         );

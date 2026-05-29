@@ -194,7 +194,7 @@ export function resolveReadOnlyReasonFromSystemMessage(
 export function getConversationDisplayInfo(
     conversation: Conversation,
     userId: number,
-    membersById: MembersByUserId,
+    membersById: MembersByUserId = {},
 ) {
     const displayInfo = buildConversationDisplayInfo({
         conversation,
