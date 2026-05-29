@@ -211,6 +211,13 @@ public class AuditLogService {
         }
     }
 
+    /** Xoá toàn bộ nhật ký. */
+    @Transactional
+    public void clearAll() {
+        auditLogRepository.deleteAllInBatch();
+        auditLogStream.broadcastCleared();
+    }
+
     /** Lấy các bản ghi mới nhất. */
     @Transactional(readOnly = true)
     public List<AuditLog> getRecent(int limit) {

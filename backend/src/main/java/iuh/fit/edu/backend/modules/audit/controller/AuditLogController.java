@@ -11,6 +11,7 @@ import iuh.fit.edu.backend.modules.audit.service.AuditLogStream;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -43,5 +44,12 @@ public class AuditLogController {
     @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream() {
         return auditLogStream.subscribe();
+    }
+
+    /** Xoá toàn bộ lịch sử nhật ký. */
+    @DeleteMapping
+    public ResponseEntity<ApiResponse<String>> clear() {
+        auditLogService.clearAll();
+        return ResponseEntity.ok(ApiResponse.success(200, "Audit logs cleared", null));
     }
 }

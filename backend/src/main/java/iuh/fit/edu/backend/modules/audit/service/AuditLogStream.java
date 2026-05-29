@@ -50,4 +50,15 @@ public class AuditLogStream {
             }
         }
     }
+
+    /** Báo cho tất cả client biết nhật ký đã bị xoá để làm trống danh sách. */
+    public void broadcastCleared() {
+        for (SseEmitter emitter : emitters) {
+            try {
+                emitter.send(SseEmitter.event().name("cleared").data("ok"));
+            } catch (Exception ex) {
+                emitters.remove(emitter);
+            }
+        }
+    }
 }

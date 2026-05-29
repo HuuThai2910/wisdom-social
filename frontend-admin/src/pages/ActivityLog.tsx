@@ -79,6 +79,8 @@ export default function ActivityLog() {
   const [page, setPage] = useState(0);
   const [detail, setDetail] = useState<AuditLog | null>(null);
   const [live, setLive] = useState(false);
+  const [confirmingClear, setConfirmingClear] = useState(false);
+  const [clearing, setClearing] = useState(false);
 
   const query: AuditQuery = useMemo(
     () => ({ actorType, category, status, keyword, from, to }),
@@ -138,6 +140,9 @@ export default function ActivityLog() {
       }
     });
 
+    // Nhật ký bị xoá ở nơi khác -> làm trống danh sách
+    es.addEventListener('cleared', () => setLogs([]));
+
     return () => es.close();
   }, [source]);
 
@@ -173,15 +178,23 @@ export default function ActivityLog() {
     toast.success(`Đã xuất ${logs.length} bản ghi`);
   };
 
-  const handleClear = () => {
-    if (source === 'remote') {
-      toast.error('Nhật ký từ máy chủ không thể xoá tại đây');
-      return;
+  const doClear = async () => {
+    setClearing(true);
+    try {
+      if (source === 'remote') {
+        await auditLogService.clearRemote();
+      } else {
+        auditLogService.clear();
+      }
+      setLogs([]);
+      toast.success('Đã xoá nhật ký');
+      setConfirmingClear(false);
+      load();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Không thể xoá nhật ký');
+    } finally {
+      setClearing(false);
     }
-    if (!confirm('Xoá toàn bộ nhật ký hoạt động đã lưu trên thiết bị này?')) return;
-    auditLogService.clear();
-    toast.success('Đã xoá nhật ký cục bộ');
-    load();
   };
 
   const resetFilters = () => {
@@ -224,7 +237,7 @@ export default function ActivityLog() {
             <Download size={14} /> Xuất CSV
           </button>
           <button
-            onClick={handleClear}
+            onClick={() => setConfirmingClear(true)}
             className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-600 hover:bg-rose-100"
           >
             <Trash2 size={14} /> Xoá log
@@ -416,6 +429,49 @@ export default function ActivityLog() {
           </div>
         )}
       </div>
+
+      {/* Confirm clear modal */}
+      {confirmingClear && (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 p-4"
+          onClick={() => !clearing && setConfirmingClear(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-rose-50 text-rose-600">
+                <Trash2 size={20} />
+              </span>
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">Xoá toàn bộ nhật ký</h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  {source === 'remote'
+                    ? 'Toàn bộ lịch sử nhật ký trên máy chủ sẽ bị xoá vĩnh viễn và không thể khôi phục.'
+                    : 'Toàn bộ nhật ký đã lưu trên thiết bị này sẽ bị xoá.'}
+                </p>
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                onClick={() => setConfirmingClear(false)}
+                disabled={clearing}
+                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Huỷ
+              </button>
+              <button
+                onClick={doClear}
+                disabled={clearing}
+                className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:bg-rose-300"
+              >
+                {clearing ? 'Đang xoá...' : 'Xoá toàn bộ'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Detail modal */}
       {detail && (

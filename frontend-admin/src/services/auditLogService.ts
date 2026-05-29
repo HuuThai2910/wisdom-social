@@ -468,6 +468,11 @@ const auditLogService = {
     writeAll([]);
   },
 
+  /** Xoá toàn bộ nhật ký trên máy chủ. */
+  async clearRemote(): Promise<void> {
+    await axiosClient.delete('/admin/audit-logs');
+  },
+
   /** Xuất ra chuỗi CSV. */
   toCsv(logs: AuditLog[]): string {
     const headers = [
