@@ -5,8 +5,10 @@ import {
   FileText,
   ShieldAlert,
   TrendingUp,
-  UserCheck,
   Activity,
+  Hash,
+  BookImage,
+  Music2,
 } from 'lucide-react';
 import {
   Area,
@@ -16,8 +18,6 @@ import {
   CartesianGrid,
   Cell,
   Legend,
-  Line,
-  LineChart,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -28,31 +28,12 @@ import {
 import StatCard from '../components/common/StatCard';
 import userService from '../services/userService';
 import pageService from '../services/pageService';
-import type { Page, User } from '../types/models';
+import hashtagService from '../services/hashtagService';
+import adminService from '../services/adminService';
+import type { AdminStats, Page, TrendingHashtag, User } from '../types/models';
 
 const PIE_COLORS = ['#6366f1', '#ec4899', '#94a3b8'];
-
-function buildSignupsByDay(users: User[]) {
-  const days = 14;
-  const buckets = new Map<string, number>();
-  const today = new Date();
-  for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(today);
-    d.setDate(today.getDate() - i);
-    const key = d.toISOString().slice(5, 10); // MM-DD
-    buckets.set(key, 0);
-  }
-  for (const u of users) {
-    if (!u.createdAt) continue;
-    const created = new Date(u.createdAt);
-    const diff = Math.floor((today.getTime() - created.getTime()) / (1000 * 60 * 60 * 24));
-    if (diff >= 0 && diff < days) {
-      const key = created.toISOString().slice(5, 10);
-      buckets.set(key, (buckets.get(key) || 0) + 1);
-    }
-  }
-  return Array.from(buckets.entries()).map(([day, count]) => ({ day, count }));
-}
+const HASHTAG_COLORS = ['#6366f1', '#8b5cf6', '#a78bfa', '#c4b5fd', '#7c3aed', '#4f46e5', '#818cf8', '#6d28d9'];
 
 function buildGenderDistribution(users: User[]) {
   const counts = { Nam: 0, Nữ: 0, Khác: 0 };
@@ -79,67 +60,73 @@ function buildPagesByCategory(pages: Page[]) {
 export default function Dashboard() {
   const [users, setUsers] = useState<User[]>([]);
   const [pages, setPages] = useState<Page[]>([]);
+  const [trending, setTrending] = useState<TrendingHashtag[]>([]);
+  const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const [u, p] = await Promise.all([
+        const [u, p, h, s] = await Promise.all([
           userService.getAllUsers().catch(() => []),
           pageService.getAllPages().catch(() => []),
+          hashtagService.getTrending().catch(() => []),
+          adminService.getStats().catch(() => null),
         ]);
         if (!alive) return;
         setUsers(u);
         setPages(p);
+        setTrending(h);
+        setStats(s);
       } finally {
         if (alive) setLoading(false);
       }
     })();
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, []);
 
-  const stats = useMemo(() => {
+  const fallbackStats = useMemo(() => {
+    if (stats) return null;
     const totalUsers = users.length;
     const lockedUsers = users.filter((u) => u.locked).length;
     const totalPages = pages.length;
     const verifiedPages = pages.filter((p) => p.isVerified).length;
     const activeToday = users.filter((u) => {
       if (!u.lastActiveAt) return false;
-      const t = new Date(u.lastActiveAt).getTime();
-      return Date.now() - t < 24 * 60 * 60 * 1000;
+      return Date.now() - new Date(u.lastActiveAt).getTime() < 24 * 60 * 60 * 1000;
     }).length;
     const newThisWeek = users.filter((u) => {
       if (!u.createdAt) return false;
-      const t = new Date(u.createdAt).getTime();
-      return Date.now() - t < 7 * 24 * 60 * 60 * 1000;
+      return Date.now() - new Date(u.createdAt).getTime() < 7 * 24 * 60 * 60 * 1000;
     }).length;
     return { totalUsers, lockedUsers, totalPages, verifiedPages, activeToday, newThisWeek };
-  }, [users, pages]);
+  }, [users, pages, stats]);
 
-  const signupSeries = useMemo(() => buildSignupsByDay(users), [users]);
   const genderSeries = useMemo(() => buildGenderDistribution(users), [users]);
   const pageCategorySeries = useMemo(() => buildPagesByCategory(pages), [pages]);
 
-  // Synthetic engagement series for visual richness
-  const engagementSeries = useMemo(() => {
-    return signupSeries.map((s, i) => ({
-      day: s.day,
-      posts: Math.max(0, Math.round(s.count * 4 + (i % 5) * 3 + 4)),
-      comments: Math.max(0, Math.round(s.count * 7 + (i % 3) * 5 + 6)),
-      reactions: Math.max(0, Math.round(s.count * 12 + (i % 4) * 9 + 10)),
-    }));
-  }, [signupSeries]);
+  const trendingSeries = useMemo(
+    () => trending.slice(0, 8).map((h) => ({ tag: `#${h.tag}`, posts: h.postCount ?? 0 })),
+    [trending]
+  );
 
   const recentUsers = useMemo(
-    () =>
-      [...users]
-        .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
-        .slice(0, 6),
+    () => [...users].sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()).slice(0, 6),
     [users]
   );
+
+  const signupSeries = stats?.registrationsByDay?.map((d) => ({ day: d.date.slice(5), count: d.count })) ?? [];
+  const postsSeries = stats?.postsByDay?.map((d) => ({ day: d.date.slice(5), count: d.count })) ?? [];
+
+  const totalUsers = stats?.totalUsers ?? fallbackStats?.totalUsers ?? 0;
+  const activeToday = stats?.activeToday ?? fallbackStats?.activeToday ?? 0;
+  const newThisWeek = stats?.newThisWeek ?? fallbackStats?.newThisWeek ?? 0;
+  const lockedUsers = stats?.lockedUsers ?? fallbackStats?.lockedUsers ?? 0;
+  const totalPages = stats?.totalPages ?? fallbackStats?.totalPages ?? 0;
+  const verifiedPages = fallbackStats?.verifiedPages ?? pages.filter((p) => p.isVerified).length;
+  const totalPosts = stats?.totalPosts ?? 0;
+  const totalStories = stats?.totalStories ?? 0;
 
   return (
     <div className="space-y-6">
@@ -151,99 +138,61 @@ export default function Dashboard() {
           </p>
         </div>
         <div className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700">
-          {loading ? 'Đang tải dữ liệu...' : 'Đã đồng bộ'}
+          {loading ? 'Đang tải dữ liệu...' : stats ? 'Đã đồng bộ (API)' : 'Đã đồng bộ'}
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          title="Tổng người dùng"
-          value={stats.totalUsers.toLocaleString()}
-          delta={`+${stats.newThisWeek} mới`}
-          deltaTone="up"
-          icon={Users}
-        />
-        <StatCard
-          title="Đang hoạt động hôm nay"
-          value={stats.activeToday.toLocaleString()}
-          delta="24h gần nhất"
-          deltaTone="neutral"
-          icon={Activity}
-          accent="from-emerald-500 to-teal-600"
-        />
-        <StatCard
-          title="Tổng số Page"
-          value={stats.totalPages.toLocaleString()}
-          delta={`${stats.verifiedPages} đã xác minh`}
-          deltaTone="up"
-          icon={Newspaper}
-          accent="from-amber-500 to-orange-600"
-        />
-        <StatCard
-          title="Tài khoản bị khoá"
-          value={stats.lockedUsers.toLocaleString()}
-          delta={stats.lockedUsers > 0 ? 'Cần kiểm tra' : 'Bình thường'}
-          deltaTone={stats.lockedUsers > 0 ? 'down' : 'up'}
-          icon={ShieldAlert}
-          accent="from-rose-500 to-pink-600"
-        />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <StatCard title="Tổng người dùng" value={totalUsers.toLocaleString()} delta={`+${newThisWeek} mới`} deltaTone="up" icon={Users} />
+        <StatCard title="Đang hoạt động hôm nay" value={activeToday.toLocaleString()} delta="24h gần nhất" deltaTone="neutral" icon={Activity} accent="from-emerald-500 to-teal-600" />
+        <StatCard title="Tổng số Page" value={totalPages.toLocaleString()} delta={`${verifiedPages} đã xác minh`} deltaTone="up" icon={Newspaper} accent="from-amber-500 to-orange-600" />
+        <StatCard title="Tài khoản bị khoá" value={lockedUsers.toLocaleString()} delta={lockedUsers > 0 ? 'Cần kiểm tra' : 'Bình thường'} deltaTone={lockedUsers > 0 ? 'down' : 'up'} icon={ShieldAlert} accent="from-rose-500 to-pink-600" />
+        <StatCard title="Tổng bài đăng" value={totalPosts.toLocaleString()} delta="Toàn hệ thống" deltaTone="neutral" icon={FileText} accent="from-violet-500 to-purple-600" />
+        <StatCard title="Tổng Stories" value={totalStories.toLocaleString()} delta="Toàn hệ thống" deltaTone="neutral" icon={BookImage} accent="from-sky-500 to-cyan-600" />
       </div>
 
+      {/* Charts row 1: Signups + Gender */}
       <div className="grid gap-4 xl:grid-cols-3">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-base font-semibold text-slate-900">Người dùng đăng ký mới</h2>
-              <p className="text-xs text-slate-500">14 ngày gần nhất</p>
+              <p className="text-xs text-slate-500">{signupSeries.length > 0 ? '30' : '0'} ngày gần nhất</p>
             </div>
             <div className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">
               <TrendingUp size={12} className="mr-1 inline" /> Tăng trưởng
             </div>
           </div>
           <div className="mt-4 h-72">
-            <ResponsiveContainer>
-              <AreaChart data={signupSeries}>
-                <defs>
-                  <linearGradient id="signupColor" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#6366f1" stopOpacity={0.4} />
-                    <stop offset="100%" stopColor="#6366f1" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                <XAxis dataKey="day" tick={{ fontSize: 12 }} stroke="#94a3b8" />
-                <YAxis tick={{ fontSize: 12 }} stroke="#94a3b8" allowDecimals={false} />
-                <Tooltip
-                  contentStyle={{ borderRadius: 8, borderColor: '#e2e8f0', fontSize: 12 }}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="count"
-                  name="Đăng ký"
-                  stroke="#6366f1"
-                  strokeWidth={2}
-                  fill="url(#signupColor)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+            {signupSeries.length === 0 ? (
+              <div className="flex h-full items-center justify-center text-sm text-slate-400">Cần backend /api/admin/stats</div>
+            ) : (
+              <ResponsiveContainer>
+                <AreaChart data={signupSeries}>
+                  <defs>
+                    <linearGradient id="signupColor" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#6366f1" stopOpacity={0.4} />
+                      <stop offset="100%" stopColor="#6366f1" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                  <XAxis dataKey="day" tick={{ fontSize: 11 }} stroke="#94a3b8" interval={2} />
+                  <YAxis tick={{ fontSize: 12 }} stroke="#94a3b8" allowDecimals={false} />
+                  <Tooltip contentStyle={{ borderRadius: 8, borderColor: '#e2e8f0', fontSize: 12 }} />
+                  <Area type="monotone" dataKey="count" name="Đăng ký" stroke="#6366f1" strokeWidth={2} fill="url(#signupColor)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div>
-            <h2 className="text-base font-semibold text-slate-900">Phân bố giới tính</h2>
-            <p className="text-xs text-slate-500">Toàn bộ người dùng</p>
-          </div>
+          <h2 className="text-base font-semibold text-slate-900">Phân bố giới tính</h2>
+          <p className="text-xs text-slate-500">Toàn bộ người dùng</p>
           <div className="mt-4 h-72">
             <ResponsiveContainer>
               <PieChart>
-                <Pie
-                  data={genderSeries}
-                  dataKey="value"
-                  nameKey="name"
-                  innerRadius={55}
-                  outerRadius={90}
-                  paddingAngle={3}
-                >
+                <Pie data={genderSeries} dataKey="value" nameKey="name" innerRadius={55} outerRadius={90} paddingAngle={3}>
                   {genderSeries.map((_, idx) => (
                     <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
                   ))}
@@ -256,35 +205,75 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Charts row 2: Posts per day + Trending hashtags */}
       <div className="grid gap-4 xl:grid-cols-3">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-base font-semibold text-slate-900">Mức độ tương tác</h2>
-              <p className="text-xs text-slate-500">Bài đăng / bình luận / cảm xúc theo ngày</p>
+              <h2 className="text-base font-semibold text-slate-900">Bài đăng theo ngày</h2>
+              <p className="text-xs text-slate-500">30 ngày gần nhất</p>
             </div>
           </div>
           <div className="mt-4 h-72">
-            <ResponsiveContainer>
-              <LineChart data={engagementSeries}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                <XAxis dataKey="day" tick={{ fontSize: 12 }} stroke="#94a3b8" />
-                <YAxis tick={{ fontSize: 12 }} stroke="#94a3b8" />
-                <Tooltip contentStyle={{ borderRadius: 8, fontSize: 12 }} />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Line type="monotone" dataKey="posts" name="Bài đăng" stroke="#6366f1" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="comments" name="Bình luận" stroke="#10b981" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="reactions" name="Cảm xúc" stroke="#f59e0b" strokeWidth={2} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
+            {postsSeries.length === 0 ? (
+              <div className="flex h-full items-center justify-center text-sm text-slate-400">Cần backend /api/admin/stats</div>
+            ) : (
+              <ResponsiveContainer>
+                <AreaChart data={postsSeries}>
+                  <defs>
+                    <linearGradient id="postsColor" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#10b981" stopOpacity={0.4} />
+                      <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                  <XAxis dataKey="day" tick={{ fontSize: 11 }} stroke="#94a3b8" interval={2} />
+                  <YAxis tick={{ fontSize: 12 }} stroke="#94a3b8" allowDecimals={false} />
+                  <Tooltip contentStyle={{ borderRadius: 8, borderColor: '#e2e8f0', fontSize: 12 }} />
+                  <Area type="monotone" dataKey="count" name="Bài đăng" stroke="#10b981" strokeWidth={2} fill="url(#postsColor)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div>
-            <h2 className="text-base font-semibold text-slate-900">Top danh mục Page</h2>
-            <p className="text-xs text-slate-500">Theo số lượng trang</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">Hashtag thịnh hành</h2>
+              <p className="text-xs text-slate-500">Số bài đăng theo hashtag</p>
+            </div>
+            <div className="rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700">
+              <Hash size={12} className="mr-1 inline" /> Trending
+            </div>
           </div>
+          <div className="mt-4 h-72">
+            {trendingSeries.length === 0 ? (
+              <div className="flex h-full items-center justify-center text-sm text-slate-400">Chưa có dữ liệu hashtag.</div>
+            ) : (
+              <ResponsiveContainer>
+                <BarChart data={trendingSeries} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
+                  <XAxis type="number" tick={{ fontSize: 12 }} stroke="#94a3b8" allowDecimals={false} />
+                  <YAxis type="category" dataKey="tag" tick={{ fontSize: 12 }} stroke="#94a3b8" width={120} />
+                  <Tooltip contentStyle={{ borderRadius: 8, fontSize: 12 }} />
+                  <Bar dataKey="posts" name="Bài đăng" radius={[0, 6, 6, 0]}>
+                    {trendingSeries.map((_, idx) => (
+                      <Cell key={idx} fill={HASHTAG_COLORS[idx % HASHTAG_COLORS.length]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Charts row 3: Page categories + Recent users */}
+      <div className="grid gap-4 xl:grid-cols-3">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-base font-semibold text-slate-900">Top danh mục Page</h2>
+          <p className="text-xs text-slate-500">Theo số lượng trang</p>
           <div className="mt-4 h-72">
             <ResponsiveContainer>
               <BarChart data={pageCategorySeries} layout="vertical">
@@ -297,15 +286,11 @@ export default function Dashboard() {
             </ResponsiveContainer>
           </div>
         </div>
-      </div>
 
-      <div className="grid gap-4 xl:grid-cols-3">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <h2 className="text-base font-semibold text-slate-900">Người dùng đăng ký gần đây</h2>
-              <p className="text-xs text-slate-500">Theo dõi các tài khoản mới được tạo</p>
-            </div>
+          <div className="mb-4">
+            <h2 className="text-base font-semibold text-slate-900">Người dùng đăng ký gần đây</h2>
+            <p className="text-xs text-slate-500">Theo dõi các tài khoản mới được tạo</p>
           </div>
           <div className="overflow-hidden rounded-xl border border-slate-100">
             <table className="min-w-full divide-y divide-slate-100 text-sm">
@@ -318,103 +303,51 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {recentUsers.length === 0 && (
-                  <tr>
-                    <td colSpan={4} className="px-4 py-6 text-center text-slate-400">
-                      Chưa có dữ liệu.
-                    </td>
-                  </tr>
-                )}
-                {recentUsers.map((u) => (
-                  <tr key={u.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <img
-                          src={u.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${u.name || u.username || u.id}`}
-                          className="h-9 w-9 rounded-full object-cover"
-                          alt=""
-                        />
-                        <div>
-                          <p className="font-medium text-slate-800">{u.name || u.username || `User #${u.id}`}</p>
-                          <p className="text-xs text-slate-500">@{u.username || '---'}</p>
+                {recentUsers.length === 0 ? (
+                  <tr><td colSpan={4} className="px-4 py-6 text-center text-slate-400">Chưa có dữ liệu.</td></tr>
+                ) : (
+                  recentUsers.map((u) => (
+                    <tr key={u.id} className="hover:bg-slate-50">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <img src={u.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${u.name || u.username || u.id}`} className="h-9 w-9 rounded-full object-cover" alt="" />
+                          <div>
+                            <p className="font-medium text-slate-800">{u.name || u.username || `User #${u.id}`}</p>
+                            <p className="text-xs text-slate-500">@{u.username || '---'}</p>
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">{u.phone || '—'}</td>
-                    <td className="px-4 py-3 text-slate-600">
-                      {u.createdAt ? new Date(u.createdAt).toLocaleDateString('vi-VN') : '—'}
-                    </td>
-                    <td className="px-4 py-3">
-                      {u.locked ? (
-                        <span className="rounded-full bg-rose-50 px-2.5 py-0.5 text-xs font-semibold text-rose-700">
-                          Đang khoá
-                        </span>
-                      ) : (
-                        <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
-                          Hoạt động
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">{u.phone || '—'}</td>
+                      <td className="px-4 py-3 text-slate-600">{u.createdAt ? new Date(u.createdAt).toLocaleDateString('vi-VN') : '—'}</td>
+                      <td className="px-4 py-3">
+                        {u.locked ? (
+                          <span className="rounded-full bg-rose-50 px-2.5 py-0.5 text-xs font-semibold text-rose-700">Đang khoá</span>
+                        ) : (
+                          <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">Hoạt động</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
         </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <h2 className="text-base font-semibold text-slate-900">Sức khoẻ hệ thống</h2>
-              <p className="text-xs text-slate-500">Trạng thái dịch vụ chính</p>
-            </div>
-          </div>
-          <ul className="space-y-3">
-            {[
-              { name: 'API Gateway', status: 'OK', tone: 'emerald' },
-              { name: 'MySQL', status: 'OK', tone: 'emerald' },
-              { name: 'MongoDB', status: 'OK', tone: 'emerald' },
-              { name: 'WebSocket', status: 'OK', tone: 'emerald' },
-              { name: 'AWS S3 Upload', status: 'OK', tone: 'emerald' },
-              { name: 'Email / SMS OTP', status: 'Degraded', tone: 'amber' },
-            ].map((s) => (
-              <li
-                key={s.name}
-                className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2"
-              >
-                <span className="flex items-center gap-2 text-sm text-slate-700">
-                  <UserCheck size={14} className="text-slate-400" />
-                  {s.name}
-                </span>
-                <span
-                  className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                    s.tone === 'emerald'
-                      ? 'bg-emerald-100 text-emerald-700'
-                      : 'bg-amber-100 text-amber-700'
-                  }`}
-                >
-                  {s.status}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
       </div>
 
+      {/* Quick links */}
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-base font-semibold text-slate-900">Truy cập nhanh</h2>
         <p className="text-xs text-slate-500">Các tác vụ thường dùng</p>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {[
-            { icon: Users, title: 'Quản lý người dùng', desc: 'Khoá, mở khoá, cập nhật' },
-            { icon: Newspaper, title: 'Duyệt Page', desc: 'Theo trạng thái & xác minh' },
-            { icon: FileText, title: 'Bài đăng vi phạm', desc: 'Ẩn / xoá nội dung' },
-            { icon: ShieldAlert, title: 'Báo cáo người dùng', desc: 'Xử lý khiếu nại' },
+            { icon: Users, title: 'Người dùng', desc: 'Khoá, mở khoá, cập nhật', path: '/users' },
+            { icon: Newspaper, title: 'Pages', desc: 'Quản lý trang & thành viên', path: '/pages' },
+            { icon: FileText, title: 'Bài đăng', desc: 'Xem / xoá nội dung', path: '/posts' },
+            { icon: BookImage, title: 'Stories', desc: 'Xem / xoá stories', path: '/stories' },
+            { icon: Music2, title: 'Thư viện nhạc', desc: 'Duyệt kho nhạc', path: '/music' },
           ].map((q) => (
-            <div
-              key={q.title}
-              className="flex items-start gap-3 rounded-xl border border-slate-100 bg-gradient-to-br from-white to-slate-50 p-4 hover:border-indigo-200 hover:shadow-sm"
-            >
+            <a key={q.title} href={q.path} className="flex items-start gap-3 rounded-xl border border-slate-100 bg-gradient-to-br from-white to-slate-50 p-4 hover:border-indigo-200 hover:shadow-sm transition">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
                 <q.icon size={18} />
               </div>
@@ -422,7 +355,7 @@ export default function Dashboard() {
                 <p className="text-sm font-semibold text-slate-800">{q.title}</p>
                 <p className="text-xs text-slate-500">{q.desc}</p>
               </div>
-            </div>
+            </a>
           ))}
         </div>
       </div>

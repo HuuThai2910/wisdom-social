@@ -76,8 +76,106 @@ export interface Post {
   updatedAt?: string;
 }
 
+export interface UserProfile extends User {
+  friendsCount?: number;
+  followersCount?: number;
+  followingCount?: number;
+  postsCount?: number;
+}
+
+export interface PageMember {
+  id: number;
+  userId: number;
+  pageId: number;
+  role?: string;
+  user?: User;
+  status?: string;
+  createdAt?: string;
+}
+
+export interface Notification {
+  id: string;
+  userId: string;
+  type?: string;
+  title?: string;
+  content?: string;
+  referenceId?: string;
+  referenceType?: string;
+  isRead?: boolean;
+  createdAt?: string;
+}
+
+export interface TrendingHashtag {
+  tag: string;
+  postCount?: number;
+  userCount?: number;
+  viewCount?: number;
+  engagementCount?: number;
+}
+
+export interface PaginatedResponse<T> {
+  content: T[];
+  totalElements: number;
+  totalPages: number;
+  number: number;
+  size: number;
+  first?: boolean;
+  last?: boolean;
+}
+
+export interface StoryMedia {
+  url: string;
+  type?: string;
+  thumbnailUrl?: string;
+  width?: number;
+  height?: number;
+  duration?: number;
+}
+
+export interface Story {
+  id: string;
+  userId: string;
+  user?: { username?: string; name?: string; avatarUrl?: string };
+  media?: StoryMedia;
+  text?: string;
+  privacy?: PrivacyType;
+  viewCount?: number;
+  reactCount?: number;
+  replyCount?: number;
+  isArchived?: boolean;
+  highlightCategory?: string;
+  status?: StatusType;
+  createdAt?: string;
+  expireAt?: string;
+}
+
+export interface MusicTrack {
+  id: string;
+  title: string;
+  artist: string;
+  duration?: number;
+  imageUrl?: string;
+  audioUrl?: string;
+  createdAt?: string;
+}
+
+export interface AdminStats {
+  totalUsers: number;
+  activeToday: number;
+  newThisWeek: number;
+  lockedUsers: number;
+  totalPosts: number;
+  totalStories: number;
+  totalPages: number;
+  registrationsByDay: { date: string; count: number }[];
+  postsByDay: { date: string; count: number }[];
+}
+
 export interface ApiResponse<T> {
   status: number;
+  success?: boolean;
   message: string;
   data: T;
+  errors?: any;
+  timestamp?: string;
 }

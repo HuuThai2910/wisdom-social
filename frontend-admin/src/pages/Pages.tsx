@@ -1,13 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { BadgeCheck, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { BadgeCheck, RefreshCw, Search, Trash2, Filter } from 'lucide-react';
 import pageService from '../services/pageService';
-import type { Page } from '../types/models';
+import type { Page, PageStatus } from '../types/models';
+
+type StatusFilter = 'all' | PageStatus;
 
 export default function Pages() {
+  const navigate = useNavigate();
   const [pages, setPages] = useState<Page[]>([]);
   const [loading, setLoading] = useState(true);
   const [keyword, setKeyword] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [busyId, setBusyId] = useState<number | null>(null);
 
   const load = async () => {
@@ -28,16 +33,19 @@ export default function Pages() {
 
   const filtered = useMemo(() => {
     const k = keyword.trim().toLowerCase();
-    if (!k) return pages;
-    return pages.filter(
-      (p) =>
+    return pages.filter((p) => {
+      if (statusFilter !== 'all' && p.status !== statusFilter) return false;
+      if (!k) return true;
+      return (
         p.name?.toLowerCase().includes(k) ||
         p.username?.toLowerCase().includes(k) ||
         p.category?.toLowerCase().includes(k)
-    );
-  }, [pages, keyword]);
+      );
+    });
+  }, [pages, keyword, statusFilter]);
 
-  const handleDelete = async (p: Page) => {
+  const handleDelete = async (e: React.MouseEvent, p: Page) => {
+    e.stopPropagation();
     if (!confirm(`Xoá trang "${p.name}"?`)) return;
     setBusyId(p.id);
     try {
@@ -58,6 +66,9 @@ export default function Pages() {
           <h1 className="text-2xl font-bold text-slate-900">Quản lý Page</h1>
           <p className="text-sm text-slate-500">
             Tổng: <span className="font-semibold text-slate-700">{pages.length}</span> trang
+            {filtered.length !== pages.length && (
+              <span className="ml-2 text-slate-400">({filtered.length} hiển thị)</span>
+            )}
           </p>
         </div>
         <button
@@ -69,14 +80,33 @@ export default function Pages() {
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="relative max-w-md">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-            placeholder="Tìm theo tên, username, danh mục..."
-            className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm focus:border-indigo-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100"
-          />
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative min-w-[280px] flex-1">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              placeholder="Tìm theo tên, username, danh mục..."
+              className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm focus:border-indigo-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100"
+            />
+          </div>
+
+          <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-1 text-sm">
+            <Filter size={14} className="ml-2 text-slate-400" />
+            {(['all', 'ACTIVE', 'PENDING', 'BLOCKED'] as StatusFilter[]).map((f) => (
+              <button
+                key={f}
+                onClick={() => setStatusFilter(f)}
+                className={`rounded-md px-3 py-1 text-xs font-semibold transition ${
+                  statusFilter === f
+                    ? 'bg-white text-indigo-600 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                {f === 'all' ? 'Tất cả' : f === 'ACTIVE' ? 'Hoạt động' : f === 'PENDING' ? 'Chờ duyệt' : 'Bị chặn'}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -92,7 +122,8 @@ export default function Pages() {
             filtered.map((p) => (
               <article
                 key={p.id}
-                className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm transition hover:shadow-md"
+                onClick={() => navigate(`/pages/${p.id}`)}
+                className="cursor-pointer overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm transition hover:shadow-md hover:border-indigo-200"
               >
                 <div
                   className="h-24 w-full bg-cover bg-center"
@@ -115,7 +146,9 @@ export default function Pages() {
                     className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
                       p.status === 'BLOCKED'
                         ? 'bg-rose-50 text-rose-700'
-                        : 'bg-emerald-50 text-emerald-700'
+                        : p.status === 'PENDING'
+                          ? 'bg-amber-50 text-amber-700'
+                          : 'bg-emerald-50 text-emerald-700'
                     }`}
                   >
                     {p.status || 'ACTIVE'}
@@ -141,7 +174,7 @@ export default function Pages() {
                     </span>
                     <button
                       disabled={busyId === p.id}
-                      onClick={() => handleDelete(p)}
+                      onClick={(e) => handleDelete(e, p)}
                       className="flex items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-50"
                     >
                       <Trash2 size={12} /> Xoá

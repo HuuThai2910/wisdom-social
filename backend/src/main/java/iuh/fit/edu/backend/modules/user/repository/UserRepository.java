@@ -10,6 +10,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -31,4 +32,9 @@ public interface UserRepository extends JpaRepository<User,Long> {
 
     List<User> findByDeletionScheduledForBefore(OffsetDateTime dateTime);
     Page<User> findByIdInAndUsernameContainingIgnoreCase(List<Long> ids, String username, Pageable pageable);
+
+    long countByLockedTrue();
+    long countByLastActiveAtAfter(Instant since);
+    long countByCreatedAtAfter(OffsetDateTime since);
+    List<User> findByCreatedAtAfter(OffsetDateTime since);
 }
