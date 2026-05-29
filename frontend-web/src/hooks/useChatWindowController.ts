@@ -64,6 +64,7 @@ import {
 export type { ReadReceipt } from "../utils/chatWindowControllerUtils";
 
 const OUTBOX_RETRY_INTERVAL_MS = 3000;
+const MAX_TEXT_MESSAGE_LENGTH = 3500;
 
 function incrementMessageReaction(
     message: Message,
@@ -124,15 +125,15 @@ function buildOptimisticTextMessage(
     request: SendMessageRequest,
     userId: number,
     clientMessageId: string,
+    createdAt = new Date().toISOString(),
 ): Message {
-    const now = new Date().toISOString();
     return {
         id: `local-${clientMessageId}`,
         conversationId: request.conversationId ?? 0,
         clientMessageId,
         content: request.content,
         type: request.type,
-        createdAt: now,
+        createdAt,
         senderId: userId,
         replyInfo: request.replyToId
             ? {
@@ -142,6 +143,39 @@ function buildOptimisticTextMessage(
         attachments: request.attachments,
         deliveryStatus: "sending",
     };
+}
+
+function splitLongTextMessage(
+    content: string,
+    maxLength = MAX_TEXT_MESSAGE_LENGTH,
+): string[] {
+    const trimmed = content.trim();
+    if (!trimmed) return [];
+    if (trimmed.length <= maxLength) return [trimmed];
+
+    const parts: string[] = [];
+    let remaining = trimmed;
+
+    while (remaining.length > maxLength) {
+        const windowText = remaining.slice(0, maxLength + 1);
+        const breakAt = Math.max(
+            windowText.lastIndexOf("\n"),
+            windowText.lastIndexOf(" "),
+            windowText.lastIndexOf("\t"),
+        );
+        const splitAt = breakAt >= Math.floor(maxLength * 0.6) ? breakAt : maxLength;
+        const part = remaining.slice(0, splitAt).trim();
+        if (part) {
+            parts.push(part);
+        }
+        remaining = remaining.slice(splitAt).trimStart();
+    }
+
+    if (remaining.trim()) {
+        parts.push(remaining.trim());
+    }
+
+    return parts;
 }
 
 function buildOptimisticMediaMessage(
@@ -3211,51 +3245,67 @@ const list = Array.isArray(cursorData?.data)
                 setSending(true);
                 setError(null);
 
-                const clientMessageId = createClientMessageId();
-                const request: SendMessageRequest = {
-                    content: trimmed,
-                    type: "TEXT",
-                    conversationId,
-                    clientMessageId,
-                };
-                if (replyToId) {
-                    // Backend hiện nhận reply theo trường replyToId.
-                    // Không gửi replyInfo từ FE để tránh lỗi parse JSON (500).
-                    request.replyToId = replyToId;
-                }
+                const textParts = splitLongTextMessage(trimmed);
+                const baseClientMessageId = createClientMessageId();
+                const baseCreatedAt = Date.now();
+                const outboxItems = textParts.map((content, partIndex) => {
+                    const clientMessageId =
+                        textParts.length === 1
+                            ? baseClientMessageId
+                            : `${baseClientMessageId}-part-${partIndex}`;
+                    const request: SendMessageRequest = {
+                        content,
+                        type: "TEXT",
+                        conversationId,
+                        clientMessageId,
+                    };
+                    if (replyToId && partIndex === 0) {
+                        // Backend hiện nhận reply theo trường replyToId.
+                        // Chỉ part đầu giữ reply preview để chuỗi text dài không bị lặp khung reply.
+                        request.replyToId = replyToId;
+                    }
 
-                const optimisticMessage = buildOptimisticTextMessage(
-                    request,
-                    userId,
-                    clientMessageId,
-                );
-                const outboxItem: OutboxMessage = {
-                    clientMessageId,
-                    conversationId,
-                    userId,
-                    request,
-                    preview: optimisticMessage,
-                    status: "pending",
-                    retryCount: 0,
-                    createdAt: optimisticMessage.createdAt,
-                    updatedAt: optimisticMessage.createdAt,
-                };
+                    const createdAt = new Date(
+                        baseCreatedAt + partIndex,
+                    ).toISOString();
+                    const optimisticMessage = buildOptimisticTextMessage(
+                        request,
+                        userId,
+                        clientMessageId,
+                        createdAt,
+                    );
+                    return {
+                        clientMessageId,
+                        conversationId,
+                        userId,
+                        request,
+                        preview: optimisticMessage,
+                        status: "pending" as const,
+                        retryCount: 0,
+                        createdAt: optimisticMessage.createdAt,
+                        updatedAt: optimisticMessage.createdAt,
+                    };
+                });
 
                 scrollOnNextRenderRef.current = "smooth";
                 setMessages((prev) => {
                     const nextMessages = applyWindowForNewer([
                         ...prev,
-                        optimisticMessage,
+                        ...outboxItems.map((item) => item.preview),
                     ]);
                     chatRuntimeStore.setMessages(conversationId, nextMessages);
                     return nextMessages;
                 });
 
-                await messageOutbox.save(outboxItem);
+                for (const outboxItem of outboxItems) {
+                    await messageOutbox.save(outboxItem);
+                }
                 setMessageText("");
                 // Sau khi send, thường server sẽ broadcast lại qua WS; dù vậy ta vẫn chủ động scroll.
                 scrollOnNextRenderRef.current = "smooth";
-                await sendOutboxItem(outboxItem).catch(() => undefined);
+                for (const outboxItem of outboxItems) {
+                    await sendOutboxItem(outboxItem).catch(() => undefined);
+                }
             } catch {
                 setError("Không thể gửi tin nhắn");
             } finally {
