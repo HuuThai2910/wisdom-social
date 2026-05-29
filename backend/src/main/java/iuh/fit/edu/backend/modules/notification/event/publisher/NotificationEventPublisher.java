@@ -59,17 +59,21 @@ public class NotificationEventPublisher {
         log.info("🔔 [DEBUG-NOTI] 1. Received Event for recipient: {}, type: {}", event.getRecipientId(), event.getType());
 
         try {
-            // 1. Build metadata with imageUrl and deepLink
+            // 1. Build metadata with imageUrl, actorName and deepLink
             String imageUrl = event.getImageUrl();
-            if (imageUrl == null && event.getActorIds() != null && !event.getActorIds().isEmpty()) {
+            String actorName = null;
+            if (event.getActorIds() != null && !event.getActorIds().isEmpty()) {
                 try {
                     String firstActorId = event.getActorIds().get(0);
                     User actor = userService.findUserById(Long.parseLong(firstActorId));
                     if (actor != null) {
-                        imageUrl = actor.getAvatarUrl();
+                        actorName = actor.getName();
+                        if (imageUrl == null) {
+                            imageUrl = actor.getAvatarUrl();
+                        }
                     }
                 } catch (Exception e) {
-                    log.warn("⚠️ Could not fetch actor avatar for notification: {}", e.getMessage());
+                    log.warn("⚠️ Could not fetch actor info for notification: {}", e.getMessage());
                 }
             }
 
@@ -79,11 +83,14 @@ public class NotificationEventPublisher {
             
             if (event.getRootTargetId() != null) {
                 deepLink = "/post/" + event.getRootTargetId();
-                
+
                 // Add extra info for comments/replies
                 if (event.getTargetType() == TargetType.COMMENT) {
                     extraData = "{\"commentId\": \"" + event.getTargetId() + "\"}";
                 }
+            } else if (event.getTargetType() == TargetType.PAGE && event.getTargetId() != null) {
+                // For page notifications, navigate to the page detail
+                deepLink = "/pages/" + event.getTargetId();
             } else if (event.getType() == NotificationType.FRIEND_REQUEST ||
                        event.getType() == NotificationType.FRIEND_ACCEPT) {
                 // For friend notifications, navigate to the actor's profile
@@ -102,6 +109,7 @@ public class NotificationEventPublisher {
 
             NotificationMetadata metadata = NotificationMetadata.builder()
                     .imageUrl(imageUrl)
+                    .actorName(actorName)
                     .deepLink(deepLink)
                     .extraData(extraData)
                     .build();

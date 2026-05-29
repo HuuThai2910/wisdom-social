@@ -13,11 +13,14 @@ import iuh.fit.edu.backend.modules.page.repository.PageLikeRepository;
 import iuh.fit.edu.backend.modules.page.repository.PagePostRepository;
 import iuh.fit.edu.backend.modules.page.repository.PageRepository;
 import iuh.fit.edu.backend.modules.page.service.PageService;
+import iuh.fit.edu.backend.modules.page.service.PageNotificationService;
 import iuh.fit.edu.backend.modules.post.repository.PostRepository;
 import iuh.fit.edu.backend.modules.user.service.UserService;
 import iuh.fit.edu.backend.common.service.s3.S3Service;
 import iuh.fit.edu.backend.modules.page.event.publisher.PageEventPublisher;
+import iuh.fit.edu.backend.modules.notification.constant.NotificationType;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
 import java.util.HashMap;
@@ -35,6 +38,7 @@ public class PageServiceImpl implements PageService {
     UserService userService;
     S3Service s3Service;
     PageEventPublisher pageEventPublisher;
+    PageNotificationService pageNotificationService;
 
     public PageServiceImpl(PageFollowRepository pageFollowRepositoryl,
                            PageLikeRepository pageLikeRepository,
@@ -44,7 +48,8 @@ public class PageServiceImpl implements PageService {
                            PageRepository pageRepository,
                            UserService userService,
                            S3Service s3Service,
-                           PageEventPublisher pageEventPublisher) {
+                           PageEventPublisher pageEventPublisher,
+                           PageNotificationService pageNotificationService) {
         this.pageFollowRepository = pageFollowRepositoryl;
         this.pageLikeRepository = pageLikeRepository;
         this.pagePostRepository = pagePostRepository;
@@ -54,6 +59,7 @@ public class PageServiceImpl implements PageService {
         this.userService = userService;
         this.s3Service = s3Service;
         this.pageEventPublisher = pageEventPublisher;
+        this.pageNotificationService = pageNotificationService;
     }
 
     @Override
@@ -111,6 +117,7 @@ public class PageServiceImpl implements PageService {
             if (updatePage.getWebsite() != null) page.setWebsite(updatePage.getWebsite());
             if (updatePage.getAddress() != null) page.setAddress(updatePage.getAddress());
             if (updatePage.getIsVerified() != null) page.setIsVerified(updatePage.getIsVerified());
+            if (updatePage.getStatus() != null) page.setStatus(updatePage.getStatus());
             page.setUpdatedAt(OffsetDateTime.now());
             Page saved = pageRepository.save(page);
             // Publish PAGE_UPDATED
@@ -138,6 +145,7 @@ public class PageServiceImpl implements PageService {
 
 
     @Override
+    @Transactional
     public boolean followPageUser(long userId, long pageId) {
         // Prevent duplicate follow
         if (pageFollowRepository.existsByUser_IdAndPage_Id(userId, pageId)) {
@@ -151,12 +159,18 @@ public class PageServiceImpl implements PageService {
             pageFollow.setPage(page);
             pageFollow.setFollowedAt(OffsetDateTime.now());
             pageFollowRepository.save(pageFollow);
+
+            // Notify page admins/moderators about the new follower
+            pageNotificationService.notifyAdmins(page, userId,
+                    NotificationType.PAGE_FOLLOW,
+                    "đã theo dõi trang " + page.getName());
             return true;
         }
         return false;
     }
 
     @Override
+    @Transactional
     public boolean likePageUser(long userId, long pageId) {
         // Prevent duplicate like
         if (pageLikeRepository.existsByUser_IdAndPage_Id(userId, pageId)) {
@@ -170,6 +184,11 @@ public class PageServiceImpl implements PageService {
             pageLike.setPage(page);
             pageLike.setLikedAt(OffsetDateTime.now());
             pageLikeRepository.save(pageLike);
+
+            // Notify page admins/moderators about the new like
+            pageNotificationService.notifyAdmins(page, userId,
+                    NotificationType.PAGE_LIKE,
+                    "đã thích trang " + page.getName());
             return true;
         }
         return false;
