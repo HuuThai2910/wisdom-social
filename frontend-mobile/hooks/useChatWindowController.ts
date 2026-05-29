@@ -1657,6 +1657,43 @@ if (token !== loadTokenRef.current) return;
                             return next;
                         });
                     },
+                    // Khóa/mở khóa tài khoản 1 thành viên -> cập nhật cờ accountLocked
+                    // realtime để mask/bỏ mask tên + avatar ở hội thoại đang mở.
+                    (event) => {
+                        setMembersById((prev) => {
+                            const existing = prev[event.userId];
+                            const next = {
+                                ...prev,
+                                [event.userId]: {
+                                    ...(existing ?? {
+                                        userId: event.userId,
+                                        username: "",
+                                        nickname: "Unknown",
+                                    }),
+                                    userId: event.userId,
+                                    accountLocked: event.accountLocked,
+                                },
+                            };
+                            chatRuntimeStore.setMembers(conversationId, next);
+                            return next;
+                        });
+                        setConversation((prev) => {
+                            if (!prev) return prev;
+                            const nextConversation = {
+                                ...prev,
+                                directPartnerLocked:
+                                    prev.type === "DIRECT" &&
+                                    Number(event.userId) !== Number(currentUserId)
+                                        ? event.accountLocked
+                                        : prev.directPartnerLocked,
+                            };
+                            chatRuntimeStore.setConversation(
+                                conversationId,
+                                nextConversation,
+                            );
+                            return nextConversation;
+                        });
+                    },
                 );
 
                 // Lắng nghe GROUP_DISBANDED để cập nhật UI ngay khi trưởng nhóm

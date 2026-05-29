@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert } from "react-native";
+import { Alert, DeviceEventEmitter } from "react-native";
 import chatService, { isMaxPinLimitError } from "@/services/chatService";
 import chatWebsocketService from "@/services/chatWebsocketService";
 import chatRuntimeStore from "@/stores/chatRuntimeStore";
@@ -298,6 +298,48 @@ export function useMessagesController() {
     useEffect(() => {
         currentUserIdRef.current = currentUserId;
     }, [currentUserId]);
+
+    // Cập nhật SIDEBAR realtime khi 1 thành viên bị khóa/mở khóa tài khoản
+    // (mask/bỏ mask tên + avatar) mà không cần F5.
+    useEffect(() => {
+        const subscription = DeviceEventEmitter.addListener(
+            "conversation-member-lock-changed",
+            (detail: {
+                conversationId?: number;
+                userId?: number | null;
+                accountLocked?: boolean;
+            }) => {
+                if (!detail || typeof detail.conversationId !== "number") return;
+                const lockedUserId = Number(detail.userId);
+                const accountLocked = Boolean(detail.accountLocked);
+
+                setConversations((prev) =>
+                    prev.map((conversation) => {
+                        if (conversation.id !== detail.conversationId)
+                            return conversation;
+
+                        const members = conversation.members?.map((member) =>
+                            Number(member.userId) === lockedUserId
+                                ? { ...member, accountLocked }
+                                : member,
+                        );
+
+                        return {
+                            ...conversation,
+                            members: members ?? conversation.members,
+                            directPartnerLocked:
+                                conversation.type === "DIRECT" &&
+                                Number(conversation.directPartnerId) ===
+                                    lockedUserId
+                                    ? accountLocked
+                                    : conversation.directPartnerLocked,
+                        };
+                    }),
+                );
+            },
+        );
+        return () => subscription.remove();
+    }, []);
 
     useEffect(() => {
         if (!currentUserId) return;
