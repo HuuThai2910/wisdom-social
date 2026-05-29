@@ -53,6 +53,7 @@ const RIGHT_SCROLL_CUE_HEIGHT = 38;
 const MESSAGE_LONG_PRESS_DELAY_MS = 500;
 const SWIPE_REPLY_TRIGGER_PX = 56;
 const SWIPE_REPLY_MAX_TRANSLATE_PX = 72;
+const LONG_TEXT_PREVIEW_LENGTH = 900;
 const URL_PATTERN = /(https?:\/\/[^\s]+)/g;
 
 function renderTextWithLinks(content: string, mine: boolean) {
@@ -223,6 +224,7 @@ export const MessageBubble = React.memo(
         const [pollClosing, setPollClosing] = React.useState(false);
         const [pollOptionDraft, setPollOptionDraft] = React.useState("");
         const [, setPollClockTick] = React.useState(0);
+        const [textExpanded, setTextExpanded] = React.useState(false);
         const pollSelectionByIdRef = React.useRef<Record<string, string[]>>({});
 
         React.useEffect(() => {
@@ -733,6 +735,14 @@ export const MessageBubble = React.memo(
                       ? "Cuoc goi"
                       : replyPreviewContent || "Tin nhan";
         const trimmedContent = item.content?.trim() ?? "";
+        const shouldCollapseText =
+            item.type === "TEXT" &&
+            !item.isRecalled &&
+            (item.content?.length ?? 0) > LONG_TEXT_PREVIEW_LENGTH;
+        const visibleTextContent =
+            shouldCollapseText && !textExpanded && item.content
+                ? `${item.content.slice(0, LONG_TEXT_PREVIEW_LENGTH).trimEnd()}...`
+                : item.content;
         const groupInviteToken =
             (item.type === "TEXT" || item.type === "LINK") && !item.isRecalled
                 ? extractGroupInviteToken(trimmedContent, {
@@ -2624,10 +2634,28 @@ export const MessageBubble = React.memo(
                                                 >
                                                     {item.content
                                                         ? renderTextWithLinks(
-                                                              item.content,
+                                                              visibleTextContent ?? "",
                                                               mine,
                                                           )
                                                         : "Tin nhan khong co noi dung"}
+                                                    {shouldCollapseText ? (
+                                                        <Text
+                                                            style={[
+                                                                styles.expandTextButton,
+                                                                mine &&
+                                                                    styles.expandTextButtonMine,
+                                                            ]}
+                                                            onPress={() =>
+                                                                setTextExpanded(
+                                                                    (value) => !value,
+                                                                )
+                                                            }
+                                                        >
+                                                            {textExpanded
+                                                                ? " Thu gon"
+                                                                : " Xem them"}
+                                                        </Text>
+                                                    ) : null}
                                                 </Text>
                                             ) : null}
 
@@ -3047,6 +3075,13 @@ const styles = StyleSheet.create({
         lineHeight: 21,
     },
     messageTextMine: {
+        color: colors.white,
+    },
+    expandTextButton: {
+        color: colors.primary,
+        fontWeight: "800",
+    },
+    expandTextButtonMine: {
         color: colors.white,
     },
     pollCard: {

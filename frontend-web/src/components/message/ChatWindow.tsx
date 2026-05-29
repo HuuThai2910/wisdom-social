@@ -1195,7 +1195,7 @@ function ChatWindowContent({
   // Refs cho hidden file inputs (Đính kèm file / Chọn GIF)
   const attachInputRef = useRef<HTMLInputElement>(null);
   const gifInputRef = useRef<HTMLInputElement>(null);
-  const messageInputRef = useRef<HTMLInputElement>(null);
+  const messageInputRef = useRef<HTMLTextAreaElement>(null);
 
   const handleApplySuggestion = useCallback(
     (suggestion: string) => {
@@ -2609,9 +2609,8 @@ function ChatWindowContent({
 
               <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-full bg-gray-100 px-2 py-1.5 transition-colors focus-within:bg-gray-50 dark:bg-gray-900 dark:focus-within:bg-gray-800">
                 {/* Input text */}
-                <input
+                <textarea
                   ref={messageInputRef}
-                  type="text"
                   value={messageText}
                   onChange={(e) => {
                     setMessageText(e.target.value);
@@ -2623,7 +2622,13 @@ function ChatWindowContent({
                     }
                   }}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && !sending && !uploading) {
+                    if (
+                      e.key === "Enter" &&
+                      !e.shiftKey &&
+                      !sending &&
+                      !uploading
+                    ) {
+                      e.preventDefault();
                       sendTypingSignal(false); // Ngừng typing khi gửi
                       if (selectedFiles.length > 0) {
                         void handleSendMixedMedia(
@@ -2647,7 +2652,8 @@ function ChatWindowContent({
                     uploading ? "Đang tải file lên..." : "Nhập tin nhắn..."
                   }
                   disabled={sending || uploading}
-                  className="min-w-0 flex-1 bg-transparent px-2.5 py-1.5 text-sm text-gray-900 placeholder:text-gray-500 focus:outline-none dark:text-white dark:placeholder-gray-400 disabled:opacity-50"
+                  rows={1}
+                  className="max-h-28 min-h-[34px] min-w-0 flex-1 resize-none bg-transparent px-2.5 py-1.5 text-sm leading-5 text-gray-900 placeholder:text-gray-500 focus:outline-none dark:text-white dark:placeholder-gray-400 disabled:opacity-50"
                 />
 
                 {/* Uploading spinner */}

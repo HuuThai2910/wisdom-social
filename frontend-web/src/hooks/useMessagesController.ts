@@ -113,6 +113,8 @@ export function useMessagesController() {
         inFlight: false,
         lastRunAt: 0,
         needsCatchup: false,
+        retryTimerId: null as number | null,
+        retryAttempts: 0,
     });
 
     useEffect(() => {
@@ -218,13 +220,11 @@ export function useMessagesController() {
                 });
             } else {
                 conversationListCatchupRef.current.needsCatchup = true;
-                setConversations([]);
                 setConversationReadOnlyNotices({});
                 setError(convs.message || "Không thể tải danh sách hội thoại");
             }
         } catch {
             // Network/exception: cố gắng fail-safe với list rỗng + thông báo.
-            setConversations([]);
             setConversationReadOnlyNotices({});
             conversationListCatchupRef.current.needsCatchup = true;
             setError("Không thể tải danh sách hội thoại");
@@ -241,6 +241,13 @@ export function useMessagesController() {
     useEffect(() => {
         if (!currentUserId) return;
         const catchupTimers: number[] = [];
+        const clearRetryTimer = () => {
+            const timerId = conversationListCatchupRef.current.retryTimerId;
+            if (timerId !== null) {
+                window.clearTimeout(timerId);
+                conversationListCatchupRef.current.retryTimerId = null;
+            }
+        };
 
         const runCatchup = () => {
             const now = Date.now();
@@ -256,22 +263,39 @@ export function useMessagesController() {
             });
         };
 
+        const scheduleRetryLoop = () => {
+            if (conversationListCatchupRef.current.retryTimerId !== null) return;
+            conversationListCatchupRef.current.retryTimerId = window.setTimeout(() => {
+                conversationListCatchupRef.current.retryTimerId = null;
+                if (!conversationListCatchupRef.current.needsCatchup) {
+                    conversationListCatchupRef.current.retryAttempts = 0;
+                    return;
+                }
+                if (conversationListCatchupRef.current.retryAttempts >= 20) {
+                    conversationListCatchupRef.current.retryAttempts = 0;
+                    return;
+                }
+                conversationListCatchupRef.current.retryAttempts += 1;
+                if (document.visibilityState === "visible" && navigator.onLine) {
+                    runCatchup();
+                }
+                scheduleRetryLoop();
+            }, 3000);
+        };
+
         const scheduleCatchup = () => {
+            conversationListCatchupRef.current.retryAttempts = 0;
             [0, 3000, 8000].forEach((delay) => {
                 catchupTimers.push(window.setTimeout(runCatchup, delay));
             });
+            scheduleRetryLoop();
         };
 
         const markNeedsCatchup = () => {
             conversationListCatchupRef.current.needsCatchup = true;
+            conversationListCatchupRef.current.retryAttempts = 0;
+            scheduleRetryLoop();
         };
-
-        const catchupIntervalId = window.setInterval(() => {
-            if (document.visibilityState !== "visible") return;
-            if (!navigator.onLine) return;
-            if (!conversationListCatchupRef.current.needsCatchup) return;
-            runCatchup();
-        }, 3000);
 
         const handleVisibilityChange = () => {
             if (document.visibilityState === "visible") {
@@ -286,7 +310,7 @@ export function useMessagesController() {
 
         return () => {
             catchupTimers.forEach((timerId) => window.clearTimeout(timerId));
-            window.clearInterval(catchupIntervalId);
+            clearRetryTimer();
             window.removeEventListener("online", scheduleCatchup);
             window.removeEventListener("offline", markNeedsCatchup);
             window.removeEventListener("focus", scheduleCatchup);

@@ -588,6 +588,8 @@ export function useChatWindowController(args: {
         inFlight: false,
         lastRunAt: 0,
         needsCatchup: false,
+        retryTimerId: null as number | null,
+        retryAttempts: 0,
     });
 
     // userIdRef dùng cho websocket callback (tránh stale closure nếu userId thay đổi).
@@ -2093,8 +2095,36 @@ const list = Array.isArray(cursorData?.data)
     useEffect(() => {
         if (!userId) return;
         const catchupTimers: number[] = [];
+        const clearRetryTimer = () => {
+            const timerId = activeConversationCatchupRef.current.retryTimerId;
+            if (timerId !== null) {
+                window.clearTimeout(timerId);
+                activeConversationCatchupRef.current.retryTimerId = null;
+            }
+        };
+
+        const scheduleRetryLoop = () => {
+            if (activeConversationCatchupRef.current.retryTimerId !== null) return;
+            activeConversationCatchupRef.current.retryTimerId = window.setTimeout(() => {
+                activeConversationCatchupRef.current.retryTimerId = null;
+                if (!activeConversationCatchupRef.current.needsCatchup) {
+                    activeConversationCatchupRef.current.retryAttempts = 0;
+                    return;
+                }
+                if (activeConversationCatchupRef.current.retryAttempts >= 20) {
+                    activeConversationCatchupRef.current.retryAttempts = 0;
+                    return;
+                }
+                activeConversationCatchupRef.current.retryAttempts += 1;
+                if (document.visibilityState === "visible" && navigator.onLine) {
+                    void catchUpActiveConversationMessages();
+                }
+                scheduleRetryLoop();
+            }, 3000);
+        };
 
         const scheduleCatchup = () => {
+            activeConversationCatchupRef.current.retryAttempts = 0;
             [0, 3000, 8000].forEach((delay) => {
                 catchupTimers.push(
                     window.setTimeout(() => {
@@ -2102,18 +2132,14 @@ const list = Array.isArray(cursorData?.data)
                     }, delay),
                 );
             });
+            scheduleRetryLoop();
         };
 
         const markNeedsCatchup = () => {
             activeConversationCatchupRef.current.needsCatchup = true;
+            activeConversationCatchupRef.current.retryAttempts = 0;
+            scheduleRetryLoop();
         };
-
-        const catchupIntervalId = window.setInterval(() => {
-            if (document.visibilityState !== "visible") return;
-            if (!navigator.onLine) return;
-            if (!activeConversationCatchupRef.current.needsCatchup) return;
-            void catchUpActiveConversationMessages();
-        }, 3000);
 
         const handleVisibilityChange = () => {
             if (document.visibilityState === "visible") {
@@ -2128,7 +2154,7 @@ const list = Array.isArray(cursorData?.data)
 
         return () => {
             catchupTimers.forEach((timerId) => window.clearTimeout(timerId));
-            window.clearInterval(catchupIntervalId);
+            clearRetryTimer();
             window.removeEventListener("online", scheduleCatchup);
             window.removeEventListener("offline", markNeedsCatchup);
             window.removeEventListener("focus", scheduleCatchup);

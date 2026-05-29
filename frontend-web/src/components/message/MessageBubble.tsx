@@ -208,6 +208,8 @@ function renderTextWithLinks(content: string, isOwn: boolean): ReactNode {
     });
 }
 
+const LONG_TEXT_PREVIEW_LENGTH = 900;
+
 /* ─── MessageBubble ────────────────────────────────────────────────────────── */
 
 export interface MessageBubbleProps {
@@ -309,6 +311,15 @@ export function MessageBubble({
     const [pollDraftOptionIds, setPollDraftOptionIds] = useState<string[]>([]);
     const [pollNewOptionText, setPollNewOptionText] = useState("");
     const [, setPollClockTick] = useState(0);
+    const [textExpanded, setTextExpanded] = useState(false);
+    const shouldCollapseText =
+        message.type === "TEXT" &&
+        !message.isRecalled &&
+        message.content.length > LONG_TEXT_PREVIEW_LENGTH;
+    const visibleTextContent =
+        shouldCollapseText && !textExpanded
+            ? `${message.content.slice(0, LONG_TEXT_PREVIEW_LENGTH).trimEnd()}...`
+            : message.content;
     const pollSelectionByIdRef = useRef<Record<string, string[]>>({});
     const [menuPosition, setMenuPosition] = useState<{
         top: number;
@@ -2574,8 +2585,24 @@ export function MessageBubble({
                                 ) : (
                                     <p className="whitespace-pre-wrap px-4 py-1.5 text-sm break-words">
                                         {renderTextWithLinks(
-                                            message.content,
+                                            visibleTextContent,
                                             isOwn,
+                                        )}
+                                        {shouldCollapseText && (
+                                            <button
+                                                type="button"
+                                                className={`ml-1 inline text-sm font-semibold hover:underline ${
+                                                    isOwn
+                                                        ? "text-white/90"
+                                                        : "text-blue-600 dark:text-blue-300"
+                                                }`}
+                                                onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    setTextExpanded((value) => !value);
+                                                }}
+                                            >
+                                                {textExpanded ? "Thu gọn" : "Xem thêm"}
+                                            </button>
                                         )}
                                     </p>
                                 )}
