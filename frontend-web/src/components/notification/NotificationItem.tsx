@@ -20,7 +20,8 @@ export default function NotificationItem({
   const hideActorName =
     notification.type === 'PAGE_JOIN_APPROVED' ||
     notification.type === 'PAGE_POST_APPROVED' ||
-    notification.type === 'PAGE_MEMBER_ADDED';
+    notification.type === 'PAGE_MEMBER_ADDED' ||
+    notification.type === 'PAGE_ROLE_GRANTED';
   const actorName = hideActorName ? undefined : notification.metadata?.actorName;
   
   const handleItemClick = () => {
@@ -131,6 +132,7 @@ function getNotificationText(type: string): string {
     case 'PAGE_JOIN_APPROVED': return 'Yêu cầu tham gia trang của bạn đã được chấp nhận';
     case 'PAGE_POST_APPROVED': return 'Bài viết của bạn đã được duyệt';
     case 'PAGE_MEMBER_ADDED': return 'Bạn đã được thêm vào trang';
+    case 'PAGE_ROLE_GRANTED': return 'Bạn đã được cấp quyền quản lý trang';
     default: return 'Có thông báo mới';
   }
 }

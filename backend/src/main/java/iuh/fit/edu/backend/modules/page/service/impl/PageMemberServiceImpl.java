@@ -129,12 +129,32 @@ public class PageMemberServiceImpl implements PageMemberService {
     }
 
     @Override
+    @Transactional
     public void authorizeMemberPage(long userId, long pageId,PageRole role) {
         PageMember pageMember=pageMemberRepository.findPageMemberByPage_IdAndUser_Id(pageId,userId);
         if (pageMember!=null){
             pageMember.setRole(role);
             pageMemberRepository.save(pageMember);
             pageEventPublisher.publishMemberRoleChanged(pageId, userId, role.name());
+
+            // Notify the user when granted an ADMIN/MODERATOR role
+            if (role == PageRole.ADMIN || role == PageRole.MODERATOR) {
+                Page page = pageService.findPageById(pageId);
+                if (page != null) {
+                    long actorId = userId;
+                    try {
+                        User actor = userService.getCurrentUser();
+                        if (actor != null && actor.getId() != null) actorId = actor.getId();
+                    } catch (Exception ignored) {
+                        // no authenticated actor context
+                    }
+                    String roleLabel = role == PageRole.ADMIN ? "quản trị viên" : "kiểm duyệt viên";
+                    pageNotificationService.notifyUser(
+                            userId, actorId, page,
+                            NotificationType.PAGE_ROLE_GRANTED,
+                            "Bạn đã được cấp quyền " + roleLabel + " của trang " + page.getName());
+                }
+            }
         }
     }
 
@@ -290,6 +310,16 @@ public class PageMemberServiceImpl implements PageMemberService {
     @Override
     public long countActiveMembers(long pageId) {
         return pageMemberRepository.countByPage_IdAndStatus(pageId, MemberStatus.ACTIVE);
+    }
+
+    @Override
+    public boolean isPageAdmin(long userId, long pageId) {
+        Page page = pageService.findPageById(pageId);
+        if (page == null) return false;
+        if (page.getCreatedBy() != null && page.getCreatedBy().getId() != null
+                && page.getCreatedBy().getId() == userId) return true;
+        return pageMemberRepository.existsByUserIdAndPageIdAndRoleIn(
+                userId, pageId, List.of(PageRole.ADMIN));
     }
 
     @Override

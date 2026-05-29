@@ -60,14 +60,12 @@ type MemberStatus =
   | "admin"
   | "owner"
   | "blocked";
-type PageRole = "ADMIN" | "EDITOR" | "MODERATOR" | "ANALYST" | "USER";
+type PageRole = "ADMIN" | "MODERATOR" | "USER";
 
 const PAGE_ROLES: { label: string; value: PageRole }[] = [
-  { label: "Admin", value: "ADMIN" },
-  { label: "Editor", value: "EDITOR" },
-  { label: "Moderator", value: "MODERATOR" },
-  { label: "Analyst", value: "ANALYST" },
-  { label: "User", value: "USER" },
+  { label: "Quản trị viên", value: "ADMIN" },
+  { label: "Kiểm duyệt viên", value: "MODERATOR" },
+  { label: "Thành viên", value: "USER" },
 ];
 
 interface Post {
@@ -129,6 +127,8 @@ export default function PageDetail() {
   const [page, setPage] = useState<Page | null>(null);
   const [loading, setLoading] = useState(true);
   const [memberStatus, setMemberStatus] = useState<MemberStatus>("loading");
+  // Actual page role of the current user (to distinguish ADMIN vs MODERATOR)
+  const [userRole, setUserRole] = useState<PageRole | null>(null);
   const [memberCount, setMemberCount] = useState(0);
   const [isLiked, setIsLiked] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
@@ -239,15 +239,19 @@ export default function PageDetail() {
               setMemberStatus("blocked");
             } else if (currentMember.status === "PENDING") {
               setMemberStatus("pending");
+              setUserRole(null);
             } else if (
               currentMember.role === "ADMIN" ||
               currentMember.role === "MODERATOR"
             ) {
               setMemberStatus("admin");
+              setUserRole(currentMember.role as PageRole);
             } else if (currentMember.status === "ACTIVE") {
               setMemberStatus("member");
+              setUserRole("USER");
             } else {
               setMemberStatus("none");
+              setUserRole(null);
             }
           } else {
             try {
@@ -825,7 +829,7 @@ export default function PageDetail() {
   };
 
   const handleDeletePage = () => {
-    if (!numericPageId || memberStatus !== "owner") return;
+    if (!numericPageId || !(memberStatus === "owner" || userRole === "ADMIN")) return;
     showConfirm(
       "Xóa Page",
       "Bạn có chắc muốn XÓA VĨNH VIỄN page này? Hành động này KHÔNG THỂ hoàn tác!",
@@ -961,6 +965,8 @@ export default function PageDetail() {
   }
 
   const isOwnerOrAdmin = memberStatus === "owner" || memberStatus === "admin";
+  // Edit/Delete page is restricted to the owner or an ADMIN (MODERATOR excluded)
+  const canEditPage = memberStatus === "owner" || userRole === "ADMIN";
   const canPost =
     memberStatus === "owner" ||
     memberStatus === "admin" ||
@@ -1186,25 +1192,25 @@ export default function PageDetail() {
                   </button>
                   {showMoreMenu && (
                     <div className="absolute right-0 top-12 w-56 bg-white dark:bg-[#3a3b3c] rounded-xl shadow-xl border border-gray-200 dark:border-[#4e4f50] z-50 py-1 overflow-hidden">
-                      {isOwnerOrAdmin && (
-                        <>
-                          <Link
-                            to={`/pages/${pageId}/edit`}
-                            className="flex items-center gap-3 px-4 py-3 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-[#4e4f50] text-[15px]"
-                          >
-                            <Edit size={18} />
-                            Chỉnh sửa thông tin page
-                          </Link>
-                          <button
-                            onClick={() => setShowAddMemberModal(true)}
-                            className="w-full flex items-center gap-3 px-4 py-3 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-[#4e4f50] text-[15px]"
-                          >
-                            <UserPlus size={18} />
-                            Thêm thành viên
-                          </button>
-                        </>
+                      {canEditPage && (
+                        <Link
+                          to={`/pages/${pageId}/edit`}
+                          className="flex items-center gap-3 px-4 py-3 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-[#4e4f50] text-[15px]"
+                        >
+                          <Edit size={18} />
+                          Chỉnh sửa thông tin page
+                        </Link>
                       )}
-                      {memberStatus === "owner" && (
+                      {isOwnerOrAdmin && (
+                        <button
+                          onClick={() => setShowAddMemberModal(true)}
+                          className="w-full flex items-center gap-3 px-4 py-3 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-[#4e4f50] text-[15px]"
+                        >
+                          <UserPlus size={18} />
+                          Thêm thành viên
+                        </button>
+                      )}
+                      {canEditPage && (
                         <>
                           <div className="border-t border-gray-200 dark:border-[#4e4f50] my-1" />
                           <button

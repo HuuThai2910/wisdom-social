@@ -407,6 +407,49 @@ export const sharePost = async (postId: string, content = ""): Promise<any> => {
     return response.data?.data;
 };
 
+/**
+ * Create a post on a Page using the same rich pipeline as the wall composer:
+ * upload media to S3 first, then submit the S3 keys + payload to the page
+ * endpoint (backend expects `images` as a List<String> of keys).
+ */
+export const createPagePost = async (
+    pageId: number,
+    postData: {
+        content: string;
+        privacy?: string;
+        allowComments?: boolean;
+        allowShares?: boolean;
+    },
+    mediaFiles: UploadableMediaFile[] = [],
+): Promise<boolean> => {
+    const imageKeys: string[] = [];
+    for (const file of mediaFiles) {
+        try {
+            imageKeys.push(await uploadMediaAndGetFormat(file));
+        } catch (e) {
+            console.error("createPagePost: media upload failed", e);
+        }
+    }
+
+    const formData = new FormData();
+    formData.append(
+        "postData",
+        JSON.stringify({
+            privacy: "PUBLIC",
+            allowComments: true,
+            allowShares: true,
+            ...postData,
+        }),
+    );
+    imageKeys.forEach((key) => formData.append("images", key));
+
+    const response = await apiClient.post("/page/post/add", formData, {
+        params: { pageId },
+        headers: { "Content-Type": "multipart/form-data" },
+    });
+    return response.status === 200;
+};
+
 export const updatePostPrivacy = async (
     userId: string | number,
     postId: string,

@@ -3,10 +3,12 @@ import { colors, spacing } from "@/constants";
 import { PrivacyType } from "@/types";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import { useRouter } from "expo-router";
-import React, { useMemo, useState } from "react";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import React, { useEffect, useMemo, useState } from "react";
 import { Alert, Image, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { createPagePost } from "@/services/postService";
+import pageService from "@/services/pageService";
 import type { MusicMetadata } from "@/services/musicService";
 import StoryMusicPickerModal from "@/components/story/StoryMusicPickerModal";
 import FriendSelectorModal from "@/components/post/FriendSelectorModal";
@@ -42,6 +44,12 @@ export default function CreatePostScreen() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
     const { createPostWithOptions, currentUser } = useAppContext();
+    // Page mode: when opened with a pageId param, the post is submitted to the
+    // page (with approval flow) instead of the user's wall.
+    const { pageId } = useLocalSearchParams<{ pageId?: string }>();
+    const numericPageId = pageId ? Number(pageId) : null;
+    const isPageMode = !!numericPageId && Number.isFinite(numericPageId);
+    const [pageName, setPageName] = useState("");
     const [caption, setCaption] = useState("");
     const [imageUrl, setImageUrl] = useState("");
     const [selectedMedia, setSelectedMedia] = useState<ImagePicker.ImagePickerAsset[]>([]);
@@ -68,6 +76,20 @@ export default function CreatePostScreen() {
     );
 
     const videoCount = useMemo(() => selectedMedia.filter(a => a.type === "video").length, [selectedMedia]);
+
+    useEffect(() => {
+        if (!numericPageId) return;
+        let cancelled = false;
+        pageService
+            .findPageById(numericPageId)
+            .then((p) => {
+                if (!cancelled && p) setPageName(p.name || "");
+            })
+            .catch(() => {});
+        return () => {
+            cancelled = true;
+        };
+    }, [numericPageId]);
 
     const pickMedia = async () => {
         if (selectedMedia.length >= MAX_MEDIA) {
@@ -131,6 +153,28 @@ export default function CreatePostScreen() {
     const handlePost = async () => {
         if (!canPost) return;
         setIsPosting(true);
+
+        // Page mode → submit to the page (with approval flow)
+        if (isPageMode && numericPageId) {
+            try {
+                const ok = await createPagePost(
+                    numericPageId,
+                    { content: caption, allowComments, allowShares },
+                    selectedMedia.map(toUploadFile),
+                );
+                setIsPosting(false);
+                if (!ok) {
+                    Alert.alert("Lỗi", "Không thể tạo bài viết");
+                    return;
+                }
+                router.back();
+            } catch {
+                setIsPosting(false);
+                Alert.alert("Lỗi", "Không thể tạo bài viết");
+            }
+            return;
+        }
+
         const result = await createPostWithOptions({
             caption,
             imageUrl: imageUrl.trim() || undefined,
@@ -165,7 +209,9 @@ export default function CreatePostScreen() {
                 <TouchableOpacity onPress={() => router.back()} style={styles.closeButton}>
                     <Ionicons name="close" size={24} color={colors.text} />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>Tạo bài viết</Text>
+                <Text style={styles.headerTitle} numberOfLines={1}>
+                    {isPageMode ? `Đăng lên ${pageName || "trang"}` : "Tạo bài viết"}
+                </Text>
                 <TouchableOpacity style={[styles.postButton, !canPost && styles.postButtonDisabled]} onPress={handlePost} disabled={!canPost}>
                     <Text style={[styles.postButtonText, !canPost && styles.postButtonTextDisabled]}>{isPosting ? "Đang đăng" : "Đăng"}</Text>
                 </TouchableOpacity>
@@ -280,7 +326,8 @@ export default function CreatePostScreen() {
                     </View>
                 </View>
 
-                {/* Privacy */}
+                {/* Privacy — page posts inherit the page's visibility */}
+                {!isPageMode && (
                 <View style={styles.section}>
                     <Text style={styles.sectionLabel}>Hiển thị cho</Text>
                     <View style={styles.visibilityOptions}>
@@ -295,6 +342,7 @@ export default function CreatePostScreen() {
                         })}
                     </View>
                 </View>
+                )}
 
                 <View style={{ height: spacing.xxl }} />
             </ScrollView>

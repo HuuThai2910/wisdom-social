@@ -1,26 +1,34 @@
-import { AppHeader, NotificationItem } from "@/components";
+import { AppHeader } from "@/components";
+import NotificationRow from "@/components/NotificationRow";
 import { colors } from "@/constants";
-import { useAppContext } from "@/context/AppContext";
+import { useNotifications } from "@/context/NotificationContext";
 import { useRouter, useSegments } from "expo-router";
 import { useEffect } from "react";
-import { FlatList, SafeAreaView, StyleSheet } from "react-native";
+import {
+    ActivityIndicator,
+    FlatList,
+    RefreshControl,
+    StyleSheet,
+    Text,
+    View,
+} from "react-native";
 
 export default function NotificationsScreen() {
     const router = useRouter();
     const segments = useSegments();
-    const { notifications, getUserById, markNotificationsRead } =
-        useAppContext();
+    const { notifications, loading, markAsRead, markAllAsRead, refresh } =
+        useNotifications();
 
     useEffect(() => {
-        markNotificationsRead();
-        // Mark all as read once when screen is opened.
+        // Mark all as read once when the screen is opened (matches web behaviour)
+        void markAllAsRead();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     return (
-        <SafeAreaView style={styles.container}>
+        <View style={styles.container}>
             <AppHeader
-                title="Activity"
+                title="Thông báo"
                 leftAction={
                     segments[0] === "(stack)"
                         ? { icon: "arrow-back", onPress: () => router.back() }
@@ -31,13 +39,31 @@ export default function NotificationsScreen() {
                 data={notifications}
                 keyExtractor={(item) => item.id}
                 renderItem={({ item }) => (
-                    <NotificationItem
+                    <NotificationRow
                         notification={item}
-                        user={getUserById(item.userId)}
+                        onPress={(n) => {
+                            if (!n.isRead) void markAsRead(n.id);
+                        }}
                     />
                 )}
+                refreshControl={
+                    <RefreshControl
+                        refreshing={loading}
+                        onRefresh={() => void refresh()}
+                    />
+                }
+                ListEmptyComponent={
+                    loading ? (
+                        <ActivityIndicator
+                            style={{ marginTop: 40 }}
+                            color="#2563EB"
+                        />
+                    ) : (
+                        <Text style={styles.empty}>Chưa có thông báo nào</Text>
+                    )
+                }
             />
-        </SafeAreaView>
+        </View>
     );
 }
 
@@ -45,5 +71,11 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: colors.white,
+    },
+    empty: {
+        textAlign: "center",
+        marginTop: 48,
+        color: colors.textMuted,
+        fontSize: 15,
     },
 });

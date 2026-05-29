@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useEffect } from "react";
+import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import {
   View,
@@ -26,6 +26,8 @@ import { useAppContext } from "@/context/AppContext";
 import pageService from "@/services/pageService";
 import { buildS3Url } from "@/utils/s3";
 import userService from "@/services/userService";
+import friendService from "@/services/friendService";
+import PagePostCard from "@/components/PagePostCard";
 import { usePageEvents } from "@/hooks/usePageEvents";
 import { usePagePostEvents } from "@/hooks/usePagePostEvents";
 import { usePageListUpdates } from "@/hooks/usePageListUpdates";
@@ -60,9 +62,9 @@ const FB_BG = "#F0F2F5";
 const FB_BLUE = colors.primary;
 
 const MEMBER_ROLES: { label: string; value: PageRole }[] = [
-  { label: "Admin", value: "ADMIN" },
-  { label: "Moderator", value: "MODERATOR" },
-  { label: "User", value: "USER" },
+  { label: "Quản trị viên", value: "ADMIN" },
+  { label: "Kiểm duyệt viên", value: "MODERATOR" },
+  { label: "Thành viên", value: "USER" },
 ];
 
 function fmtCount(n: number): string {
@@ -112,6 +114,11 @@ export default function PageDetailScreen() {
   const [memberStatus, setMemberStatus] = useState<MemberStatus | null>(null);
   const [memberCount, setMemberCount] = useState(0);
   const [userRole, setUserRole] = useState<PageRole | null>(null);
+  // True when the current user voluntarily left — suppresses the "removed" modal
+  const selfLeftRef = useRef(false);
+  // Guards against showing the "removed" modal twice (event arrives on both
+  // the page-members topic and the user page-events topic).
+  const removedShownRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -150,6 +157,7 @@ export default function PageDetailScreen() {
   const [memberQuery, setMemberQuery] = useState("");
   const [memberSearchResults, setMemberSearchResults] = useState<User[]>([]);
   const [memberSearching, setMemberSearching] = useState(false);
+  const [friendsList, setFriendsList] = useState<User[]>([]);
   const [selectedUsers, setSelectedUsers] = useState<User[]>([]);
   const [newMemberRole, setNewMemberRole] = useState<PageRole>("USER");
   const [addingMembers, setAddingMembers] = useState(false);
@@ -164,6 +172,12 @@ export default function PageDetailScreen() {
     numericUserId &&
     Number(page.createdBy?.id) === numericUserId
   );
+  // Private pages only reveal posts & members to members/admins/owner
+  const canViewContent =
+    page?.status !== "PRIVATE" ||
+    memberStatus === "ACTIVE" ||
+    canManage ||
+    isOwner;
 
   // ── Data loading ───────────────────────────────────────────────────────
 
@@ -251,8 +265,8 @@ export default function PageDetailScreen() {
   useEffect(() => {
     if (!page || !canManage) return;
     void loadWaiting();
-    if (isAdmin || isOwner) void loadPending();
-  }, [page?.id, canManage, isAdmin, isOwner]);
+    if (canManage || isOwner) void loadPending();
+  }, [page?.id, canManage, isOwner]);
 
   useEffect(() => {
     if (memberStatus === "ACTIVE" && !canManage) {
@@ -274,6 +288,37 @@ export default function PageDetailScreen() {
         if (type === "PAGE_MEMBER_LEFT" && event.userId) {
           setMembers(prev => prev.filter(m => m.user?.id !== event.userId));
         }
+      }
+      // Current user was removed/blocked while viewing → forced modal → home
+      const affectsMe =
+        event.userId != null && Number(event.userId) === numericUserId;
+      if (
+        affectsMe &&
+        (type === "PAGE_MEMBER_LEFT" || type === "PAGE_MEMBER_BLOCKED")
+      ) {
+        if (selfLeftRef.current) {
+          selfLeftRef.current = false;
+          return;
+        }
+        if (removedShownRef.current) return;
+        removedShownRef.current = true;
+        setMemberStatus(null);
+        setUserRole(null);
+        Alert.alert(
+          type === "PAGE_MEMBER_BLOCKED"
+            ? "Bạn đã bị chặn khỏi trang"
+            : "Bạn đã bị xóa khỏi trang",
+          type === "PAGE_MEMBER_BLOCKED"
+            ? "Bạn không còn quyền truy cập trang này."
+            : "Bạn không còn là thành viên của trang này.",
+          [
+            {
+              text: "OK",
+              onPress: () => router.replace("/(tabs)"),
+            },
+          ],
+          { cancelable: false },
+        );
       }
     }
   });
@@ -380,29 +425,62 @@ export default function PageDetailScreen() {
 
   // ── User search for add member ─────────────────────────────────────────
 
+  // Load the current user's friends as the suggestion pool when the modal opens
   useEffect(() => {
-    if (!memberQuery || memberQuery.length < 2) {
-      setMemberSearchResults([]);
+    if (!showAddMember || !numericUserId) return;
+    let cancelled = false;
+    setMemberSearching(true);
+    friendService
+      .getFriends(numericUserId)
+      .then((list: any[]) => {
+        if (cancelled) return;
+        const mapped: User[] = (Array.isArray(list) ? list : []).map(
+          (f: any) =>
+            ({
+              id: String(f.id),
+              username: f.username,
+              name: f.name ?? f.fullName,
+              fullName: f.fullName ?? f.name,
+              avatarUrl: f.avatarUrl ?? f.avatar,
+              phone: f.phone,
+            }) as unknown as User,
+        );
+        setFriendsList(mapped);
+      })
+      .catch(() => {
+        if (!cancelled) setFriendsList([]);
+      })
+      .finally(() => {
+        if (!cancelled) setMemberSearching(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showAddMember, numericUserId]);
+
+  // Suggestions = friends (excluding existing members), filterable by
+  // full name, username or phone number.
+  useEffect(() => {
+    const memberIds = members.map((m) => m.user?.id);
+    const available = friendsList.filter(
+      (u) => !memberIds.includes(Number(u.id)),
+    );
+    const q = memberQuery.trim().toLowerCase();
+    if (!q) {
+      setMemberSearchResults(available);
       return;
     }
-    setMemberSearching(true);
-    const timeout = setTimeout(async () => {
-      try {
-        const results = await userService.searchUserByUsername(memberQuery);
-        if (Array.isArray(results)) {
-          const memberIds = members.map(m => m.user?.id);
-          setMemberSearchResults(results.filter(u => !memberIds.includes(Number(u.id))));
-        } else {
-          setMemberSearchResults([]);
-        }
-      } catch {
-        setMemberSearchResults([]);
-      } finally {
-        setMemberSearching(false);
-      }
-    }, 300);
-    return () => clearTimeout(timeout);
-  }, [memberQuery, members]);
+    setMemberSearchResults(
+      available.filter((u) => {
+        const name = (u.name || u.fullName || "").toLowerCase();
+        const username = (u.username || "").toLowerCase();
+        const phone = (u.phone || "").toLowerCase();
+        return (
+          name.includes(q) || username.includes(q) || phone.includes(q)
+        );
+      }),
+    );
+  }, [memberQuery, members, friendsList]);
 
   // ── Like / Follow ──────────────────────────────────────────────────────
 
@@ -486,10 +564,13 @@ export default function PageDetailScreen() {
         onPress: async () => {
           setActionLoading(true);
           try {
+            selfLeftRef.current = true;
             await pageService.removeMember(numericPageId, numericUserId);
             setMemberStatus(null);
             setUserRole(null);
             setMemberCount(c => Math.max(0, c - 1));
+          } catch {
+            selfLeftRef.current = false;
           } finally {
             setActionLoading(false);
           }
@@ -947,7 +1028,7 @@ export default function PageDetailScreen() {
             {(memberStatus === "ACTIVE" || canManage || isOwner) && (
               <TouchableOpacity
                 style={[st.actionBtn, st.outlineBtn]}
-                onPress={() => setShowCreatePost(true)}
+                onPress={() => router.push({ pathname: "/(stack)/create-post", params: { pageId: String(numericPageId) } })}
               >
                 <Ionicons name="create-outline" size={16} color={colors.text} />
                 <Text style={[st.actionBtnText, { color: colors.text }]}>Đăng bài</Text>
@@ -1013,8 +1094,8 @@ export default function PageDetailScreen() {
             {(canManage || isOwner) && (
               <View style={st.card}>
                 <Text style={st.cardTitle}>Quản lý trang</Text>
-                <ManageRow icon="create-outline" label="Tạo bài viết" color={FB_BLUE} onPress={() => setShowCreatePost(true)} />
-                {(isAdmin || isOwner) && (
+                <ManageRow icon="create-outline" label="Tạo bài viết" color={FB_BLUE} onPress={() => router.push({ pathname: "/(stack)/create-post", params: { pageId: String(numericPageId) } })} />
+                {(canManage || isOwner) && (
                   <ManageRow
                     icon="person-add-outline"
                     label="Thêm thành viên"
@@ -1030,14 +1111,14 @@ export default function PageDetailScreen() {
                     onPress={() => router.push({ pathname: "/(stack)/page-edit", params: { pageId: String(numericPageId) } })}
                   />
                 )}
-                {isOwner && (
+                {(isOwner || isAdmin) && (
                   <ManageRow icon="trash-outline" label="Xóa trang" color={colors.danger} onPress={handleDeletePage} last />
                 )}
               </View>
             )}
 
             {/* Pending join requests */}
-            {(isAdmin || isOwner) && pendingRequests.length > 0 && (
+            {(canManage || isOwner) && pendingRequests.length > 0 && (
               <View style={st.card}>
                 <Text style={st.cardTitle}>Yêu cầu tham gia ({pendingRequests.length})</Text>
                 {loadingPending ? (
@@ -1088,7 +1169,7 @@ export default function PageDetailScreen() {
               <View style={st.card}>
                 <View style={st.cardHeaderRow}>
                   <Text style={st.cardTitle}>Bài viết chờ duyệt ({postsWaiting.length})</Text>
-                  <TouchableOpacity onPress={() => setShowCreatePost(true)} hitSlop={8}>
+                  <TouchableOpacity onPress={() => router.push({ pathname: "/(stack)/create-post", params: { pageId: String(numericPageId) } })} hitSlop={8}>
                     <Ionicons name="add-circle" size={22} color={FB_BLUE} />
                   </TouchableOpacity>
                 </View>
@@ -1201,9 +1282,21 @@ export default function PageDetailScreen() {
         {/* ── Posts tab ── */}
         {activeSection === "posts" && (
           <View style={st.tabContent}>
+            {!canViewContent ? (
+              <View style={st.emptyBlock}>
+                <Ionicons name="lock-closed-outline" size={48} color={colors.border} />
+                <Text style={[st.emptyText, { marginTop: 12, fontSize: 16, fontWeight: "700" }]}>
+                  Đây là trang riêng tư
+                </Text>
+                <Text style={[st.emptyText, { marginTop: 4, textAlign: "center", paddingHorizontal: 24 }]}>
+                  Hãy tham gia trang để xem bài viết và danh sách thành viên
+                </Text>
+              </View>
+            ) : (
+            <>
             {/* Create post prompt */}
             {(memberStatus === "ACTIVE" || canManage || isOwner) && (
-              <TouchableOpacity style={st.createPostPrompt} onPress={() => setShowCreatePost(true)}>
+              <TouchableOpacity style={st.createPostPrompt} onPress={() => router.push({ pathname: "/(stack)/create-post", params: { pageId: String(numericPageId) } })}>
                 <View style={[st.promptAvatar, st.avatarFallback]}>
                   <Ionicons name="person" size={14} color={colors.textMuted} />
                 </View>
@@ -1224,54 +1317,24 @@ export default function PageDetailScreen() {
               </View>
             ) : (
               posts.map(post => (
-                <View key={post.id} style={st.fbPostCard}>
-                  {/* Post header */}
-                  <View style={st.postHeader}>
-                    {avatarUri ? (
-                      <Image source={{ uri: avatarUri }} style={st.postAvatar} />
-                    ) : (
-                      <View style={[st.postAvatar, st.avatarFallback]}>
-                        <Ionicons name="flag" size={12} color={FB_BLUE} />
-                      </View>
-                    )}
-                    <View style={{ flex: 1 }}>
-                      <Text style={st.postAuthor}>{page.name}</Text>
-                      <Text style={st.postDate}>{timeAgo(post.createdAt)}</Text>
-                    </View>
-                    {canManage && (
-                      <TouchableOpacity onPress={() => handleRemovePost(post.id)} hitSlop={8}>
-                        <Ionicons name="ellipsis-horizontal" size={20} color={colors.textMuted} />
-                      </TouchableOpacity>
-                    )}
-                  </View>
-
-                  {/* Post content */}
-                  {!!post.content && <Text style={[st.postContent, { paddingHorizontal: 14 }]}>{post.content}</Text>}
-
-                  {/* Post images */}
-                  {post.media && post.media.length > 0 && (
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 10 }} contentContainerStyle={{ gap: 2 }}>
-                      {post.media.map((item, idx) =>
-                        item?.url ? (
-                          <Image key={idx} source={{ uri: buildS3Url(item.url) }} style={{ width: screenWidth * 0.85, height: 240, borderRadius: 0 }} resizeMode="cover" />
-                        ) : null
-                      )}
-                    </ScrollView>
-                  )}
-
-                  {/* Post stats */}
-                  {post.stats && (post.stats.likes || post.stats.comments) ? (
-                    <View style={st.postStatsRow}>
-                      {(post.stats.likes ?? 0) > 0 && (
-                        <Text style={st.postStatText}>👍 {post.stats.likes}</Text>
-                      )}
-                      {(post.stats.comments ?? 0) > 0 && (
-                        <Text style={[st.postStatText, { marginLeft: "auto" }]}>{post.stats.comments} bình luận</Text>
-                      )}
-                    </View>
-                  ) : null}
-                </View>
+                <PagePostCard
+                  key={post.id}
+                  post={post as any}
+                  pageName={page.name}
+                  pageAvatarUri={avatarUri ?? undefined}
+                  currentUserId={numericUserId}
+                  canManage={canManage}
+                  onRemove={handleRemovePost}
+                  onOpenComments={(id) =>
+                    router.push({
+                      pathname: "/(stack)/post/[postId]" as any,
+                      params: { postId: id },
+                    })
+                  }
+                />
               ))
+            )}
+            </>
             )}
           </View>
         )}
@@ -1279,10 +1342,21 @@ export default function PageDetailScreen() {
         {/* ── Members tab ── */}
         {activeSection === "members" && (
           <View style={st.tabContent}>
+            {!canViewContent ? (
+              <View style={st.emptyBlock}>
+                <Ionicons name="lock-closed-outline" size={48} color={colors.border} />
+                <Text style={[st.emptyText, { marginTop: 12, fontSize: 16, fontWeight: "700" }]}>
+                  Đây là trang riêng tư
+                </Text>
+                <Text style={[st.emptyText, { marginTop: 4, textAlign: "center", paddingHorizontal: 24 }]}>
+                  Hãy tham gia trang để xem danh sách thành viên
+                </Text>
+              </View>
+            ) : (
             <View style={st.card}>
               <View style={st.cardHeaderRow}>
                 <Text style={st.cardTitle}>Danh sách thành viên</Text>
-                {(isAdmin || isOwner) && (
+                {(canManage || isOwner) && (
                   <TouchableOpacity
                     onPress={() => { setMemberQuery(""); setSelectedUsers([]); setShowAddMember(true); }}
                     hitSlop={8}
@@ -1328,7 +1402,7 @@ export default function PageDetailScreen() {
                         )}
                       </View>
                     </View>
-                    {(isAdmin || isOwner) && m.user?.id !== numericUserId && (
+                    {(canManage || isOwner) && m.user?.id !== numericUserId && (
                       <TouchableOpacity
                         onPress={() => handleRemoveMember(m.user?.id ?? 0, m.user?.name || m.user?.username || "thành viên")}
                         hitSlop={8}
@@ -1340,6 +1414,7 @@ export default function PageDetailScreen() {
                 ))
               )}
             </View>
+            )}
           </View>
         )}
 
@@ -1435,7 +1510,7 @@ export default function PageDetailScreen() {
                     style={{ flex: 1, fontSize: 15, color: colors.text, padding: 0, marginLeft: 8 }}
                     value={memberQuery}
                     onChangeText={setMemberQuery}
-                    placeholder="Nhập username để tìm kiếm"
+                    placeholder="Tìm theo tên, username hoặc SĐT..."
                     placeholderTextColor={colors.textMuted}
                     autoCapitalize="none"
                   />
@@ -1462,14 +1537,21 @@ export default function PageDetailScreen() {
                       )}
                       <View style={{ flex: 1 }}>
                         <Text style={st.memberName}>{u.name || u.fullName}</Text>
-                        <Text style={st.memberSub}>@{u.username}</Text>
+                        <Text style={st.memberSub}>
+                          @{u.username}
+                          {u.phone ? ` · ${u.phone}` : ""}
+                        </Text>
                       </View>
                     </TouchableOpacity>
                   );
                 })}
-                {!memberSearching && memberQuery.length >= 2 && memberSearchResults.length === 0 && (
+                {!memberSearching && memberSearchResults.length === 0 && (
                   <Text style={{ textAlign: "center", color: colors.textMuted, marginTop: 20 }}>
-                    Không tìm thấy người dùng
+                    {memberQuery.trim()
+                      ? "Không tìm thấy bạn bè phù hợp"
+                      : friendsList.length === 0
+                        ? "Bạn chưa có bạn bè nào để thêm"
+                        : "Tất cả bạn bè đã là thành viên"}
                   </Text>
                 )}
                 {selectedUsers.length > 0 && (

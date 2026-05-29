@@ -37,10 +37,16 @@ function DiscoverCard({
   item,
   onPress,
   onFollow,
+  onLike,
+  liked,
+  following,
 }: {
   item: PageData & { memberCount?: number; followCount?: number };
   onPress: () => void;
   onFollow: () => void;
+  onLike: () => void;
+  liked: boolean;
+  following: boolean;
 }) {
   const coverUri = item.coverUrl ? buildS3Url(item.coverUrl) : null;
   const avatarUri = item.avatarUrl ? buildS3Url(item.avatarUrl) : null;
@@ -104,11 +110,43 @@ function DiscoverCard({
           </View>
         </View>
 
-        {/* Follow button */}
-        <TouchableOpacity style={c.followBtn} onPress={onFollow} activeOpacity={0.75}>
-          <Ionicons name="add" size={16} color={FB_BLUE} />
-          <Text style={c.followBtnText}>Theo dõi</Text>
-        </TouchableOpacity>
+        {/* Like + Follow buttons */}
+        <View style={{ gap: 6, alignItems: "flex-end" }}>
+          <TouchableOpacity
+            style={[c.followBtn, liked && c.activeBtn]}
+            onPress={(e) => {
+              e.stopPropagation();
+              onLike();
+            }}
+            activeOpacity={0.75}
+          >
+            <Ionicons
+              name={liked ? "thumbs-up" : "thumbs-up-outline"}
+              size={15}
+              color={liked ? "#fff" : FB_BLUE}
+            />
+            <Text style={[c.followBtnText, liked && { color: "#fff" }]}>
+              {liked ? "Đã thích" : "Thích"}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[c.followBtn, following && c.activeBtn]}
+            onPress={(e) => {
+              e.stopPropagation();
+              onFollow();
+            }}
+            activeOpacity={0.75}
+          >
+            <Ionicons
+              name={following ? "checkmark" : "add"}
+              size={15}
+              color={following ? "#fff" : FB_BLUE}
+            />
+            <Text style={[c.followBtnText, following && { color: "#fff" }]}>
+              {following ? "Đang theo dõi" : "Theo dõi"}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </TouchableOpacity>
   );
@@ -191,6 +229,9 @@ export default function PagesScreen() {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [likedIds, setLikedIds] = useState<Set<number>>(new Set());
+  const [followedIds, setFollowedIds] = useState<Set<number>>(new Set());
+  const [busyId, setBusyId] = useState<number | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -255,9 +296,84 @@ export default function PagesScreen() {
     );
   }, [pages, searchQuery]);
 
+  // Resolve like/follow state for the discover list (logged-in users only)
+  useEffect(() => {
+    if (activeTab !== "discover" || !currentUser?.id || pages.length === 0) {
+      setLikedIds(new Set());
+      setFollowedIds(new Set());
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const liked = new Set<number>();
+      const followed = new Set<number>();
+      await Promise.all(
+        pages.map(async (p) => {
+          try {
+            const s = await pageService.getPageInteractionStatus(p.id);
+            if (s?.isLiked) liked.add(p.id);
+            if (s?.isFollowing) followed.add(p.id);
+          } catch {
+            /* ignore */
+          }
+        }),
+      );
+      if (!cancelled) {
+        setLikedIds(liked);
+        setFollowedIds(followed);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pages, activeTab, currentUser?.id]);
+
   const handleFollow = async (page: PageData) => {
-    if (!currentUser?.id) return;
-    await pageService.followPage(Number(currentUser.id), page.id);
+    if (!currentUser?.id || busyId) return;
+    const uid = Number(currentUser.id);
+    const wasFollowing = followedIds.has(page.id);
+    setBusyId(page.id);
+    try {
+      if (wasFollowing) {
+        await pageService.cancelFollowPage(uid, page.id);
+        setFollowedIds((prev) => {
+          const n = new Set(prev);
+          n.delete(page.id);
+          return n;
+        });
+      } else {
+        await pageService.followPage(uid, page.id);
+        setFollowedIds((prev) => new Set(prev).add(page.id));
+      }
+    } catch {
+      /* ignore */
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleLike = async (page: PageData) => {
+    if (!currentUser?.id || busyId) return;
+    const uid = Number(currentUser.id);
+    const wasLiked = likedIds.has(page.id);
+    setBusyId(page.id);
+    try {
+      if (wasLiked) {
+        await pageService.cancelLikePage(uid, page.id);
+        setLikedIds((prev) => {
+          const n = new Set(prev);
+          n.delete(page.id);
+          return n;
+        });
+      } else {
+        await pageService.likePage(uid, page.id);
+        setLikedIds((prev) => new Set(prev).add(page.id));
+      }
+    } catch {
+      /* ignore */
+    } finally {
+      setBusyId(null);
+    }
   };
 
   const goToDetail = (item: PageData) =>
@@ -268,6 +384,9 @@ export default function PagesScreen() {
       item={item as any}
       onPress={() => goToDetail(item)}
       onFollow={() => handleFollow(item)}
+      onLike={() => handleLike(item)}
+      liked={likedIds.has(item.id)}
+      following={followedIds.has(item.id)}
     />
   );
 
@@ -548,13 +667,13 @@ const c = StyleSheet.create({
   metaCount: { fontSize: 12, color: colors.textMuted },
 
   followBtn: {
-    flexDirection: "row", alignItems: "center", gap: 4,
-    paddingHorizontal: 12, paddingVertical: 8,
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4,
+    paddingHorizontal: 10, paddingVertical: 7,
     borderRadius: 8, backgroundColor: colors.zalo50,
-    alignSelf: "flex-end", marginBottom: 0,
-    flexShrink: 0,
+    flexShrink: 0, minWidth: 104,
   },
-  followBtnText: { fontSize: 13, fontWeight: "700", color: FB_BLUE },
+  activeBtn: { backgroundColor: FB_BLUE },
+  followBtnText: { fontSize: 12, fontWeight: "700", color: FB_BLUE },
 });
 
 // ─── My Pages card styles ──────────────────────────────────────────────────

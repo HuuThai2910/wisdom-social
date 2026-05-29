@@ -32,4 +32,10 @@ public interface PageMemberService {
      * and active members.
      */
     boolean canViewPageContent(long userId, long pageId);
+
+    /**
+     * Whether the user may edit/delete the page — restricted to the page owner
+     * and members with the ADMIN role (MODERATOR is excluded).
+     */
+    boolean isPageAdmin(long userId, long pageId);
 }

@@ -13,14 +13,12 @@ import type { User } from "../types";
 import ConfirmModal from "../components/common/ConfirmModal";
 
 type TabType = "members" | "pending" | "posts" | "settings";
-type PageRole = "ADMIN" | "EDITOR" | "MODERATOR" | "ANALYST" | "USER";
+type PageRole = "ADMIN" | "MODERATOR" | "USER";
 
 const PAGE_ROLES: { label: string; value: PageRole }[] = [
-    { label: 'Admin', value: 'ADMIN' },
-    { label: 'Editor', value: 'EDITOR' },
-    { label: 'Moderator', value: 'MODERATOR' },
-    { label: 'Analyst', value: 'ANALYST' },
-    { label: 'User', value: 'USER' },
+    { label: 'Quản trị viên', value: 'ADMIN' },
+    { label: 'Kiểm duyệt viên', value: 'MODERATOR' },
+    { label: 'Thành viên', value: 'USER' },
 ];
 
 type MemberWithUser = PageMember;

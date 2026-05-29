@@ -43,6 +43,7 @@ public enum NotificationType {
     PAGE_JOIN_APPROVED,  // join request approved
     PAGE_POST_APPROVED,  // submitted post approved
     PAGE_MEMBER_ADDED,   // an admin added the user to the page
+    PAGE_ROLE_GRANTED,   // the user was granted an ADMIN/MODERATOR role
 
     // System notifications
     SYSTEM_ANNOUNCEMENT,

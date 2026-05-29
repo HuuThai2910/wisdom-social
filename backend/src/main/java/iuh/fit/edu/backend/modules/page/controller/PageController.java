@@ -90,11 +90,11 @@ public class PageController {
         Page page = pageService.findPageById(pageId);
         if (page == null)
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Page not found");
-        
-        // Check if current user is the page owner
-        if (!page.getCreatedBy().getId().equals(currentUser.getId()))
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Only page owner can update this page");
-        
+
+        // Only the page owner or an ADMIN can edit (MODERATOR cannot)
+        if (!pageMemberService.isPageAdmin(currentUser.getId(), pageId))
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Only page owner or admin can update this page");
+
         boolean success= pageService.updatePage(pageId,updatePage);
         if (success)
             return ResponseEntity.ok("Update page successfully");
@@ -111,11 +111,11 @@ public class PageController {
         Page page = pageService.findPageById(id);
         if (page == null)
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Page not found");
-        
-        // Check if current user is the page owner
-        if (!page.getCreatedBy().getId().equals(currentUser.getId()))
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Only page owner can delete this page");
-        
+
+        // Only the page owner or an ADMIN can delete (MODERATOR cannot)
+        if (!pageMemberService.isPageAdmin(currentUser.getId(), id))
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Only page owner or admin can delete this page");
+
         boolean success= pageService.deletePage(id);
         if (success)
             return ResponseEntity.ok("Delete page successfully");
