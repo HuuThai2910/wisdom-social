@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import type { User } from "../../types";
 import {
   Settings,
@@ -14,7 +14,6 @@ import {
   Users as UsersIcon,
   MessageSquare,
   Phone,
-  QrCode,
   Plus,
 } from "lucide-react";
 import { logout } from "../../utils/auth";
@@ -34,7 +33,7 @@ import {
   getUserHighlights,
   type StoryHighlight,
 } from "../../services/highlightService";
-import CreateHighlightModal from "./CreateHighlightModal";
+
 
 interface ProfileHeaderProps {
   user: User;
@@ -101,7 +100,7 @@ export default function ProfileHeader({
 
   // Highlights state
   const [highlights, setHighlights] = useState<StoryHighlight[]>([]);
-  const [showCreateHighlight, setShowCreateHighlight] = useState(false);
+  const [_showCreateHighlight, setShowCreateHighlight] = useState(false);
   const [viewingHighlight, setViewingHighlight] =
     useState<StoryHighlight | null>(null);
 

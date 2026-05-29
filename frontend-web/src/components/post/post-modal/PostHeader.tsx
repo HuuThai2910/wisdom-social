@@ -73,7 +73,7 @@ const PostHeader: React.FC<PostHeaderProps> = ({
   onChangePrivacy,
   onDelete,
   onCopyLink,
-  taggedUsers = [],
+  taggedUsers: _taggedUsers = [],
   musicScopeId,
   musicAutoPlayEnabled = true,
 }) => {

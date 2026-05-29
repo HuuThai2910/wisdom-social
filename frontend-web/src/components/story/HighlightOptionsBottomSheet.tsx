@@ -1,4 +1,4 @@
-import React from "react";
+import {} from "react";
 import { X, Edit2, Trash2 } from "lucide-react";
 
 interface HighlightOptionsBottomSheetProps {

@@ -4,12 +4,7 @@ import {
   ChevronLeft,
   ChevronRight,
   MoreHorizontal,
-  Trash2,
-  Lock,
-  Settings,
-  Globe,
   Users,
-  Eye,
 } from "lucide-react";
 import { buildS3Url } from "../../utils/s3";
 import {
@@ -58,7 +53,7 @@ export default function StoryViewerModal({
   initialGroupIdx = 0,
   initialStoryIdx = 0,
   onStoryViewed,
-  onGroupChanged,
+  onGroupChanged: _onGroupChanged,
   highlightId,
   highlightTitle,
   highlightCoverImageUrl,

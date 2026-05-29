@@ -4,9 +4,8 @@ import {
   Users,
   FileText,
   Newspaper,
-  MessageSquare,
-  ShieldCheck,
-  ScrollText,
+  BookImage,
+  Music2,
   Settings,
   Sparkles,
 } from 'lucide-react';
@@ -16,9 +15,8 @@ const items = [
   { to: '/users', label: 'Người dùng', icon: Users },
   { to: '/pages', label: 'Trang (Pages)', icon: Newspaper },
   { to: '/posts', label: 'Bài đăng', icon: FileText },
-  { to: '/logs', label: 'Nhật ký hoạt động', icon: ScrollText },
-  { to: '/reports', label: 'Báo cáo / Vi phạm', icon: ShieldCheck },
-  { to: '/messages', label: 'Hội thoại', icon: MessageSquare },
+  { to: '/stories', label: 'Stories', icon: BookImage },
+  { to: '/music', label: 'Thư viện nhạc', icon: Music2 },
   { to: '/settings', label: 'Cấu hình', icon: Settings },
 ];
 

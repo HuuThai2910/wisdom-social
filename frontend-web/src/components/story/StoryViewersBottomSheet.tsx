@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from "react";
-import { X, Eye, Heart } from "lucide-react";
+import { useState, useEffect } from "react";
+import { X, Eye } from "lucide-react";
 import { fetchStoryViewers } from "../../services/storyService";
 import { buildS3Url } from "../../utils/s3";
 import useRealtimeStory from "../../hooks/useRealtimeStory";
@@ -24,7 +24,7 @@ export default function StoryViewersBottomSheet({
   isOpen,
   onClose,
   storyId,
-  viewCount,
+  viewCount: _viewCount,
   onViewersLoaded,
 }: StoryViewersBottomSheetProps) {
   const [viewers, setViewers] = useState<ViewerInfo[]>([]);

@@ -102,8 +102,14 @@ public class UserController {
             }
         }
 
-        String accessToken=userService.getNewAccessToken(refreshToken);
-        return ResponseEntity.ok(accessToken);
+        try {
+            String accessToken = userService.getNewAccessToken(refreshToken);
+            return ResponseEntity.ok(accessToken);
+        } catch (Exception e) {
+            // Refresh token bị thu hồi/hết hạn/không hợp lệ -> trả 401 để frontend
+            // đăng xuất và điều hướng về /login (kick user bị admin khóa khỏi phiên).
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(e.getMessage());
+        }
     }
 
     @GetMapping("/me")

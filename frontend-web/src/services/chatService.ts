@@ -406,7 +406,7 @@ export function isMaxPinLimitError(error: unknown): boolean {
 
 const chatService = {
     async getConversations(
-        userId: number,
+        _userId: number,
     ): Promise<ApiResponse<ConversationSidebar[]>> {
         const response = await axiosClient.get("/conversations");
         return response.data;
@@ -419,7 +419,7 @@ const chatService = {
 
     async getMessages(
         conversationId: number,
-        userId: number,
+        _userId: number,
         before?: string | null,
         limit: number = 20,
         signal?: AbortSignal,
@@ -438,7 +438,7 @@ const chatService = {
 
     async getNewerMessages(
         conversationId: number,
-        userId: number,
+        _userId: number,
         after: string,
         limit: number = 20,
     ): Promise<ApiResponse<CursorResponse<Message[]>>> {
@@ -455,7 +455,7 @@ const chatService = {
     async jumpToMessage(
         conversationId: number,
         targetMessageId: string,
-        userId: number,
+        _userId: number,
     ): Promise<ApiResponse<CursorResponse<Message[]>>> {
         const response = await axiosClient.get(
             `/conversations/${conversationId}/messages/${targetMessageId}/jump`,
@@ -513,7 +513,7 @@ const chatService = {
 
     async sendMessage(
         request: SendMessageRequest,
-        userId: number,
+        _userId: number,
     ): Promise<Message> {
         const response = await axiosClient.post("/messages/send", request);
         return unwrapApiData(response.data as ApiResponse<Message> | Message);
@@ -579,7 +579,7 @@ const chatService = {
 
     async sendCallMessage(
         request: SendCallMessageRequest,
-        userId: number,
+        _userId: number,
     ): Promise<Message> {
         const response = await axiosClient.post("/messages/call", request);
         return response.data;
@@ -587,7 +587,7 @@ const chatService = {
 
     async getConversation(
         conversationId: number,
-        userId: number,
+        _userId: number,
     ): Promise<ApiResponse<Conversation>> {
         const response = await axiosClient.get(
             `/conversations/${conversationId}`,
@@ -615,7 +615,7 @@ const chatService = {
 
     async markAsRead(
         conversationId: number,
-        userId: number,
+        _userId: number,
         lastMessageId: string,
     ): Promise<void> {
         await axiosClient.put(
@@ -900,15 +900,15 @@ const chatService = {
         );
     },
 
-    async recallMessage(messageId: string, userId: number): Promise<void> {
+    async recallMessage(messageId: string, _userId: number): Promise<void> {
         await axiosClient.delete(`/messages/${messageId}/recall`);
     },
 
-    async pinMessage(messageId: string, userId: number): Promise<void> {
+    async pinMessage(messageId: string, _userId: number): Promise<void> {
         await axiosClient.post(`/messages/${messageId}/pin`);
     },
 
-    async unpinMessage(messageId: string, userId: number): Promise<void> {
+    async unpinMessage(messageId: string, _userId: number): Promise<void> {
         await axiosClient.delete(`/messages/${messageId}/pin`);
     },
 
@@ -1000,14 +1000,14 @@ const chatService = {
     },
 
     // Xóa tin nhắn ở phía tôi (chỉ user hiện tại không thấy, người khác vẫn thấy)
-    async deleteMessageForMe(messageId: string, userId: number): Promise<void> {
+    async deleteMessageForMe(messageId: string, _userId: number): Promise<void> {
         await axiosClient.delete(`/messages/${messageId}/delete-for-me`);
     },
 
     // Xóa cuộc trò chuyện ở phía tôi (xóa lịch sử chat cho user hiện tại)
     async deleteConversationForMe(
         conversationId: number,
-        userId: number,
+        _userId: number,
     ): Promise<void> {
         await axiosClient.delete(
             `/conversations/${conversationId}/delete-for-me`,
