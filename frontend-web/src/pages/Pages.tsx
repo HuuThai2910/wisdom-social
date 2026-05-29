@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
 import {
   Plus,
@@ -11,6 +11,7 @@ import {
   ChevronRight,
   UserPlus,
   Check,
+  ThumbsUp,
 } from "lucide-react";
 import pageService, { type Page } from "../services/pageService";
 import { useCurrentUser } from "../hooks/useCurrentUser";
@@ -59,21 +60,60 @@ export default function Pages() {
   const [searchQuery, setSearchQuery] = useState("");
   const [followingId, setFollowingId] = useState<number | null>(null);
   const [followedIds, setFollowedIds] = useState<Set<number>>(new Set());
+  const [likingId, setLikingId] = useState<number | null>(null);
+  const [likedIds, setLikedIds] = useState<Set<number>>(new Set());
+  const loadSeqRef = useRef(0);
 
   const loadPages = useCallback(async () => {
+    // Guard against stale/concurrent runs: the first run may fire before
+    // currentUser resolves, then a second run starts once it does. Only the
+    // latest run is allowed to commit, otherwise the like/follow state would
+    // briefly show wrong values.
+    const seq = ++loadSeqRef.current;
+    const isStale = () => seq !== loadSeqRef.current;
     setLoading(true);
     try {
       const data =
         activeTab === "discover"
           ? await pageService.getAllPages()
           : await pageService.getMyPages();
-      setPages((data as PageWithMeta[]) || []);
+      if (isStale()) return;
+      const list = (data as PageWithMeta[]) || [];
+      setPages(list);
+
+      // Resolve like/follow state for the discover list (logged-in users only)
+      if (activeTab === "discover" && currentUser?.id && list.length) {
+        const statuses = await Promise.all(
+          list.map((p) =>
+            pageService
+              .getPageInteractionStatus(p.id)
+              .then((s) => ({
+                id: p.id,
+                isLiked: !!s?.isLiked,
+                isFollowing: !!s?.isFollowing,
+              }))
+              .catch(() => ({ id: p.id, isLiked: false, isFollowing: false })),
+          ),
+        );
+        if (isStale()) return;
+        const liked = new Set<number>();
+        const followed = new Set<number>();
+        statuses.forEach((s) => {
+          if (s.isLiked) liked.add(s.id);
+          if (s.isFollowing) followed.add(s.id);
+        });
+        setLikedIds(liked);
+        setFollowedIds(followed);
+      } else {
+        setLikedIds(new Set());
+        setFollowedIds(new Set());
+      }
     } catch (err) {
       console.error("Error loading pages:", err);
     } finally {
-      setLoading(false);
+      if (!isStale()) setLoading(false);
     }
-  }, [activeTab]);
+  }, [activeTab, currentUser?.id]);
 
   useEffect(() => {
     void loadPages();
@@ -124,15 +164,50 @@ export default function Pages() {
   }, [pages, searchQuery]);
 
   const handleFollow = async (page: PageWithMeta) => {
-    if (!currentUser?.id) return;
+    if (!currentUser?.id || followingId) return;
+    const uid = Number(currentUser.id);
+    const wasFollowing = followedIds.has(page.id);
     setFollowingId(page.id);
     try {
-      await pageService.followPage(Number(currentUser.id), page.id);
-      setFollowedIds((prev) => new Set(prev).add(page.id));
+      if (wasFollowing) {
+        await pageService.cancelFollowPage(uid, page.id);
+        setFollowedIds((prev) => {
+          const next = new Set(prev);
+          next.delete(page.id);
+          return next;
+        });
+      } else {
+        await pageService.followPage(uid, page.id);
+        setFollowedIds((prev) => new Set(prev).add(page.id));
+      }
     } catch (err) {
       console.error("Follow page error:", err);
     } finally {
       setFollowingId(null);
+    }
+  };
+
+  const handleLike = async (page: PageWithMeta) => {
+    if (!currentUser?.id || likingId) return;
+    const uid = Number(currentUser.id);
+    const wasLiked = likedIds.has(page.id);
+    setLikingId(page.id);
+    try {
+      if (wasLiked) {
+        await pageService.cancelLikePage(uid, page.id);
+        setLikedIds((prev) => {
+          const next = new Set(prev);
+          next.delete(page.id);
+          return next;
+        });
+      } else {
+        await pageService.likePage(uid, page.id);
+        setLikedIds((prev) => new Set(prev).add(page.id));
+      }
+    } catch (err) {
+      console.error("Like page error:", err);
+    } finally {
+      setLikingId(null);
     }
   };
 
@@ -217,6 +292,9 @@ export default function Pages() {
                 followed={followedIds.has(p.id)}
                 following={followingId === p.id}
                 onFollow={() => handleFollow(p)}
+                liked={likedIds.has(p.id)}
+                liking={likingId === p.id}
+                onLike={() => handleLike(p)}
               />
             ))
           ) : (
@@ -268,11 +346,17 @@ function DiscoverCard({
   followed,
   following,
   onFollow,
+  liked,
+  liking,
+  onLike,
 }: {
   page: PageWithMeta;
   followed: boolean;
   following: boolean;
   onFollow: () => void;
+  liked: boolean;
+  liking: boolean;
+  onLike: () => void;
 }) {
   const coverUrl = buildS3Url(page.coverUrl);
   const avatarUrl = buildS3Url(page.avatarUrl);
@@ -332,28 +416,56 @@ function DiscoverCard({
           </p>
         </div>
 
-        {/* Follow button */}
-        <button
-          onClick={(e) => {
-            e.preventDefault();
-            if (!followed && !following) onFollow();
-          }}
-          disabled={followed || following}
-          className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-[13px] font-semibold transition-colors shrink-0 ${
-            followed
-              ? "bg-gray-100 dark:bg-[#262626] text-gray-600 dark:text-gray-300"
-              : "bg-blue-50 dark:bg-blue-900/30 text-blue-500 hover:bg-blue-100 dark:hover:bg-blue-900/50"
-          }`}
-        >
-          {following ? (
-            <Loader2 className="animate-spin" size={14} />
-          ) : followed ? (
-            <Check size={14} />
-          ) : (
-            <UserPlus size={14} />
-          )}
-          {followed ? "Đã theo dõi" : "Theo dõi"}
-        </button>
+        {/* Like + Follow buttons */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Like (toggle) */}
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (!liking) onLike();
+            }}
+            disabled={liking}
+            title={liked ? "Bỏ thích" : "Thích"}
+            className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-[13px] font-semibold transition-colors ${
+              liked
+                ? "bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50"
+                : "bg-gray-100 dark:bg-[#262626] text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-[#363636]"
+            }`}
+          >
+            {liking ? (
+              <Loader2 className="animate-spin" size={14} />
+            ) : (
+              <ThumbsUp size={14} fill={liked ? "currentColor" : "none"} />
+            )}
+            {liked ? "Đã thích" : "Thích"}
+          </button>
+
+          {/* Follow (toggle) */}
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (!following) onFollow();
+            }}
+            disabled={following}
+            title={followed ? "Bỏ theo dõi" : "Theo dõi"}
+            className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-[13px] font-semibold transition-colors ${
+              followed
+                ? "bg-gray-100 dark:bg-[#262626] text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-[#363636]"
+                : "bg-blue-50 dark:bg-blue-900/30 text-blue-500 hover:bg-blue-100 dark:hover:bg-blue-900/50"
+            }`}
+          >
+            {following ? (
+              <Loader2 className="animate-spin" size={14} />
+            ) : followed ? (
+              <Check size={14} />
+            ) : (
+              <UserPlus size={14} />
+            )}
+            {followed ? "Đã theo dõi" : "Theo dõi"}
+          </button>
+        </div>
       </div>
     </Link>
   );

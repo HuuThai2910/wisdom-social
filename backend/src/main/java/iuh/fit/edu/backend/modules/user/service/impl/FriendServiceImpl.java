@@ -11,9 +11,14 @@ import iuh.fit.edu.backend.modules.user.repository.FriendRepository;
 import iuh.fit.edu.backend.modules.user.repository.UserRepository;
 import iuh.fit.edu.backend.modules.user.service.FriendService;
 import iuh.fit.edu.backend.modules.user.service.UserService;
+import iuh.fit.edu.backend.modules.notification.constant.NotificationType;
+import iuh.fit.edu.backend.modules.notification.constant.TargetType;
+import iuh.fit.edu.backend.modules.notification.event.payload.NotificationEvent;
+import iuh.fit.edu.backend.modules.notification.service.NotificationService;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.transaction.annotation.Transactional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import java.time.Duration;
@@ -43,20 +48,24 @@ public class FriendServiceImpl implements FriendService {
     UserService userService;
     UserRepository userRepository;
     BlockUserRepository blockUserRepository;
+    NotificationService notificationService;
 
     public FriendServiceImpl(FriendRepository friendRepository,
                              SimpMessagingTemplate messagingTemplate, StringRedisTemplate redisTemplate,
                              UserService userService, UserRepository userRepository,
-                             BlockUserRepository blockUserRepository) {
+                             BlockUserRepository blockUserRepository,
+                             NotificationService notificationService) {
         this.friendRepository = friendRepository;
         this.messagingTemplate = messagingTemplate;
         this.redisTemplate = redisTemplate;
         this.userService = userService;
         this.userRepository = userRepository;
         this.blockUserRepository = blockUserRepository;
+        this.notificationService = notificationService;
     }
 
     @Override
+    @Transactional
     public boolean sendFriendRequest(long senderId, long receiverId) {
         String sentKey=buildSentRequestKey(senderId);
         String recievedKey=buildReceivedRequestKey(receiverId);
@@ -86,12 +95,23 @@ public class FriendServiceImpl implements FriendService {
                 );
             }
 
+            // Persistent notification (bell) for the receiver
+            notificationService.createNotification(NotificationEvent.builder()
+                    .recipientId(String.valueOf(receiverId))
+                    .actorIds(List.of(String.valueOf(senderId)))
+                    .type(NotificationType.FRIEND_REQUEST)
+                    .targetType(TargetType.USER)
+                    .targetId(String.valueOf(senderId))
+                    .content("đã gửi cho bạn lời mời kết bạn")
+                    .build());
+
             return true;
         }
         return false;
     }
 
     @Override
+    @Transactional
     public boolean acceptFriendRequest(long senderId, long receiverId) {
         if(senderId>0 && receiverId>0){
             User sender = userService.findUserById(senderId);
@@ -145,6 +165,17 @@ public class FriendServiceImpl implements FriendService {
                         payload
                 );
             }
+
+            // Persistent notification (bell) for the original requester (sender)
+            notificationService.createNotification(NotificationEvent.builder()
+                    .recipientId(String.valueOf(senderId))
+                    .actorIds(List.of(String.valueOf(receiverId)))
+                    .type(NotificationType.FRIEND_ACCEPT)
+                    .targetType(TargetType.USER)
+                    .targetId(String.valueOf(receiverId))
+                    .content("đã chấp nhận lời mời kết bạn của bạn")
+                    .build());
+
             return true;
         }
         return false;

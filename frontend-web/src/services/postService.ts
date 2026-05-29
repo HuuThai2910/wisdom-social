@@ -639,6 +639,54 @@ export const createPost = async (
 };
 
 /**
+ * Create a post on a Page, reusing the same media-upload pipeline as the wall
+ * composer (createPost). Uploads files to S3 first, then submits the S3 keys
+ * plus the post payload to the page endpoint.
+ */
+export const createPagePost = async (
+    pageId: string | number,
+    postData: any,
+    imageFiles: File[] = []
+): Promise<any> => {
+    try {
+        const uploadedImageUrls: string[] = [];
+        const mediaMetadatas: MediaUploadMetadataPayload[] = [];
+
+        if (imageFiles.length > 0) {
+            for (const imageFile of imageFiles) {
+                try {
+                    const metadata = await extractMediaUploadMetadata(imageFile);
+                    mediaMetadatas.push(metadata);
+                    const uuidWithExt = await uploadMediaAndGetFormat(imageFile);
+                    uploadedImageUrls.push(uuidWithExt);
+                } catch (error) {
+                    console.error(`❌ Failed to upload ${imageFile.name}:`, error);
+                    throw new Error(`Failed to upload image: ${imageFile.name}`);
+                }
+            }
+        }
+
+        const payload = { ...postData, mediaMetadatas };
+
+        const formData = new FormData();
+        formData.append("pageId", String(pageId));
+        formData.append("postData", JSON.stringify(payload));
+        uploadedImageUrls.forEach((url) => {
+            formData.append("images", url);
+        });
+
+        const response = await axiosClient.post(`page/post/add`, formData, {
+            headers: { "Content-Type": "multipart/form-data" },
+        });
+
+        return response.data.data;
+    } catch (error: any) {
+        console.error("❌ Error in createPagePost:", error);
+        throw error;
+    }
+};
+
+/**
  * Get all saved posts by user ID
  */
 export const getSavedPostsWithDetails = async (userId: string | number): Promise<any[]> => {

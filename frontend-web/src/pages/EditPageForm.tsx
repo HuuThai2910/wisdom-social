@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Loader2, Upload, Save, ShieldAlert } from "lucide-react";
+import { ArrowLeft, Loader2, Upload, Save, ShieldAlert, Globe, Lock } from "lucide-react";
 import pageService, { type Page } from "../services/pageService";
 import { useCurrentUser } from "../hooks/useCurrentUser";
 import { buildS3Url } from "../utils/s3";
@@ -411,6 +411,53 @@ export default function EditPage() {
                         rows={4}
                         className="w-full px-4 py-3 bg-gray-100 dark:bg-[#262626] rounded-lg focus:ring-2 focus:ring-blue-500 dark:text-white resize-none"
                     />
+                </div>
+
+                {/* Privacy */}
+                <div>
+                    <label className="block text-sm font-medium dark:text-white mb-2">
+                        Chế độ trang
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <button
+                            type="button"
+                            onClick={() => setFormData((prev) => ({ ...prev, status: "PUBLIC" }))}
+                            className={`flex items-start gap-3 p-3 rounded-lg border text-left transition-colors ${
+                                formData.status === "PUBLIC"
+                                    ? "border-blue-500 bg-blue-50/50 dark:bg-blue-900/20"
+                                    : "border-gray-200 dark:border-[#363636] hover:bg-gray-50 dark:hover:bg-[#262626]"
+                            }`}
+                        >
+                            <Globe size={20} className={formData.status === "PUBLIC" ? "text-blue-500" : "text-gray-500"} />
+                            <div>
+                                <p className={`text-sm font-semibold ${formData.status === "PUBLIC" ? "text-blue-600 dark:text-blue-400" : "dark:text-white"}`}>
+                                    Công khai
+                                </p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    Ai cũng có thể tham gia và xem bài viết
+                                </p>
+                            </div>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setFormData((prev) => ({ ...prev, status: "PRIVATE" }))}
+                            className={`flex items-start gap-3 p-3 rounded-lg border text-left transition-colors ${
+                                formData.status === "PRIVATE"
+                                    ? "border-blue-500 bg-blue-50/50 dark:bg-blue-900/20"
+                                    : "border-gray-200 dark:border-[#363636] hover:bg-gray-50 dark:hover:bg-[#262626]"
+                            }`}
+                        >
+                            <Lock size={20} className={formData.status === "PRIVATE" ? "text-blue-500" : "text-gray-500"} />
+                            <div>
+                                <p className={`text-sm font-semibold ${formData.status === "PRIVATE" ? "text-blue-600 dark:text-blue-400" : "dark:text-white"}`}>
+                                    Riêng tư
+                                </p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    Cần được duyệt mới có thể tham gia
+                                </p>
+                            </div>
+                        </button>
+                    </div>
                 </div>
 
                 {/* Contact Info */}

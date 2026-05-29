@@ -13,7 +13,9 @@ import iuh.fit.edu.backend.modules.user.repository.BlockUserRepository;
 import iuh.fit.edu.backend.modules.page.repository.PageMemberRepository;
 import iuh.fit.edu.backend.modules.page.event.publisher.PageEventPublisher;
 import iuh.fit.edu.backend.modules.page.service.PageMemberService;
+import iuh.fit.edu.backend.modules.page.service.PageNotificationService;
 import iuh.fit.edu.backend.modules.page.service.PageService;
+import iuh.fit.edu.backend.modules.notification.constant.NotificationType;
 import iuh.fit.edu.backend.modules.user.service.BlockUserService;
 import iuh.fit.edu.backend.modules.user.service.UserService;
 import jakarta.transaction.Transactional;
@@ -31,19 +33,23 @@ public class PageMemberServiceImpl implements PageMemberService {
     BlockUserService blockUserService;
     BlockUserRepository blockUserRepository;
     PageEventPublisher pageEventPublisher;
+    PageNotificationService pageNotificationService;
 
     public PageMemberServiceImpl(BlockUserService blockUserService, PageMemberRepository pageMemberRepository,
                                   UserService userService, PageService pageService,
-                                  BlockUserRepository blockUserRepository, PageEventPublisher pageEventPublisher) {
+                                  BlockUserRepository blockUserRepository, PageEventPublisher pageEventPublisher,
+                                  PageNotificationService pageNotificationService) {
         this.blockUserService = blockUserService;
         this.pageMemberRepository = pageMemberRepository;
         this.blockUserRepository = blockUserRepository;
         this.pageService = pageService;
         this.userService = userService;
         this.pageEventPublisher = pageEventPublisher;
+        this.pageNotificationService = pageNotificationService;
     }
 
     @Override
+    @Transactional
     public boolean addMemberPage(UserRequestMemberPage userRequestMemberPage) {
 
         Page page=pageService.findPageById(userRequestMemberPage.getPageId());
@@ -58,6 +64,20 @@ public class PageMemberServiceImpl implements PageMemberService {
             pageMember.setRole(userRequestMemberPage.getPageRole());
             pageMemberRepository.save(pageMember);
             pageEventPublisher.publishMemberJoined(userRequestMemberPage.getPageId(), userRequestMemberPage.getUserId());
+
+            // Notify the added user that an admin added them to the page
+            long actorId = userRequestMemberPage.getUserId();
+            try {
+                User admin = userService.getCurrentUser();
+                if (admin != null && admin.getId() != null) actorId = admin.getId();
+            } catch (Exception ignored) {
+                // No authenticated admin context — fall back to the added user id
+            }
+            pageNotificationService.notifyUser(
+                    userRequestMemberPage.getUserId(), actorId, page,
+                    NotificationType.PAGE_MEMBER_ADDED,
+                    "Bạn đã được thêm vào trang " + page.getName());
+
             return true;
         }
         return false;
@@ -171,6 +191,11 @@ public class PageMemberServiceImpl implements PageMemberService {
         pageMemberRepository.save(member);
         pageEventPublisher.publishJoinRequested(request.getPageId(), request.getUserId());
 
+        // Notify page admins/moderators about the join request
+        pageNotificationService.notifyAdmins(page, request.getUserId(),
+                NotificationType.PAGE_JOIN_REQUEST,
+                "đã yêu cầu tham gia trang " + page.getName());
+
         return true;
     }
 
@@ -190,6 +215,14 @@ public class PageMemberServiceImpl implements PageMemberService {
             member.setJoinedAt(OffsetDateTime.now());
             pageMemberRepository.save(member);
             pageEventPublisher.publishJoinApproved(pageId, userId);
+
+            // Notify the user that their join request was approved
+            Page page = pageService.findPageById(pageId);
+            if (page != null) {
+                pageNotificationService.notifyUser(userId, approverId, page,
+                        NotificationType.PAGE_JOIN_APPROVED,
+                        "Yêu cầu tham gia trang " + page.getName() + " của bạn đã được chấp nhận");
+            }
             return true;
         }
 
@@ -257,5 +290,20 @@ public class PageMemberServiceImpl implements PageMemberService {
     @Override
     public long countActiveMembers(long pageId) {
         return pageMemberRepository.countByPage_IdAndStatus(pageId, MemberStatus.ACTIVE);
+    }
+
+    @Override
+    public boolean canViewPageContent(long userId, long pageId) {
+        Page page = pageService.findPageById(pageId);
+        if (page == null) return false;
+        // Public (or any non-private) pages are visible to everyone
+        if (page.getStatus() != PageStatus.PRIVATE) return true;
+        // Page owner can always view
+        if (page.getCreatedBy() != null && page.getCreatedBy().getId() != null
+                && page.getCreatedBy().getId() == userId) return true;
+        // Otherwise must be an active member
+        return pageMemberRepository
+                .findByPage_IdAndUser_IdAndStatus(pageId, userId, MemberStatus.ACTIVE)
+                .isPresent();
     }
 }
