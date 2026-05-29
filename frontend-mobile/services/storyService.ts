@@ -61,14 +61,14 @@ export const normalizeStory = (story: any): Story => {
     const userId = String(story?.userId ?? story?.authorId ?? story?.user?.id ?? "");
     const media = story?.media
         ? {
-              ...story.media,
-              url: buildS3Url(story.media.url) || story.media.url || "",
-              thumbnailUrl: buildS3Url(story.media.thumbnailUrl) || story.media.thumbnailUrl,
-              type: String(story.media.type || "IMAGE").toUpperCase(),
-          }
+            ...story.media,
+            url: buildS3Url(story.media.url) || story.media.url || "",
+            thumbnailUrl: buildS3Url(story.media.thumbnailUrl) || story.media.thumbnailUrl,
+            type: String(story.media.type || "IMAGE").toUpperCase(),
+        }
         : story?.image
-          ? { url: buildS3Url(story.image) || story.image, type: "IMAGE" }
-          : undefined;
+            ? { url: buildS3Url(story.image) || story.image, type: "IMAGE" }
+            : undefined;
 
     const image = media?.url || buildS3Url(story?.image) || story?.image || "";
 
@@ -84,7 +84,6 @@ export const normalizeStory = (story: any): Story => {
         media,
         user: normalizeStoryUser(story?.user, userId),
         music: story?.music,
-        stickers: story?.stickers || [],
         textStyle: story?.textStyle,
         privacy: story?.privacy || "PUBLIC",
         allowReplies: story?.allowReplies !== false,

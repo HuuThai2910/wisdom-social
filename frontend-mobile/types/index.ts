@@ -48,7 +48,6 @@ export type Story = {
     media?: StoryMedia;
     user?: User;
     music?: StoryMusic;
-    stickers?: unknown[];
     textStyle?: unknown;
     privacy?: PrivacyType;
     allowReplies?: boolean;
