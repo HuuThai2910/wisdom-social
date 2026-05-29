@@ -64,6 +64,35 @@ function sortWithPinnedConversations(
     });
 }
 
+function areConversationListsEquivalent(
+    current: Conversation[],
+    next: Conversation[],
+): boolean {
+    if (current.length !== next.length) return false;
+
+    return current.every((conversation, index) => {
+        const candidate = next[index];
+        if (!candidate) return false;
+        return (
+            conversation.id === candidate.id &&
+            conversation.name === candidate.name &&
+            conversation.imageUrl === candidate.imageUrl &&
+            conversation.directPartnerId === candidate.directPartnerId &&
+            conversation.updatedAt === candidate.updatedAt &&
+            conversation.unreadCount === candidate.unreadCount &&
+            conversation.lastMessage?.lastMessageAt ===
+                candidate.lastMessage?.lastMessageAt &&
+            conversation.lastMessage?.lastMessageContent ===
+                candidate.lastMessage?.lastMessageContent &&
+            conversation.lastMessage?.lastMessageType ===
+                candidate.lastMessage?.lastMessageType &&
+            conversation.lastMessage?.lastSenderId ===
+                candidate.lastMessage?.lastSenderId &&
+            conversation.lastMessage?.read === candidate.lastMessage?.read
+        );
+    });
+}
+
 /**
  * useMessagesController
  * - Controller hook cho trang Messages: fetch list hội thoại + search/filter + điều hướng.
@@ -185,10 +214,15 @@ export function useMessagesController() {
     }, [conversations, currentUserId]);
 
     // ====== Data loading: danh sách hội thoại ======
-    const loadConversations = useCallback(async () => {
+    const loadConversations = useCallback(async (
+        options: { showLoading?: boolean } = {},
+    ) => {
+        const showLoading = options.showLoading ?? true;
         try {
-            setLoading(true);
-            setError(null);
+            if (showLoading) {
+                setLoading(true);
+                setError(null);
+            }
 
             const [convs, pins] = await Promise.all([
                 chatService.getConversations(currentUserId),
@@ -202,8 +236,14 @@ export function useMessagesController() {
                 conversationListCatchupRef.current.needsCatchup = false;
                 setError(null);
                 // API trả về ok: set list hội thoại.
-                setConversations(
-                    sortWithPinnedConversations(conversationData, pins),
+                const sortedConversations = sortWithPinnedConversations(
+                    conversationData,
+                    pins,
+                );
+                setConversations((prev) =>
+                    areConversationListsEquivalent(prev, sortedConversations)
+                        ? prev
+                        : sortedConversations,
                 );
                 setConversationReadOnlyNotices(() => {
                     const next: Record<number, string> = {};
@@ -221,15 +261,21 @@ export function useMessagesController() {
             } else {
                 conversationListCatchupRef.current.needsCatchup = true;
                 setConversationReadOnlyNotices({});
-                setError(convs.message || "Không thể tải danh sách hội thoại");
+                if (showLoading) {
+                    setError(convs.message || "Không thể tải danh sách hội thoại");
+                }
             }
         } catch {
             // Network/exception: cố gắng fail-safe với list rỗng + thông báo.
             setConversationReadOnlyNotices({});
             conversationListCatchupRef.current.needsCatchup = true;
-            setError("Không thể tải danh sách hội thoại");
+            if (showLoading) {
+                setError("Không thể tải danh sách hội thoại");
+            }
         } finally {
-            setLoading(false);
+            if (showLoading) {
+                setLoading(false);
+            }
         }
     }, [currentUserId]);
 
@@ -258,7 +304,7 @@ export function useMessagesController() {
 
             conversationListCatchupRef.current.inFlight = true;
             conversationListCatchupRef.current.lastRunAt = now;
-            void loadConversations().finally(() => {
+            void loadConversations({ showLoading: false }).finally(() => {
                 conversationListCatchupRef.current.inFlight = false;
             });
         };
@@ -271,24 +317,32 @@ export function useMessagesController() {
                     conversationListCatchupRef.current.retryAttempts = 0;
                     return;
                 }
+                if (document.visibilityState !== "visible" || !navigator.onLine) {
+                    scheduleRetryLoop();
+                    return;
+                }
                 if (conversationListCatchupRef.current.retryAttempts >= 20) {
                     conversationListCatchupRef.current.retryAttempts = 0;
                     return;
                 }
                 conversationListCatchupRef.current.retryAttempts += 1;
-                if (document.visibilityState === "visible" && navigator.onLine) {
-                    runCatchup();
-                }
+                runCatchup();
                 scheduleRetryLoop();
             }, 3000);
         };
 
         const scheduleCatchup = () => {
+            if (!conversationListCatchupRef.current.needsCatchup) return;
             conversationListCatchupRef.current.retryAttempts = 0;
             [0, 3000, 8000].forEach((delay) => {
                 catchupTimers.push(window.setTimeout(runCatchup, delay));
             });
             scheduleRetryLoop();
+        };
+
+        const forceCatchup = () => {
+            conversationListCatchupRef.current.needsCatchup = true;
+            scheduleCatchup();
         };
 
         const markNeedsCatchup = () => {
@@ -303,7 +357,7 @@ export function useMessagesController() {
             }
         };
 
-        window.addEventListener("online", scheduleCatchup);
+        window.addEventListener("online", forceCatchup);
         window.addEventListener("offline", markNeedsCatchup);
         window.addEventListener("focus", scheduleCatchup);
         document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -311,7 +365,7 @@ export function useMessagesController() {
         return () => {
             catchupTimers.forEach((timerId) => window.clearTimeout(timerId));
             clearRetryTimer();
-            window.removeEventListener("online", scheduleCatchup);
+            window.removeEventListener("online", forceCatchup);
             window.removeEventListener("offline", markNeedsCatchup);
             window.removeEventListener("focus", scheduleCatchup);
             document.removeEventListener(

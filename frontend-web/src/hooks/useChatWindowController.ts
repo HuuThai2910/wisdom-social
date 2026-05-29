@@ -2111,19 +2111,22 @@ const list = Array.isArray(cursorData?.data)
                     activeConversationCatchupRef.current.retryAttempts = 0;
                     return;
                 }
+                if (document.visibilityState !== "visible" || !navigator.onLine) {
+                    scheduleRetryLoop();
+                    return;
+                }
                 if (activeConversationCatchupRef.current.retryAttempts >= 20) {
                     activeConversationCatchupRef.current.retryAttempts = 0;
                     return;
                 }
                 activeConversationCatchupRef.current.retryAttempts += 1;
-                if (document.visibilityState === "visible" && navigator.onLine) {
-                    void catchUpActiveConversationMessages();
-                }
+                void catchUpActiveConversationMessages();
                 scheduleRetryLoop();
             }, 3000);
         };
 
         const scheduleCatchup = () => {
+            if (!activeConversationCatchupRef.current.needsCatchup) return;
             activeConversationCatchupRef.current.retryAttempts = 0;
             [0, 3000, 8000].forEach((delay) => {
                 catchupTimers.push(
@@ -2133,6 +2136,11 @@ const list = Array.isArray(cursorData?.data)
                 );
             });
             scheduleRetryLoop();
+        };
+
+        const forceCatchup = () => {
+            activeConversationCatchupRef.current.needsCatchup = true;
+            scheduleCatchup();
         };
 
         const markNeedsCatchup = () => {
@@ -2147,7 +2155,7 @@ const list = Array.isArray(cursorData?.data)
             }
         };
 
-        window.addEventListener("online", scheduleCatchup);
+        window.addEventListener("online", forceCatchup);
         window.addEventListener("offline", markNeedsCatchup);
         window.addEventListener("focus", scheduleCatchup);
         document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -2155,7 +2163,7 @@ const list = Array.isArray(cursorData?.data)
         return () => {
             catchupTimers.forEach((timerId) => window.clearTimeout(timerId));
             clearRetryTimer();
-            window.removeEventListener("online", scheduleCatchup);
+            window.removeEventListener("online", forceCatchup);
             window.removeEventListener("offline", markNeedsCatchup);
             window.removeEventListener("focus", scheduleCatchup);
             document.removeEventListener(
