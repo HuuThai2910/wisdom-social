@@ -42,7 +42,7 @@ public class CorsConfig {
 
         ));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH")); // Allowed methods
-        configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "Accept", "x-no-retry"));
+        configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "Accept", "x-no-retry", "X-Client"));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
         configuration.addExposedHeader("Set-Cookie");

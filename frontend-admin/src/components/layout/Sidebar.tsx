@@ -6,6 +6,7 @@ import {
   Newspaper,
   BookImage,
   Music2,
+  ScrollText,
   Settings,
   Sparkles,
 } from 'lucide-react';
@@ -17,6 +18,7 @@ const items = [
   { to: '/posts', label: 'Bài đăng', icon: FileText },
   { to: '/stories', label: 'Stories', icon: BookImage },
   { to: '/music', label: 'Thư viện nhạc', icon: Music2 },
+  { to: '/activity-log', label: 'Nhật ký hoạt động', icon: ScrollText },
   { to: '/settings', label: 'Cấu hình', icon: Settings },
 ];
 

@@ -179,3 +179,39 @@ export interface ApiResponse<T> {
   errors?: any;
   timestamp?: string;
 }
+
+export type AuditActorType = 'ADMIN' | 'USER' | 'SYSTEM';
+export type AuditCategory =
+  | 'AUTH'
+  | 'USER'
+  | 'PAGE'
+  | 'POST'
+  | 'STORY'
+  | 'MUSIC'
+  | 'SYSTEM';
+export type AuditStatus = 'SUCCESS' | 'FAILED';
+
+export interface AuditLog {
+  id: string;
+  /** ISO timestamp */
+  timestamp: string;
+  /** Ai thực hiện hành động */
+  actorType: AuditActorType;
+  actorId?: string | number;
+  actorName: string;
+  /** Mã hành động (vd: LOCK_USER) */
+  action: string;
+  /** Mô tả tiếng Việt cho con người đọc */
+  description: string;
+  category: AuditCategory;
+  /** Đối tượng bị tác động (USER, PAGE, POST, ...) */
+  targetType?: string;
+  targetId?: string | number;
+  targetName?: string;
+  method?: string;
+  endpoint?: string;
+  status: AuditStatus;
+  statusCode?: number;
+  /** Dữ liệu bổ sung: lý do khoá, vai trò, thông báo lỗi... */
+  meta?: Record<string, any>;
+}
