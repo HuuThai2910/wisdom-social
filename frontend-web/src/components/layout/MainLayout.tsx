@@ -29,8 +29,10 @@ function MainLayoutContent() {
     const isMessagesRoute = location.pathname.startsWith("/messages");
     const isFullWidthRoute = /^\/pages\/\d/.test(location.pathname);
 
-    // Lắng nghe force-logout event từ backend (khi logoutAllDevices được gọi từ thiết bị khác)
-    useForceLogout(currentUser?.phone);
+    // Lắng nghe force-logout event từ backend (khi admin khóa tài khoản hoặc
+    // logoutAllDevices được gọi từ thiết bị khác). Truyền cả userId (kênh chính,
+    // luôn tồn tại) lẫn phone (tương thích ngược).
+    useForceLogout(currentUser?.phone, currentUser?.id);
 
     // Friend suggestions for the right sidebar
     const [suggestions, setSuggestions] = useState<Suggestion[]>([]);

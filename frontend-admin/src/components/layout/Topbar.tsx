@@ -3,6 +3,7 @@ import { Bell, LogOut, Search } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import notificationService from '../../services/notificationService';
+import { buildS3Url } from '../../utils/s3';
 
 export default function Topbar() {
   const { user, logout } = useAuth();
@@ -47,7 +48,7 @@ export default function Topbar() {
 
         <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-1.5">
           <img
-            src={user?.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${user?.name || 'A'}`}
+            src={buildS3Url(user?.avatarUrl) || `https://api.dicebear.com/7.x/initials/svg?seed=${user?.name || 'A'}`}
             alt="avatar"
             className="h-8 w-8 rounded-full object-cover"
           />

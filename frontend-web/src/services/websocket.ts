@@ -1642,32 +1642,46 @@ class WebSocketService {
      * @param callback - Hàm được gọi ngay khi nhận được sự kiện force logout
      */
     subscribeToForceLogout(phone: string, callback: () => void) {
-        if (!this.client?.connected) {
-            console.error("WebSocket not connected, cannot subscribe to force logout");
+        const destination = `/topic/user/${phone}/force-logout`;
+
+        // KHÔNG bail-out khi chưa connected, và KHÔNG yêu cầu phải connected mới
+        // đăng ký. Chỉ cần factory đã đăng ký, syncSubscriptions() (chạy ở MỖI lần
+        // onConnect/reconnect) sẽ tự tạo STOMP subscription ngay khi client kết nối.
+        // Điều này loại bỏ:
+        //  - Race: lúc gọi mà client đang reconnect (connected=false) -> trước đây
+        //    bail sớm, không đăng ký gì -> không bao giờ subscribe lại.
+        //  - Mất subscription sau reconnect: onWebSocketClose clear() subscriptions,
+        //    chỉ những factory đã đăng ký mới được khôi phục.
+        // (heartbeat 4s + SockJS khiến reconnect xảy ra rất thường xuyên.)
+        if (this.subscriptionFactories.has(destination)) {
+            // Đã đăng ký rồi -> đảm bảo đang được subscribe (idempotent) rồi thoát.
+            this.syncSubscriptions();
             return;
         }
 
-        const destination = `/topic/user/${phone}/force-logout`;
-        const existingSubscription = this.subscriptions.get(destination);
-        if (existingSubscription) return;
+        this.registerSubscription(destination, () => {
+            const client = this.client;
+            if (!client?.connected) {
+                throw new Error("WebSocket not connected");
+            }
 
-        const subscription = this.client.subscribe(
-            destination,
-            (message: IMessage) => {
-                try {
-                    const payload = JSON.parse(message.body);
-                    console.log("🔴 Force logout event received:", payload);
-                    if (payload?.event === "FORCE_LOGOUT") {
-                        callback();
+            return client.subscribe(
+                destination,
+                (message: IMessage) => {
+                    try {
+                        const payload = JSON.parse(message.body);
+                        console.log("🔴 Force logout event received:", payload);
+                        if (payload?.event === "FORCE_LOGOUT") {
+                            callback();
+                        }
+                    } catch (error) {
+                        console.error("Error parsing force-logout event:", error);
                     }
-                } catch (error) {
-                    console.error("Error parsing force-logout event:", error);
-                }
-            },
-        );
+                },
+            );
+        });
 
-        this.subscriptions.set(destination, subscription);
-        console.log(`🔒 Subscribed to force-logout for ${phone}`);
+        console.log(`🔒 Force-logout subscription registered for ${phone} (connected=${this.client?.connected ?? false})`);
     }
 
     /**
@@ -1677,11 +1691,67 @@ class WebSocketService {
      */
     unsubscribeFromForceLogout(phone: string) {
         const destination = `/topic/user/${phone}/force-logout`;
-        const subscription = this.subscriptions.get(destination);
-        if (subscription) {
-            subscription.unsubscribe();
-            this.subscriptions.delete(destination);
+        // Dùng removeSubscription để xóa cả factory đã đăng ký, tránh việc
+        // syncSubscriptions tái lập lại subscription sau khi đã unsubscribe.
+        if (this.subscriptions.has(destination) || this.subscriptionFactories.has(destination)) {
+            this.removeSubscription(destination);
             console.log(`🔓 Unsubscribed from force-logout for ${phone}`);
+        }
+    }
+
+    /**
+     * Subscribe force-logout theo userId (kênh đáng tin cậy, không phụ thuộc
+     * định dạng số điện thoại). Backend luôn broadcast tới
+     * /topic/user/{userId}/force-logout khi logoutAllDevices được gọi.
+     *
+     * @param userId - ID của user đang đăng nhập
+     * @param callback - Hàm được gọi ngay khi nhận được sự kiện force logout
+     */
+    subscribeToForceLogoutById(userId: number, callback: () => void) {
+        const destination = `/topic/user/${userId}/force-logout`;
+
+        // Giống subscribeToForceLogout: chỉ cần factory được đăng ký,
+        // syncSubscriptions() sẽ tự subscribe ngay khi client kết nối.
+        if (this.subscriptionFactories.has(destination)) {
+            this.syncSubscriptions();
+            return;
+        }
+
+        this.registerSubscription(destination, () => {
+            const client = this.client;
+            if (!client?.connected) {
+                throw new Error("WebSocket not connected");
+            }
+
+            return client.subscribe(
+                destination,
+                (message: IMessage) => {
+                    try {
+                        const payload = JSON.parse(message.body);
+                        console.log("🔴 Force logout event received (by id):", payload);
+                        if (payload?.event === "FORCE_LOGOUT") {
+                            callback();
+                        }
+                    } catch (error) {
+                        console.error("Error parsing force-logout event:", error);
+                    }
+                },
+            );
+        });
+
+        console.log(`🔒 Force-logout (by id) subscription registered for ${userId} (connected=${this.client?.connected ?? false})`);
+    }
+
+    /**
+     * Unsubscribe khỏi sự kiện force-logout theo userId
+     *
+     * @param userId - ID của user
+     */
+    unsubscribeFromForceLogoutById(userId: number) {
+        const destination = `/topic/user/${userId}/force-logout`;
+        if (this.subscriptions.has(destination) || this.subscriptionFactories.has(destination)) {
+            this.removeSubscription(destination);
+            console.log(`🔓 Unsubscribed from force-logout (by id) for ${userId}`);
         }
     }
 

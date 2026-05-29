@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import { BadgeCheck, RefreshCw, Search, Trash2, Filter } from 'lucide-react';
 import pageService from '../services/pageService';
 import type { Page, PageStatus } from '../types/models';
+import { buildS3Url } from '../utils/s3';
 
 type StatusFilter = 'all' | PageStatus;
 
@@ -129,14 +130,14 @@ export default function Pages() {
                   className="h-24 w-full bg-cover bg-center"
                   style={{
                     backgroundImage: p.coverUrl
-                      ? `url(${p.coverUrl})`
-                      : 'linear-gradient(135deg,#a78bfa,#6366f1)',
+                      ? `url(${buildS3Url(p.coverUrl)})`
+                      : 'linear-gradient(135deg,#69b1ff,#1677ff)',
                   }}
                 />
                 <div className="-mt-8 flex items-end justify-between px-4">
                   <img
                     src={
-                      p.avatarUrl ||
+                      buildS3Url(p.avatarUrl) ||
                       `https://api.dicebear.com/7.x/initials/svg?seed=${p.name}`
                     }
                     className="h-16 w-16 rounded-xl border-4 border-white object-cover shadow"

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import pageService from '../services/pageService';
 import type { Page, PageMember, Post } from '../types/models';
+import { buildS3Url } from '../utils/s3';
 
 type Tab = 'info' | 'members' | 'requests' | 'posts' | 'pending';
 
@@ -181,14 +182,14 @@ export default function PageDetail() {
           className="h-32 w-full bg-cover bg-center"
           style={{
             backgroundImage: page.coverUrl
-              ? `url(${page.coverUrl})`
-              : 'linear-gradient(135deg,#a78bfa,#6366f1)',
+              ? `url(${buildS3Url(page.coverUrl)})`
+              : 'linear-gradient(135deg,#69b1ff,#1677ff)',
           }}
         />
         <div className="px-6 pb-5">
           <div className="-mt-10 flex items-end gap-4">
             <img
-              src={page.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${page.name}`}
+              src={buildS3Url(page.avatarUrl) || `https://api.dicebear.com/7.x/initials/svg?seed=${page.name}`}
               className="h-20 w-20 rounded-xl border-4 border-white object-cover shadow"
               alt=""
             />
@@ -244,7 +245,7 @@ export default function PageDetail() {
                 <dt className="text-slate-500">Người tạo</dt>
                 <dd className="mt-1 flex items-center gap-2">
                   <img
-                    src={page.createdBy.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${page.createdBy.name || page.createdBy.id}`}
+                    src={buildS3Url(page.createdBy.avatarUrl) || `https://api.dicebear.com/7.x/initials/svg?seed=${page.createdBy.name || page.createdBy.id}`}
                     className="h-6 w-6 rounded-full object-cover"
                     alt=""
                   />
@@ -266,7 +267,7 @@ export default function PageDetail() {
                   <div key={m.id} className="flex items-center justify-between rounded-lg border border-slate-100 p-3">
                     <div className="flex items-center gap-3">
                       <img
-                        src={m.user?.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${m.user?.name || m.userId}`}
+                        src={buildS3Url(m.user?.avatarUrl) || `https://api.dicebear.com/7.x/initials/svg?seed=${m.user?.name || m.userId}`}
                         className="h-9 w-9 rounded-full object-cover"
                         alt=""
                       />
@@ -314,7 +315,7 @@ export default function PageDetail() {
                   <div key={r.id} className="flex items-center justify-between rounded-lg border border-slate-100 p-3">
                     <div className="flex items-center gap-3">
                       <img
-                        src={r.user?.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${r.user?.name || r.userId}`}
+                        src={buildS3Url(r.user?.avatarUrl) || `https://api.dicebear.com/7.x/initials/svg?seed=${r.user?.name || r.userId}`}
                         className="h-9 w-9 rounded-full object-cover"
                         alt=""
                       />
@@ -359,7 +360,7 @@ export default function PageDetail() {
                     {p.media && p.media.length > 0 && (
                       <div className="mt-2 flex gap-2">
                         {p.media.slice(0, 3).map((m, i) => (
-                          <img key={i} src={m.url} className="h-16 w-16 rounded-lg object-cover" alt="" />
+                          <img key={i} src={buildS3Url(m.url) || ''} className="h-16 w-16 rounded-lg object-cover" alt="" />
                         ))}
                         {p.media.length > 3 && (
                           <span className="flex h-16 w-16 items-center justify-center rounded-lg bg-slate-100 text-xs text-slate-500">+{p.media.length - 3}</span>
@@ -396,7 +397,7 @@ export default function PageDetail() {
                     {p.media && p.media.length > 0 && (
                       <div className="mt-2 flex gap-2">
                         {p.media.slice(0, 3).map((m, i) => (
-                          <img key={i} src={m.url} className="h-16 w-16 rounded-lg object-cover" alt="" />
+                          <img key={i} src={buildS3Url(m.url) || ''} className="h-16 w-16 rounded-lg object-cover" alt="" />
                         ))}
                       </div>
                     )}

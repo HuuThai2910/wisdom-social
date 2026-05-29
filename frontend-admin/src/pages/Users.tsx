@@ -19,6 +19,7 @@ import userService from '../services/userService';
 import adminService from '../services/adminService';
 import postService from '../services/postService';
 import type { Post, User, UserProfile } from '../types/models';
+import { buildS3Url } from '../utils/s3';
 
 type FilterStatus = 'all' | 'active' | 'locked';
 const PAGE_SIZE = 20;
@@ -223,7 +224,7 @@ export default function Users() {
                       <button onClick={() => openDetail(u)} className="flex items-center gap-3 text-left">
                         <img
                           src={
-                            u.avatarUrl ||
+                            buildS3Url(u.avatarUrl) ||
                             `https://api.dicebear.com/7.x/initials/svg?seed=${u.name || u.username || u.id}`
                           }
                           className="h-9 w-9 rounded-full object-cover"
@@ -394,7 +395,7 @@ export default function Users() {
                 {/* Profile header */}
                 <div className="flex items-center gap-4">
                   <img
-                    src={detailUser.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${detailUser.name || detailUser.id}`}
+                    src={buildS3Url(detailUser.avatarUrl) || `https://api.dicebear.com/7.x/initials/svg?seed=${detailUser.name || detailUser.id}`}
                     className="h-16 w-16 rounded-full object-cover"
                     alt=""
                   />

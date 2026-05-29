@@ -14,6 +14,7 @@ import {
 import storyService from '../services/storyService';
 import userService from '../services/userService';
 import type { Story, User } from '../types/models';
+import { buildS3Url } from '../utils/s3';
 
 export default function Stories() {
   const [users, setUsers] = useState<User[]>([]);
@@ -144,7 +145,7 @@ export default function Stories() {
                     }`}
                   >
                     <img
-                      src={u.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${u.name || u.id}`}
+                      src={buildS3Url(u.avatarUrl) || `https://api.dicebear.com/7.x/initials/svg?seed=${u.name || u.id}`}
                       className="h-9 w-9 rounded-full object-cover"
                       alt=""
                     />
@@ -191,11 +192,11 @@ export default function Stories() {
                           <div className="flex h-full items-center justify-center bg-slate-900">
                             <Video size={32} className="text-white/60" />
                             {s.media.thumbnailUrl && (
-                              <img src={s.media.thumbnailUrl} className="absolute inset-0 h-full w-full object-cover opacity-70" alt="" />
+                              <img src={buildS3Url(s.media.thumbnailUrl) || ''} className="absolute inset-0 h-full w-full object-cover opacity-70" alt="" />
                             )}
                           </div>
                         ) : (
-                          <img src={s.media.url} className="h-full w-full object-cover" alt="" />
+                          <img src={buildS3Url(s.media.url) || ''} className="h-full w-full object-cover" alt="" />
                         )
                       ) : (
                         <div className="flex h-full items-center justify-center">
@@ -224,7 +225,7 @@ export default function Stories() {
                       {viewAll && user && (
                         <div className="mb-2 flex items-center gap-2">
                           <img
-                            src={user.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${user.name || s.userId}`}
+                            src={buildS3Url(user.avatarUrl) || `https://api.dicebear.com/7.x/initials/svg?seed=${user.name || s.userId}`}
                             className="h-6 w-6 rounded-full object-cover"
                             alt=""
                           />

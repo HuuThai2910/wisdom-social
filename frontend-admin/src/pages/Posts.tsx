@@ -13,6 +13,7 @@ import {
 import postService from '../services/postService';
 import userService from '../services/userService';
 import type { Post, User, PaginatedResponse } from '../types/models';
+import { buildS3Url } from '../utils/s3';
 
 const POSTS_PER_PAGE = 10;
 
@@ -131,7 +132,7 @@ export default function Posts() {
                   >
                     <img
                       src={
-                        u.avatarUrl ||
+                        buildS3Url(u.avatarUrl) ||
                         `https://api.dicebear.com/7.x/initials/svg?seed=${u.name || u.username || u.id}`
                       }
                       className="h-9 w-9 rounded-full object-cover"
@@ -189,7 +190,7 @@ export default function Posts() {
                       <div className="flex items-center gap-3">
                         <img
                           src={
-                            selectedUser?.avatarUrl ||
+                            buildS3Url(selectedUser?.avatarUrl) ||
                             `https://api.dicebear.com/7.x/initials/svg?seed=${selectedUser?.name || 'U'}`
                           }
                           className="h-10 w-10 rounded-full object-cover"
@@ -224,7 +225,7 @@ export default function Posts() {
                         {p.media.slice(0, 6).map((m, i) => (
                           <img
                             key={i}
-                            src={m.url}
+                            src={buildS3Url(m.url) || ''}
                             className="h-32 w-full rounded-lg object-cover"
                             alt=""
                           />

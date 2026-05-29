@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import musicService from '../services/musicService';
 import type { MusicTrack, PaginatedResponse } from '../types/models';
+import { buildS3Url } from '../utils/s3';
 
 const PAGE_SIZE = 20;
 
@@ -169,7 +170,7 @@ export default function Music() {
           <table className="min-w-full divide-y divide-slate-100 text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
-                <th className="w-12 px-4 py-3"></th>
+                <th className="w-28 px-4 py-3"></th>
                 <th className="px-4 py-3 text-left">Bài nhạc</th>
                 <th className="px-4 py-3 text-left">Nghệ sĩ</th>
                 <th className="px-4 py-3 text-left">Thời lượng</th>
@@ -191,10 +192,10 @@ export default function Music() {
                   <tr key={t.id} className="hover:bg-slate-50">
                     <td className="px-4 py-3">
                       {t.imageUrl ? (
-                        <img src={t.imageUrl} className="h-10 w-10 rounded-lg object-cover" alt="" />
+                        <img src={buildS3Url(t.imageUrl) || ''} className="h-12 w-20 max-w-none shrink-0 rounded-lg object-cover" alt="" />
                       ) : (
-                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-50">
-                          <Music2 size={16} className="text-indigo-400" />
+                        <div className="flex h-12 w-20 items-center justify-center rounded-lg bg-indigo-50">
+                          <Music2 size={22} className="text-indigo-400" />
                         </div>
                       )}
                     </td>

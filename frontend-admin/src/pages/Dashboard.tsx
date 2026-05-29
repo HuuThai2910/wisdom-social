@@ -31,9 +31,10 @@ import pageService from '../services/pageService';
 import hashtagService from '../services/hashtagService';
 import adminService from '../services/adminService';
 import type { AdminStats, Page, TrendingHashtag, User } from '../types/models';
+import { buildS3Url } from '../utils/s3';
 
-const PIE_COLORS = ['#6366f1', '#ec4899', '#94a3b8'];
-const HASHTAG_COLORS = ['#6366f1', '#8b5cf6', '#a78bfa', '#c4b5fd', '#7c3aed', '#4f46e5', '#818cf8', '#6d28d9'];
+const PIE_COLORS = ['#1677ff', '#ec4899', '#94a3b8'];
+const HASHTAG_COLORS = ['#1677ff', '#4096ff', '#69b1ff', '#91caff', '#0958d9', '#003eb3', '#bae0ff', '#002c8c'];
 
 function buildGenderDistribution(users: User[]) {
   const counts = { Nam: 0, Nữ: 0, Khác: 0 };
@@ -171,15 +172,15 @@ export default function Dashboard() {
                 <AreaChart data={signupSeries}>
                   <defs>
                     <linearGradient id="signupColor" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#6366f1" stopOpacity={0.4} />
-                      <stop offset="100%" stopColor="#6366f1" stopOpacity={0} />
+                      <stop offset="0%" stopColor="#1677ff" stopOpacity={0.4} />
+                      <stop offset="100%" stopColor="#1677ff" stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
                   <XAxis dataKey="day" tick={{ fontSize: 11 }} stroke="#94a3b8" interval={2} />
                   <YAxis tick={{ fontSize: 12 }} stroke="#94a3b8" allowDecimals={false} />
                   <Tooltip contentStyle={{ borderRadius: 8, borderColor: '#e2e8f0', fontSize: 12 }} />
-                  <Area type="monotone" dataKey="count" name="Đăng ký" stroke="#6366f1" strokeWidth={2} fill="url(#signupColor)" />
+                  <Area type="monotone" dataKey="count" name="Đăng ký" stroke="#1677ff" strokeWidth={2} fill="url(#signupColor)" />
                 </AreaChart>
               </ResponsiveContainer>
             )}
@@ -281,7 +282,7 @@ export default function Dashboard() {
                 <XAxis type="number" tick={{ fontSize: 12 }} stroke="#94a3b8" />
                 <YAxis type="category" dataKey="category" tick={{ fontSize: 12 }} stroke="#94a3b8" width={80} />
                 <Tooltip contentStyle={{ borderRadius: 8, fontSize: 12 }} />
-                <Bar dataKey="count" name="Số trang" fill="#8b5cf6" radius={[0, 6, 6, 0]} />
+                <Bar dataKey="count" name="Số trang" fill="#0958d9" radius={[0, 6, 6, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -310,7 +311,7 @@ export default function Dashboard() {
                     <tr key={u.id} className="hover:bg-slate-50">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
-                          <img src={u.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${u.name || u.username || u.id}`} className="h-9 w-9 rounded-full object-cover" alt="" />
+                          <img src={buildS3Url(u.avatarUrl) || `https://api.dicebear.com/7.x/initials/svg?seed=${u.name || u.username || u.id}`} className="h-9 w-9 rounded-full object-cover" alt="" />
                           <div>
                             <p className="font-medium text-slate-800">{u.name || u.username || `User #${u.id}`}</p>
                             <p className="text-xs text-slate-500">@{u.username || '---'}</p>
