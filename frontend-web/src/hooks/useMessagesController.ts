@@ -64,6 +64,35 @@ function sortWithPinnedConversations(
     });
 }
 
+function areConversationListsEquivalent(
+    current: Conversation[],
+    next: Conversation[],
+): boolean {
+    if (current.length !== next.length) return false;
+
+    return current.every((conversation, index) => {
+        const candidate = next[index];
+        if (!candidate) return false;
+        return (
+            conversation.id === candidate.id &&
+            conversation.name === candidate.name &&
+            conversation.imageUrl === candidate.imageUrl &&
+            conversation.directPartnerId === candidate.directPartnerId &&
+            conversation.updatedAt === candidate.updatedAt &&
+            conversation.unreadCount === candidate.unreadCount &&
+            conversation.lastMessage?.lastMessageAt ===
+                candidate.lastMessage?.lastMessageAt &&
+            conversation.lastMessage?.lastMessageContent ===
+                candidate.lastMessage?.lastMessageContent &&
+            conversation.lastMessage?.lastMessageType ===
+                candidate.lastMessage?.lastMessageType &&
+            conversation.lastMessage?.lastSenderId ===
+                candidate.lastMessage?.lastSenderId &&
+            conversation.lastMessage?.read === candidate.lastMessage?.read
+        );
+    });
+}
+
 /**
  * useMessagesController
  * - Controller hook cho trang Messages: fetch list hội thoại + search/filter + điều hướng.
@@ -109,6 +138,13 @@ export function useMessagesController() {
     const currentUserIdRef = useRef<number>(currentUserId);
     const refreshingConversationIdsRef = useRef<Set<number>>(new Set());
     const presenceHydratedConversationIdsRef = useRef<Set<number>>(new Set());
+    const conversationListCatchupRef = useRef({
+        inFlight: false,
+        lastRunAt: 0,
+        needsCatchup: false,
+        retryTimerId: null as number | null,
+        retryAttempts: 0,
+    });
 
     useEffect(() => {
         // Đồng bộ ref mỗi khi URL param đổi.
@@ -178,10 +214,15 @@ export function useMessagesController() {
     }, [conversations, currentUserId]);
 
     // ====== Data loading: danh sách hội thoại ======
-    const loadConversations = useCallback(async () => {
+    const loadConversations = useCallback(async (
+        options: { showLoading?: boolean } = {},
+    ) => {
+        const showLoading = options.showLoading ?? true;
         try {
-            setLoading(true);
-            setError(null);
+            if (showLoading) {
+                setLoading(true);
+                setError(null);
+            }
 
             const [convs, pins] = await Promise.all([
                 chatService.getConversations(currentUserId),
@@ -192,9 +233,17 @@ export function useMessagesController() {
                 const conversationData = Array.isArray(convs.data)
                     ? convs.data
                     : [];
+                conversationListCatchupRef.current.needsCatchup = false;
+                setError(null);
                 // API trả về ok: set list hội thoại.
-                setConversations(
-                    sortWithPinnedConversations(conversationData, pins),
+                const sortedConversations = sortWithPinnedConversations(
+                    conversationData,
+                    pins,
+                );
+                setConversations((prev) =>
+                    areConversationListsEquivalent(prev, sortedConversations)
+                        ? prev
+                        : sortedConversations,
                 );
                 setConversationReadOnlyNotices(() => {
                     const next: Record<number, string> = {};
@@ -210,17 +259,23 @@ export function useMessagesController() {
                     return next;
                 });
             } else {
-                setConversations([]);
+                conversationListCatchupRef.current.needsCatchup = true;
                 setConversationReadOnlyNotices({});
-                setError(convs.message || "Không thể tải danh sách hội thoại");
+                if (showLoading) {
+                    setError(convs.message || "Không thể tải danh sách hội thoại");
+                }
             }
         } catch {
             // Network/exception: cố gắng fail-safe với list rỗng + thông báo.
-            setConversations([]);
             setConversationReadOnlyNotices({});
-            setError("Không thể tải danh sách hội thoại");
+            conversationListCatchupRef.current.needsCatchup = true;
+            if (showLoading) {
+                setError("Không thể tải danh sách hội thoại");
+            }
         } finally {
-            setLoading(false);
+            if (showLoading) {
+                setLoading(false);
+            }
         }
     }, [currentUserId]);
 
@@ -230,10 +285,155 @@ export function useMessagesController() {
     }, [loadConversations]);
 
     useEffect(() => {
+        if (!currentUserId) return;
+        const catchupTimers: number[] = [];
+        const clearRetryTimer = () => {
+            const timerId = conversationListCatchupRef.current.retryTimerId;
+            if (timerId !== null) {
+                window.clearTimeout(timerId);
+                conversationListCatchupRef.current.retryTimerId = null;
+            }
+        };
+
+        const runCatchup = () => {
+            const now = Date.now();
+            if (conversationListCatchupRef.current.inFlight) return;
+            if (now - conversationListCatchupRef.current.lastRunAt < 2500) {
+                return;
+            }
+
+            conversationListCatchupRef.current.inFlight = true;
+            conversationListCatchupRef.current.lastRunAt = now;
+            void loadConversations({ showLoading: false }).finally(() => {
+                conversationListCatchupRef.current.inFlight = false;
+            });
+        };
+
+        const scheduleRetryLoop = () => {
+            if (conversationListCatchupRef.current.retryTimerId !== null) return;
+            conversationListCatchupRef.current.retryTimerId = window.setTimeout(() => {
+                conversationListCatchupRef.current.retryTimerId = null;
+                if (!conversationListCatchupRef.current.needsCatchup) {
+                    conversationListCatchupRef.current.retryAttempts = 0;
+                    return;
+                }
+                if (document.visibilityState !== "visible" || !navigator.onLine) {
+                    scheduleRetryLoop();
+                    return;
+                }
+                if (conversationListCatchupRef.current.retryAttempts >= 20) {
+                    conversationListCatchupRef.current.retryAttempts = 0;
+                    return;
+                }
+                conversationListCatchupRef.current.retryAttempts += 1;
+                runCatchup();
+                scheduleRetryLoop();
+            }, 3000);
+        };
+
+        const scheduleCatchup = () => {
+            if (!conversationListCatchupRef.current.needsCatchup) return;
+            conversationListCatchupRef.current.retryAttempts = 0;
+            [0, 3000, 8000].forEach((delay) => {
+                catchupTimers.push(window.setTimeout(runCatchup, delay));
+            });
+            scheduleRetryLoop();
+        };
+
+        const forceCatchup = () => {
+            conversationListCatchupRef.current.needsCatchup = true;
+            scheduleCatchup();
+        };
+
+        const markNeedsCatchup = () => {
+            conversationListCatchupRef.current.needsCatchup = true;
+            conversationListCatchupRef.current.retryAttempts = 0;
+            scheduleRetryLoop();
+        };
+
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === "visible") {
+                scheduleCatchup();
+            }
+        };
+
+        window.addEventListener("online", forceCatchup);
+        window.addEventListener("wisdom-websocket-reconnected", forceCatchup);
+        window.addEventListener("offline", markNeedsCatchup);
+        window.addEventListener("focus", scheduleCatchup);
+        document.addEventListener("visibilitychange", handleVisibilityChange);
+
+        return () => {
+            catchupTimers.forEach((timerId) => window.clearTimeout(timerId));
+            clearRetryTimer();
+            window.removeEventListener("online", forceCatchup);
+            window.removeEventListener("wisdom-websocket-reconnected", forceCatchup);
+            window.removeEventListener("offline", markNeedsCatchup);
+            window.removeEventListener("focus", scheduleCatchup);
+            document.removeEventListener(
+                "visibilitychange",
+                handleVisibilityChange,
+            );
+        };
+    }, [currentUserId, loadConversations]);
+
+    useEffect(() => {
         for (const conv of conversations) {
             chatRuntimeStore.setConversation(conv.id, conv);
         }
     }, [conversations]);
+
+    // Cập nhật SIDEBAR realtime khi 1 thành viên bị khóa/mở khóa tài khoản.
+    // websocket.ts phát window event này từ topic /topic/user/{id}/conversations.
+    useEffect(() => {
+        const handleMemberLockChanged = (event: Event) => {
+            const detail = (event as CustomEvent).detail as {
+                conversationId?: number;
+                userId?: number;
+                accountLocked?: boolean;
+            } | null;
+            if (!detail || typeof detail.conversationId !== "number") return;
+
+            const lockedUserId = Number(detail.userId);
+            const accountLocked = Boolean(detail.accountLocked);
+
+            setConversations((prev) =>
+                prev.map((conversation) => {
+                    if (conversation.id !== detail.conversationId)
+                        return conversation;
+
+                    // Cập nhật cờ trên member tương ứng (group + direct).
+                    const members = conversation.members?.map((member) =>
+                        Number(member.userId) === lockedUserId
+                            ? { ...member, accountLocked }
+                            : member,
+                    );
+
+                    return {
+                        ...conversation,
+                        members: members ?? conversation.members,
+                        // Direct: đồng bộ cờ đối phương để mask tên/avatar ở sidebar.
+                        directPartnerLocked:
+                            conversation.type === "DIRECT" &&
+                            Number(conversation.directPartnerId) === lockedUserId
+                                ? accountLocked
+                                : conversation.directPartnerLocked,
+                    };
+                }),
+            );
+        };
+
+        window.addEventListener(
+            "conversation-member-lock-changed",
+            handleMemberLockChanged,
+        );
+        return () => {
+            window.removeEventListener(
+                "conversation-member-lock-changed",
+                handleMemberLockChanged,
+            );
+        };
+    }, []);
 
     const fetchPinnedConversations = useCallback(async () => {
         const pins = await chatService.fetchPinnedConversations();

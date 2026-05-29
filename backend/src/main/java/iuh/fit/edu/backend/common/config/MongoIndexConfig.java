@@ -61,6 +61,7 @@ public class MongoIndexConfig {
 
             // Posts - lastActivityAt index DESC
             createIndex("posts", "lastActivityAt", Sort.Direction.DESC);
+            createMessageConversationCreatedAtIndex();
             createMessageClientMessageIdUniqueIndex();
 
             log.info("MongoDB indexes initialized successfully (TTL enabled for Notes only)");
@@ -130,6 +131,23 @@ public class MongoIndexConfig {
             log.info("Created unique clientMessageId index for messages");
         } catch (Exception e) {
             log.warn("Failed to create unique clientMessageId index for messages: {}",
+                    e.getMessage());
+        }
+    }
+
+    private void createMessageConversationCreatedAtIndex() {
+        try {
+            IndexOperations indexOps = mongoTemplate.indexOps("messages");
+            Document keys = new Document()
+                    .append("conversation_id", 1)
+                    .append("created_at", -1);
+            IndexDefinition index = new CompoundIndexDefinition(keys)
+                    .named("conversation_createdAt_idx");
+
+            indexOps.createIndex(index);
+            log.info("Created conversation createdAt index for messages");
+        } catch (Exception e) {
+            log.warn("Failed to create conversation createdAt index for messages: {}",
                     e.getMessage());
         }
     }

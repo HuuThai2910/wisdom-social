@@ -8,21 +8,25 @@ import { convertPhoneToInternational } from './useCurrentUser';
  * useForceLogout
  *
  * Hook lắng nghe WebSocket event FORCE_LOGOUT từ backend.
- * Khi mobile (hoặc bất kỳ thiết bị nào) gọi logoutAllDevices,
- * backend sẽ push event tới /topic/user/{phone}/force-logout.
- * Hook này sẽ:
+ * Khi admin khóa tài khoản (hoặc bất kỳ thiết bị nào gọi logoutAllDevices),
+ * backend sẽ push event tới HAI topic:
+ *   - /topic/user/{userId}/force-logout  (kênh chính, luôn tồn tại)
+ *   - /topic/user/{phone}/force-logout   (tương thích ngược)
+ * Hook này subscribe cả hai để đảm bảo nhận được dù phone null/lệch định dạng,
+ * rồi:
  * 1. Xóa toàn bộ auth data khỏi cookie & localStorage
  * 2. Disconnect WebSocket
  * 3. Redirect ngay về /login
  *
  * @param phone - Số điện thoại của user đang đăng nhập (format 0xxx hoặc +84xxx)
+ * @param userId - ID của user đang đăng nhập (kênh đáng tin cậy nhất)
  */
-export function useForceLogout(phone: string | undefined) {
+export function useForceLogout(phone: string | undefined, userId: number | undefined) {
     const navigate = useNavigate();
     const subscribedRef = useRef(false);
 
     const handleForceLogout = useCallback(() => {
-        console.log('🔴 FORCE LOGOUT: Đăng xuất tất cả thiết bị được kích hoạt. Đang đăng xuất...');
+        console.log('🔴 FORCE LOGOUT: Tài khoản bị khóa / đăng xuất tất cả thiết bị. Đang đăng xuất...');
 
         // 1. Clear auth data immediately
         clearAuthStorage();
@@ -36,38 +40,47 @@ export function useForceLogout(phone: string | undefined) {
     }, [navigate]);
 
     useEffect(() => {
-        if (!phone) return;
+        const internationalPhone = phone ? convertPhoneToInternational(phone) : '';
+        const hasPhone = !!internationalPhone;
+        const hasUserId = typeof userId === 'number';
 
-        const internationalPhone = convertPhoneToInternational(phone);
-        if (!internationalPhone) return;
-
-        let cancelled = false;
+        // Không có định danh nào để subscribe -> bỏ qua.
+        if (!hasPhone && !hasUserId) return;
 
         const setup = async () => {
+            // Đăng ký subscription TRƯỚC (an toàn kể cả khi chưa connected): factory
+            // được lưu lại và syncSubscriptions sẽ tự subscribe ngay khi WS kết nối.
+            if (hasUserId) {
+                websocketService.subscribeToForceLogoutById(userId!, handleForceLogout);
+            }
+            if (hasPhone) {
+                websocketService.subscribeToForceLogout(internationalPhone, handleForceLogout);
+            }
+            subscribedRef.current = true;
+            console.log(`🔒 useForceLogout: registered (userId=${userId ?? '-'}, phone=${internationalPhone || '-'})`);
+
             try {
-                // Ensure WebSocket is connected before subscribing
+                // Đảm bảo WS được kết nối (nếu chưa) để kích hoạt subscribe ngay.
                 if (!websocketService.isConnected()) {
                     await websocketService.connect();
                 }
-
-                if (cancelled) return;
-
-                websocketService.subscribeToForceLogout(internationalPhone, handleForceLogout);
-                subscribedRef.current = true;
-                console.log(`🔒 useForceLogout: subscribed for ${internationalPhone}`);
             } catch (error) {
-                console.error('❌ useForceLogout: setup error', error);
+                console.error('❌ useForceLogout: connect error (subscription vẫn được giữ, sẽ tự subscribe khi reconnect)', error);
             }
         };
 
         setup();
 
         return () => {
-            cancelled = true;
             if (subscribedRef.current) {
-                websocketService.unsubscribeFromForceLogout(internationalPhone);
+                if (hasUserId) {
+                    websocketService.unsubscribeFromForceLogoutById(userId!);
+                }
+                if (hasPhone) {
+                    websocketService.unsubscribeFromForceLogout(internationalPhone);
+                }
                 subscribedRef.current = false;
             }
         };
-    }, [phone, handleForceLogout]);
+    }, [phone, userId, handleForceLogout]);
 }

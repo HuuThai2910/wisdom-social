@@ -68,6 +68,7 @@ export type DomainEventType =
     | "PIN_MESSAGE"
     | "UPIN_MESSAGE"
     | "MEMBER_UPDATED"
+    | "MEMBER_ACCOUNT_LOCK_CHANGED"
     | "NEW_JOIN_REQUEST"
     | "JOIN_REQUEST_PROCESSED";
 
@@ -103,6 +104,18 @@ export interface MemberUpdatedEvent {
     userId: number;
     newNickname: string;
     newAvatar?: string;
+}
+
+/**
+ * Sự kiện realtime khi tài khoản của 1 thành viên bị khóa/mở khóa.
+ * Phát trên cùng topic /topic/conversations/{id}/members.
+ * FE dùng để mask (hoặc bỏ mask) tên + avatar cho các user khác cùng hội thoại.
+ */
+export interface MemberAccountLockChangedEvent {
+    domainEventType: "MEMBER_ACCOUNT_LOCK_CHANGED";
+    conversationId: number;
+    userId: number;
+    accountLocked: boolean;
 }
 
 /**
@@ -403,6 +416,10 @@ class WebSocketService {
      * Value: subscription object để unsubscribe sau này
      */
     private subscriptions: Map<string, any> = new Map();
+    private subscriptionFactories: Map<
+        string,
+        () => { unsubscribe: () => void }
+    > = new Map();
     private userConversationCallbacks: Map<
         number,
         Set<(
@@ -467,6 +484,49 @@ class WebSocketService {
             window.clearInterval(this.presenceHeartbeatTimer);
             this.presenceHeartbeatTimer = null;
         }
+    }
+
+    private syncSubscriptions() {
+        if (!this.client?.connected) return;
+
+        this.subscriptionFactories.forEach((factory, destination) => {
+            if (this.subscriptions.has(destination)) return;
+
+            try {
+                const subscription = factory();
+                this.subscriptions.set(destination, subscription);
+            } catch (error) {
+                console.warn("Không thể đồng bộ lại WebSocket subscription:", {
+                    destination,
+                    error,
+                });
+            }
+        });
+    }
+
+    private registerSubscription(
+        destination: string,
+        factory: () => { unsubscribe: () => void },
+    ) {
+        this.subscriptionFactories.set(destination, factory);
+
+        const activeSubscription = this.subscriptions.get(destination);
+        if (activeSubscription) {
+            activeSubscription.unsubscribe();
+            this.subscriptions.delete(destination);
+        }
+
+        this.syncSubscriptions();
+    }
+
+    private removeSubscription(destination: string) {
+        const activeSubscription = this.subscriptions.get(destination);
+        if (activeSubscription) {
+            activeSubscription.unsubscribe();
+            this.subscriptions.delete(destination);
+        }
+
+        this.subscriptionFactories.delete(destination);
     }
 
     /**
@@ -558,6 +618,8 @@ class WebSocketService {
                     console.log("🟢🟢🟢 STOMP Connected to server 🟢🟢🟢");
                     this.connectPromise = null; // Reset promise
                     this.startPresenceHeartbeat();
+                    this.syncSubscriptions();
+                    window.dispatchEvent(new Event("wisdom-websocket-reconnected"));
                     onConnect?.(); // Gọi callback của caller
                     resolve(); // Resolve promise để caller biết đã kết nối xong
                 },
@@ -585,6 +647,11 @@ class WebSocketService {
                     this.connectPromise = null; // Reset promise
                     onError?.(error);
                     reject(error); // Reject promise
+                },
+                onWebSocketClose: () => {
+                    this.stopPresenceHeartbeat();
+                    this.connectPromise = null;
+                    this.subscriptions.clear();
                 },
             });
 
@@ -620,6 +687,7 @@ class WebSocketService {
                 subscription.unsubscribe();
             });
             this.subscriptions.clear();
+            this.subscriptionFactories.clear();
             this.profileUpdateListeners.clear();
             this.presenceListeners.clear();
 
@@ -670,11 +738,6 @@ class WebSocketService {
     ) {
         // BƯỚC 1: Kiểm tra client đã kết nối chưa
         // client.connected = true chỉ khi STOMP handshake hoàn tất
-        if (!this.client?.connected) {
-            console.error("WebSocket not connected, cannot subscribe");
-            return;
-        }
-
         // BƯỚC 2: Tạo destination theo format của backend: /topic/conversation/{id}
         const destination = `/topic/conversation/${conversationId}`;
 
@@ -697,7 +760,13 @@ class WebSocketService {
          * 3. Phân loại dựa vào domainEventType
          * 4. Gọi callback tương ứng
          */
-        const subscription = this.client.subscribe(
+        this.registerSubscription(destination, () => {
+            const client = this.client;
+            if (!client?.connected) {
+                throw new Error("WebSocket not connected");
+            }
+
+            return client.subscribe(
             destination,
             (message: IMessage) => {
                 try {
@@ -738,10 +807,10 @@ class WebSocketService {
                     console.error("Error parsing message:", error);
                 }
             },
-        );
+            );
+        });
 
         // BƯỚC 5: Lưu subscription vào Map để có thể unsubscribe sau
-        this.subscriptions.set(destination, subscription);
         // console.log(`Subscribed to ${destination}`);
     }
 
@@ -759,6 +828,7 @@ class WebSocketService {
      */
     unsubscribeFromConversation(conversationId: number) {
         const destination = `/topic/conversation/${conversationId}`;
+        this.subscriptionFactories.delete(destination);
         const subscription = this.subscriptions.get(destination);
 
         if (subscription) {
@@ -817,12 +887,7 @@ class WebSocketService {
         }
 
         this.conversationSeenCallbacks.delete(conversationId);
-        const subscription = this.subscriptions.get(key);
-
-        if (subscription) {
-            subscription.unsubscribe();
-            this.subscriptions.delete(key);
-        }
+        this.removeSubscription(key);
     }
 
     subscribeToConversationPins(
@@ -838,7 +903,13 @@ class WebSocketService {
         const existingSubscription = this.subscriptions.get(destination);
         if (existingSubscription) return;
 
-        const subscription = this.client.subscribe(
+        this.registerSubscription(destination, () => {
+            const client = this.client;
+            if (!client?.connected) {
+                throw new Error("WebSocket not connected");
+            }
+
+            return client.subscribe(
             destination,
             (message: IMessage) => {
                 try {
@@ -848,9 +919,9 @@ class WebSocketService {
                     console.error("Error parsing pin update:", error);
                 }
             },
-        );
+            );
+        });
 
-        this.subscriptions.set(destination, subscription);
     }
 
     unsubscribeFromConversationPins(conversationId: number) {
@@ -866,6 +937,7 @@ class WebSocketService {
     subscribeToConversationMembers(
         conversationId: number,
         onMemberUpdated: (event: MemberUpdatedEvent) => void,
+        onAccountLockChanged?: (event: MemberAccountLockChangedEvent) => void,
     ) {
         if (!this.client?.connected) {
             console.error(
@@ -878,21 +950,36 @@ class WebSocketService {
         const existingSubscription = this.subscriptions.get(destination);
         if (existingSubscription) return;
 
-        const subscription = this.client.subscribe(
+        this.registerSubscription(destination, () => {
+            const client = this.client;
+            if (!client?.connected) {
+                throw new Error("WebSocket not connected");
+            }
+
+            return client.subscribe(
             destination,
             (message: IMessage) => {
                 try {
-                    const event = JSON.parse(
-                        message.body,
-                    ) as MemberUpdatedEvent;
-                    onMemberUpdated(event);
+                    const event = JSON.parse(message.body) as
+                        | MemberUpdatedEvent
+                        | MemberAccountLockChangedEvent;
+                    // Phân loại theo domainEventType. Mặc định (client cũ/không có
+                    // field) coi như MEMBER_UPDATED để giữ tương thích ngược.
+                    if (
+                        event.domainEventType === "MEMBER_ACCOUNT_LOCK_CHANGED"
+                    ) {
+                        onAccountLockChanged?.(
+                            event as MemberAccountLockChangedEvent,
+                        );
+                    } else {
+                        onMemberUpdated(event as MemberUpdatedEvent);
+                    }
                 } catch (error) {
                     console.error("Error parsing member update:", error);
                 }
             },
-        );
-
-        this.subscriptions.set(destination, subscription);
+            );
+        });
     }
 
     unsubscribeFromConversationMembers(conversationId: number) {
@@ -936,13 +1023,6 @@ class WebSocketService {
     ) {
         // BƯỚC 1: Kiểm tra kết nối WebSocket
         // Phải đảm bảo STOMP handshake đã hoàn tất trước khi subscribe
-        if (!this.client?.connected) {
-            console.error(
-                "WebSocket not connected, cannot subscribe to user conversations",
-            );
-            return;
-        }
-
         // BƯỚC 2: Tạo destination theo format của backend
         // Format: /topic/user/{userId}/conversations
         // VD: /topic/user/1/conversations cho user có ID = 1
@@ -980,7 +1060,13 @@ class WebSocketService {
         // 3. Event có cấu trúc: { type: "ROOM_UPDATED", conversationId: X, lastMessage: {...} }
         // 4. Trích xuất conversationId (từ event) và lastMessage (payload) riêng biệt
         // 5. Gọi callback với 2 tham số: conversationId và lastMessage
-        const subscription = this.client.subscribe(
+        this.registerSubscription(destination, () => {
+            const client = this.client;
+            if (!client?.connected) {
+                throw new Error("WebSocket not connected");
+            }
+
+            return client.subscribe(
             destination,
             (message: IMessage) => {
                 try {
@@ -991,7 +1077,25 @@ class WebSocketService {
                         | GroupDisbandedEvent
                         | NewJoinRequestEvent
                         | JoinRequestProcessedEvent
-                        | BlockedMembersUpdatedEvent;
+                        | BlockedMembersUpdatedEvent
+                        | MemberAccountLockChangedEvent;
+
+                    // Khóa/mở khóa tài khoản của 1 thành viên -> cập nhật SIDEBAR
+                    // (mask/bỏ mask tên + avatar) qua window event, không cần F5.
+                    const lockPayload = payload as MemberAccountLockChangedEvent;
+                    if (
+                        lockPayload.domainEventType ===
+                            "MEMBER_ACCOUNT_LOCK_CHANGED" &&
+                        typeof lockPayload.conversationId === "number"
+                    ) {
+                        window.dispatchEvent(
+                            new CustomEvent(
+                                "conversation-member-lock-changed",
+                                { detail: lockPayload },
+                            ),
+                        );
+                        return;
+                    }
 
                     const createdConversation = (
                         payload as {
@@ -1139,10 +1243,10 @@ class WebSocketService {
                     console.error("Error parsing conversation update:", error);
                 }
             },
-        );
+            );
+        });
 
         // BƯỚC 5: Lưu subscription vào Map để có thể unsubscribe sau này
-        this.subscriptions.set(destination, subscription);
         // console.log(`Subscribed to ${destination}`);
     }
 
@@ -1183,6 +1287,7 @@ class WebSocketService {
         }
         // Tạo lại destination để tìm subscription
         const destination = `/topic/user/${userId}/conversations`;
+        this.subscriptionFactories.delete(destination);
         const subscription = this.subscriptions.get(destination);
 
         if (subscription) {
@@ -1579,35 +1684,52 @@ class WebSocketService {
      * @param callback - Hàm được gọi ngay khi nhận được sự kiện force logout
      */
     subscribeToForceLogout(phone: string, callback: () => void) {
-        if (!this.client?.connected) {
-            console.error("WebSocket not connected, cannot subscribe to force logout");
+        const destination = `/topic/user/${phone}/force-logout`;
+
+        // KHÔNG bail-out khi chưa connected, và KHÔNG yêu cầu phải connected mới
+        // đăng ký. Chỉ cần factory đã đăng ký, syncSubscriptions() (chạy ở MỖI lần
+        // onConnect/reconnect) sẽ tự tạo STOMP subscription ngay khi client kết nối.
+        // Điều này loại bỏ:
+        //  - Race: lúc gọi mà client đang reconnect (connected=false) -> trước đây
+        //    bail sớm, không đăng ký gì -> không bao giờ subscribe lại.
+        //  - Mất subscription sau reconnect: onWebSocketClose clear() subscriptions,
+        //    chỉ những factory đã đăng ký mới được khôi phục.
+        // (heartbeat 4s + SockJS khiến reconnect xảy ra rất thường xuyên.)
+        if (this.subscriptionFactories.has(destination)) {
+            // Đã đăng ký rồi -> đảm bảo đang được subscribe (idempotent) rồi thoát.
+            this.syncSubscriptions();
             return;
         }
 
-        const destination = `/topic/user/${phone}/force-logout`;
-        const existingSubscription = this.subscriptions.get(destination);
-        if (existingSubscription) return;
+        this.registerSubscription(destination, () => {
+            const client = this.client;
+            if (!client?.connected) {
+                throw new Error("WebSocket not connected");
+            }
 
-        const subscription = this.client.subscribe(
-            destination,
-            (message: IMessage) => {
-                try {
-                    const payload = JSON.parse(message.body);
-                    console.log("🔴 Force logout event received:", payload);
-                    if (
-                        payload?.event === "FORCE_LOGOUT" &&
-                        (!payload?.deviceType || payload.deviceType === "WEB")
-                    ) {
-                        callback();
+            return client.subscribe(
+                destination,
+                (message: IMessage) => {
+                    try {
+                        const payload = JSON.parse(message.body);
+                        console.log("🔴 Force logout event received:", payload);
+                        // Chỉ logout web khi sự kiện dành cho WEB (hoặc không
+                        // gắn deviceType), để logout-theo-thiết-bị (mobile-only)
+                        // không vô tình đăng xuất phiên web.
+                        if (
+                            payload?.event === "FORCE_LOGOUT" &&
+                            (!payload?.deviceType || payload.deviceType === "WEB")
+                        ) {
+                            callback();
+                        }
+                    } catch (error) {
+                        console.error("Error parsing force-logout event:", error);
                     }
-                } catch (error) {
-                    console.error("Error parsing force-logout event:", error);
-                }
-            },
-        );
+                },
+            );
+        });
 
-        this.subscriptions.set(destination, subscription);
-        console.log(`🔒 Subscribed to force-logout for ${phone}`);
+        console.log(`🔒 Force-logout subscription registered for ${phone} (connected=${this.client?.connected ?? false})`);
     }
 
     /**
@@ -1617,11 +1739,73 @@ class WebSocketService {
      */
     unsubscribeFromForceLogout(phone: string) {
         const destination = `/topic/user/${phone}/force-logout`;
-        const subscription = this.subscriptions.get(destination);
-        if (subscription) {
-            subscription.unsubscribe();
-            this.subscriptions.delete(destination);
+        // Dùng removeSubscription để xóa cả factory đã đăng ký, tránh việc
+        // syncSubscriptions tái lập lại subscription sau khi đã unsubscribe.
+        if (this.subscriptions.has(destination) || this.subscriptionFactories.has(destination)) {
+            this.removeSubscription(destination);
             console.log(`🔓 Unsubscribed from force-logout for ${phone}`);
+        }
+    }
+
+    /**
+     * Subscribe force-logout theo userId (kênh đáng tin cậy, không phụ thuộc
+     * định dạng số điện thoại). Backend luôn broadcast tới
+     * /topic/user/{userId}/force-logout khi logoutAllDevices được gọi.
+     *
+     * @param userId - ID của user đang đăng nhập
+     * @param callback - Hàm được gọi ngay khi nhận được sự kiện force logout
+     */
+    subscribeToForceLogoutById(userId: number, callback: () => void) {
+        const destination = `/topic/user/${userId}/force-logout`;
+
+        // Giống subscribeToForceLogout: chỉ cần factory được đăng ký,
+        // syncSubscriptions() sẽ tự subscribe ngay khi client kết nối.
+        if (this.subscriptionFactories.has(destination)) {
+            this.syncSubscriptions();
+            return;
+        }
+
+        this.registerSubscription(destination, () => {
+            const client = this.client;
+            if (!client?.connected) {
+                throw new Error("WebSocket not connected");
+            }
+
+            return client.subscribe(
+                destination,
+                (message: IMessage) => {
+                    try {
+                        const payload = JSON.parse(message.body);
+                        console.log("🔴 Force logout event received (by id):", payload);
+                        // Chỉ logout web khi sự kiện dành cho WEB (hoặc không
+                        // gắn deviceType), để logout-theo-thiết-bị (mobile-only)
+                        // không vô tình đăng xuất phiên web.
+                        if (
+                            payload?.event === "FORCE_LOGOUT" &&
+                            (!payload?.deviceType || payload.deviceType === "WEB")
+                        ) {
+                            callback();
+                        }
+                    } catch (error) {
+                        console.error("Error parsing force-logout event:", error);
+                    }
+                },
+            );
+        });
+
+        console.log(`🔒 Force-logout (by id) subscription registered for ${userId} (connected=${this.client?.connected ?? false})`);
+    }
+
+    /**
+     * Unsubscribe khỏi sự kiện force-logout theo userId
+     *
+     * @param userId - ID của user
+     */
+    unsubscribeFromForceLogoutById(userId: number) {
+        const destination = `/topic/user/${userId}/force-logout`;
+        if (this.subscriptions.has(destination) || this.subscriptionFactories.has(destination)) {
+            this.removeSubscription(destination);
+            console.log(`🔓 Unsubscribed from force-logout (by id) for ${userId}`);
         }
     }
 

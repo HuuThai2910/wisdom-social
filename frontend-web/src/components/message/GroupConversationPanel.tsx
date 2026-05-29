@@ -17,6 +17,10 @@ import type {
 } from "../../services/chatService";
 import { DEFAULT_AVATAR_URL } from "../../constants/ui";
 import { buildS3Url } from "../../utils/s3";
+import {
+    LOCKED_ACCOUNT_AVATAR_URL,
+    LOCKED_ACCOUNT_NAME,
+} from "../../utils/lockedAccount";
 import TransferOwnershipModal from "./TransferOwnershipModal";
 
 interface GroupConversationPanelProps {
@@ -421,11 +425,15 @@ export default function GroupConversationPanel({
                                                     <div className="relative">
                                                         <img
                                                             src={
-                                                                member.avatar ||
-                                                                DEFAULT_AVATAR_URL
+                                                                member.accountLocked
+                                                                    ? LOCKED_ACCOUNT_AVATAR_URL
+                                                                    : member.avatar ||
+                                                                      DEFAULT_AVATAR_URL
                                                             }
                                                             alt={
-                                                                member.nickname
+                                                                member.accountLocked
+                                                                    ? LOCKED_ACCOUNT_NAME
+                                                                    : member.nickname
                                                             }
                                                             className="h-10 w-10 rounded-full object-cover"
                                                         />
@@ -443,8 +451,10 @@ export default function GroupConversationPanel({
                                                         <p className="text-sm font-semibold text-gray-900 dark:text-white">
                                                             {isMe
                                                                 ? "Bạn"
-                                                                : member.nickname ||
-                                                                  "Người dùng"}
+                                                                : member.accountLocked
+                                                                  ? LOCKED_ACCOUNT_NAME
+                                                                  : member.nickname ||
+                                                                    "Người dùng"}
                                                         </p>
                                                         {member.role ===
                                                             "OWNER" && (

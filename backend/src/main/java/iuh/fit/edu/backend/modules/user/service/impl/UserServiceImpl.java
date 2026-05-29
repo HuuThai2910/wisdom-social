@@ -352,8 +352,13 @@ public class UserServiceImpl implements UserService {
     @Transactional
     public String getNewAccessToken(String refreshToken) {
 
-        if (blackListUserRepository.existsByAnyToken(refreshToken)) {
-            return "Refresh token revoked";
+        if (refreshToken == null || refreshToken.isBlank()
+                || blackListUserRepository.existsByAnyToken(refreshToken)) {
+            // Phải THROW (không return chuỗi với HTTP 200) để controller trả 401.
+            // Nếu return "Refresh token revoked" với status 200, frontend sẽ tưởng
+            // đó là access token hợp lệ (chuỗi > 20 ký tự) -> không đăng xuất ->
+            // user bị admin khóa vẫn kẹt lại trong app mà không bị văng.
+            throw new RuntimeException("Refresh token revoked");
         }
 
         Map<String, String> authParams = new HashMap<>();
@@ -917,11 +922,13 @@ public class UserServiceImpl implements UserService {
     }
 
     private void sendForceLogoutEvent(User user, String deviceCategory) {
-        if (user.getPhone() == null) {
-            return;
-        }
-
-        String userPhone = convertToInternationalFormat(user.getPhone());
+        // Broadcast the SAME payload on two topics:
+        //   1. keyed by userId -> always present, independent of phone format.
+        //      This is the reliable channel: it works even when the user has
+        //      no phone or the international-format conversion differs slightly
+        //      between server and client.
+        //   2. keyed by phone  -> kept for backwards compatibility with any
+        //      client still subscribing by phone.
         Map<String, Object> forceLogoutPayload = new HashMap<>();
         forceLogoutPayload.put("event", "FORCE_LOGOUT");
         forceLogoutPayload.put("userId", user.getId());
@@ -929,11 +936,17 @@ public class UserServiceImpl implements UserService {
             forceLogoutPayload.put("deviceType", deviceCategory);
         }
         forceLogoutPayload.put("timestamp", OffsetDateTime.now().toString());
-        simpMessagingTemplate.convertAndSend(
-                "/topic/user/" + userPhone + "/force-logout",
-                forceLogoutPayload
-        );
-        System.out.println("Force logout WebSocket event sent to /topic/user/" + userPhone + "/force-logout");
+
+        String byIdTopic = "/topic/user/" + user.getId() + "/force-logout";
+        simpMessagingTemplate.convertAndSend(byIdTopic, forceLogoutPayload);
+        System.out.println("🔴 Force logout WebSocket event sent to " + byIdTopic);
+
+        if (user.getPhone() != null) {
+            String userPhone = convertToInternationalFormat(user.getPhone());
+            String byPhoneTopic = "/topic/user/" + userPhone + "/force-logout";
+            simpMessagingTemplate.convertAndSend(byPhoneTopic, forceLogoutPayload);
+            System.out.println("🔴 Force logout WebSocket event sent to " + byPhoneTopic);
+        }
     }
 
     private String normalizeDeviceCategory(String deviceType) {

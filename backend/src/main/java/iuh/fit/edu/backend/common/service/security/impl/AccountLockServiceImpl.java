@@ -3,7 +3,9 @@ package iuh.fit.edu.backend.common.service.security.impl;
 import iuh.fit.edu.backend.modules.user.entity.User;
 import iuh.fit.edu.backend.modules.user.repository.UserRepository;
 import iuh.fit.edu.backend.common.service.security.AccountLockService;
+import iuh.fit.edu.backend.common.service.security.AccountLockChangedEvent;
 import jakarta.transaction.Transactional;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import java.time.OffsetDateTime;
@@ -13,9 +15,12 @@ import java.time.temporal.ChronoUnit;
 public class AccountLockServiceImpl implements AccountLockService {
 
     private final UserRepository userRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
-    public AccountLockServiceImpl(UserRepository userRepository) {
+    public AccountLockServiceImpl(UserRepository userRepository,
+                                  ApplicationEventPublisher eventPublisher) {
         this.userRepository = userRepository;
+        this.eventPublisher = eventPublisher;
     }
 
     @Override
@@ -27,6 +32,7 @@ public class AccountLockServiceImpl implements AccountLockService {
         user.setLockedUntil(OffsetDateTime.now().plus(lockMinutes, ChronoUnit.MINUTES));
         user.setLockedBy("SYSTEM");
         userRepository.save(user);
+        eventPublisher.publishEvent(new AccountLockChangedEvent(user.getId(), true));
     }
 
     @Override
@@ -40,6 +46,7 @@ public class AccountLockServiceImpl implements AccountLockService {
         user.setLockedUntil(null);
         user.setLockedBy("ADMIN");
         userRepository.save(user);
+        eventPublisher.publishEvent(new AccountLockChangedEvent(user.getId(), true));
     }
 
     @Override
@@ -53,6 +60,7 @@ public class AccountLockServiceImpl implements AccountLockService {
         user.setLockedUntil(null);
         user.setLockedBy(null);
         userRepository.save(user);
+        eventPublisher.publishEvent(new AccountLockChangedEvent(user.getId(), false));
     }
 
     @Override
@@ -68,6 +76,8 @@ public class AccountLockServiceImpl implements AccountLockService {
             user.setLockedUntil(null);
             user.setLockedBy(null);
             userRepository.save(user);
+            // Khóa tạm hết hạn -> tự mở khóa: thông báo để refresh cache/UI hội thoại.
+            eventPublisher.publishEvent(new AccountLockChangedEvent(user.getId(), false));
             return false;
         }
         return true;
