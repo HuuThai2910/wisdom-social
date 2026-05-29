@@ -82,6 +82,8 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 @RequiredArgsConstructor
 public class MessageCommandService {
+    private static final int SIDEBAR_PREVIEW_MAX_LENGTH = 240;
+
     private final MessageRepository messageRepository;
     private final ConversationMemberService conversationMemberService;
     private final ApplicationEventPublisher eventPublisher;
@@ -810,7 +812,9 @@ public class MessageCommandService {
         });
 
         // Cập nhật trạng thái phòng khi người dùng nhắn tin (gồm tin nhắn mới nhất, người nhắn, thời gian)
-        String sidebarPreview = getSidebarPreview(savedMessage.getMessageType(), savedMessage.getContent());
+        String sidebarPreview = truncateSidebarPreview(
+                getSidebarPreview(savedMessage.getMessageType(), savedMessage.getContent())
+        );
         conversation.setLastMessageId(savedMessage.getId());
         conversation.setLastMessageContent(sidebarPreview);
         conversation.setLastMessageAt(savedMessage.getCreatedAt());
@@ -965,6 +969,13 @@ public class MessageCommandService {
             case TEXT -> content; // Text thì in ra bình thường
             default -> "Đã gửi một tin nhắn";
         };
+    }
+
+    private String truncateSidebarPreview(String content) {
+        if (content == null || content.length() <= SIDEBAR_PREVIEW_MAX_LENGTH) {
+            return content;
+        }
+        return content.substring(0, SIDEBAR_PREVIEW_MAX_LENGTH - 3) + "...";
     }
 
     private String getCallPreview(String content) {

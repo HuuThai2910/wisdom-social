@@ -39,7 +39,7 @@ export default function StoryCanvas({
 
   // Click on canvas background => deselect all (but not while editing)
   const handleCanvasClick = useCallback(
-    (e: React.MouseEvent) => {
+    (_e: React.MouseEvent) => {
       // Don't deselect if currently editing text
       if (manager.editingId) {
         return;

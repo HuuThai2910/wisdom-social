@@ -1,11 +1,28 @@
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Lock, Trash2, Unlock, RefreshCw, Search, Filter } from 'lucide-react';
+import {
+  Lock,
+  Trash2,
+  Unlock,
+  RefreshCw,
+  Search,
+  Filter,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  Users2,
+  FileText,
+  Heart,
+} from 'lucide-react';
 import userService from '../services/userService';
 import adminService from '../services/adminService';
-import type { User } from '../types/models';
+import postService from '../services/postService';
+import type { Post, User, UserProfile } from '../types/models';
+import { buildS3Url } from '../utils/s3';
 
 type FilterStatus = 'all' | 'active' | 'locked';
+const PAGE_SIZE = 20;
 
 export default function Users() {
   const [users, setUsers] = useState<User[]>([]);
@@ -15,6 +32,11 @@ export default function Users() {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [lockTarget, setLockTarget] = useState<User | null>(null);
   const [lockReason, setLockReason] = useState('');
+  const [page, setPage] = useState(0);
+
+  const [detailUser, setDetailUser] = useState<UserProfile | null>(null);
+  const [detailPosts, setDetailPosts] = useState<Post[]>([]);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -45,6 +67,16 @@ export default function Users() {
       );
     });
   }, [users, keyword, filter]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paged = useMemo(() => {
+    const start = page * PAGE_SIZE;
+    return filtered.slice(start, start + PAGE_SIZE);
+  }, [filtered, page]);
+
+  useEffect(() => {
+    setPage(0);
+  }, [keyword, filter]);
 
   const handleUnlock = async (u: User) => {
     setBusyId(u.id);
@@ -91,6 +123,24 @@ export default function Users() {
     }
   };
 
+  const openDetail = async (u: User) => {
+    setDetailLoading(true);
+    setDetailUser(null);
+    setDetailPosts([]);
+    try {
+      const [profile, postsRes] = await Promise.all([
+        userService.getProfile(u.id).catch(() => ({ ...u } as UserProfile)),
+        postService.getPostsByUser(u.id, 0, 5).catch(() => ({ content: [] as Post[], totalElements: 0, totalPages: 0, number: 0, size: 0 })),
+      ]);
+      setDetailUser(profile);
+      setDetailPosts(postsRes.content);
+    } catch {
+      toast.error('Không tải được thông tin chi tiết');
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -98,6 +148,9 @@ export default function Users() {
           <h1 className="text-2xl font-bold text-slate-900">Quản lý người dùng</h1>
           <p className="text-sm text-slate-500">
             Tổng: <span className="font-semibold text-slate-700">{users.length}</span> tài khoản
+            {filtered.length !== users.length && (
+              <span className="ml-2 text-slate-400">({filtered.length} hiển thị)</span>
+            )}
           </p>
         </div>
         <button
@@ -158,32 +211,32 @@ export default function Users() {
                     Đang tải dữ liệu...
                   </td>
                 </tr>
-              ) : filtered.length === 0 ? (
+              ) : paged.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-4 py-10 text-center text-slate-400">
                     Không có người dùng phù hợp.
                   </td>
                 </tr>
               ) : (
-                filtered.map((u) => (
+                paged.map((u) => (
                   <tr key={u.id} className="hover:bg-slate-50">
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
+                      <button onClick={() => openDetail(u)} className="flex items-center gap-3 text-left">
                         <img
                           src={
-                            u.avatarUrl ||
+                            buildS3Url(u.avatarUrl) ||
                             `https://api.dicebear.com/7.x/initials/svg?seed=${u.name || u.username || u.id}`
                           }
                           className="h-9 w-9 rounded-full object-cover"
                           alt=""
                         />
                         <div>
-                          <p className="font-medium text-slate-800">
+                          <p className="font-medium text-slate-800 hover:text-indigo-600 transition">
                             {u.name || u.username || `User #${u.id}`}
                           </p>
                           <p className="text-xs text-slate-500">@{u.username || '---'}</p>
                         </div>
-                      </div>
+                      </button>
                     </td>
                     <td className="px-4 py-3 text-slate-600">{u.phone || '—'}</td>
                     <td className="px-4 py-3 text-slate-600">
@@ -211,6 +264,12 @@ export default function Users() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => openDetail(u)}
+                          className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                        >
+                          <Eye size={14} /> Chi tiết
+                        </button>
                         {u.locked ? (
                           <button
                             disabled={busyId === u.id}
@@ -246,8 +305,33 @@ export default function Users() {
             </tbody>
           </table>
         </div>
+
+        {totalPages > 1 && (
+          <div className="mt-4 flex items-center justify-between text-sm">
+            <span className="text-slate-500">
+              Trang {page + 1} / {totalPages}
+            </span>
+            <div className="flex gap-2">
+              <button
+                disabled={page === 0}
+                onClick={() => setPage((p) => p - 1)}
+                className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+              >
+                <ChevronLeft size={14} /> Trước
+              </button>
+              <button
+                disabled={page >= totalPages - 1}
+                onClick={() => setPage((p) => p + 1)}
+                className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+              >
+                Sau <ChevronRight size={14} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
+      {/* Lock Modal */}
       {lockTarget && (
         <div className="fixed inset-0 z-30 flex items-center justify-center bg-slate-900/40 p-4">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
@@ -283,6 +367,144 @@ export default function Users() {
                 {busyId === lockTarget.id ? 'Đang xử lý...' : 'Xác nhận khoá'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* User Detail Drawer */}
+      {(detailUser || detailLoading) && (
+        <div className="fixed inset-0 z-30 flex justify-end bg-slate-900/40" onClick={() => { setDetailUser(null); setDetailLoading(false); }}>
+          <div
+            className="h-full w-full max-w-lg overflow-y-auto bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
+              <h3 className="text-lg font-semibold text-slate-900">Chi tiết người dùng</h3>
+              <button
+                onClick={() => { setDetailUser(null); setDetailLoading(false); }}
+                className="rounded-lg p-1 hover:bg-slate-100"
+              >
+                <X size={20} className="text-slate-500" />
+              </button>
+            </div>
+
+            {detailLoading ? (
+              <div className="flex h-64 items-center justify-center text-slate-400">Đang tải...</div>
+            ) : detailUser && (
+              <div className="space-y-6 p-6">
+                {/* Profile header */}
+                <div className="flex items-center gap-4">
+                  <img
+                    src={buildS3Url(detailUser.avatarUrl) || `https://api.dicebear.com/7.x/initials/svg?seed=${detailUser.name || detailUser.id}`}
+                    className="h-16 w-16 rounded-full object-cover"
+                    alt=""
+                  />
+                  <div>
+                    <p className="text-lg font-semibold text-slate-900">
+                      {detailUser.name || `User #${detailUser.id}`}
+                    </p>
+                    <p className="text-sm text-slate-500">@{detailUser.username || '---'}</p>
+                    <p className="text-xs text-slate-400">{detailUser.phone}</p>
+                  </div>
+                </div>
+
+                {/* Stats */}
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-center">
+                    <Users2 size={16} className="mx-auto text-indigo-500" />
+                    <p className="mt-1 text-lg font-bold text-slate-800">{detailUser.friendsCount ?? '—'}</p>
+                    <p className="text-[11px] text-slate-500">Bạn bè</p>
+                  </div>
+                  <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-center">
+                    <Heart size={16} className="mx-auto text-pink-500" />
+                    <p className="mt-1 text-lg font-bold text-slate-800">{detailUser.followersCount ?? '—'}</p>
+                    <p className="text-[11px] text-slate-500">Theo dõi</p>
+                  </div>
+                  <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-center">
+                    <FileText size={16} className="mx-auto text-emerald-500" />
+                    <p className="mt-1 text-lg font-bold text-slate-800">{detailUser.postsCount ?? '—'}</p>
+                    <p className="text-[11px] text-slate-500">Bài đăng</p>
+                  </div>
+                </div>
+
+                {/* Info */}
+                <div className="rounded-xl border border-slate-100 p-4">
+                  <h4 className="text-sm font-semibold text-slate-800 mb-3">Thông tin</h4>
+                  <dl className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <dt className="text-slate-500">Giới tính</dt>
+                      <dd className="text-slate-700">
+                        {detailUser.gender === 'MALE' ? 'Nam' : detailUser.gender === 'FEMALE' ? 'Nữ' : 'Ẩn'}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt className="text-slate-500">Ngày sinh</dt>
+                      <dd className="text-slate-700">{detailUser.birthday || '—'}</dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt className="text-slate-500">Tiểu sử</dt>
+                      <dd className="text-slate-700 text-right max-w-[200px] truncate">{detailUser.bio || '—'}</dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt className="text-slate-500">Đăng ký</dt>
+                      <dd className="text-slate-700">
+                        {detailUser.createdAt ? new Date(detailUser.createdAt).toLocaleDateString('vi-VN') : '—'}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt className="text-slate-500">Hoạt động cuối</dt>
+                      <dd className="text-slate-700">
+                        {detailUser.lastActiveAt ? new Date(detailUser.lastActiveAt).toLocaleString('vi-VN') : '—'}
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
+
+                {/* Lock info */}
+                {detailUser.locked && (
+                  <div className="rounded-xl border border-rose-200 bg-rose-50 p-4">
+                    <h4 className="text-sm font-semibold text-rose-800 mb-2">Thông tin khoá</h4>
+                    <dl className="space-y-1 text-sm">
+                      <div className="flex justify-between">
+                        <dt className="text-rose-600">Lý do</dt>
+                        <dd className="text-rose-800">{detailUser.lockReason || '—'}</dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt className="text-rose-600">Khoá bởi</dt>
+                        <dd className="text-rose-800">{detailUser.lockedBy || '—'}</dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt className="text-rose-600">Thời gian khoá</dt>
+                        <dd className="text-rose-800">
+                          {detailUser.lockedAt ? new Date(detailUser.lockedAt).toLocaleString('vi-VN') : '—'}
+                        </dd>
+                      </div>
+                    </dl>
+                  </div>
+                )}
+
+                {/* Recent posts */}
+                <div>
+                  <h4 className="text-sm font-semibold text-slate-800 mb-3">Bài đăng gần đây</h4>
+                  {detailPosts.length === 0 ? (
+                    <p className="text-sm text-slate-400">Chưa có bài đăng.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {detailPosts.map((p) => (
+                        <div key={p.id} className="rounded-lg border border-slate-100 p-3">
+                          <p className="text-sm text-slate-700 line-clamp-2">{p.content || '(Không có nội dung)'}</p>
+                          <div className="mt-2 flex items-center gap-4 text-xs text-slate-400">
+                            <span>{p.createdAt ? new Date(p.createdAt).toLocaleDateString('vi-VN') : ''}</span>
+                            <span>{p.stats?.reactionCount ?? 0} reactions</span>
+                            <span>{p.stats?.commentCount ?? 0} comments</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

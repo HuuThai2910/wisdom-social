@@ -64,6 +64,35 @@ function sortWithPinnedConversations(
     });
 }
 
+function areConversationListsEquivalent(
+    current: Conversation[],
+    next: Conversation[],
+): boolean {
+    if (current.length !== next.length) return false;
+
+    return current.every((conversation, index) => {
+        const candidate = next[index];
+        if (!candidate) return false;
+        return (
+            conversation.id === candidate.id &&
+            conversation.name === candidate.name &&
+            conversation.imageUrl === candidate.imageUrl &&
+            conversation.directPartnerId === candidate.directPartnerId &&
+            conversation.updatedAt === candidate.updatedAt &&
+            conversation.unreadCount === candidate.unreadCount &&
+            conversation.lastMessage?.lastMessageAt ===
+                candidate.lastMessage?.lastMessageAt &&
+            conversation.lastMessage?.lastMessageContent ===
+                candidate.lastMessage?.lastMessageContent &&
+            conversation.lastMessage?.lastMessageType ===
+                candidate.lastMessage?.lastMessageType &&
+            conversation.lastMessage?.lastSenderId ===
+                candidate.lastMessage?.lastSenderId &&
+            conversation.lastMessage?.read === candidate.lastMessage?.read
+        );
+    });
+}
+
 /**
  * useMessagesController
  * - Controller hook cho trang Messages: fetch list hội thoại + search/filter + điều hướng.
@@ -109,6 +138,13 @@ export function useMessagesController() {
     const currentUserIdRef = useRef<number>(currentUserId);
     const refreshingConversationIdsRef = useRef<Set<number>>(new Set());
     const presenceHydratedConversationIdsRef = useRef<Set<number>>(new Set());
+    const conversationListCatchupRef = useRef({
+        inFlight: false,
+        lastRunAt: 0,
+        needsCatchup: false,
+        retryTimerId: null as number | null,
+        retryAttempts: 0,
+    });
 
     useEffect(() => {
         // Đồng bộ ref mỗi khi URL param đổi.
@@ -178,10 +214,15 @@ export function useMessagesController() {
     }, [conversations, currentUserId]);
 
     // ====== Data loading: danh sách hội thoại ======
-    const loadConversations = useCallback(async () => {
+    const loadConversations = useCallback(async (
+        options: { showLoading?: boolean } = {},
+    ) => {
+        const showLoading = options.showLoading ?? true;
         try {
-            setLoading(true);
-            setError(null);
+            if (showLoading) {
+                setLoading(true);
+                setError(null);
+            }
 
             const [convs, pins] = await Promise.all([
                 chatService.getConversations(currentUserId),
@@ -192,9 +233,17 @@ export function useMessagesController() {
                 const conversationData = Array.isArray(convs.data)
                     ? convs.data
                     : [];
+                conversationListCatchupRef.current.needsCatchup = false;
+                setError(null);
                 // API trả về ok: set list hội thoại.
-                setConversations(
-                    sortWithPinnedConversations(conversationData, pins),
+                const sortedConversations = sortWithPinnedConversations(
+                    conversationData,
+                    pins,
+                );
+                setConversations((prev) =>
+                    areConversationListsEquivalent(prev, sortedConversations)
+                        ? prev
+                        : sortedConversations,
                 );
                 setConversationReadOnlyNotices(() => {
                     const next: Record<number, string> = {};
@@ -210,17 +259,23 @@ export function useMessagesController() {
                     return next;
                 });
             } else {
-                setConversations([]);
+                conversationListCatchupRef.current.needsCatchup = true;
                 setConversationReadOnlyNotices({});
-                setError(convs.message || "Không thể tải danh sách hội thoại");
+                if (showLoading) {
+                    setError(convs.message || "Không thể tải danh sách hội thoại");
+                }
             }
         } catch {
             // Network/exception: cố gắng fail-safe với list rỗng + thông báo.
-            setConversations([]);
             setConversationReadOnlyNotices({});
-            setError("Không thể tải danh sách hội thoại");
+            conversationListCatchupRef.current.needsCatchup = true;
+            if (showLoading) {
+                setError("Không thể tải danh sách hội thoại");
+            }
         } finally {
-            setLoading(false);
+            if (showLoading) {
+                setLoading(false);
+            }
         }
     }, [currentUserId]);
 
@@ -228,6 +283,99 @@ export function useMessagesController() {
         // Reload lại list khi userId thay đổi.
         void loadConversations();
     }, [loadConversations]);
+
+    useEffect(() => {
+        if (!currentUserId) return;
+        const catchupTimers: number[] = [];
+        const clearRetryTimer = () => {
+            const timerId = conversationListCatchupRef.current.retryTimerId;
+            if (timerId !== null) {
+                window.clearTimeout(timerId);
+                conversationListCatchupRef.current.retryTimerId = null;
+            }
+        };
+
+        const runCatchup = () => {
+            const now = Date.now();
+            if (conversationListCatchupRef.current.inFlight) return;
+            if (now - conversationListCatchupRef.current.lastRunAt < 2500) {
+                return;
+            }
+
+            conversationListCatchupRef.current.inFlight = true;
+            conversationListCatchupRef.current.lastRunAt = now;
+            void loadConversations({ showLoading: false }).finally(() => {
+                conversationListCatchupRef.current.inFlight = false;
+            });
+        };
+
+        const scheduleRetryLoop = () => {
+            if (conversationListCatchupRef.current.retryTimerId !== null) return;
+            conversationListCatchupRef.current.retryTimerId = window.setTimeout(() => {
+                conversationListCatchupRef.current.retryTimerId = null;
+                if (!conversationListCatchupRef.current.needsCatchup) {
+                    conversationListCatchupRef.current.retryAttempts = 0;
+                    return;
+                }
+                if (document.visibilityState !== "visible" || !navigator.onLine) {
+                    scheduleRetryLoop();
+                    return;
+                }
+                if (conversationListCatchupRef.current.retryAttempts >= 20) {
+                    conversationListCatchupRef.current.retryAttempts = 0;
+                    return;
+                }
+                conversationListCatchupRef.current.retryAttempts += 1;
+                runCatchup();
+                scheduleRetryLoop();
+            }, 3000);
+        };
+
+        const scheduleCatchup = () => {
+            if (!conversationListCatchupRef.current.needsCatchup) return;
+            conversationListCatchupRef.current.retryAttempts = 0;
+            [0, 3000, 8000].forEach((delay) => {
+                catchupTimers.push(window.setTimeout(runCatchup, delay));
+            });
+            scheduleRetryLoop();
+        };
+
+        const forceCatchup = () => {
+            conversationListCatchupRef.current.needsCatchup = true;
+            scheduleCatchup();
+        };
+
+        const markNeedsCatchup = () => {
+            conversationListCatchupRef.current.needsCatchup = true;
+            conversationListCatchupRef.current.retryAttempts = 0;
+            scheduleRetryLoop();
+        };
+
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === "visible") {
+                scheduleCatchup();
+            }
+        };
+
+        window.addEventListener("online", forceCatchup);
+        window.addEventListener("wisdom-websocket-reconnected", forceCatchup);
+        window.addEventListener("offline", markNeedsCatchup);
+        window.addEventListener("focus", scheduleCatchup);
+        document.addEventListener("visibilitychange", handleVisibilityChange);
+
+        return () => {
+            catchupTimers.forEach((timerId) => window.clearTimeout(timerId));
+            clearRetryTimer();
+            window.removeEventListener("online", forceCatchup);
+            window.removeEventListener("wisdom-websocket-reconnected", forceCatchup);
+            window.removeEventListener("offline", markNeedsCatchup);
+            window.removeEventListener("focus", scheduleCatchup);
+            document.removeEventListener(
+                "visibilitychange",
+                handleVisibilityChange,
+            );
+        };
+    }, [currentUserId, loadConversations]);
 
     useEffect(() => {
         for (const conv of conversations) {
@@ -438,7 +586,12 @@ export function useMessagesController() {
                 // If the user is not in the cached members list, they might have left/kicked
                 // and the backend list API didn't include them. We must fetch detail to know.
                 hasRestrictedStatus = true;
-            } else if (me.status === "LEFT" || me.status === "KICKED" || me.status === "GROUP_DISBANDED") {
+            } else if (
+                me.status === "LEFT" ||
+                me.status === "KICKED" ||
+                me.status === "BLOCKED" ||
+                me.status === "GROUP_DISBANDED"
+            ) {
                 hasRestrictedStatus = true;
             }
         }
@@ -557,6 +710,74 @@ export function useMessagesController() {
             isCancelled = true;
         };
     }, [conversations, currentUserId, selectedConversationId]);
+
+    useEffect(() => {
+        const convId = selectedConversationId;
+        if (convId == null || !currentUserId) return;
+        if (!conversationReadOnlyNotices[convId]) return;
+
+        let cancelled = false;
+
+        const tryRecoverConversation = async () => {
+            try {
+                const response = await chatService.getConversation(
+                    convId,
+                    currentUserId,
+                );
+                if (cancelled || !response.success || !response.data) return;
+
+                const detailConversation = response.data;
+                const detailNotice = resolveReadOnlyNoticeFromConversation(
+                    detailConversation,
+                    currentUserId,
+                );
+                if (detailNotice) return;
+
+                chatRuntimeStore.setConversation(convId, detailConversation);
+                setConversations((prev) => {
+                    const exists = prev.some((conv) => conv.id === convId);
+                    const next = exists
+                        ? prev.map((conv) =>
+                              conv.id === convId
+                                  ? {
+                                        ...conv,
+                                        ...detailConversation,
+                                        lastMessage:
+                                            detailConversation.lastMessage ??
+                                            conv.lastMessage,
+                                        unreadCount:
+                                            conv.unreadCount ??
+                                            detailConversation.unreadCount,
+                                    }
+                                  : conv,
+                          )
+                        : [detailConversation, ...prev];
+
+                    return sortConversationsByLastMessageAt(next);
+                });
+                setConversationReadOnlyNotices((prev) => {
+                    if (!(convId in prev)) return prev;
+                    const next = { ...prev };
+                    delete next[convId];
+                    return next;
+                });
+            } catch {
+                // User is still blocked/removed, or backend has not committed the re-add yet.
+            }
+        };
+
+        void tryRecoverConversation();
+        const intervalId = window.setInterval(tryRecoverConversation, 5000);
+
+        return () => {
+            cancelled = true;
+            window.clearInterval(intervalId);
+        };
+    }, [
+        conversationReadOnlyNotices,
+        currentUserId,
+        selectedConversationId,
+    ]);
 
     /**
      * clearUnreadCount - Callback để ChatWindow gọi khi đánh dấu đã đọc
@@ -739,6 +960,7 @@ export function useMessagesController() {
                 lastMessage.lastMessageType,
             );
             const shouldForceDetailRefresh =
+                lastMessage.lastMessageType === "SYSTEM_ADD_MEMBER" ||
                 lastMessage.lastMessageType === "SYSTEM_UPDATE_ROLE" ||
                 lastMessage.lastMessageType === "SYSTEM_UPDATE_SETTING" ||
                 lastMessage.lastMessageType === "SYSTEM_REQUIRE_APPROVAL";

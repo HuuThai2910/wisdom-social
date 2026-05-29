@@ -1195,7 +1195,7 @@ function ChatWindowContent({
   // Refs cho hidden file inputs (Đính kèm file / Chọn GIF)
   const attachInputRef = useRef<HTMLInputElement>(null);
   const gifInputRef = useRef<HTMLInputElement>(null);
-  const messageInputRef = useRef<HTMLInputElement>(null);
+  const messageInputRef = useRef<HTMLTextAreaElement>(null);
 
   const handleApplySuggestion = useCallback(
     (suggestion: string) => {
@@ -1529,6 +1529,8 @@ function ChatWindowContent({
 
     let previousDayKey: string | null = null;
     const isSystemMessageType = (type?: string) => type?.startsWith("SYSTEM_");
+    const shouldHideMessageMeta = (type?: string) =>
+      isSystemMessageType(type) || type === "POLL";
 
     for (let idx = 0; idx < messages.length; idx++) {
       const message = messages[idx];
@@ -1556,6 +1558,7 @@ function ChatWindowContent({
       }
 
       const isCurrentSystem = isSystemMessageType(message.type);
+      const hideMessageMeta = shouldHideMessageMeta(message.type);
       const prevMsg = messages[idx - 1];
 
       // --- LOGIC GOM NHÓM TIN NHẮN HỆ THỐNG ---
@@ -1699,7 +1702,7 @@ function ChatWindowContent({
       // Tìm các read receipts có lastMessageId trùng với tin nhắn này
       // Chỉ hiển thị cho tin nhắn KHÔNG bị thu hồi và là tin của mình
       const receiptsForThisMessage =
-        isOwn && !message.isRecalled
+        isOwn && !message.isRecalled && !hideMessageMeta
           ? readReceipts.filter((r) => {
               if (r.lastMessageId === message.id) return true;
 
@@ -1711,7 +1714,9 @@ function ChatWindowContent({
                 .map((item, messageIndex) => ({ item, messageIndex }))
                 .filter(
                   ({ item }) =>
-                    Number(item.senderId) === Number(userId) && !item.isRecalled,
+                    Number(item.senderId) === Number(userId) &&
+                    !item.isRecalled &&
+                    !shouldHideMessageMeta(item.type),
                 )
                 .at(-1)?.messageIndex;
 
@@ -1779,7 +1784,7 @@ function ChatWindowContent({
             membersById={membersById}
           />
 
-          {isOwn && isLastInGroup && !message.isRecalled && (
+          {isOwn && isLastInGroup && !message.isRecalled && !hideMessageMeta && (
             <div className="mt-1 mr-1 flex justify-end gap-1.5">
               {formatMessageMetaTime(message.createdAt) && (
                 <span className="inline-flex h-5 items-center rounded-full bg-gray-300 px-2 text-[11px] font-semibold leading-none text-white shadow-sm dark:bg-gray-700 dark:text-gray-200">
@@ -2604,9 +2609,8 @@ function ChatWindowContent({
 
               <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-full bg-gray-100 px-2 py-1.5 transition-colors focus-within:bg-gray-50 dark:bg-gray-900 dark:focus-within:bg-gray-800">
                 {/* Input text */}
-                <input
+                <textarea
                   ref={messageInputRef}
-                  type="text"
                   value={messageText}
                   onChange={(e) => {
                     setMessageText(e.target.value);
@@ -2618,7 +2622,13 @@ function ChatWindowContent({
                     }
                   }}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && !sending && !uploading) {
+                    if (
+                      e.key === "Enter" &&
+                      !e.shiftKey &&
+                      !sending &&
+                      !uploading
+                    ) {
+                      e.preventDefault();
                       sendTypingSignal(false); // Ngừng typing khi gửi
                       if (selectedFiles.length > 0) {
                         void handleSendMixedMedia(
@@ -2642,7 +2652,8 @@ function ChatWindowContent({
                     uploading ? "Đang tải file lên..." : "Nhập tin nhắn..."
                   }
                   disabled={sending || uploading}
-                  className="min-w-0 flex-1 bg-transparent px-2.5 py-1.5 text-sm text-gray-900 placeholder:text-gray-500 focus:outline-none dark:text-white dark:placeholder-gray-400 disabled:opacity-50"
+                  rows={1}
+                  className="max-h-28 min-h-[34px] min-w-0 flex-1 resize-none bg-transparent px-2.5 py-1.5 text-sm leading-5 text-gray-900 placeholder:text-gray-500 focus:outline-none dark:text-white dark:placeholder-gray-400 disabled:opacity-50"
                 />
 
                 {/* Uploading spinner */}

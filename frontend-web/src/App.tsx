@@ -65,7 +65,6 @@ import BlockedUsers from "./pages/BlockedUsers";
 import FriendRequests from "./pages/FriendRequests";
 
 function PostModalWrapper({
-  backgroundLocation,
   handleClose,
 }: {
   backgroundLocation?: any;

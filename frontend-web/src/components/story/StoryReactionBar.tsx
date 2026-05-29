@@ -16,7 +16,7 @@ const QUICK_EMOJIS = ["❤️", "😂", "😮", "😢", "🔥", "👏"];
 
 export default function StoryReactionBar({
   storyId,
-  storyOwnerId,
+  storyOwnerId: _storyOwnerId,
   isMyStory,
   allowReactions,
   allowReplies,

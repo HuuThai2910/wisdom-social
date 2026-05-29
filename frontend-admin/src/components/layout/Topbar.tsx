@@ -1,10 +1,22 @@
+import { useEffect, useState } from 'react';
 import { Bell, LogOut, Search } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import notificationService from '../../services/notificationService';
+import { buildS3Url } from '../../utils/s3';
 
 export default function Topbar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    notificationService.getUnreadCount().then(setUnreadCount);
+    const interval = setInterval(() => {
+      notificationService.getUnreadCount().then(setUnreadCount);
+    }, 60_000);
+    return () => clearInterval(interval);
+  }, []);
 
   const handleLogout = async () => {
     await logout();
@@ -27,12 +39,16 @@ export default function Topbar() {
           className="relative rounded-lg border border-slate-200 bg-white p-2 text-slate-600 hover:bg-slate-50"
         >
           <Bell size={18} />
-          <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-rose-500" />
+          {unreadCount > 0 && (
+            <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white">
+              {unreadCount > 99 ? '99+' : unreadCount}
+            </span>
+          )}
         </button>
 
         <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-1.5">
           <img
-            src={user?.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${user?.name || 'A'}`}
+            src={buildS3Url(user?.avatarUrl) || `https://api.dicebear.com/7.x/initials/svg?seed=${user?.name || 'A'}`}
             alt="avatar"
             className="h-8 w-8 rounded-full object-cover"
           />

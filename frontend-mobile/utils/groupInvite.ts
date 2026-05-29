@@ -35,10 +35,15 @@ export function buildGroupInviteUrl(token: string): string {
     return `${baseUrl}/g/${token}`;
 }
 
-export function extractGroupInviteToken(value: string): string | null {
+export function extractGroupInviteToken(
+    value: string,
+    options: { allowRawToken?: boolean } = {},
+): string | null {
     const trimmed = value.trim();
     const match = trimmed.match(/(?:^|\/)g\/([A-Za-z0-9_-]+)/);
     if (match?.[1]) return match[1];
+
+    if (options.allowRawToken === false) return null;
 
     const tokenOnly = trimmed.match(/^[A-Za-z0-9_-]{16,}$/);
     return tokenOnly?.[0] ?? null;

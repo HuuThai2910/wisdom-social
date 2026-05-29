@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { X, Search } from "lucide-react";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
-import { buildS3Url } from "../../utils/s3";
+
 import { friendService } from "../../services/friendService";
 
 interface Friend {

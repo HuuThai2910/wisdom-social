@@ -28,7 +28,7 @@ const REACTIONS = [
 
 export default function PostCardActions({
   currentReaction,
-  isLiked,
+  isLiked: _isLiked,
   showReactions,
   isSaved,
   likesCount,

@@ -3,6 +3,7 @@ import type { Message, SendMessageRequest } from "./chatService";
 const DB_NAME = "wisdom-social-chat";
 const DB_VERSION = 1;
 const STORE_NAME = "messageOutbox";
+const STALE_SENDING_RETRY_MS = 15_000;
 
 export type OutboxStatus = "pending" | "sending" | "failed";
 
@@ -106,12 +107,22 @@ export const messageOutbox = {
         const result = await runStore<OutboxMessage[]>("readonly", (store) =>
             store.getAll(),
         );
+        const now = Date.now();
         return ((result as OutboxMessage[] | undefined) ?? [])
             .filter(
-                (item) =>
-                    item.status === "pending" ||
-                    item.status === "sending" ||
-                    item.status === "failed",
+                (item) => {
+                    if (item.status === "pending" || item.status === "failed") {
+                        return true;
+                    }
+                    if (item.status !== "sending") {
+                        return false;
+                    }
+                    const updatedAt = Date.parse(item.updatedAt);
+                    return (
+                        Number.isNaN(updatedAt) ||
+                        now - updatedAt > STALE_SENDING_RETRY_MS
+                    );
+                },
             )
             .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     },

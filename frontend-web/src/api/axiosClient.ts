@@ -80,7 +80,11 @@ async function doRefreshToken(): Promise<boolean> {
             ? response.data.replace(/^"|"$/g, '').trim()
             : null;
 
-        if (!newToken || newToken.length < 20) return false;
+        // Access token hợp lệ luôn là JWT (header.payload.signature -> 3 phần).
+        // Nếu backend trả về chuỗi thông báo lỗi với HTTP 200 (vd token bị thu
+        // hồi khi admin khóa tài khoản), nó KHÔNG có dạng JWT -> coi như refresh
+        // thất bại để interceptor đăng xuất user thay vì lưu chuỗi rác làm token.
+        if (!newToken || newToken.split('.').length !== 3) return false;
 
         saveAccessToken(newToken);
         return true;
