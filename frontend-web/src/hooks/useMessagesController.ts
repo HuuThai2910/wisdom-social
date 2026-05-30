@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import chatService, {
     type Conversation,
+    type ConversationMember,
     type ConversationPin,
     type MessageType,
     isMaxPinLimitError,
@@ -91,6 +92,76 @@ function areConversationListsEquivalent(
             conversation.lastMessage?.read === candidate.lastMessage?.read
         );
     });
+}
+
+function hasUsefulMemberIdentity(member: ConversationMember | undefined): boolean {
+    if (!member) return false;
+    const nickname = member.nickname?.trim();
+    const username = member.username?.trim();
+    return Boolean(
+        (nickname && nickname !== "Unknown") ||
+            (username && username !== "Unknown") ||
+            member.avatar?.trim(),
+    );
+}
+
+function mergeConversationMemberLists(
+    baseMembers: ConversationMember[] = [],
+    incomingMembers: ConversationMember[] = [],
+): ConversationMember[] {
+    const merged = new Map<number, ConversationMember>();
+
+    const upsert = (member: ConversationMember) => {
+        const userId = Number(member.userId);
+        if (!Number.isFinite(userId)) return;
+
+        const existing = merged.get(userId);
+        if (!existing) {
+            merged.set(userId, { ...member, userId });
+            return;
+        }
+
+        const incomingHasIdentity = hasUsefulMemberIdentity(member);
+        const existingHasIdentity = hasUsefulMemberIdentity(existing);
+
+        merged.set(userId, {
+            ...existing,
+            ...member,
+            userId,
+            nickname:
+                incomingHasIdentity || !existingHasIdentity
+                    ? member.nickname || existing.nickname
+                    : existing.nickname,
+            username:
+                incomingHasIdentity || !existingHasIdentity
+                    ? member.username || existing.username
+                    : existing.username,
+            avatar:
+                incomingHasIdentity || !existingHasIdentity
+                    ? member.avatar || existing.avatar
+                    : existing.avatar,
+            accountLocked: Boolean(member.accountLocked),
+        });
+    };
+
+    baseMembers.forEach(upsert);
+    incomingMembers.forEach(upsert);
+    return Array.from(merged.values());
+}
+
+function mergeConversationMembers(
+    conversation: Conversation,
+    membersByUserId?: Record<string, ConversationMember> | null,
+): Conversation {
+    const apiMembers = membersByUserId ? Object.values(membersByUserId) : [];
+    if (!conversation.members?.length && apiMembers.length === 0) {
+        return conversation;
+    }
+
+    return {
+        ...conversation,
+        members: mergeConversationMemberLists(conversation.members ?? [], apiMembers),
+    };
 }
 
 /**
@@ -663,12 +734,17 @@ export function useMessagesController() {
         let isCancelled = false;
         console.log("[DEBUG_READD] Fetching conversation detail for hydration", convId);
 
-        chatService
-            .getConversation(convId, currentUserId)
-            .then((response) => {
+        Promise.all([
+            chatService.getConversation(convId, currentUserId),
+            chatService.getConversationMembers(convId).catch(() => null),
+        ])
+            .then(([response, membersByUserId]) => {
                 if (isCancelled || !response.success || !response.data) return;
 
-                const detailConversation = response.data;
+                const detailConversation = mergeConversationMembers(
+                    response.data,
+                    membersByUserId,
+                );
 
                 setConversations((prev) =>
                     sortConversationsByLastMessageAt(
@@ -772,13 +848,16 @@ export function useMessagesController() {
 
         const tryRecoverConversation = async () => {
             try {
-                const response = await chatService.getConversation(
-                    convId,
-                    currentUserId,
-                );
+                const [response, membersByUserId] = await Promise.all([
+                    chatService.getConversation(convId, currentUserId),
+                    chatService.getConversationMembers(convId).catch(() => null),
+                ]);
                 if (cancelled || !response.success || !response.data) return;
 
-                const detailConversation = response.data;
+                const detailConversation = mergeConversationMembers(
+                    response.data,
+                    membersByUserId,
+                );
                 const detailNotice = resolveReadOnlyNoticeFromConversation(
                     detailConversation,
                     currentUserId,
@@ -892,24 +971,32 @@ export function useMessagesController() {
             if (inFlight.has(conversationId)) return;
 
             inFlight.add(conversationId);
-            chatService
-                .getConversation(conversationId, userId)
-                .then((response) => {
+            Promise.all([
+                chatService.getConversation(conversationId, userId),
+                chatService
+                    .getConversationMembers(conversationId)
+                    .catch(() => null),
+            ])
+                .then(([response, membersByUserId]) => {
                     const responseData = response.data;
                     if (!response.success || !responseData) return;
+                    const responseWithMembers = mergeConversationMembers(
+                        responseData,
+                        membersByUserId,
+                    );
                     const previousConversation =
                         chatRuntimeStore.getConversation(conversationId);
                     const nextResponseData =
                         preserveEmptyPendingRequests &&
-                        Array.isArray(responseData.pendingRequests) &&
-                        responseData.pendingRequests.length === 0
+                        Array.isArray(responseWithMembers.pendingRequests) &&
+                        responseWithMembers.pendingRequests.length === 0
                             ? {
-                                  ...responseData,
+                                  ...responseWithMembers,
                                   pendingRequests:
                                       previousConversation?.pendingRequests ??
-                                      responseData.pendingRequests,
+                                      responseWithMembers.pendingRequests,
                               }
-                            : responseData;
+                            : responseWithMembers;
 
                     chatRuntimeStore.setConversation(
                         conversationId,
