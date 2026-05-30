@@ -76,10 +76,10 @@ export default function CallScreen({
     const remoteAudioRef = useRef<HTMLAudioElement>(null);
     const [isMinimized, setIsMinimized] = useState(false);
 
-    const isGroupCall = participants.length > 2 || remoteStreams.length > 1;
     const showParticipants = participants.length > 0;
     const participantCount = participants.length || (remoteStreams.length ? remoteStreams.length + 1 : 1);
-    const showLocalPreview = callType === "video" && participantCount <= 2;
+    const useVideoTiles = callType === "video" && participantCount > 1;
+    const showLocalPreview = callType === "video" && !useVideoTiles;
     const remoteStreamByUserId = new Map(
         remoteStreams.map((item) => [item.userId, item.stream]),
     );
@@ -203,7 +203,7 @@ export default function CallScreen({
 
             {callType === "video" ? (
                 <div className="relative h-full w-full overflow-hidden bg-black">
-                    {isGroupCall ? (
+                    {useVideoTiles ? (
                         <div className="h-full w-full grid grid-cols-2 auto-rows-fr gap-2 p-2 bg-black">
                             {videoTiles.map((tile) => (
                                 <div

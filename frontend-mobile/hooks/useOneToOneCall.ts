@@ -783,12 +783,15 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                 forceReconnect?: boolean;
             } = { repairMissingStreams: true },
         ) => {
-            setTimeout(() => {
-                void ensurePeerConnectionsForParticipants(
-                    participantUserIds,
-                    options,
-                );
-            }, 1200);
+            const delays = options.forceReconnect ? [300, 1200, 3000] : [1200];
+            delays.forEach((delay) => {
+                setTimeout(() => {
+                    void ensurePeerConnectionsForParticipants(
+                        participantUserIds,
+                        options,
+                    );
+                }, delay);
+            });
         },
         [ensurePeerConnectionsForParticipants],
     );

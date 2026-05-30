@@ -1133,12 +1133,15 @@ export function useCall(options: UseCallOptions) {
                 forceReconnect?: boolean;
             } = { repairMissingStreams: true },
         ) => {
-            window.setTimeout(() => {
-                void ensurePeerConnectionsForParticipants(
-                    participantUserIds,
-                    options,
-                );
-            }, 1200);
+            const delays = options.forceReconnect ? [300, 1200, 3000] : [1200];
+            delays.forEach((delay) => {
+                window.setTimeout(() => {
+                    void ensurePeerConnectionsForParticipants(
+                        participantUserIds,
+                        options,
+                    );
+                }, delay);
+            });
         },
         [ensurePeerConnectionsForParticipants],
     );
