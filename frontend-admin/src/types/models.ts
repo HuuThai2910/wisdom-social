@@ -188,6 +188,7 @@ export type AuditCategory =
   | 'POST'
   | 'STORY'
   | 'MUSIC'
+  | 'REPORT'
   | 'SYSTEM';
 export type AuditStatus = 'SUCCESS' | 'FAILED';
 
@@ -214,4 +215,50 @@ export interface AuditLog {
   statusCode?: number;
   /** Dữ liệu bổ sung: lý do khoá, vai trò, thông báo lỗi... */
   meta?: Record<string, any>;
+}
+
+/* ------------------------------------------------------------------ */
+/* Báo cáo (Report) do người dùng gửi về tài khoản / trang            */
+/* ------------------------------------------------------------------ */
+
+export type ReportTargetType = 'USER' | 'PAGE';
+
+export type ReportReason =
+  | 'SPAM'
+  | 'HARASSMENT'
+  | 'HATE_SPEECH'
+  | 'VIOLENCE'
+  | 'NUDITY'
+  | 'FALSE_INFORMATION'
+  | 'SCAM'
+  | 'IMPERSONATION'
+  | 'ILLEGAL'
+  | 'OTHER';
+
+export type ReportStatus = 'PENDING' | 'RESOLVED' | 'DISMISSED';
+
+export interface Report {
+  id: number;
+  targetType: ReportTargetType;
+  targetId: number;
+  targetName?: string;
+  targetAvatarUrl?: string;
+  reporterId: number;
+  reporterName?: string;
+  reason: ReportReason;
+  description?: string;
+  status: ReportStatus;
+  adminNote?: string;
+  handledById?: number;
+  handledByName?: string;
+  /** ISO timestamp */
+  createdAt: string;
+  handledAt?: string;
+}
+
+export interface ReportStats {
+  total: number;
+  pending: number;
+  resolved: number;
+  dismissed: number;
 }

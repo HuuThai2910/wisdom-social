@@ -51,6 +51,7 @@ import type { User } from "../types";
 import { useRealtimePagePosts } from "../hooks/useRealtimePagePosts";
 import { useRealtimePageList } from "../hooks/useRealtimePageList";
 import ConfirmModal from "../components/common/ConfirmModal";
+import ReportModal from "../components/common/ReportModal";
 
 type MemberStatus =
   | "loading"
@@ -158,12 +159,13 @@ export default function PageDetail() {
   const [members, setMembers] = useState<PageMember[]>([]);
 
   const [postActionLoading, setPostActionLoading] = useState<string | null>(
-    null,
+    null
   );
   const [requestActionLoading, setRequestActionLoading] = useState<
     number | null
   >(null);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
   const [notification, setNotification] = useState<{
     title: string;
     message: string;
@@ -177,7 +179,9 @@ export default function PageDetail() {
     action: () => Promise<void>;
   } | null>(null);
   // Forced modal shown when the current user is removed/blocked while viewing
-  const [removedFromPage, setRemovedFromPage] = useState<"removed" | "blocked" | null>(null);
+  const [removedFromPage, setRemovedFromPage] = useState<
+    "removed" | "blocked" | null
+  >(null);
   const selfLeftRef = useRef(false);
 
   const showConfirm = (
@@ -185,14 +189,14 @@ export default function PageDetail() {
     message: string,
     confirmText: string,
     variant: "danger" | "warning" | "default",
-    action: () => Promise<void>,
+    action: () => Promise<void>
   ) => {
     setConfirmModal({ title, message, confirmText, variant, action });
   };
 
   // Post-creation success banner (shown after returning from the composer)
   const [createPostSuccess, setCreatePostSuccess] = useState<string | null>(
-    null,
+    null
   );
 
   const loadSeqRef = useRef(0);
@@ -220,8 +224,8 @@ export default function PageDetail() {
       const pageOwnerId = pageData.createdBy?.id
         ? Number(pageData.createdBy.id)
         : pageData.userId
-          ? Number(pageData.userId)
-          : null;
+        ? Number(pageData.userId)
+        : null;
 
       if (currentUserId && currentUserId === pageOwnerId) {
         setMemberStatus("owner");
@@ -229,7 +233,7 @@ export default function PageDetail() {
         try {
           const membersList = await pageService.getPageMembers(numericPageId);
           const currentMember = membersList?.find(
-            (m) => Number(m.user?.id) === currentUserId,
+            (m) => Number(m.user?.id) === currentUserId
           );
           if (currentMember) {
             if (
@@ -253,7 +257,7 @@ export default function PageDetail() {
             try {
               const status = await pageService.getMemberStatus(
                 numericPageId,
-                currentUserId,
+                currentUserId
               );
               setMemberStatus(status === "PENDING" ? "pending" : "none");
             } catch {
@@ -264,8 +268,9 @@ export default function PageDetail() {
           setMemberStatus("none");
         }
         try {
-          const interactionStatus =
-            await pageService.getPageInteractionStatus(numericPageId);
+          const interactionStatus = await pageService.getPageInteractionStatus(
+            numericPageId
+          );
           if (isStale()) return;
           setIsLiked(interactionStatus.isLiked || false);
           setIsFollowing(interactionStatus.isFollowing || false);
@@ -360,8 +365,9 @@ export default function PageDetail() {
   const loadPendingPosts = useCallback(async () => {
     if (!numericPageId || !currentUser?.id) return;
     try {
-      const pending =
-        await pageService.getPostsWaitingForApproval(numericPageId);
+      const pending = await pageService.getPostsWaitingForApproval(
+        numericPageId
+      );
       setPendingPosts((pending || []).map(normalizePost));
     } catch (error) {
       console.error("Error loading pending posts:", error);
@@ -510,7 +516,7 @@ export default function PageDetail() {
         if (currentUserId) {
           websocketService.subscribeToUserPageEvents(
             currentUserId,
-            handlePageEvent,
+            handlePageEvent
           );
         }
       } catch {
@@ -536,7 +542,7 @@ export default function PageDetail() {
         "🔄 [Web PageDetail] Page updated event received for pageId:",
         pageId,
         "Current numericPageId:",
-        numericPageId,
+        numericPageId
       );
       if (numericPageId && pageId === numericPageId) {
         console.log("✅ [Web PageDetail] Reloading page data due to update");
@@ -548,7 +554,7 @@ export default function PageDetail() {
         "🗑️ [Web PageDetail] Page deleted event received for pageId:",
         pageId,
         "Current numericPageId:",
-        numericPageId,
+        numericPageId
       );
       if (numericPageId && pageId === numericPageId) {
         navigate("/pages");
@@ -662,7 +668,7 @@ export default function PageDetail() {
         const username = (u.username || "").toLowerCase();
         const phone = (u.phone || "").toLowerCase();
         return name.includes(q) || username.includes(q) || phone.includes(q);
-      }),
+      })
     );
   }, [memberSearchQuery, members, friendsList]);
 
@@ -677,7 +683,7 @@ export default function PageDetail() {
         // Dedupe: the realtime PAGE_POST_APPROVED event may have already added
         // this post to the approved list before this await resolved.
         setPosts((prev) =>
-          prev.some((p) => p._id === postId) ? prev : [post, ...prev],
+          prev.some((p) => p._id === postId) ? prev : [post, ...prev]
         );
       }
     } catch {
@@ -704,7 +710,7 @@ export default function PageDetail() {
           await pageService.cancelApprovePost(
             currentUser.id,
             numericPageId,
-            postId,
+            postId
           );
           setPendingPosts((prev) => prev.filter((p) => p._id !== postId));
         } catch {
@@ -716,7 +722,7 @@ export default function PageDetail() {
         } finally {
           setPostActionLoading(null);
         }
-      },
+      }
     );
   };
 
@@ -733,7 +739,7 @@ export default function PageDetail() {
           await pageService.removePostFromPage(
             currentUser.id,
             numericPageId,
-            postId,
+            postId
           );
           setPosts((prev) => prev.filter((p) => p._id !== postId));
         } catch {
@@ -745,7 +751,7 @@ export default function PageDetail() {
         } finally {
           setPostActionLoading(null);
         }
-      },
+      }
     );
   };
 
@@ -755,10 +761,10 @@ export default function PageDetail() {
     try {
       await pageService.approveJoinRequest(numericPageId, userId);
       const approved = pendingRequests.find(
-        (r) => Number(r.user?.id) === userId,
+        (r) => Number(r.user?.id) === userId
       );
       setPendingRequests((prev) =>
-        prev.filter((r) => Number(r.user?.id) !== userId),
+        prev.filter((r) => Number(r.user?.id) !== userId)
       );
       if (approved) {
         setMembers((prev) => [
@@ -784,7 +790,7 @@ export default function PageDetail() {
     try {
       await pageService.rejectJoinRequest(numericPageId, userId);
       setPendingRequests((prev) =>
-        prev.filter((r) => Number(r.user?.id) !== userId),
+        prev.filter((r) => Number(r.user?.id) !== userId)
       );
     } catch {
       setNotification({
@@ -820,7 +826,7 @@ export default function PageDetail() {
             variant: "warning",
           });
         }
-      },
+      }
     );
   };
 
@@ -842,7 +848,7 @@ export default function PageDetail() {
             variant: "warning",
           });
         }
-      },
+      }
     );
   };
 
@@ -852,8 +858,8 @@ export default function PageDetail() {
     try {
       await Promise.all(
         selectedUsers.map((user) =>
-          pageService.addMember(Number(user.id), numericPageId, selectedRole),
-        ),
+          pageService.addMember(Number(user.id), numericPageId, selectedRole)
+        )
       );
       setNotification({
         title: "Thành công",
@@ -889,7 +895,7 @@ export default function PageDetail() {
         try {
           await pageService.deleteMember(numericPageId, userId);
           setMembers((prev) =>
-            prev.filter((m) => Number(m.user?.id) !== userId),
+            prev.filter((m) => Number(m.user?.id) !== userId)
           );
           setMemberCount((prev) => Math.max(0, prev - 1));
         } catch {
@@ -899,14 +905,14 @@ export default function PageDetail() {
             variant: "warning",
           });
         }
-      },
+      }
     );
   };
 
   const toggleUserSelection = (user: User) => {
     const isSelected = selectedUsers.some((u) => u.id === user.id);
     setSelectedUsers((prev) =>
-      isSelected ? prev.filter((u) => u.id !== user.id) : [...prev, user],
+      isSelected ? prev.filter((u) => u.id !== user.id) : [...prev, user]
     );
   };
 
@@ -1229,7 +1235,13 @@ export default function PageDetail() {
                         </>
                       )}
                       {!isOwnerOrAdmin && (
-                        <button className="w-full flex items-center gap-3 px-4 py-3 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-[#4e4f50] text-[15px]">
+                        <button
+                          onClick={() => {
+                            setShowMoreMenu(false);
+                            setShowReportModal(true);
+                          }}
+                          className="w-full flex items-center gap-3 px-4 py-3 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 text-[15px]"
+                        >
                           <Flag size={18} />
                           Báo cáo page
                         </button>
@@ -1351,12 +1363,12 @@ export default function PageDetail() {
                       memberStatus === "owner"
                         ? "bg-purple-50 dark:bg-purple-900/20"
                         : memberStatus === "admin"
-                          ? "bg-blue-50 dark:bg-blue-900/20"
-                          : memberStatus === "blocked"
-                            ? "bg-red-50 dark:bg-red-900/20"
-                            : memberStatus === "pending"
-                              ? "bg-yellow-50 dark:bg-yellow-900/20"
-                              : "bg-green-50 dark:bg-green-900/20"
+                        ? "bg-blue-50 dark:bg-blue-900/20"
+                        : memberStatus === "blocked"
+                        ? "bg-red-50 dark:bg-red-900/20"
+                        : memberStatus === "pending"
+                        ? "bg-yellow-50 dark:bg-yellow-900/20"
+                        : "bg-green-50 dark:bg-green-900/20"
                     }`}
                   >
                     <div
@@ -1364,12 +1376,12 @@ export default function PageDetail() {
                         memberStatus === "owner"
                           ? "bg-purple-100 dark:bg-purple-900/40 text-purple-600"
                           : memberStatus === "admin"
-                            ? "bg-blue-100 dark:bg-blue-900/40 text-blue-600"
-                            : memberStatus === "blocked"
-                              ? "bg-red-100 dark:bg-red-900/40 text-red-600"
-                              : memberStatus === "pending"
-                                ? "bg-yellow-100 dark:bg-yellow-900/40 text-yellow-600"
-                                : "bg-green-100 dark:bg-green-900/40 text-green-600"
+                          ? "bg-blue-100 dark:bg-blue-900/40 text-blue-600"
+                          : memberStatus === "blocked"
+                          ? "bg-red-100 dark:bg-red-900/40 text-red-600"
+                          : memberStatus === "pending"
+                          ? "bg-yellow-100 dark:bg-yellow-900/40 text-yellow-600"
+                          : "bg-green-100 dark:bg-green-900/40 text-green-600"
                       }`}
                     >
                       {memberStatus === "owner" ? (
@@ -1390,34 +1402,34 @@ export default function PageDetail() {
                           memberStatus === "owner"
                             ? "text-purple-700 dark:text-purple-400"
                             : memberStatus === "admin"
-                              ? "text-blue-700 dark:text-blue-400"
-                              : memberStatus === "blocked"
-                                ? "text-red-700 dark:text-red-400"
-                                : memberStatus === "pending"
-                                  ? "text-yellow-700 dark:text-yellow-400"
-                                  : "text-green-700 dark:text-green-400"
+                            ? "text-blue-700 dark:text-blue-400"
+                            : memberStatus === "blocked"
+                            ? "text-red-700 dark:text-red-400"
+                            : memberStatus === "pending"
+                            ? "text-yellow-700 dark:text-yellow-400"
+                            : "text-green-700 dark:text-green-400"
                         }`}
                       >
                         {memberStatus === "owner"
                           ? "Chủ sở hữu"
                           : memberStatus === "admin"
-                            ? "Quản trị viên"
-                            : memberStatus === "blocked"
-                              ? "Đã bị chặn"
-                              : memberStatus === "pending"
-                                ? "Đang chờ duyệt"
-                                : "Thành viên"}
+                          ? "Quản trị viên"
+                          : memberStatus === "blocked"
+                          ? "Đã bị chặn"
+                          : memberStatus === "pending"
+                          ? "Đang chờ duyệt"
+                          : "Thành viên"}
                       </p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">
                         {memberStatus === "owner"
                           ? "Bạn quản lý page này"
                           : memberStatus === "admin"
-                            ? "Bạn có quyền quản trị"
-                            : memberStatus === "blocked"
-                              ? "Bạn không thể tham gia"
-                              : memberStatus === "pending"
-                                ? "Chờ admin duyệt"
-                                : "Bạn là thành viên"}
+                          ? "Bạn có quyền quản trị"
+                          : memberStatus === "blocked"
+                          ? "Bạn không thể tham gia"
+                          : memberStatus === "pending"
+                          ? "Chờ admin duyệt"
+                          : "Bạn là thành viên"}
                       </p>
                     </div>
                   </div>
@@ -1481,85 +1493,96 @@ export default function PageDetail() {
                   )}
                 </div>
               ) : (
-              <>
-              {/* Create Post Box — only visible to members/admin/owner */}
-              {canPost && (
-                <div className="bg-white dark:bg-[#242526] rounded-xl shadow-sm p-4">
-                  <div className="flex items-center gap-3">
-                    <img
-                      src={
-                        buildS3Url(currentUser?.avatarUrl) ||
-                        "https://via.placeholder.com/40"
-                      }
-                      alt="avatar"
-                      className="w-10 h-10 rounded-full object-cover flex-shrink-0"
-                    />
-                    <button
-                      onClick={() => navigate(`/pages/${numericPageId}/create-post`)}
-                      className="flex-1 text-left px-4 py-2.5 bg-gray-100 dark:bg-[#3a3b3c] hover:bg-gray-200 dark:hover:bg-[#4e4f50] rounded-full text-gray-500 dark:text-gray-400 text-[15px] transition-colors cursor-pointer"
-                    >
-                      Bạn đang nghĩ gì?
-                    </button>
-                  </div>
-                  <div className="flex items-center gap-1 mt-3 pt-3 border-t border-gray-100 dark:border-[#3a3b3c]">
-                    <button
-                      onClick={() => navigate(`/pages/${numericPageId}/create-post`)}
-                      className="flex-1 flex items-center justify-center gap-2 py-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#3a3b3c] rounded-lg text-[15px] font-semibold transition-colors"
-                    >
-                      <ImageIcon size={20} className="text-green-500" />
-                      Ảnh/Video
-                    </button>
-                    <button
-                      onClick={() => navigate(`/pages/${numericPageId}/create-post`)}
-                      className="flex-1 flex items-center justify-center gap-2 py-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#3a3b3c] rounded-lg text-[15px] font-semibold transition-colors"
-                    >
-                      <PenSquare size={20} className="text-yellow-500" />
-                      Cảm xúc
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {loadingPosts ? (
-                <div className="flex justify-center py-12">
-                  <Loader2 className="animate-spin text-blue-500" size={32} />
-                </div>
-              ) : posts.length === 0 ? (
-                <div className="bg-white dark:bg-[#242526] rounded-xl shadow-sm p-12 text-center">
-                  <div className="w-20 h-20 bg-gray-100 dark:bg-[#3a3b3c] rounded-full flex items-center justify-center mx-auto mb-4">
-                    <FileText size={36} className="text-gray-400" />
-                  </div>
-                  <p className="text-xl font-semibold text-gray-700 dark:text-gray-300 mb-1">
-                    Chưa có bài viết nào
-                  </p>
-                  <p className="text-gray-400 dark:text-gray-500 text-[15px]">
-                    {canPost
-                      ? "Hãy là người đầu tiên đăng bài!"
-                      : "Các bài viết của page sẽ xuất hiện ở đây"}
-                  </p>
+                <>
+                  {/* Create Post Box — only visible to members/admin/owner */}
                   {canPost && (
-                    <button
-                      onClick={() => navigate(`/pages/${numericPageId}/create-post`)}
-                      className="mt-4 flex items-center gap-2 px-6 py-2.5 bg-blue-500 text-white rounded-xl text-[15px] font-semibold hover:bg-blue-600 transition-colors mx-auto"
-                    >
-                      <PenSquare size={18} />
-                      Tạo bài viết
-                    </button>
+                    <div className="bg-white dark:bg-[#242526] rounded-xl shadow-sm p-4">
+                      <div className="flex items-center gap-3">
+                        <img
+                          src={
+                            buildS3Url(currentUser?.avatarUrl) ||
+                            "https://via.placeholder.com/40"
+                          }
+                          alt="avatar"
+                          className="w-10 h-10 rounded-full object-cover flex-shrink-0"
+                        />
+                        <button
+                          onClick={() =>
+                            navigate(`/pages/${numericPageId}/create-post`)
+                          }
+                          className="flex-1 text-left px-4 py-2.5 bg-gray-100 dark:bg-[#3a3b3c] hover:bg-gray-200 dark:hover:bg-[#4e4f50] rounded-full text-gray-500 dark:text-gray-400 text-[15px] transition-colors cursor-pointer"
+                        >
+                          Bạn đang nghĩ gì?
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-1 mt-3 pt-3 border-t border-gray-100 dark:border-[#3a3b3c]">
+                        <button
+                          onClick={() =>
+                            navigate(`/pages/${numericPageId}/create-post`)
+                          }
+                          className="flex-1 flex items-center justify-center gap-2 py-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#3a3b3c] rounded-lg text-[15px] font-semibold transition-colors"
+                        >
+                          <ImageIcon size={20} className="text-green-500" />
+                          Ảnh/Video
+                        </button>
+                        <button
+                          onClick={() =>
+                            navigate(`/pages/${numericPageId}/create-post`)
+                          }
+                          className="flex-1 flex items-center justify-center gap-2 py-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#3a3b3c] rounded-lg text-[15px] font-semibold transition-colors"
+                        >
+                          <PenSquare size={20} className="text-yellow-500" />
+                          Cảm xúc
+                        </button>
+                      </div>
+                    </div>
                   )}
-                </div>
-              ) : (
-                posts.map((post) => (
-                  <PostCard
-                    key={post._id}
-                    post={post}
-                    page={page}
-                    isOwnerOrAdmin={isOwnerOrAdmin}
-                    postActionLoading={postActionLoading}
-                    onRemove={handleRemovePost}
-                  />
-                ))
-              )}
-              </>
+
+                  {loadingPosts ? (
+                    <div className="flex justify-center py-12">
+                      <Loader2
+                        className="animate-spin text-blue-500"
+                        size={32}
+                      />
+                    </div>
+                  ) : posts.length === 0 ? (
+                    <div className="bg-white dark:bg-[#242526] rounded-xl shadow-sm p-12 text-center">
+                      <div className="w-20 h-20 bg-gray-100 dark:bg-[#3a3b3c] rounded-full flex items-center justify-center mx-auto mb-4">
+                        <FileText size={36} className="text-gray-400" />
+                      </div>
+                      <p className="text-xl font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                        Chưa có bài viết nào
+                      </p>
+                      <p className="text-gray-400 dark:text-gray-500 text-[15px]">
+                        {canPost
+                          ? "Hãy là người đầu tiên đăng bài!"
+                          : "Các bài viết của page sẽ xuất hiện ở đây"}
+                      </p>
+                      {canPost && (
+                        <button
+                          onClick={() =>
+                            navigate(`/pages/${numericPageId}/create-post`)
+                          }
+                          className="mt-4 flex items-center gap-2 px-6 py-2.5 bg-blue-500 text-white rounded-xl text-[15px] font-semibold hover:bg-blue-600 transition-colors mx-auto"
+                        >
+                          <PenSquare size={18} />
+                          Tạo bài viết
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    posts.map((post) => (
+                      <PostCard
+                        key={post._id}
+                        post={post}
+                        page={page}
+                        isOwnerOrAdmin={isOwnerOrAdmin}
+                        postActionLoading={postActionLoading}
+                        onRemove={handleRemovePost}
+                      />
+                    ))
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -1729,7 +1752,7 @@ export default function PageDetail() {
                                 Number(member.user?.id),
                                 member.user?.name ||
                                   member.user?.username ||
-                                  "Thành viên",
+                                  "Thành viên"
                               )
                             }
                             className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors ml-2"
@@ -1855,8 +1878,8 @@ export default function PageDetail() {
                             post.images.length === 1
                               ? "grid-cols-1"
                               : post.images.length === 2
-                                ? "grid-cols-2"
-                                : "grid-cols-3"
+                              ? "grid-cols-2"
+                              : "grid-cols-3"
                           }`}
                         >
                           {post.images.slice(0, 4).map((img, idx) => (
@@ -1942,7 +1965,9 @@ export default function PageDetail() {
                   nào
                 </p>
                 <button
-                  onClick={() => navigate(`/pages/${numericPageId}/create-post`)}
+                  onClick={() =>
+                    navigate(`/pages/${numericPageId}/create-post`)
+                  }
                   className="mt-4 flex items-center gap-2 px-6 py-2.5 bg-blue-500 text-white rounded-xl text-[15px] font-semibold hover:bg-blue-600 transition-colors mx-auto"
                 >
                   <PenSquare size={18} />
@@ -1985,8 +2010,8 @@ export default function PageDetail() {
                             post.images.length === 1
                               ? "grid-cols-1"
                               : post.images.length === 2
-                                ? "grid-cols-2"
-                                : "grid-cols-3"
+                              ? "grid-cols-2"
+                              : "grid-cols-3"
                           }`}
                         >
                           {post.images.slice(0, 4).map((img, idx) => (
@@ -2026,10 +2051,10 @@ export default function PageDetail() {
                                     await pageService.removePostFromPage(
                                       currentUser.id,
                                       numericPageId,
-                                      post._id,
+                                      post._id
                                     );
                                     setMyPendingPosts((prev) =>
-                                      prev.filter((p) => p._id !== post._id),
+                                      prev.filter((p) => p._id !== post._id)
                                     );
                                   } catch {
                                     setNotification({
@@ -2041,7 +2066,7 @@ export default function PageDetail() {
                                   } finally {
                                     setWithdrawingPost(null);
                                   }
-                                },
+                                }
                               );
                             }}
                             className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
@@ -2122,8 +2147,8 @@ export default function PageDetail() {
                   {memberSearchQuery.trim()
                     ? "Không tìm thấy bạn bè phù hợp"
                     : friendsList.length === 0
-                      ? "Bạn chưa có bạn bè nào để thêm"
-                      : "Tất cả bạn bè đã là thành viên"}
+                    ? "Bạn chưa có bạn bè nào để thêm"
+                    : "Tất cả bạn bè đã là thành viên"}
                 </div>
               )}
 
@@ -2135,7 +2160,7 @@ export default function PageDetail() {
                   <div className="space-y-1">
                     {searchResults.map((user) => {
                       const isSelected = selectedUsers.some(
-                        (u) => u.id === user.id,
+                        (u) => u.id === user.id
                       );
                       return (
                         <button
@@ -2164,7 +2189,9 @@ export default function PageDetail() {
                           </div>
                           <div className="flex-1 text-left min-w-0">
                             <p className="font-semibold dark:text-white text-[15px] truncate">
-                              {user.name || (user as any).fullName || user.username}
+                              {user.name ||
+                                (user as any).fullName ||
+                                user.username}
                             </p>
                             <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
                               @{user.username}
@@ -2214,7 +2241,7 @@ export default function PageDetail() {
                         <button
                           onClick={() =>
                             setSelectedUsers((prev) =>
-                              prev.filter((u) => u.id !== user.id),
+                              prev.filter((u) => u.id !== user.id)
                             )
                           }
                           className="text-blue-500 hover:text-blue-700"
@@ -2263,7 +2290,9 @@ export default function PageDetail() {
                 {isAddingMembers ? (
                   <Loader2 className="animate-spin mx-auto" size={20} />
                 ) : (
-                  `Thêm ${selectedUsers.length > 0 ? selectedUsers.length + " " : ""}thành viên`
+                  `Thêm ${
+                    selectedUsers.length > 0 ? selectedUsers.length + " " : ""
+                  }thành viên`
                 )}
               </button>
             </div>
@@ -2276,6 +2305,17 @@ export default function PageDetail() {
         <div
           className="fixed inset-0 z-40"
           onClick={() => setShowMoreMenu(false)}
+        />
+      )}
+
+      {/* Report page modal */}
+      {numericPageId && (
+        <ReportModal
+          open={showReportModal}
+          targetType="PAGE"
+          targetId={numericPageId}
+          targetName={page?.name}
+          onClose={() => setShowReportModal(false)}
         />
       )}
 
@@ -2351,7 +2391,7 @@ function PostCard({
         if (currentUser?.id) {
           const reaction = await postApi.fetchUserReaction(
             String(currentUser.id),
-            post._id,
+            post._id
           );
           if (!cancelled) setIsLiked(!!reaction);
         }
@@ -2359,7 +2399,12 @@ function PostCard({
         /* ignore */
       }
       try {
-        const res = await commentService.getRootComments("POST", post._id, 0, 1);
+        const res = await commentService.getRootComments(
+          "POST",
+          post._id,
+          0,
+          1
+        );
         if (!cancelled && typeof res?.totalCount === "number") {
           setCommentsCount(res.totalCount);
         }
@@ -2375,15 +2420,25 @@ function PostCard({
 
   // Realtime likes — update count live when others react (own actions are optimistic)
   const handleReactionUpdate = useCallback(
-    (event: { action: string; targetType: string; targetId: string; userId: string }) => {
+    (event: {
+      action: string;
+      targetType: string;
+      targetId: string;
+      userId: string;
+    }) => {
       if (String(event.userId) === String(currentUser?.id)) return;
       if (event.targetType === "POST" && event.targetId === post._id) {
-        setLikesCount((c) => (event.action === "REACT" ? c + 1 : Math.max(0, c - 1)));
+        setLikesCount((c) =>
+          event.action === "REACT" ? c + 1 : Math.max(0, c - 1)
+        );
       }
     },
-    [post._id, currentUser?.id],
+    [post._id, currentUser?.id]
   );
-  useRealtimeReactions({ postId: post._id, onReactionUpdate: handleReactionUpdate });
+  useRealtimeReactions({
+    postId: post._id,
+    onReactionUpdate: handleReactionUpdate,
+  });
 
   // Realtime comments — keep the comment count in sync
   useEffect(() => {
@@ -2392,8 +2447,11 @@ function PostCard({
     const handler = (event: any) => {
       const action = event?.action || "CREATE";
       const payload = event?.payload || event;
-      if (payload?.userId && String(payload.userId) === String(currentUser?.id)) return;
-      setCommentsCount((c) => (action === "DELETE" ? Math.max(0, c - 1) : c + 1));
+      if (payload?.userId && String(payload.userId) === String(currentUser?.id))
+        return;
+      setCommentsCount((c) =>
+        action === "DELETE" ? Math.max(0, c - 1) : c + 1
+      );
     };
     const setup = async () => {
       try {
@@ -2416,7 +2474,7 @@ function PostCard({
       const reaction = await postApi.togglePostReaction(
         String(currentUser.id),
         post._id,
-        "LIKE",
+        "LIKE"
       );
       if (!reaction) {
         setIsLiked(false);
@@ -2524,10 +2582,10 @@ function PostCard({
             post.images.length === 1
               ? "grid-cols-1"
               : post.images.length === 2
-                ? "grid-cols-2"
-                : post.images.length === 3
-                  ? "grid-cols-3"
-                  : "grid-cols-2"
+              ? "grid-cols-2"
+              : post.images.length === 3
+              ? "grid-cols-3"
+              : "grid-cols-2"
           }`}
         >
           {post.images
@@ -2546,8 +2604,8 @@ function PostCard({
                     post.images!.length === 1
                       ? "max-h-[500px]"
                       : post.images!.length === 2
-                        ? "h-[300px]"
-                        : "h-[200px]"
+                      ? "h-[300px]"
+                      : "h-[200px]"
                   }`}
                 />
                 {idx === 4 && post.images!.length > 5 && (
@@ -2576,10 +2634,7 @@ function PostCard({
             <div />
           )}
           {commentsCount ? (
-            <button
-              onClick={handleComment}
-              className="hover:underline"
-            >
+            <button onClick={handleComment} className="hover:underline">
               {commentsCount.toLocaleString()} bình luận
             </button>
           ) : null}
@@ -2591,9 +2646,7 @@ function PostCard({
         <button
           onClick={handleLike}
           className={`flex-1 flex items-center justify-center gap-2 py-2.5 hover:bg-gray-100 dark:hover:bg-[#3a3b3c] rounded-lg transition-colors text-[15px] font-semibold ${
-            isLiked
-              ? "text-blue-500"
-              : "text-gray-500 dark:text-gray-400"
+            isLiked ? "text-blue-500" : "text-gray-500 dark:text-gray-400"
           }`}
         >
           <ThumbsUp size={20} fill={isLiked ? "currentColor" : "none"} />
@@ -2611,7 +2664,11 @@ function PostCard({
           disabled={sharing}
           className="flex-1 flex items-center justify-center gap-2 py-2.5 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#3a3b3c] rounded-lg transition-colors text-[15px] font-semibold disabled:opacity-60"
         >
-          {sharing ? <Loader2 size={20} className="animate-spin" /> : <Share2 size={20} />}
+          {sharing ? (
+            <Loader2 size={20} className="animate-spin" />
+          ) : (
+            <Share2 size={20} />
+          )}
           Chia sẻ
         </button>
       </div>

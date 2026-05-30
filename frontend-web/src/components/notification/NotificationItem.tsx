@@ -131,6 +131,7 @@ function getNotificationText(type: string): string {
     case 'PAGE_JOIN_APPROVED': return 'Yêu cầu tham gia trang của bạn đã được chấp nhận';
     case 'PAGE_POST_APPROVED': return 'Bài viết của bạn đã được duyệt';
     case 'PAGE_MEMBER_ADDED': return 'Bạn đã được thêm vào trang';
+    case 'REPORT_REVIEWED': return 'Báo cáo của bạn đã được xem xét';
     default: return 'Có thông báo mới';
   }
 }
