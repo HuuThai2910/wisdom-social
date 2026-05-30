@@ -469,7 +469,7 @@ export default function CallScreen({
 
             {callType === "video" ? (
                 <div className="relative bg-black">
-                    {isGroupCall ? (
+                    {useVideoTiles ? (
                         <div className="h-48 w-full grid grid-cols-2 gap-1 p-1">
                             {videoTiles.slice(0, 4).map((tile) => (
                                 <div
