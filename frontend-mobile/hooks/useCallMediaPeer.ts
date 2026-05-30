@@ -139,7 +139,14 @@ export function useCallMediaPeer() {
                 setLocalDescription: (description: unknown) => Promise<void>;
                 setRemoteDescription: (description: unknown) => Promise<void>;
                 onicecandidate?: (event: { candidate?: { toJSON: () => RTCIceCandidateInit } | null }) => void;
-                ontrack?: (event: { streams: Array<{ toURL: () => string }>; track: unknown }) => void;
+                ontrack?: (event: {
+                    streams: Array<{
+                        toURL: () => string;
+                        addTrack?: (track: unknown) => void;
+                        getTracks?: () => Array<{ id?: string; stop: () => void }>;
+                    }>;
+                    track: { id?: string };
+                }) => void;
             }
         >
     >(new Map());
@@ -154,6 +161,16 @@ export function useCallMediaPeer() {
         getTracks?: () => Array<{ stop: () => void }>;
         toURL: () => string;
     } | null>(null);
+    const remoteStreamsByUserRef = useRef<
+        Map<
+            number,
+            {
+                addTrack?: (track: unknown) => void;
+                getTracks?: () => Array<{ id?: string; stop: () => void }>;
+                toURL: () => string;
+            }
+        >
+    >(new Map());
     const pendingIceCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
     const pendingIceCandidatesByUserRef = useRef<Map<number, RTCIceCandidateInit[]>>(
         new Map(),
@@ -211,14 +228,19 @@ export function useCallMediaPeer() {
         setRemoteStreamUrls((prev) =>
             prev.filter((item) => item.userId !== remoteUserId),
         );
+        remoteStreamsByUserRef.current.delete(remoteUserId);
     }, []);
 
     const cleanupMedia = useCallback(() => {
         localStreamRef.current?.getTracks().forEach((track) => track.stop());
         remoteStreamRef.current?.getTracks?.().forEach((track) => track.stop());
+        remoteStreamsByUserRef.current.forEach((stream) => {
+            stream.getTracks?.().forEach((track) => track.stop());
+        });
 
         localStreamRef.current = null;
         remoteStreamRef.current = null;
+        remoteStreamsByUserRef.current.clear();
 
         setLocalStreamUrl(null);
         setRemoteStreamUrl(null);
@@ -307,13 +329,22 @@ export function useCallMediaPeer() {
                     return;
                 }
 
-                if (!remoteStreamRef.current) {
+                let fallbackStream = remoteStreamsByUserRef.current.get(remoteUserId);
+                if (!fallbackStream) {
                     if (!MediaStreamClass) return;
-                    remoteStreamRef.current = new MediaStreamClass();
+                    fallbackStream = new MediaStreamClass();
+                    remoteStreamsByUserRef.current.set(remoteUserId, fallbackStream);
                 }
 
-                remoteStreamRef.current.addTrack?.(event.track);
-                const url = remoteStreamRef.current.toURL();
+                const inboundTrack = event.track as { id?: string };
+                const hasTrack = fallbackStream
+                    .getTracks?.()
+                    .some((track) => track.id && track.id === inboundTrack.id);
+                if (!hasTrack) {
+                    fallbackStream.addTrack?.(inboundTrack);
+                }
+                remoteStreamRef.current = fallbackStream;
+                const url = fallbackStream.toURL();
                 setRemoteStreamUrl((prev) => prev ?? url);
                 setRemoteStreamUrls((prev) => {
                     const existing = prev.find((item) => item.userId === remoteUserId);

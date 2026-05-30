@@ -297,26 +297,65 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                 const current = activeCallRef.current;
                 if (!current || current.callId !== callId) return;
                 if (current.status !== "calling") return;
-                chatWebsocketService.sendCallSignal({
-                    event: "end-call",
-                    conversationId,
-                    callId,
-                    callType,
-                    fromUserId: currentUserId,
-                    targetUserId: remoteUserIds[0],
+
+                remoteUserIds.forEach((remoteUserId) => {
+                    chatWebsocketService.sendCallSignal({
+                        event: "end-call",
+                        conversationId,
+                        callId,
+                        callType,
+                        fromUserId: currentUserId,
+                        targetUserId: remoteUserId,
+                    });
+                    closePeerConnectionForUser(remoteUserId);
                 });
+
                 void persistCallMessage(callType, "ended", 0);
                 resetCallState();
             }, UNANSWERED_CALL_TIMEOUT_MS);
         },
         [
             clearUnansweredTimeout,
+            closePeerConnectionForUser,
             conversationId,
             currentUserId,
             persistCallMessage,
             resetCallState,
         ],
     );
+    const resolveCallTargetUserIds = useCallback(async () => {
+        const fromProps = Array.from(
+            new Set(
+                (targetUserIdsKey
+                    ? targetUserIdsKey
+                          .split(",")
+                          .map((id) => Number(id))
+                          .filter(Number.isFinite)
+                    : targetUserId
+                      ? [targetUserId]
+                      : []
+                ).filter((id) => id !== currentUserId),
+            ),
+        );
+
+        try {
+            const response = await chatService.getConversation(
+                conversationId,
+                currentUserId,
+            );
+            const fromConversation =
+                response.success && response.data?.members?.length
+                    ? response.data.members
+                          .map((member) => member.userId)
+                          .filter((id) => id !== currentUserId)
+                    : [];
+
+            return Array.from(new Set([...fromProps, ...fromConversation]));
+        } catch {
+            return fromProps;
+        }
+    }, [conversationId, currentUserId, targetUserId, targetUserIdsKey]);
+
     const placeOutgoingCallToUsers = useCallback(
         async (callId: string, callType: CallType, remoteUserIds: number[]) => {
             await Promise.all(
@@ -371,11 +410,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                 new Set(
                     (selectedUserIds?.length
                         ? selectedUserIds
-                        : targetUserIds?.length
-                          ? targetUserIds
-                          : targetUserId
-                            ? [targetUserId]
-                            : []
+                        : await resolveCallTargetUserIds()
                     ).filter((id) => id !== currentUserId),
                 ),
             ).slice(0, MAX_CALL_PARTICIPANTS - 1);
@@ -414,8 +449,6 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
             }
         },
         [
-            targetUserId,
-            targetUserIds,
             createLocalStream,
             startAudioSession,
             targetName,
@@ -423,6 +456,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
             currentUserId,
             isWebRTCSupported,
             placeOutgoingCallToUsers,
+            resolveCallTargetUserIds,
             startUnansweredTimeout,
             resetCallState,
         ],
@@ -903,6 +937,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                 if (!current || current.callId !== signal.callId) return;
                 const joiningUserId = getSignalJoiningUserId(signal);
                 if (!joiningUserId || joiningUserId === currentUserId) return;
+                if (getPeerConnection(joiningUserId)) return;
                 updateCallParticipants(getSignalParticipantUserIds(signal));
                 await placeOutgoingCallToUsers(signal.callId, signal.callType, [
                     joiningUserId,
@@ -943,7 +978,6 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
             }
             if (!current || current.callId !== signal.callId) return;
             if (signal.event === "answer-call") {
-                if (!current.isCaller) return;
                 const peer = getPeerConnection(signal.fromUserId);
                 const remoteDescription = toNativeSessionDescription(signal.sdp);
                 if (!peer || !remoteDescription) return;
@@ -990,20 +1024,35 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                     if (getSignalReason(signal) === "busy") {
                         setBusyCallUserId(signal.fromUserId);
                     }
+                    const remaining = current.remoteUserIds.filter(
+                        (id) => id !== signal.fromUserId,
+                    );
                     const remainingParticipants =
                         current.participantUserIds.filter(
                             (id) => id !== signal.fromUserId,
                         );
-                    if (remainingParticipants.length <= 1) {
+                    closePeerConnectionForUser(signal.fromUserId);
+
+                    if (!remaining.length) {
                         resetCallState();
                         void persistCallMessage(current.callType, "rejected", 0);
                         return;
                     }
-                    closePeerConnectionForUser(signal.fromUserId);
-                    updateCallParticipants(remainingParticipants);
-                    sendParticipantSnapshot(remainingParticipants);
+
+                    const nextParticipants = remainingParticipants.length
+                        ? remainingParticipants
+                        : [currentUserId];
+                    const nextCall = {
+                        ...current,
+                        remoteUserIds: remaining,
+                        remoteUserId: remaining[0] ?? current.remoteUserId,
+                        participantUserIds: nextParticipants,
+                    };
+                    setActiveCall(nextCall);
+                    activeCallRef.current = nextCall;
+                    sendParticipantSnapshot(nextParticipants);
                     void ensurePeerConnectionsForParticipants(
-                        remainingParticipants,
+                        nextParticipants,
                     );
                 }
                 return;
@@ -1102,19 +1151,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
             }
             if (disposed) return;
             chatWebsocketService.subscribeToCallEvents(currentUserId, onCallEvent);
-            const targetIds = Array.from(
-                new Set(
-                    (targetUserIdsKey
-                        ? targetUserIdsKey
-                              .split(",")
-                              .map((id) => Number(id))
-                              .filter(Number.isFinite)
-                        : targetUserId
-                          ? [targetUserId]
-                          : []
-                    ).filter((id) => id !== currentUserId),
-                ),
-            );
+            const targetIds = await resolveCallTargetUserIds();
             if (targetIds.length && !activeCallRef.current) {
                 activeCallRequestAtRef.current = Date.now();
                 targetIds.forEach((targetId) => {
@@ -1151,8 +1188,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         currentUserId,
         handleCallSignal,
         resetCallState,
-        targetUserId,
-        targetUserIdsKey,
+        resolveCallTargetUserIds,
     ]);
     const callDurationText = useMemo(() => {
         const minutes = Math.floor(durationSeconds / 60);

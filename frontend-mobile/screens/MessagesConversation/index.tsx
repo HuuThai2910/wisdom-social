@@ -580,6 +580,7 @@ export default function MessagesConversationScreen() {
         loadNewerMessages,
         handleJumpToMessage,
         resetToPresent,
+        appendRealtimeMessage,
     } = useChatWindowController({
         conversationId: Number.isFinite(conversationId) ? conversationId : 0,
         onAccessBlocked: handleAccessBlocked,
@@ -1030,6 +1031,7 @@ export default function MessagesConversationScreen() {
         targetAvatar: otherUser?.avatar,
         pendingIncomingCall,
         onPendingIncomingCallConsumed: clearPendingIncomingCall,
+        onCallMessageSaved: appendRealtimeMessage,
     });
 
     useEffect(() => {
