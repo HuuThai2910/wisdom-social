@@ -972,7 +972,11 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
             }
             : null;
         clearUnansweredTimeout();
-        current.remoteUserIds.forEach((remoteUserId) => {
+        const targetUserIds = Array.from(
+            new Set([...current.remoteUserIds, ...current.participantUserIds]),
+        ).filter((id) => Number.isFinite(id) && id !== currentUserId);
+
+        targetUserIds.forEach((remoteUserId) => {
             chatWebsocketService.sendCallSignal({
                 event: "end-call",
                 conversationId,
@@ -1078,7 +1082,12 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                     participantUserIds,
                 );
                 sendParticipantSnapshot(participantUserIds);
-                schedulePeerRepairForParticipants(participantUserIds);
+                void ensurePeerConnectionsForParticipants(participantUserIds, {
+                    forceReconnect: true,
+                });
+                schedulePeerRepairForParticipants(participantUserIds, {
+                    forceReconnect: true,
+                });
                 return;
             }
             if (signal.event === "check-active-call") {
@@ -1102,12 +1111,17 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                 if (!current || current.callId !== signal.callId) return;
                 const joiningUserId = getSignalJoiningUserId(signal);
                 if (!joiningUserId || joiningUserId === currentUserId) return;
-                if (getPeerConnection(joiningUserId)) return;
-                updateCallParticipants(getSignalParticipantUserIds(signal));
+                const participantUserIds = getSignalParticipantUserIds(signal);
+                updateCallParticipants(participantUserIds);
+                if (getPeerConnection(joiningUserId)) {
+                    closePeerConnectionForUser(joiningUserId);
+                }
                 await placeOutgoingCallToUsers(signal.callId, signal.callType, [
                     joiningUserId,
                 ]);
-                schedulePeerRepairForParticipants(getSignalParticipantUserIds(signal));
+                schedulePeerRepairForParticipants(participantUserIds, {
+                    forceReconnect: true,
+                });
                 return;
             }
             if (signal.event === "call-participants") {
@@ -1115,8 +1129,12 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                     const participantUserIds =
                         getSignalParticipantUserIds(signal);
                     updateCallParticipants(participantUserIds);
-                    void ensurePeerConnectionsForParticipants(participantUserIds);
-                    schedulePeerRepairForParticipants(participantUserIds);
+                    void ensurePeerConnectionsForParticipants(participantUserIds, {
+                        forceReconnect: true,
+                    });
+                    schedulePeerRepairForParticipants(participantUserIds, {
+                        forceReconnect: true,
+                    });
                 } else {
                     const participantUserIds = getSignalParticipantUserIds(signal);
                     if (
@@ -1153,24 +1171,41 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                 );
                 await flushQueuedIceCandidates(signal.fromUserId);
                 clearUnansweredTimeout();
+                const wasAlreadyAccepted = current.status === "accepted";
                 applyStatus("accepted");
+                const previousParticipantIds = current.participantUserIds;
                 const participantUserIds = Array.from(
                     new Set([
-                        ...current.participantUserIds,
+                        ...previousParticipantIds,
                         ...getSignalParticipantUserIds(signal),
                         signal.fromUserId,
                         currentUserId,
                     ]),
                 );
+                const participantSetChanged =
+                    participantUserIds.length !== previousParticipantIds.length ||
+                    participantUserIds.some(
+                        (id) => !previousParticipantIds.includes(id),
+                    );
                 updateCallParticipants(participantUserIds);
-                notifyExistingParticipantsToConnect(
-                    signal.fromUserId,
-                    participantUserIds,
-                );
-                sendParticipantSnapshot(participantUserIds);
-                schedulePeerRepairForParticipants(participantUserIds);
-                setDurationSeconds(0);
-                startDurationTimer();
+                if (participantSetChanged) {
+                    notifyExistingParticipantsToConnect(
+                        signal.fromUserId,
+                        participantUserIds,
+                    );
+                    sendParticipantSnapshot(participantUserIds);
+                    void ensurePeerConnectionsForParticipants(participantUserIds, {
+                        forceReconnect: true,
+                    });
+                    schedulePeerRepairForParticipants(participantUserIds, {
+                        forceReconnect: true,
+                    });
+                }
+                if (!wasAlreadyAccepted) {
+                    setDurationSeconds(0);
+                    durationSecondsRef.current = 0;
+                    startDurationTimer();
+                }
                 return;
             }
             if (signal.event === "ice-candidate") {
@@ -1223,7 +1258,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                         ? remainingParticipants
                         : [currentUserId];
                     const nextCall = {
-                        ...current,
+                        ...current, 
                         remoteUserIds: remaining,
                         remoteUserId: remaining[0] ?? current.remoteUserId,
                         participantUserIds: nextParticipants,

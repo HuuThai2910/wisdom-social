@@ -1404,7 +1404,14 @@ export function useCall(options: UseCallOptions) {
         stopReceiverTone();
         clearUnansweredTimeout();
 
-        currentCall.remoteUserIds.forEach((remoteUserId) => {
+        const targetUserIds = Array.from(
+            new Set([
+                ...currentCall.remoteUserIds,
+                ...currentCall.participantUserIds,
+            ]),
+        ).filter((id) => Number.isFinite(id) && id !== userId);
+
+        targetUserIds.forEach((remoteUserId) => {
             websocketService.sendCallSignal({
                 event: "end-call",
                 conversationId,
@@ -1554,7 +1561,12 @@ export function useCall(options: UseCallOptions) {
                     participantUserIds,
                 );
                 sendParticipantSnapshot(participantUserIds);
-                schedulePeerRepairForParticipants(participantUserIds);
+                void ensurePeerConnectionsForParticipants(participantUserIds, {
+                    forceReconnect: true,
+                });
+                schedulePeerRepairForParticipants(participantUserIds, {
+                    forceReconnect: true,
+                });
                 return;
             }
 
@@ -1580,13 +1592,18 @@ export function useCall(options: UseCallOptions) {
                 if (!currentCall || currentCall.callId !== signal.callId) return;
                 const joiningUserId = getSignalJoiningUserId(signal);
                 if (!joiningUserId || joiningUserId === userId) return;
-                if (peerConnectionsRef.current.has(joiningUserId)) return;
 
-                updateCallParticipants(getSignalParticipantUserIds(signal));
+                const participantUserIds = getSignalParticipantUserIds(signal);
+                updateCallParticipants(participantUserIds);
+                if (peerConnectionsRef.current.has(joiningUserId)) {
+                    closePeerConnectionForUser(joiningUserId);
+                }
                 await placeOutgoingCallToUsers(signal.callId, signal.callType, [
                     joiningUserId,
                 ]);
-                schedulePeerRepairForParticipants(getSignalParticipantUserIds(signal));
+                schedulePeerRepairForParticipants(participantUserIds, {
+                    forceReconnect: true,
+                });
                 return;
             }
 
@@ -1595,8 +1612,12 @@ export function useCall(options: UseCallOptions) {
                     const participantUserIds =
                         getSignalParticipantUserIds(signal);
                     updateCallParticipants(participantUserIds);
-                    void ensurePeerConnectionsForParticipants(participantUserIds);
-                    schedulePeerRepairForParticipants(participantUserIds);
+                    void ensurePeerConnectionsForParticipants(participantUserIds, {
+                        forceReconnect: true,
+                    });
+                    schedulePeerRepairForParticipants(participantUserIds, {
+                        forceReconnect: true,
+                    });
                 } else {
                     const participantUserIds = getSignalParticipantUserIds(signal);
                     if (
@@ -1642,6 +1663,8 @@ export function useCall(options: UseCallOptions) {
                     await flushQueuedIceCandidates(signal.callId, remoteUserId);
                     clearUnansweredTimeout();
                     stopCallerTone();
+                    const wasAlreadyAccepted =
+                        currentCall.status === "accepted";
                     applyStatus("accepted");
                     const previousParticipantIds =
                         currentCall.participantUserIds;
@@ -1653,15 +1676,32 @@ export function useCall(options: UseCallOptions) {
                             userId,
                         ]),
                     );
+                    const participantSetChanged =
+                        participantUserIds.length !==
+                        previousParticipantIds.length ||
+                        participantUserIds.some(
+                            (id) => !previousParticipantIds.includes(id),
+                        );
                     updateCallParticipants(participantUserIds);
-                    notifyExistingParticipantsToConnect(
-                        remoteUserId,
-                        participantUserIds,
-                    );
-                    sendParticipantSnapshot(participantUserIds);
-                    schedulePeerRepairForParticipants(participantUserIds);
-                    setDurationSeconds(0);
-                    startDurationTimer();
+                    if (participantSetChanged) {
+                        notifyExistingParticipantsToConnect(
+                            remoteUserId,
+                            participantUserIds,
+                        );
+                        sendParticipantSnapshot(participantUserIds);
+                        void ensurePeerConnectionsForParticipants(
+                            participantUserIds,
+                            { forceReconnect: true },
+                        );
+                        schedulePeerRepairForParticipants(participantUserIds, {
+                            forceReconnect: true,
+                        });
+                    }
+                    if (!wasAlreadyAccepted) {
+                        setDurationSeconds(0);
+                        durationSecondsRef.current = 0;
+                        startDurationTimer();
+                    }
                 }
                 return;
             }
