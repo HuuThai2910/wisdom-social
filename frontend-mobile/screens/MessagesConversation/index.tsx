@@ -1023,6 +1023,11 @@ export default function MessagesConversationScreen() {
     } = useOneToOneCall({
         conversationId: Number.isFinite(conversationId) ? conversationId : 0,
         currentUserId,
+        callerName:
+            membersById[currentUserId]?.nickname ||
+            membersById[currentUserId]?.username ||
+            `Nguoi dung ${currentUserId}`,
+        callerAvatar: membersById[currentUserId]?.avatar,
         targetUserId: directTargetUserId,
         targetUserIds: callMemberSource
             .filter((member) => member.userId !== currentUserId)

@@ -19,6 +19,25 @@ function getConversationIdFromPath(pathname: string): number | null {
     return Number.isFinite(parsed) ? parsed : null;
 }
 
+function getSignalCallerInfo(payload: CallSignalPayload): {
+    callerName?: string;
+    callerAvatar?: string;
+} {
+    const candidate = payload.candidate as
+        | { callerName?: unknown; callerAvatar?: unknown }
+        | undefined;
+    return {
+        callerName:
+            typeof candidate?.callerName === "string"
+                ? candidate.callerName
+                : undefined,
+        callerAvatar:
+            typeof candidate?.callerAvatar === "string"
+                ? candidate.callerAvatar
+                : undefined,
+    };
+}
+
 export default function GlobalIncomingCallNotifier() {
     const location = useLocation();
     const navigate = useNavigate();
@@ -38,6 +57,9 @@ export default function GlobalIncomingCallNotifier() {
         () => getConversationIdFromPath(location.pathname),
         [location.pathname],
     );
+    const incomingCallerInfo = incomingCall
+        ? getSignalCallerInfo(incomingCall)
+        : {};
 
     useEffect(() => {
         incomingCallRef.current = incomingCall;
@@ -327,9 +349,10 @@ export default function GlobalIncomingCallNotifier() {
         <IncomingCallModal
             open={Boolean(incomingCall)}
             callerName={
-                incomingCall
+                incomingCallerInfo.callerName ||
+                (incomingCall
                     ? `Người dùng ${incomingCall.fromUserId}`
-                    : "Người dùng"
+                    : "Người dùng")
             }
             callType={incomingCall?.callType || "audio"}
             onAccept={openConversation}

@@ -1178,6 +1178,11 @@ function ChatWindowContent({
   } = useCall({
     conversationId,
     userId,
+    callerName:
+      membersById[userId]?.nickname ||
+      membersById[userId]?.username ||
+      `Người dùng ${userId}`,
+    callerAvatar: membersById[userId]?.avatar,
     targetUserIds: targetMemberIds,
     targetUserId: directTargetUserId,
     targetName: otherMember?.nickname,

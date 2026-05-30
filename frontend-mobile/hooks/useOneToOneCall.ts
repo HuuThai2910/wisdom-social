@@ -30,6 +30,8 @@ interface RejoinableCallState {
 interface UseOneToOneCallOptions {
     conversationId: number;
     currentUserId: number;
+    callerName?: string;
+    callerAvatar?: string;
     targetUserId?: number;
     targetUserIds?: number[];
     targetName?: string;
@@ -121,6 +123,25 @@ function getSignalHostUserId(signal: CallSignalPayload): number | null {
     return Number.isFinite(id) ? id : null;
 }
 
+function getSignalCallerInfo(signal: CallSignalPayload): {
+    callerName?: string;
+    callerAvatar?: string;
+} {
+    const candidate = signal.candidate as
+        | { callerName?: unknown; callerAvatar?: unknown }
+        | undefined;
+    return {
+        callerName:
+            typeof candidate?.callerName === "string"
+                ? candidate.callerName
+                : undefined,
+        callerAvatar:
+            typeof candidate?.callerAvatar === "string"
+                ? candidate.callerAvatar
+                : undefined,
+    };
+}
+
 function getSignalReason(signal: CallSignalPayload): string | null {
     const candidate = signal.candidate as { reason?: unknown } | undefined;
     return typeof candidate?.reason === "string" ? candidate.reason : null;
@@ -130,17 +151,22 @@ function buildCallMetadata(
     participantUserIds: number[],
     joiningUserId?: number,
     hostUserId?: number,
+    callerInfo?: { callerName?: string; callerAvatar?: string },
 ): Record<string, unknown> {
     return {
         participantUserIds: Array.from(new Set(participantUserIds)),
         ...(joiningUserId != null ? { joiningUserId } : {}),
         ...(hostUserId != null ? { hostUserId } : {}),
+        ...(callerInfo?.callerName ? { callerName: callerInfo.callerName } : {}),
+        ...(callerInfo?.callerAvatar ? { callerAvatar: callerInfo.callerAvatar } : {}),
     };
 }
 export function useOneToOneCall(options: UseOneToOneCallOptions) {
     const {
         conversationId,
         currentUserId,
+        callerName,
+        callerAvatar,
         targetUserId,
         targetUserIds,
         targetName,
@@ -187,6 +213,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         null,
     );
     const activeCallRequestAtRef = useRef(0);
+    const activeCallRequestCallIdRef = useRef<string | null>(null);
     const rejoinProbeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
         null,
     );
@@ -390,6 +417,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                             ],
                             undefined,
                             activeCallRef.current?.hostUserId ?? currentUserId,
+                            { callerName, callerAvatar },
                         ),
                     });
                     await flushQueuedIceCandidates(remoteUserId);
@@ -399,6 +427,8 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         [
             conversationId,
             createPeerConnection,
+            callerAvatar,
+            callerName,
             currentUserId,
             flushQueuedIceCandidates,
         ],
@@ -533,6 +563,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                 ]),
             );
             const hostUserId = getSignalHostUserId(incoming) ?? incoming.fromUserId;
+            const callerInfo = getSignalCallerInfo(incoming);
             const nextCall: ActiveCallState = {
                 callId: incoming.callId,
                 callType: incoming.callType,
@@ -540,8 +571,11 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                 remoteUserIds: [incoming.fromUserId],
                 participantUserIds,
                 hostUserId,
-                remoteName: targetName || `Nguoi dung ${incoming.fromUserId}`,
-                remoteAvatar: targetAvatar,
+                remoteName:
+                    callerInfo.callerName ||
+                    targetName ||
+                    `Nguoi dung ${incoming.fromUserId}`,
+                remoteAvatar: callerInfo.callerAvatar || targetAvatar,
                 status: "accepted",
                 isCaller: false,
             };
@@ -852,6 +886,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         const call = rejoinableCall;
         if (!call || activeCallRef.current) return false;
         activeCallRequestAtRef.current = Date.now();
+        activeCallRequestCallIdRef.current = call.callId;
         call.participantUserIds.forEach((targetUserId) => {
             chatWebsocketService.sendCallSignal({
                 event: "request-active-call",
@@ -899,8 +934,10 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                 }
                 const shouldAutoAccept =
                     Date.now() - activeCallRequestAtRef.current < 8000 &&
+                    activeCallRequestCallIdRef.current === signal.callId &&
                     getSignalParticipantUserIds(signal).length > 0;
                 if (shouldAutoAccept) {
+                    activeCallRequestCallIdRef.current = null;
                     await acceptIncomingSignal(signal);
                     return;
                 }
@@ -1182,7 +1219,6 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
             chatWebsocketService.subscribeToCallEvents(currentUserId, onCallEvent);
             const targetIds = await resolveCallTargetUserIds();
             if (targetIds.length && !activeCallRef.current) {
-                activeCallRequestAtRef.current = Date.now();
                 targetIds.forEach((targetId) => {
                     chatWebsocketService.sendCallSignal({
                         event: "request-active-call",

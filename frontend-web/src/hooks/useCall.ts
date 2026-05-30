@@ -38,6 +38,8 @@ interface RejoinableCall {
 interface UseCallOptions {
     conversationId: number;
     userId: number;
+    callerName?: string;
+    callerAvatar?: string;
     targetUserId?: number;
     targetUserIds?: number[];
     targetName?: string;
@@ -90,6 +92,25 @@ function getSignalHostUserId(signal: CallSignalPayload): number | null {
     return Number.isFinite(id) ? id : null;
 }
 
+function getSignalCallerInfo(signal: CallSignalPayload): {
+    callerName?: string;
+    callerAvatar?: string;
+} {
+    const candidate = signal.candidate as
+        | { callerName?: unknown; callerAvatar?: unknown }
+        | undefined;
+    return {
+        callerName:
+            typeof candidate?.callerName === "string"
+                ? candidate.callerName
+                : undefined,
+        callerAvatar:
+            typeof candidate?.callerAvatar === "string"
+                ? candidate.callerAvatar
+                : undefined,
+    };
+}
+
 function getSignalReason(signal: CallSignalPayload): string | null {
     const candidate = signal.candidate as { reason?: unknown } | undefined;
     return typeof candidate?.reason === "string" ? candidate.reason : null;
@@ -99,11 +120,14 @@ function buildCallMetadata(
     participantUserIds: number[],
     joiningUserId?: number,
     hostUserId?: number,
+    callerInfo?: { callerName?: string; callerAvatar?: string },
 ): Record<string, unknown> {
     return {
         participantUserIds: Array.from(new Set(participantUserIds)),
         ...(joiningUserId != null ? { joiningUserId } : {}),
         ...(hostUserId != null ? { hostUserId } : {}),
+        ...(callerInfo?.callerName ? { callerName: callerInfo.callerName } : {}),
+        ...(callerInfo?.callerAvatar ? { callerAvatar: callerInfo.callerAvatar } : {}),
     };
 }
 
@@ -111,6 +135,8 @@ export function useCall(options: UseCallOptions) {
     const {
         conversationId,
         userId,
+        callerName,
+        callerAvatar,
         targetUserId,
         targetUserIds,
         targetName,
@@ -167,6 +193,7 @@ export function useCall(options: UseCallOptions) {
     const cameraTrackBeforeShareRef = useRef<MediaStreamTrack | null>(null);
     const incomingNotificationRef = useRef<Notification | null>(null);
     const activeCallRequestAtRef = useRef(0);
+    const activeCallRequestCallIdRef = useRef<string | null>(null);
     const rejoinProbeTimerRef = useRef<number | null>(null);
 
     useEffect(() => {
@@ -811,6 +838,7 @@ export function useCall(options: UseCallOptions) {
                             ],
                             undefined,
                             activeCallRef.current?.hostUserId ?? userId,
+                            { callerName, callerAvatar },
                         ),
                     });
 
@@ -822,6 +850,8 @@ export function useCall(options: UseCallOptions) {
             conversationId,
             createPeerConnection,
             flushQueuedIceCandidates,
+            callerAvatar,
+            callerName,
             userId,
         ],
     );
@@ -1133,6 +1163,7 @@ export function useCall(options: UseCallOptions) {
             ]),
         );
         const hostUserId = getSignalHostUserId(signal) ?? signal.fromUserId;
+        const callerInfo = getSignalCallerInfo(signal);
 
         const nextCall: ActiveCall = {
             callId: signal.callId,
@@ -1140,8 +1171,11 @@ export function useCall(options: UseCallOptions) {
             remoteUserIds: [signal.fromUserId],
             participantUserIds,
             hostUserId,
-            remoteName: targetName ?? `Người dùng ${signal.fromUserId}`,
-            remoteAvatar: targetAvatar,
+            remoteName:
+                callerInfo.callerName ??
+                targetName ??
+                `Người dùng ${signal.fromUserId}`,
+            remoteAvatar: callerInfo.callerAvatar ?? targetAvatar,
             status: "accepted",
             isCaller: false,
         };
@@ -1284,6 +1318,7 @@ export function useCall(options: UseCallOptions) {
         if (!call || activeCallRef.current) return;
 
         activeCallRequestAtRef.current = Date.now();
+        activeCallRequestCallIdRef.current = call.callId;
         call.participantUserIds.forEach((targetUserId) => {
             websocketService.sendCallSignal({
                 event: "request-active-call",
@@ -1348,8 +1383,10 @@ export function useCall(options: UseCallOptions) {
                 if (!currentCall) {
                     const shouldAutoAccept =
                         Date.now() - activeCallRequestAtRef.current < 8000 &&
+                        activeCallRequestCallIdRef.current === signal.callId &&
                         getSignalParticipantUserIds(signal).length > 0;
                     if (shouldAutoAccept) {
+                        activeCallRequestCallIdRef.current = null;
                         await acceptIncomingSignal(signal);
                         return;
                     }
@@ -1748,7 +1785,6 @@ export function useCall(options: UseCallOptions) {
             websocketService.subscribeToCallEvents(userId, onCallEvent);
             const targetIds = await resolveCallTargetUserIds();
             if (disposed || activeCallRef.current) return;
-            activeCallRequestAtRef.current = Date.now();
             targetIds.forEach((targetUserId) => {
                 websocketService.sendCallSignal({
                     event: "request-active-call",
