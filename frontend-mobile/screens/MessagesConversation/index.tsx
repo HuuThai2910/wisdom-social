@@ -28,6 +28,7 @@ import { formatRelativeTime } from "@/utils/format";
 import { formatLastActiveText } from "@/utils/presenceText";
 import { focusComposerInput } from "@/utils/focusComposerInput";
 import { buildConversationDisplayInfo } from "@/utils/conversationDisplayInfo";
+import { LOCKED_ACCOUNT_NAME } from "@/utils/lockedAccount";
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker, {
     type DateTimePickerEvent,
@@ -2137,9 +2138,10 @@ export default function MessagesConversationScreen() {
                     </Pressable>
                     <View style={styles.headerIdentity}>
                         <UserAvatar
-                            uri={conversationDisplayInfo?.avatarUrl || otherUser?.avatar}
+                            uri={conversationDisplayInfo?.locked ? undefined : conversationDisplayInfo?.avatarUrl || otherUser?.avatar}
                             name={displayName}
                             size={40}
+                            locked={conversationDisplayInfo?.locked}
                         />
                         <View style={styles.headerMeta}>
                             <Text style={styles.headerName} numberOfLines={1}>
@@ -2195,8 +2197,10 @@ export default function MessagesConversationScreen() {
                     <View style={styles.headerIdentity}>
                         <UserAvatar
                             uri={
-                                conversationDisplayInfo?.avatarUrl ||
-                                otherUser?.avatar
+                                conversationDisplayInfo?.locked
+                                    ? undefined
+                                    : conversationDisplayInfo?.avatarUrl ||
+                                      otherUser?.avatar
                             }
                             name={
                                 conversationDisplayInfo?.name ||
@@ -2205,7 +2209,8 @@ export default function MessagesConversationScreen() {
                                 "Conversation"
                             }
                             size={40}
-                            online={otherUserOnline}
+                            locked={conversationDisplayInfo?.locked}
+                            online={conversationDisplayInfo?.locked ? false : otherUserOnline}
                         />
                         <View style={styles.headerMeta}>
                             <Text style={styles.headerName} numberOfLines={1}>
@@ -2636,7 +2641,11 @@ export default function MessagesConversationScreen() {
                         uploadProgressLabel={uploadProgressLabel || ""}
                         uploadProgressPercent={uploadProgressPercent}
                         uploadFailedFileNames={uploadFailedFileNames}
-                        readOnlyNotice={readOnlyNotice}
+                        readOnlyNotice={
+                            conversationDisplayInfo?.locked
+                                ? LOCKED_ACCOUNT_NAME
+                                : readOnlyNotice
+                        }
                         error={error}
                         onPickEmoji={onPickEmoji}
                     />

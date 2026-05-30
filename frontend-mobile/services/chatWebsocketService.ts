@@ -10,6 +10,7 @@ import type {
     JoinRequestProcessedEvent,
     LastMessage,
     MemberUpdatedEvent,
+    MemberAccountLockChangedEvent,
     Message,
     MessageCreatedEvent,
     MessageRecalledEvent,
@@ -937,6 +938,7 @@ class ChatWebsocketService {
     subscribeToConversationMembers(
         conversationId: number,
         onMemberUpdated: (event: MemberUpdatedEvent) => void,
+        onAccountLockChanged?: (event: MemberAccountLockChangedEvent) => void,
     ): void {
         const destination = `/topic/conversations/${conversationId}/members`;
         this.registerSubscription(destination, () => {
@@ -947,9 +949,18 @@ class ChatWebsocketService {
 
             return client.subscribe(destination, (message: IMessage) => {
                 try {
-                    onMemberUpdated(
-                        JSON.parse(message.body) as MemberUpdatedEvent,
-                    );
+                    const event = JSON.parse(message.body) as
+                        | MemberUpdatedEvent
+                        | MemberAccountLockChangedEvent;
+                    // Phân loại theo domainEventType. Mặc định coi như MEMBER_UPDATED
+                    // để tương thích ngược với payload cũ.
+                    if (event.domainEventType === "MEMBER_ACCOUNT_LOCK_CHANGED") {
+                        onAccountLockChanged?.(
+                            event as MemberAccountLockChangedEvent,
+                        );
+                    } else {
+                        onMemberUpdated(event as MemberUpdatedEvent);
+                    }
                 } catch {
                     // no-op
                 }
@@ -1080,6 +1091,33 @@ class ChatWebsocketService {
                             {
                                 ...blockedMembersPayload,
                                 conversationId: blockedConversationId,
+                            },
+                        );
+                        return;
+                    }
+
+                    // Khóa/mở khóa tài khoản 1 thành viên -> cập nhật SIDEBAR realtime
+                    // (mask/bỏ mask tên + avatar) qua DeviceEventEmitter.
+                    const lockPayload = payload as {
+                        domainEventType?: string;
+                        conversationId?: unknown;
+                        userId?: unknown;
+                        accountLocked?: unknown;
+                    };
+                    const lockConversationId = toFiniteNumber(
+                        lockPayload.conversationId,
+                    );
+                    if (
+                        lockPayload.domainEventType ===
+                            "MEMBER_ACCOUNT_LOCK_CHANGED" &&
+                        lockConversationId !== null
+                    ) {
+                        DeviceEventEmitter.emit(
+                            "conversation-member-lock-changed",
+                            {
+                                conversationId: lockConversationId,
+                                userId: toFiniteNumber(lockPayload.userId),
+                                accountLocked: Boolean(lockPayload.accountLocked),
                             },
                         );
                         return;
