@@ -172,6 +172,9 @@ export interface ConversationMember {
     leftAt?: string;
     blockedAt?: string;
     blockedById?: number;
+    // Tài khoản user có đang bị Admin/hệ thống khóa hay không (User.locked).
+    // KHÁC với MemberStatus. Optional để backward-compatible.
+    accountLocked?: boolean;
 }
 
 export interface ConversationSidebar {
@@ -180,6 +183,8 @@ export interface ConversationSidebar {
     type: "DIRECT" | "GROUP";
     imageUrl?: string;
     directPartnerId?: number;
+    // Với hội thoại DIRECT: đối phương có đang bị khóa tài khoản không.
+    directPartnerLocked?: boolean;
     updatedAt: string;
     lastMessage?: LastMessage;
     unreadCount?: number;
@@ -399,6 +404,15 @@ export interface MemberUpdatedEvent {
     userId: number;
     newNickname: string;
     newAvatar?: string;
+}
+
+// Realtime khi tài khoản 1 thành viên bị khóa/mở khóa. Phát trên cả
+// /topic/conversations/{id}/members lẫn /topic/user/{id}/conversations.
+export interface MemberAccountLockChangedEvent {
+    domainEventType: "MEMBER_ACCOUNT_LOCK_CHANGED";
+    conversationId: number;
+    userId: number;
+    accountLocked: boolean;
 }
 
 export interface ConversationUpdatedEvent {

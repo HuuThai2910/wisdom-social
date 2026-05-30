@@ -1,4 +1,5 @@
 import type { Conversation, ConversationMember } from "@/types/chat";
+import { LOCKED_ACCOUNT_NAME } from "@/utils/lockedAccount";
 
 interface MemberLike {
     userId: number;
@@ -6,12 +7,16 @@ interface MemberLike {
     username?: string;
     avatar?: string;
     status?: ConversationMember["status"];
+    accountLocked?: boolean;
 }
 
 export interface ConversationDisplayInfo {
     name: string;
     avatarUrl: string | null;
     compositeAvatarUrls: string[];
+    // DIRECT: đối phương đang bị khóa tài khoản -> consumer dùng để render
+    // avatar khóa (UserAvatar locked) thay vì avatar thật.
+    locked: boolean;
 }
 
 interface BuildConversationDisplayInfoParams {
@@ -48,10 +53,13 @@ function normalizeMembers(
             username: member.username,
             avatar: member.avatar,
             status: member.status,
+            accountLocked: member.accountLocked,
         }));
 }
 
 function resolveMemberDisplayName(member: MemberLike): string {
+    if (member.accountLocked) return LOCKED_ACCOUNT_NAME;
+
     const nickname = member.nickname?.trim();
     if (nickname) return nickname;
 
@@ -83,6 +91,8 @@ function buildGroupCompositeAvatars(members: MemberLike[]): string[] {
     const seen = new Set<string>();
 
     for (const member of activeMembers) {
+        // Tài khoản bị khóa: không lộ avatar thật trong composite.
+        if (member.accountLocked) continue;
         const avatar = member.avatar?.trim();
         if (!avatar || seen.has(avatar)) continue;
         seen.add(avatar);
@@ -114,6 +124,7 @@ export function buildConversationDisplayInfo({
             name,
             avatarUrl: explicitAvatarUrl,
             compositeAvatarUrls,
+            locked: false,
         };
     }
 
@@ -123,11 +134,26 @@ export function buildConversationDisplayInfo({
     const explicitDirectName = conversation.name?.trim();
     const explicitDirectAvatarUrl = conversation.imageUrl?.trim();
 
+    // Đối phương bị khóa khi BẤT KỲ nguồn nào báo khóa (member hoặc cờ direct).
+    const partnerLocked =
+        Boolean(otherMember?.accountLocked) ||
+        Boolean(conversation.directPartnerLocked);
+
+    if (partnerLocked) {
+        return {
+            name: LOCKED_ACCOUNT_NAME,
+            avatarUrl: null,
+            compositeAvatarUrls: [],
+            locked: true,
+        };
+    }
+
     return {
         name: otherMember
             ? resolveMemberDisplayName(otherMember)
             : explicitDirectName || DIRECT_NAME_FALLBACK,
         avatarUrl: otherMember?.avatar?.trim() || explicitDirectAvatarUrl || null,
         compositeAvatarUrls: [],
+        locked: false,
     };
 }

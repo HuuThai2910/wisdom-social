@@ -1,4 +1,5 @@
 import { colors } from "@/constants";
+import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import { Image, StyleSheet, Text, View } from "react-native";
 
@@ -7,9 +8,12 @@ type Props = {
     name: string;
     size?: number;
     online?: boolean;
+    // Tài khoản bị khóa: hiển thị avatar trắng/mặc định (icon người xám),
+    // không dùng avatar thật, không hiện chữ cái đầu.
+    locked?: boolean;
 };
 
-export default function UserAvatar({ uri, name, size = 40, online = false }: Props) {
+export default function UserAvatar({ uri, name, size = 40, online = false, locked = false }: Props) {
     const [failed, setFailed] = useState(false);
     const normalizedUri = uri?.trim();
 
@@ -17,8 +21,16 @@ export default function UserAvatar({ uri, name, size = 40, online = false }: Pro
         setFailed(false);
     }, [normalizedUri]);
 
-    const avatarContent =
-        !normalizedUri || failed ? (
+    const avatarContent = locked ? (
+        <View
+            style={[
+                styles.lockedFallback,
+                { width: size, height: size, borderRadius: size / 2 },
+            ]}
+        >
+            <Ionicons name="person" size={size * 0.6} color="#9CA3AF" />
+        </View>
+    ) : !normalizedUri || failed ? (
             <View
                 style={[
                     styles.fallback,
@@ -55,6 +67,11 @@ const styles = StyleSheet.create({
         alignItems: "center",
         justifyContent: "center",
         backgroundColor: colors.primary,
+    },
+    lockedFallback: {
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#F3F4F6",
     },
     fallbackText: {
         color: colors.white,
