@@ -1605,6 +1605,19 @@ export function useCall(options: UseCallOptions) {
                 );
 
                 if (remainingParticipants.length <= 1) {
+                    if (currentCall.hostUserId === userId) {
+                        remaining.forEach((targetUserId) => {
+                            websocketService.sendCallSignal({
+                                event: "end-call",
+                                conversationId,
+                                callId: currentCall.callId,
+                                callType: currentCall.callType,
+                                fromUserId: userId,
+                                targetUserId,
+                            });
+                        });
+                    }
+
                     stopCallerTone();
                     const elapsedSeconds = durationSecondsRef.current;
                     resetCallState();

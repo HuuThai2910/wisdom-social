@@ -1076,6 +1076,22 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                     );
                     return;
                 }
+
+                if (current.hostUserId === currentUserId) {
+                    current.remoteUserIds
+                        .filter((id) => id !== signal.fromUserId)
+                        .forEach((targetUserId) => {
+                            chatWebsocketService.sendCallSignal({
+                                event: "end-call",
+                                conversationId,
+                                callId: current.callId,
+                                callType: current.callType,
+                                fromUserId: currentUserId,
+                                targetUserId,
+                            });
+                        });
+                }
+
                 const elapsed = durationSecondsRef.current;
                 const shouldPersist = current.isCaller;
                 const callType = current.callType;
