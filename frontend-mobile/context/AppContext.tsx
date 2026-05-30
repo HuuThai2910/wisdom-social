@@ -24,7 +24,6 @@ import {
   mockIgtvVideos,
   mockLikedPostIds,
   mockMessages,
-  mockNotifications,
   mockPosts,
   mockSavedPostIds,
   mockStories,
@@ -42,6 +41,10 @@ import {
   resetPassword,
 } from "@/services/authService";
 import chatWebsocketService from "@/services/chatWebsocketService";
+import {
+  getNotifications as fetchNotificationsApi,
+  markAllAsRead as markAllNotificationsAsReadApi,
+} from "@/services/notificationService";
 import useRealtimePosts from "@/hooks/useRealtimePosts";
 import deviceSettingService from "@/services/deviceSettingService";
 import { fakeSendMessage } from "@/services/messageService";
@@ -196,6 +199,18 @@ const toInternationalPhone = (phone?: string | null): string => {
   return phone;
 };
 
+const normalizeNotification = (
+  notification: AppNotification
+): AppNotification => ({
+  ...notification,
+  isRead: notification.isRead ?? notification.read ?? false,
+  read: notification.read ?? notification.isRead ?? false,
+  actorIds:
+    notification.actorIds || (notification.userId ? [notification.userId] : []),
+  recipientId: notification.recipientId || "",
+  createdAt: notification.createdAt || new Date().toISOString(),
+});
+
 const mapApiUserToAppUser = (apiUser: ApiAuthUser): User => {
   const normalizedUsername =
     apiUser.username?.trim().toLowerCase() || `user${apiUser.id}`;
@@ -225,8 +240,7 @@ export function AppProvider({ children }: PropsWithChildren) {
   const [stories] = useState<Story[]>(mockStories);
   const [savedPostIds, setSavedPostIds] = useState<string[]>(mockSavedPostIds);
   const [likedPostIds, setLikedPostIds] = useState<string[]>(mockLikedPostIds);
-  const [notifications, setNotifications] =
-    useState<AppNotification[]>(mockNotifications);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [conversations, setConversations] =
     useState<Conversation[]>(mockConversations);
   const [messages, setMessages] = useState<Message[]>(mockMessages);
@@ -411,6 +425,54 @@ export function AppProvider({ children }: PropsWithChildren) {
       });
     },
   });
+
+  useEffect(() => {
+    if (!loggedIn || !currentUser?.id) return;
+
+    let cancelled = false;
+
+    const setupNotifications = async () => {
+      const initialNotifications = await fetchNotificationsApi(0, 50);
+      if (!cancelled) {
+        setNotifications(
+          initialNotifications.map((item) =>
+            normalizeNotification(item as AppNotification)
+          )
+        );
+      }
+
+      try {
+        await chatWebsocketService.connect();
+      } catch {
+        // ignore connection bootstrap errors
+      }
+
+      if (cancelled) return;
+      const destination = `/topic/user/${currentUser.id}/notifications`;
+      chatWebsocketService.subscribeToTopic(destination, (body) => {
+        try {
+          const notification = normalizeNotification(
+            JSON.parse(body) as AppNotification
+          );
+          setNotifications((prev) => {
+            if (prev.some((item) => item.id === notification.id)) return prev;
+            return [notification, ...prev].slice(0, 50);
+          });
+        } catch {
+          // no-op
+        }
+      });
+    };
+
+    void setupNotifications();
+
+    return () => {
+      cancelled = true;
+      chatWebsocketService.unsubscribeFromTopic(
+        `/topic/user/${currentUser.id}/notifications`
+      );
+    };
+  }, [loggedIn, currentUser?.id]);
 
   useEffect(() => {
     if (!loggedIn || !currentUser?.phone) return;
@@ -798,7 +860,10 @@ export function AppProvider({ children }: PropsWithChildren) {
   };
 
   const markNotificationsRead = () => {
-    setNotifications((prev) => prev.map((item) => ({ ...item, read: true })));
+    setNotifications((prev) =>
+      prev.map((item) => ({ ...item, read: true, isRead: true }))
+    );
+    void markAllNotificationsAsReadApi();
   };
 
   const searchUsersAndPosts = (query: string) => {

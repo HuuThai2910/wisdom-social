@@ -38,6 +38,7 @@ import type {
   PagePostItem,
 } from "@/services/pageService";
 import type { User } from "@/services/userService";
+import ReportModal from "@/components/ReportModal";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -137,6 +138,7 @@ export default function PageDetailScreen() {
 
   // ── Create post modal ──────────────────────────────────────────────────
 
+  const [showReportModal, setShowReportModal] = useState(false);
   const [showCreatePost, setShowCreatePost] = useState(false);
   const [postContent, setPostContent] = useState("");
   const [postImages, setPostImages] = useState<
@@ -826,12 +828,19 @@ export default function PageDetailScreen() {
           </TouchableOpacity>
 
           {/* Edit/More button (top-right) */}
-          {(isOwner || isAdmin) && (
+          {(isOwner || isAdmin) ? (
             <TouchableOpacity
               onPress={() => router.push({ pathname: "/(stack)/page-edit", params: { pageId: String(numericPageId) } })}
               style={st.coverEditBtn}
             >
               <Ionicons name="pencil" size={16} color={colors.white} />
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              onPress={() => setShowReportModal(true)}
+              style={st.coverEditBtn}
+            >
+              <Ionicons name="flag-outline" size={16} color={colors.white} />
             </TouchableOpacity>
           )}
         </View>
@@ -1345,6 +1354,16 @@ export default function PageDetailScreen() {
 
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      {/* ── Report page modal ── */}
+      <ReportModal
+        visible={showReportModal}
+        targetType="PAGE"
+        targetId={numericPageId}
+        targetName={page.name}
+        onClose={() => setShowReportModal(false)}
+        onSubmitted={(msg) => Alert.alert("Thành công", msg)}
+      />
 
       {/* ── Create post modal ── */}
       <Modal visible={showCreatePost} animationType="slide" transparent onRequestClose={() => setShowCreatePost(false)}>

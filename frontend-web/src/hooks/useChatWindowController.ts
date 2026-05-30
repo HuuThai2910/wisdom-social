@@ -9,6 +9,7 @@ import {
 import chatService, {
     type BulkPresignedRequest,
     type Conversation,
+    type ConversationMember,
     type Message,
     type MessageType,
     type PollResponse,
@@ -902,6 +903,41 @@ export function useChatWindowController(args: {
         [],
     );
 
+    const mergeDetailMembers = useCallback(
+        (
+            baseMembers: MembersByUserId,
+            detailMembers?: ConversationMember[] | null,
+        ): MembersByUserId => {
+            if (!Array.isArray(detailMembers) || detailMembers.length === 0) {
+                return baseMembers;
+            }
+
+            const nextMembers = { ...baseMembers };
+            for (const detailMember of detailMembers) {
+                const detailMemberId = Number(detailMember.userId);
+                if (!Number.isFinite(detailMemberId)) continue;
+
+                const existing = nextMembers[detailMemberId];
+                nextMembers[detailMemberId] = {
+                    ...detailMember,
+                    ...existing,
+                    userId: detailMemberId,
+                    nickname:
+                        existing?.nickname &&
+                        existing.nickname !== "Unknown"
+                            ? existing.nickname
+                            : detailMember.nickname || "Unknown",
+                    username: existing?.username || detailMember.username || "",
+                    avatar: existing?.avatar || detailMember.avatar,
+                    accountLocked: Boolean(detailMember.accountLocked),
+                };
+            }
+
+            return nextMembers;
+        },
+        [],
+    );
+
     const applyReadReceiptsFromMembers = useCallback(
         (members: MembersByUserId) => {
             const receipts: ReadReceipt[] = Object.values(members)
@@ -976,11 +1012,15 @@ export function useChatWindowController(args: {
             ]);
 
             const normalizedMembers = toMembersByUserId(membersResponse);
+            const completeMembers = mergeDetailMembers(
+                normalizedMembers,
+                convResponse.data?.members,
+            );
 
             if (convResponse.success && convResponse.data) {
                 const nextConversation = {
                     ...convResponse.data,
-                    members: Object.values(normalizedMembers),
+                    members: Object.values(completeMembers),
                 };
 
                 setConversation(nextConversation);
@@ -990,18 +1030,18 @@ export function useChatWindowController(args: {
             setMembersById((prev) => {
                 const merged = {
                     ...prev,
-                    ...normalizedMembers,
+                    ...completeMembers,
                 };
                 chatRuntimeStore.setMembers(conversationId, merged);
                 return merged;
             });
-            applyReadReceiptsFromMembers(normalizedMembers);
+            applyReadReceiptsFromMembers(completeMembers);
         } catch (err) {
             console.error("Failed to sync conversation data:", err);
         } finally {
             membersSyncInFlightRef.current = false;
         }
-    }, [applyReadReceiptsFromMembers, conversationId]);
+    }, [applyReadReceiptsFromMembers, conversationId, mergeDetailMembers]);
 
     const applyWindowForOlder = useCallback((nextMessages: Message[]) => {
         if (nextMessages.length <= MESSAGE_WINDOW_LIMIT) {
@@ -1111,7 +1151,7 @@ const list = Array.isArray(cursorData?.data)
 
                 const membersFromApi = toMembersByUserId(membersResponse);
                 const sideLoadedRefs = cursorData?.referenceUsers ?? {};
-                const mergedMembers = mergeReferenceUsers(
+                let mergedMembers = mergeReferenceUsers(
                     membersFromApi,
                     sideLoadedRefs,
                 );
@@ -1123,15 +1163,10 @@ const list = Array.isArray(cursorData?.data)
                 const detailMembers = Array.isArray(convResponse.data.members)
                     ? convResponse.data.members
                     : [];
-                for (const detailMember of detailMembers) {
-                    const detailMemberId = Number(detailMember.userId);
-                    if (mergedMembers[detailMemberId]) {
-                        mergedMembers[detailMemberId] = {
-                            ...mergedMembers[detailMemberId],
-                            accountLocked: Boolean(detailMember.accountLocked),
-                        };
-                    }
-                }
+                mergedMembers = mergeDetailMembers(
+                    mergedMembers,
+                    detailMembers,
+                );
                 // Direct: bảo đảm đối phương bám theo directPartnerLocked (DB tươi),
                 // kể cả khi member tương ứng chưa có trong map.
                 const directPartnerId = convResponse.data.directPartnerId;
@@ -1250,7 +1285,7 @@ const list = Array.isArray(cursorData?.data)
                 }
             }
         },
-        [conversationId, mergeReferenceUsers, userId],
+        [conversationId, mergeDetailMembers, mergeReferenceUsers, userId],
     );
 
     useEffect(() => {
@@ -2672,6 +2707,15 @@ const list = Array.isArray(cursorData?.data)
         ) => {
             if (Number(event.conversationId) !== Number(conversationId)) return;
 
+            const cachedMember = chatRuntimeStore.getMembers(conversationId)[
+                event.userId
+            ];
+            const shouldRefreshIdentity =
+                !event.accountLocked &&
+                (!cachedMember ||
+                    !cachedMember.nickname ||
+                    cachedMember.nickname === "Unknown");
+
             setMembersById((prev) => {
                 const existing = prev[event.userId];
                 // Nếu chưa có member trong map (vd: đối phương direct chưa nạp),
@@ -2709,6 +2753,10 @@ const list = Array.isArray(cursorData?.data)
                 });
                 return next;
             });
+
+            if (shouldRefreshIdentity) {
+                void syncConversationData();
+            }
         };
 
         const handlePinUpdated = (event: PinUpdatedEvent) => {
@@ -2824,6 +2872,7 @@ const list = Array.isArray(cursorData?.data)
         handlePollUpdatedEvent,
         loadInitialData,
         markAsRead,
+        syncConversationData,
     ]);
 
     const handleScroll = useCallback(() => {

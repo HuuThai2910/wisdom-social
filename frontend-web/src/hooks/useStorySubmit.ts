@@ -39,13 +39,49 @@ export function useStorySubmit() {
         if (!canSubmit(params)) return;
         setIsSubmitting(true);
         try {
-            // ── 1. Build text content from all text layers ──
-            const textContent = params.textManager.layers
+            // ── 1. Convert text layers to API format (percentage-based positioning) ──
+            const textLayers = params.textManager.layers
                 .filter((l) => l.text.trim())
-                .map((l) => l.text.trim())
-                .join("\n");
+                .map((layer) => ({
+                    id: layer.id,
+                    content: layer.text,
+                    x_pct: layer.x / 100, // Convert pixel (0-100) to percentage (0-1)
+                    y_pct: layer.y / 100,
+                    width_pct: layer.scale > 0 ? layer.scale : undefined,
+                    height_pct: undefined,
+                    style: {
+                        fontSize: layer.fontSize,
+                        fontFamily: layer.fontFamily,
+                        color: layer.color,
+                        align: layer.align,
+                        rotation: layer.rotation,
+                        bold: layer.fontWeight === "bold",
+                        shadow: layer.textShadow,
+                    },
+                    z_index: layer.zIndex,
+                }));
 
-            // ── 2. Upload media to S3 if present ──
+            // ── 2. Convert music sticker to API format ──
+            const musicStickers = params.musicManager.sticker
+                ? [{
+                    id: params.musicManager.sticker.id,
+                    x_pct: params.musicManager.sticker.x / 100,
+                    y_pct: params.musicManager.sticker.y / 100,
+                    width_pct: params.musicManager.sticker.scale > 0 ? params.musicManager.sticker.scale : undefined,
+                    height_pct: undefined,
+                    rotation_deg: params.musicManager.sticker.rotation,
+                    style: params.musicManager.sticker.style,
+                    meta: {
+                        track_id: params.musicManager.sticker.music.id || "",
+                        title: params.musicManager.sticker.music.title || "",
+                        artist: params.musicManager.sticker.music.artist || "",
+                        cover_url: params.musicManager.sticker.music.imageUrl,
+                    },
+                    z_index: params.musicManager.sticker.zIndex,
+                }]
+                : [];
+
+            // ── 3. Upload media to S3 if present ──
             const mediaUrls: string[] = [];
             if (params.selectedMedia) {
                 console.log("📤 Uploading story media...");
@@ -56,14 +92,18 @@ export function useStorySubmit() {
                 console.log("✅ Story media uploaded:", objectKey);
             }
 
-            // ── 3. Build content with metadata ──
-            // Include background gradient info for text-only stories
-            let fullContent = textContent;
+            // ── 4. Build fallback content for backward compatibility ──
+            const textContent = params.textManager.layers
+                .filter((l) => l.text.trim())
+                .map((l) => l.text.trim())
+                .join("\n");
+
+            let fallbackContent = textContent;
             if (!params.selectedMedia && params.selectedBgIndex >= 0) {
                 const bgGradient = BG_GRADIENTS[params.selectedBgIndex];
                 if (bgGradient) {
-                    fullContent = fullContent
-                        ? `${fullContent}\n[bg:${bgGradient}]`
+                    fallbackContent = fallbackContent
+                        ? `${fallbackContent}\n[bg:${bgGradient}]`
                         : `[bg:${bgGradient}]`;
                 }
             }
@@ -86,22 +126,24 @@ export function useStorySubmit() {
             const backendPrivacy =
                 privacyMap[params.privacy.toUpperCase()] || "PUBLIC";
 
-            // ── 4. Call backend API to create story ──
+            // ── 5. Call backend API to create story ──
             console.log("📝 Creating story...", {
-                content: fullContent,
+                textLayers: textLayers.length,
+                musicStickers: musicStickers.length,
                 privacy: backendPrivacy,
                 mediaUrls,
-                music: params.musicManager.sticker?.music?.title || null,
             });
 
-            await createStory(
-                fullContent || undefined,
-                backendPrivacy,
-                mediaUrls.length > 0 ? mediaUrls : undefined,
-                params.musicManager.sticker?.music?.id,
-                0, // musicStartTime
-                params.muteOriginal
-            );
+            await createStory({
+                content: fallbackContent || undefined,
+                textLayers,
+                musicStickers,
+                privacy: backendPrivacy,
+                mediaUrls: mediaUrls.length > 0 ? mediaUrls : undefined,
+                musicId: params.musicManager.sticker?.music?.id,
+                musicStartTime: 0,
+                muteOriginal: params.muteOriginal,
+            });
 
             console.log("✅ Story created successfully!");
             navigate("/");
@@ -109,7 +151,7 @@ export function useStorySubmit() {
             console.error("❌ Error creating story:", error);
             alert(
                 "Không thể tạo tin. Vui lòng thử lại.\n" +
-                    (error?.message || "")
+                (error?.message || "")
             );
         } finally {
             setIsSubmitting(false);

@@ -10,6 +10,7 @@ import iuh.fit.edu.backend.modules.story.repository.StoryViewRepository;
 import iuh.fit.edu.backend.modules.user.repository.FriendRepository;
 import iuh.fit.edu.backend.common.service.s3.S3Service;
 import iuh.fit.edu.backend.modules.story.service.StoryService;
+import iuh.fit.edu.backend.modules.story.config.StoryDurationCalculator;
 import iuh.fit.edu.backend.modules.post.repository.ReactionRepository;
 import iuh.fit.edu.backend.modules.post.entity.Reaction;
 import iuh.fit.edu.backend.modules.post.constant.ReactionType;
@@ -46,6 +47,7 @@ public class StoryServiceImpl implements StoryService {
     private final MongoTemplate mongoTemplate;
     private final S3Service s3Service;
     private final FriendRepository friendRepository;
+    private final StoryDurationCalculator durationCalculator;
     
     private static final long STORY_VALID_DURATION_HOURS = 24;
 
@@ -54,6 +56,7 @@ public class StoryServiceImpl implements StoryService {
      * - First creates story in MongoDB to get ID
      * - Then uploads media files to S3
      * - Finally updates story with media URLs
+     * - Calculate and set story duration
      */
     @Override
     @Transactional
@@ -90,6 +93,10 @@ public class StoryServiceImpl implements StoryService {
                 // Continue without media if move fails
             }
         }
+        
+        // Step 3: Calculate and set duration based on media type and content
+        createdStory = calculateAndSetDuration(createdStory);
+        createdStory = storyRepository.save(createdStory);
         
         return createdStory;
     }
@@ -479,6 +486,24 @@ public class StoryServiceImpl implements StoryService {
         return storyRepository.existsByUserIdAndStatusAndCreatedAtGreaterThanEqual(
                 userId, StatusType.ACTIVE, twentyFourHoursAgo
         );
+    }
+
+    /**
+     * Calculate and set story duration based on media type and content
+     */
+    @Override
+    @Transactional
+    public Story calculateAndSetDuration(Story story) {
+        if (story == null) {
+            log.warn("Cannot calculate duration for null story");
+            return story;
+        }
+
+        long duration = durationCalculator.calculateDuration(story);
+        story.setDuration_ms(duration);
+        
+        log.info("Calculated duration for story {}: {} ms", story.getId(), duration);
+        return story;
     }
 
     /**

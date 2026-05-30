@@ -1,11 +1,8 @@
-import { useRef, useCallback, useEffect, useState } from "react";
-import { Pen, X, Volume2, VolumeX } from "lucide-react";
+import { useRef, useCallback, useEffect } from "react";
+import { Volume2, VolumeX } from "lucide-react";
 import StoryTextLayer from "./StoryTextLayer";
 import StoryToolbar from "./StoryToolbar";
 import StoryMusicSticker from "./StoryMusicSticker";
-import DrawingCanvas from "./DrawingCanvas";
-import DrawingToolbar from "./DrawingToolbar";
-import { useStoryDrawing } from "../../hooks/useStoryDrawing";
 import type { StoryTextManager } from "../../hooks/useStoryTextManager";
 import type { StoryMusicManager } from "../../hooks/useStoryMusicSticker";
 
@@ -39,8 +36,6 @@ export default function StoryCanvas({
   onToggleMute,
 }: Props) {
   const canvasRef = useRef<HTMLDivElement>(null);
-  const [isDrawing, setIsDrawing] = useState(false);
-  const drawing = useStoryDrawing();
 
   // Click on canvas background => deselect all (but not while editing)
   const handleCanvasClick = useCallback(
@@ -58,14 +53,11 @@ export default function StoryCanvas({
     [manager, musicManager]
   );
 
-  // ESC key to deselect or exit edit / drawing
+  // ESC key to deselect or exit edit
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        if (isDrawing) {
-          setIsDrawing(false);
-          drawing.setTool("none");
-        } else if (manager.editingId) {
+        if (manager.editingId) {
           manager.setEditingId(null);
         } else {
           manager.deselectAll();
@@ -83,7 +75,7 @@ export default function StoryCanvas({
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [manager, musicManager, isDrawing, drawing]);
+  }, [manager, musicManager]);
 
   const hasBackground = backgroundUrl || gradientClass;
 
@@ -220,74 +212,13 @@ export default function StoryCanvas({
         {manager.editingId && (
           <div className="absolute inset-0 ring-2 ring-blue-400/20 rounded-2xl pointer-events-none" />
         )}
-
-        {/* Drawing Canvas Overlay — always mounted to preserve drawings */}
-        <DrawingCanvas
-          width={360}
-          height={640}
-          canvasRef={drawing.canvasRef}
-          isDrawingRef={drawing.isDrawingRef}
-          lastPointRef={drawing.lastPointRef}
-          tool={drawing.drawingState.tool}
-          brushSize={drawing.drawingState.brushSize}
-          brushOpacity={drawing.drawingState.brushOpacity}
-          brushColor={drawing.drawingState.brushColor}
-          onSaveToHistory={drawing.saveToHistory}
-          isActive={isDrawing}
-        />
       </div>
 
-      {/* Toolbar - Text & Drawing Tools */}
+      {/* Toolbar - Text Tools */}
       <div className="flex items-center gap-2 w-full max-w-[360px]">
         {/* Text Toolbar */}
-        {!isDrawing && <StoryToolbar manager={manager} />}
-
-        {/* Drawing Toggle Button */}
-        <button
-          onClick={() => {
-            setIsDrawing(!isDrawing);
-            if (!isDrawing) {
-              drawing.setTool("brush");
-            } else {
-              drawing.setTool("none");
-            }
-          }}
-          className={`ml-auto p-2 rounded-xl transition-all ${
-            isDrawing
-              ? "bg-blue-500/20 text-blue-400 border border-blue-400/30"
-              : "text-white/70 hover:text-white hover:bg-white/10"
-          }`}
-          title={isDrawing ? "Exit Drawing" : "Start Drawing"}
-        >
-          {isDrawing ? <X size={18} /> : <Pen size={18} />}
-        </button>
+        <StoryToolbar manager={manager} />
       </div>
-
-      {/* Drawing Toolbar */}
-      {isDrawing && (
-        <DrawingToolbar
-          tool={drawing.drawingState.tool}
-          brushSize={drawing.drawingState.brushSize}
-          brushOpacity={drawing.drawingState.brushOpacity}
-          brushColor={drawing.drawingState.brushColor}
-          canUndo={drawing.drawingState.historyStep > 0}
-          canRedo={
-            drawing.drawingState.historyStep <
-            drawing.drawingState.history.length - 1
-          }
-          onToolChange={drawing.setTool}
-          onBrushSizeChange={drawing.setBrushSize}
-          onBrushOpacityChange={drawing.setBrushOpacity}
-          onBrushColorChange={drawing.setBrushColor}
-          onUndo={drawing.undo}
-          onRedo={drawing.redo}
-          onClear={drawing.clearCanvas}
-          onClose={() => {
-            setIsDrawing(false);
-            drawing.setTool("none");
-          }}
-        />
-      )}
     </div>
   );
 }

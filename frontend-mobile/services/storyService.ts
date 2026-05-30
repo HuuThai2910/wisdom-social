@@ -18,6 +18,8 @@ export type CreateStoryPayload = {
     allowReplies?: boolean;
     allowReactions?: boolean;
     allowSharing?: boolean;
+    textLayers?: any[];
+    musicStickers?: any[];
 };
 
 type PresignedUploadResponse = {
@@ -61,16 +63,61 @@ export const normalizeStory = (story: any): Story => {
     const userId = String(story?.userId ?? story?.authorId ?? story?.user?.id ?? "");
     const media = story?.media
         ? {
-              ...story.media,
-              url: buildS3Url(story.media.url) || story.media.url || "",
-              thumbnailUrl: buildS3Url(story.media.thumbnailUrl) || story.media.thumbnailUrl,
-              type: String(story.media.type || "IMAGE").toUpperCase(),
-          }
+            ...story.media,
+            url: buildS3Url(story.media.url) || story.media.url || "",
+            thumbnailUrl: buildS3Url(story.media.thumbnailUrl) || story.media.thumbnailUrl,
+            type: String(story.media.type || "IMAGE").toUpperCase(),
+            duration_ms: story.media.duration_ms,
+        }
         : story?.image
-          ? { url: buildS3Url(story.image) || story.image, type: "IMAGE" }
-          : undefined;
+            ? { url: buildS3Url(story.image) || story.image, type: "IMAGE" }
+            : undefined;
 
     const image = media?.url || buildS3Url(story?.image) || story?.image || "";
+
+    // Normalize text_layers from backend (new format)
+    const text_layers = story?.text_layers
+        ? story.text_layers.map((layer: any) => ({
+            id: layer.id,
+            content: layer.content,
+            x_pct: layer.x_pct ?? 0.5,
+            y_pct: layer.y_pct ?? 0.5,
+            width_pct: layer.width_pct,
+            height_pct: layer.height_pct,
+            style: {
+                fontSize: layer.style?.fontSize ?? 16,
+                fontFamily: layer.style?.fontFamily ?? "Arial",
+                color: layer.style?.color ?? "#FFFFFF",
+                align: layer.style?.align ?? "center",
+                rotation: layer.style?.rotation,
+                bold: layer.style?.bold,
+                shadow: layer.style?.shadow,
+            },
+            z_index: layer.z_index ?? 1,
+        }))
+        : undefined;
+
+    // Normalize music_stickers from backend (new format)
+    const music_stickers = story?.music_stickers
+        ? story.music_stickers.map((sticker: any) => ({
+            id: sticker.id,
+            x_pct: sticker.x_pct ?? 0.5,
+            y_pct: sticker.y_pct ?? 0.5,
+            width_pct: sticker.width_pct,
+            height_pct: sticker.height_pct,
+            rotation_deg: sticker.rotation_deg ?? 0,
+            style: sticker.style ?? "rectangle",
+            meta: {
+                track_id: sticker.meta?.track_id ?? "",
+                title: sticker.meta?.title ?? "",
+                artist: sticker.meta?.artist ?? "",
+                cover_url: sticker.meta?.cover_url,
+                start_sec: sticker.meta?.start_sec,
+                end_sec: sticker.meta?.end_sec,
+            },
+            z_index: sticker.z_index ?? 1,
+        }))
+        : undefined;
 
     return {
         id: String(story?.id),
@@ -84,8 +131,10 @@ export const normalizeStory = (story: any): Story => {
         media,
         user: normalizeStoryUser(story?.user, userId),
         music: story?.music,
-        stickers: story?.stickers || [],
         textStyle: story?.textStyle,
+        text_layers,
+        music_stickers,
+        duration_ms: story?.duration_ms,
         privacy: story?.privacy || "PUBLIC",
         allowReplies: story?.allowReplies !== false,
         allowReactions: story?.allowReactions !== false,
@@ -161,6 +210,8 @@ export const createStory = async (payload: CreateStoryPayload): Promise<Story> =
     if (payload.allowReplies !== undefined) formData.append("allowReplies", String(payload.allowReplies));
     if (payload.allowReactions !== undefined) formData.append("allowReactions", String(payload.allowReactions));
     if (payload.allowSharing !== undefined) formData.append("allowSharing", String(payload.allowSharing));
+    if (payload.textLayers && payload.textLayers.length > 0) formData.append("text_layers", JSON.stringify(payload.textLayers));
+    if (payload.musicStickers && payload.musicStickers.length > 0) formData.append("music_stickers", JSON.stringify(payload.musicStickers));
 
     const response = await apiClient.post("/stories", formData, {
         headers: { "Content-Type": "multipart/form-data" },
