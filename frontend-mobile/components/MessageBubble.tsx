@@ -48,11 +48,13 @@ import {
 } from "@/utils/messageUtils";
 import { buildSystemGroupMessage } from "@/utils/systemCreateGroupMessage";
 import { extractGroupInviteToken } from "@/utils/groupInvite";
+import { LOCKED_ACCOUNT_NAME } from "@/utils/lockedAccount";
 
 const RIGHT_SCROLL_CUE_HEIGHT = 38;
 const MESSAGE_LONG_PRESS_DELAY_MS = 500;
 const SWIPE_REPLY_TRIGGER_PX = 56;
 const SWIPE_REPLY_MAX_TRANSLATE_PX = 72;
+const LONG_TEXT_PREVIEW_LENGTH = 900;
 const URL_PATTERN = /(https?:\/\/[^\s]+)/g;
 
 function renderTextWithLinks(content: string, mine: boolean) {
@@ -223,6 +225,7 @@ export const MessageBubble = React.memo(
         const [pollClosing, setPollClosing] = React.useState(false);
         const [pollOptionDraft, setPollOptionDraft] = React.useState("");
         const [, setPollClockTick] = React.useState(0);
+        const [textExpanded, setTextExpanded] = React.useState(false);
         const pollSelectionByIdRef = React.useRef<Record<string, string[]>>({});
 
         React.useEffect(() => {
@@ -402,8 +405,25 @@ export const MessageBubble = React.memo(
 
         const mine = item.senderId === currentUserId;
         const sender = membersById[item.senderId];
-        const senderDisplayName =
-            sender?.nickname || sender?.username || "Nguoi dung";
+        // 1 user có đang bị khóa tài khoản không. DIRECT: mọi người không phải
+        // mình đều là đối phương -> bám directPartnerLocked (tươi từ DB),
+        // không phụ thuộc cache members.
+        const isUserAccountLocked = React.useCallback(
+            (uid?: number | null) => {
+                if (uid == null || Number.isNaN(Number(uid))) return false;
+                if (membersById[Number(uid)]?.accountLocked) return true;
+                return (
+                    conversation?.type === "DIRECT" &&
+                    Boolean(conversation?.directPartnerLocked) &&
+                    Number(uid) !== Number(currentUserId)
+                );
+            },
+            [membersById, conversation?.type, conversation?.directPartnerLocked, currentUserId],
+        );
+        const senderLocked = isUserAccountLocked(item.senderId);
+        const senderDisplayName = senderLocked
+            ? LOCKED_ACCOUNT_NAME
+            : sender?.nickname || sender?.username || "Nguoi dung";
         const currentMemberRole = membersById[currentUserId]?.role;
         const canManageCurrentPoll =
             Boolean(localPoll) &&
@@ -416,7 +436,9 @@ export const MessageBubble = React.memo(
         const pollCreatorName =
             Number(localPoll?.creatorId) === Number(currentUserId)
                 ? "Bạn"
-                : pollCreator?.nickname || pollCreator?.username || senderDisplayName;
+                : isUserAccountLocked(localPoll?.creatorId)
+                  ? LOCKED_ACCOUNT_NAME
+                  : pollCreator?.nickname || pollCreator?.username || senderDisplayName;
         const pollCreatedDayLabel = formatContextDay(localPoll?.createdAt || item.createdAt);
         const getPollMember = React.useCallback(
             (userId: number) => membersById[userId],
@@ -425,10 +447,11 @@ export const MessageBubble = React.memo(
         const getPollMemberName = React.useCallback(
             (userId: number) => {
                 if (Number(userId) === Number(currentUserId)) return "Bạn";
+                if (isUserAccountLocked(userId)) return LOCKED_ACCOUNT_NAME;
                 const member = getPollMember(userId);
                 return member?.nickname || member?.username || `Người dùng ${userId}`;
             },
-            [currentUserId, getPollMember],
+            [currentUserId, getPollMember, isUserAccountLocked],
         );
         const renderPollAvatarStack = React.useCallback(
             (voterIds?: number[]) => {
@@ -453,6 +476,7 @@ export const MessageBubble = React.memo(
                                         uri={member?.avatar}
                                         name={getPollMemberName(voterId)}
                                         size={22}
+                                        locked={isUserAccountLocked(voterId)}
                                     />
                                 </View>
                             );
@@ -465,7 +489,7 @@ export const MessageBubble = React.memo(
                     </View>
                 );
             },
-            [getPollMember, getPollMemberName],
+            [getPollMember, getPollMemberName, isUserAccountLocked],
         );
 
         // ===== Gesture handling (từ develop) =====
@@ -692,9 +716,11 @@ export const MessageBubble = React.memo(
         }));
         const replySenderName =
             typeof item.replyInfo?.senderId === "number"
-                ? membersById[item.replyInfo.senderId]?.nickname ||
-                  membersById[item.replyInfo.senderId]?.username ||
-                  "Nguoi dung"
+                ? isUserAccountLocked(item.replyInfo.senderId)
+                    ? LOCKED_ACCOUNT_NAME
+                    : membersById[item.replyInfo.senderId]?.nickname ||
+                      membersById[item.replyInfo.senderId]?.username ||
+                      "Nguoi dung"
                 : "Nguoi dung";
 
         const replyPreviewType = inferReplyPreviewType(item.replyInfo);
@@ -733,9 +759,19 @@ export const MessageBubble = React.memo(
                       ? "Cuoc goi"
                       : replyPreviewContent || "Tin nhan";
         const trimmedContent = item.content?.trim() ?? "";
+        const shouldCollapseText =
+            item.type === "TEXT" &&
+            !item.isRecalled &&
+            (item.content?.length ?? 0) > LONG_TEXT_PREVIEW_LENGTH;
+        const visibleTextContent =
+            shouldCollapseText && !textExpanded && item.content
+                ? `${item.content.slice(0, LONG_TEXT_PREVIEW_LENGTH).trimEnd()}...`
+                : item.content;
         const groupInviteToken =
             (item.type === "TEXT" || item.type === "LINK") && !item.isRecalled
-                ? extractGroupInviteToken(trimmedContent)
+                ? extractGroupInviteToken(trimmedContent, {
+                      allowRawToken: false,
+                  })
                 : null;
         const messageIsEmojiOnly =
             item.type === "TEXT" &&
@@ -1157,9 +1193,10 @@ export const MessageBubble = React.memo(
                             {!mine && !isPollMessage ? (
                                 showAvatar ? (
                                     <UserAvatar
-                                        uri={sender?.avatar}
-                                        name={sender?.username ?? "?"}
+                                        uri={senderLocked ? undefined : sender?.avatar}
+                                        name={senderLocked ? LOCKED_ACCOUNT_NAME : sender?.username ?? "?"}
                                         size={30}
+                                        locked={senderLocked}
                                     />
                                 ) : (
                                     <View style={styles.avatarSpacer} />
@@ -2062,22 +2099,9 @@ export const MessageBubble = React.memo(
                                                                             "Tep dinh kem"}
                                                                     </Text>
                                                                     <Text
-                                                                        style={[
-                                                                            styles.fileSize,
-                                                                            mine &&
-                                                                                styles.fileSizeMine,
-                                                                        ]}
-                                                                    >
-                                                                        {formatFileSize(
-                                                                            attachment.fileSize,
-                                                                        )}
-                                                                    </Text>
-                                                                    <Text
-                                                                        style={[
-                                                                            styles.fileSize,
-                                                                            mine &&
-                                                                                styles.fileSizeMine,
-                                                                        ]}
+                                                                        style={
+                                                                            styles.fileSize
+                                                                        }
                                                                     >
                                                                         {formatFileSize(
                                                                             attachment.fileSize,
@@ -2085,41 +2109,14 @@ export const MessageBubble = React.memo(
                                                                     </Text>
                                                                 </View>
                                                                 <View
-                                                                    style={[
-                                                                        styles.fileActionIconWrap,
-                                                                        mine &&
-                                                                            styles.fileActionIconWrapMine,
-                                                                    ]}
+                                                                    style={
+                                                                        styles.fileActionIconWrap
+                                                                    }
                                                                 >
                                                                     <Ionicons
                                                                         name="download-outline"
-                                                                        size={
-                                                                            14
-                                                                        }
-                                                                        color={
-                                                                            mine
-                                                                                ? colors.white
-                                                                                : "#475569"
-                                                                        }
-                                                                    />
-                                                                </View>
-                                                                <View
-                                                                    style={[
-                                                                        styles.fileActionIconWrap,
-                                                                        mine &&
-                                                                            styles.fileActionIconWrapMine,
-                                                                    ]}
-                                                                >
-                                                                    <Ionicons
-                                                                        name="download-outline"
-                                                                        size={
-                                                                            14
-                                                                        }
-                                                                        color={
-                                                                            mine
-                                                                                ? colors.white
-                                                                                : "#475569"
-                                                                        }
+                                                                        size={18}
+                                                                        color="#334155"
                                                                     />
                                                                 </View>
                                                             </Pressable>
@@ -2662,10 +2659,28 @@ export const MessageBubble = React.memo(
                                                 >
                                                     {item.content
                                                         ? renderTextWithLinks(
-                                                              item.content,
+                                                              visibleTextContent ?? "",
                                                               mine,
                                                           )
                                                         : "Tin nhan khong co noi dung"}
+                                                    {shouldCollapseText ? (
+                                                        <Text
+                                                            style={[
+                                                                styles.expandTextButton,
+                                                                mine &&
+                                                                    styles.expandTextButtonMine,
+                                                            ]}
+                                                            onPress={() =>
+                                                                setTextExpanded(
+                                                                    (value) => !value,
+                                                                )
+                                                            }
+                                                        >
+                                                            {textExpanded
+                                                                ? " Thu gon"
+                                                                : " Xem them"}
+                                                        </Text>
+                                                    ) : null}
                                                 </Text>
                                             ) : null}
 
@@ -2762,19 +2777,23 @@ export const MessageBubble = React.memo(
                                 <View style={styles.deliverySeenAvatarRow}>
                                     {receiptsForThisMessage.map((receipt) => {
                                         const member = membersById[receipt.userId];
+                                        const receiptLocked = isUserAccountLocked(receipt.userId);
                                         return (
                                             <View
                                                 key={`${item.id}-${receipt.userId}`}
                                                 style={styles.deliverySeenAvatar}
                                             >
                                                 <UserAvatar
-                                                    uri={member?.avatar}
+                                                    uri={receiptLocked ? undefined : member?.avatar}
                                                     name={
-                                                        member?.nickname ||
-                                                        member?.username ||
-                                                        "?"
+                                                        receiptLocked
+                                                            ? LOCKED_ACCOUNT_NAME
+                                                            : member?.nickname ||
+                                                              member?.username ||
+                                                              "?"
                                                     }
                                                     size={20}
+                                                    locked={receiptLocked}
                                                 />
                                             </View>
                                         );
@@ -3085,6 +3104,13 @@ const styles = StyleSheet.create({
         lineHeight: 21,
     },
     messageTextMine: {
+        color: colors.white,
+    },
+    expandTextButton: {
+        color: colors.primary,
+        fontWeight: "800",
+    },
+    expandTextButtonMine: {
         color: colors.white,
     },
     pollCard: {
@@ -3811,63 +3837,68 @@ const styles = StyleSheet.create({
         flexDirection: "row",
         alignItems: "center",
         marginTop: 6,
-        backgroundColor: "#F3F4F6",
-        borderRadius: 14,
-        paddingHorizontal: 10,
-        paddingVertical: 8,
+        backgroundColor: "#F8FAFC",
+        borderRadius: 16,
+        paddingHorizontal: 12,
+        paddingVertical: 12,
         borderWidth: 1,
-        borderColor: "#E5E7EB",
-        width: 180,
+        borderColor: "#E2E8F0",
+        width: 286,
+        maxWidth: "100%",
     },
     fileItemMine: {
-        backgroundColor: "#1D4ED8",
-        borderColor: "rgba(255, 255, 255, 0.28)",
+        backgroundColor: "#F8FAFC",
+        borderColor: "#E2E8F0",
     },
     fileBadge: {
-        width: 32,
-        height: 32,
+        width: 50,
+        height: 50,
         borderRadius: 9,
-        backgroundColor: "#111827",
+        backgroundColor: "#FEE2E2",
         alignItems: "center",
         justifyContent: "center",
     },
     fileBadgeText: {
         fontSize: 10,
-        fontWeight: "700",
-        color: colors.white,
+        fontWeight: "800",
+        color: "#EF4444",
     },
     fileMeta: {
-        marginLeft: 8,
+        marginLeft: 12,
         flex: 1,
         minWidth: 0,
     },
     fileName: {
-        color: colors.text,
-        fontSize: 13,
-        fontWeight: "600",
+        color: "#0F172A",
+        fontSize: 14,
+        fontWeight: "800",
     },
     fileNameMine: {
-        color: colors.white,
+        color: "#0F172A",
     },
     fileSize: {
-        marginTop: 2,
-        color: colors.textMuted,
-        fontSize: 11,
+        marginTop: 4,
+        color: "#64748B",
+        fontSize: 12,
+        fontWeight: "500",
     },
     fileSizeMine: {
-        color: "#DBEAFE",
+        color: "#64748B",
     },
     fileActionIconWrap: {
-        marginLeft: 8,
-        width: 28,
-        height: 28,
-        borderRadius: 14,
-        backgroundColor: "#E2E8F0",
+        marginLeft: 10,
+        width: 40,
+        height: 40,
+        borderRadius: 8,
+        backgroundColor: "#FFFFFF",
+        borderWidth: 1,
+        borderColor: "#E2E8F0",
         alignItems: "center",
         justifyContent: "center",
     },
     fileActionIconWrapMine: {
-        backgroundColor: "rgba(255, 255, 255, 0.2)",
+        backgroundColor: "#FFFFFF",
+        borderColor: "#E2E8F0",
     },
     callCard: {
         marginTop: 6,

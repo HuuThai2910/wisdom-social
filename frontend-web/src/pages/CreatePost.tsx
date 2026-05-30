@@ -18,10 +18,11 @@ import {
   Play,
   Pause,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { Theme } from "emoji-picker-react";
 import { useAuth } from "../contexts/AuthContext";
-import { createPost } from "../services/postService";
+import { createPost, createPagePost } from "../services/postService";
+import pageService from "../services/pageService";
 import FriendSelectorModal from "../components/post/FriendSelectorModal";
 import IconModal from "../components/icon-modal/IconModal";
 import NoteMusicPicker from "../components/profile/note-modal/NoteMusicPicker";
@@ -43,6 +44,12 @@ type PrivacyType =
 export default function CreatePost() {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
+  // Page mode: when rendered under /pages/:pageId/create-post the post is
+  // submitted to the page (with approval flow) instead of the user's wall.
+  const { pageId } = useParams();
+  const numericPageId = pageId ? Number(pageId) : null;
+  const isPageMode = !!numericPageId && Number.isFinite(numericPageId);
+  const [pageName, setPageName] = useState("");
   const [step, setStep] = useState(1);
   const [caption, setCaption] = useState("");
   const [selectedImages, setSelectedImages] = useState<File[]>([]);
@@ -103,6 +110,21 @@ export default function CreatePost() {
       video.pause();
     }
   };
+
+  // Load page name for the header when posting to a page
+  useEffect(() => {
+    if (!numericPageId) return;
+    let cancelled = false;
+    pageService
+      .getPageById(numericPageId)
+      .then((p) => {
+        if (!cancelled) setPageName(p?.name || "");
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [numericPageId]);
 
   // Sync with global playback state
   useEffect(() => {
@@ -271,13 +293,19 @@ export default function CreatePost() {
       if (isLoading) return;
       setIsLoading(true);
 
+      // Page posts inherit the page's visibility, so per-post privacy /
+      // specific-viewer settings don't apply — always submit as PUBLIC.
+      const effectivePrivacy = isPageMode ? "PUBLIC" : privacy;
+
       const postData = {
         content: caption,
-        privacy: privacy,
+        privacy: effectivePrivacy,
         location: location || null,
         taggedUsernames: taggedUsers,
-        specificViewerUsernames: privacy === "SPECIFIC" ? specificViewers : [],
-        excludedUsernames: privacy === "FRIENDS_EXCEPT" ? excludedUsers : [],
+        specificViewerUsernames:
+          effectivePrivacy === "SPECIFIC" ? specificViewers : [],
+        excludedUsernames:
+          effectivePrivacy === "FRIENDS_EXCEPT" ? excludedUsers : [],
         allowComments: allowComments,
         allowShares: allowShares,
         music: selectedMusic
@@ -294,6 +322,14 @@ export default function CreatePost() {
             }
           : null,
       };
+
+      if (isPageMode && numericPageId) {
+        await createPagePost(numericPageId, postData, selectedImages);
+        navigate(`/pages/${numericPageId}`, {
+          state: { pagePostCreated: true },
+        });
+        return;
+      }
 
       console.log("Creating post...", {
         ...postData,
@@ -324,7 +360,7 @@ export default function CreatePost() {
   };
 
   return (
-    <div className="min-h-screen bg-[#fafafa] dark:bg-#000">
+    <div className="min-h-screen bg-[#fafafa] dark:bg-black">
       <div className="max-w-4xl mx-auto px-4 py-8">
         <div className="bg-white dark:bg-[#262626] rounded-xl border border-gray-200 dark:border-[#363636] shadow-md overflow-hidden">
           {/* Header */}
@@ -713,7 +749,19 @@ export default function CreatePost() {
                       <p className="text-sm font-semibold dark:text-white">
                         {currentUser?.name || currentUser?.username || "User"}
                       </p>
-                      <p className="text-xs text-gray-500">Viết chú thích...</p>
+                      {isPageMode ? (
+                        <p className="text-xs text-gray-500">
+                          Đăng lên trang{" "}
+                          <span className="font-semibold text-gray-700 dark:text-gray-300">
+                            {pageName || "..."}
+                          </span>
+                          <span className="ml-1 text-yellow-600 dark:text-yellow-400">
+                            · có thể cần được duyệt
+                          </span>
+                        </p>
+                      ) : (
+                        <p className="text-xs text-gray-500">Viết chú thích...</p>
+                      )}
                     </div>
                   </div>
 
@@ -852,7 +900,8 @@ export default function CreatePost() {
                     )}
                   </div>
 
-                  {/* Privacy */}
+                  {/* Privacy — not applicable to page posts */}
+                  {!isPageMode && (
                   <div className="mt-4 px-2">
                     <p className="text-xs font-bold text-gray-400 mb-3 uppercase tracking-wider">
                       Quyền riêng tư
@@ -985,6 +1034,7 @@ export default function CreatePost() {
                       )}
                     </div>
                   </div>
+                  )}
 
                   {/* Advanced Settings */}
                   <div className="mt-4 px-2 pb-4">

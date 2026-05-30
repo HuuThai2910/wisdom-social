@@ -25,4 +25,11 @@ public interface PageMemberService {
     MemberStatus getMemberStatus(long pageId, long userId);
     boolean hasModeratorOrAdminRole(long userId, long pageId);
     long countActiveMembers(long pageId);
+
+    /**
+     * Whether the given user may view a page's content (posts + member list).
+     * Public pages are visible to everyone; PRIVATE pages only to the owner
+     * and active members.
+     */
+    boolean canViewPageContent(long userId, long pageId);
 }

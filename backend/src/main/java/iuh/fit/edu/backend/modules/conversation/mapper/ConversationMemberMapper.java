@@ -31,6 +31,9 @@ public abstract class ConversationMemberMapper {
     // 2. Map dữ liệu
     @Mapping(target = "userId", source = "user.id")
     @Mapping(target = "blockedById", source = "blockedBy.id")
+    // Trạng thái khóa tài khoản (User.locked) - phục vụ FE mask tên/avatar.
+    // KHÔNG ghi đè nickname/avatar thật trong DB, chỉ truyền cờ để FE tự che.
+    @Mapping(target = "accountLocked", source = "user.locked")
     // Gắn qualifiedByName để MapStruct gọi đúng hàm build URL cho Avatar
     @Mapping(target = "avatar", source = "user.avatarUrl", qualifiedByName = "buildAvatarUrl")
     @Mapping(target = "lastReadMessageId", source = "lastReadMessageId")

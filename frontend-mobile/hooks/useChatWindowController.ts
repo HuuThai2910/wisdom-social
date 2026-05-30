@@ -38,6 +38,7 @@ const MARK_AS_READ_DEBOUNCE_MS = 1000;
 const TYPING_STOP_TIMEOUT_MS = 10000;
 const OUTBOX_RETRY_INTERVAL_MS = 3000;
 const REALTIME_FALLBACK_POLL_MS = 1500;
+const MAX_TEXT_MESSAGE_LENGTH = 3500;
 const MAX_FILES_PER_SEND = 20;
 const MAX_IMAGE_SIZE_BYTES = 25 * 1024 * 1024;
 const MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024;
@@ -65,15 +66,15 @@ function buildOptimisticTextMessage(
     request: SendMessageRequest,
     currentUserId: number,
     clientMessageId: string,
+    createdAt = new Date().toISOString(),
 ): Message {
-    const now = new Date().toISOString();
     return {
         id: `local-${clientMessageId}`,
         conversationId: request.conversationId ?? 0,
         clientMessageId,
         content: request.content,
         type: request.type,
-        createdAt: now,
+        createdAt,
         senderId: currentUserId,
         replyInfo: request.replyToId
             ? {
@@ -83,6 +84,39 @@ function buildOptimisticTextMessage(
         attachments: request.attachments,
         deliveryStatus: "sending",
     };
+}
+
+function splitLongTextMessage(
+    content: string,
+    maxLength = MAX_TEXT_MESSAGE_LENGTH,
+): string[] {
+    const trimmed = content.trim();
+    if (!trimmed) return [];
+    if (trimmed.length <= maxLength) return [trimmed];
+
+    const parts: string[] = [];
+    let remaining = trimmed;
+
+    while (remaining.length > maxLength) {
+        const windowText = remaining.slice(0, maxLength + 1);
+        const breakAt = Math.max(
+            windowText.lastIndexOf("\n"),
+            windowText.lastIndexOf(" "),
+            windowText.lastIndexOf("\t"),
+        );
+        const splitAt = breakAt >= Math.floor(maxLength * 0.6) ? breakAt : maxLength;
+        const part = remaining.slice(0, splitAt).trim();
+        if (part) {
+            parts.push(part);
+        }
+        remaining = remaining.slice(splitAt).trimStart();
+    }
+
+    if (remaining.trim()) {
+        parts.push(remaining.trim());
+    }
+
+    return parts;
 }
 
 function buildOptimisticMediaMessage(
@@ -1623,6 +1657,43 @@ if (token !== loadTokenRef.current) return;
                             return next;
                         });
                     },
+                    // Khóa/mở khóa tài khoản 1 thành viên -> cập nhật cờ accountLocked
+                    // realtime để mask/bỏ mask tên + avatar ở hội thoại đang mở.
+                    (event) => {
+                        setMembersById((prev) => {
+                            const existing = prev[event.userId];
+                            const next = {
+                                ...prev,
+                                [event.userId]: {
+                                    ...(existing ?? {
+                                        userId: event.userId,
+                                        username: "",
+                                        nickname: "Unknown",
+                                    }),
+                                    userId: event.userId,
+                                    accountLocked: event.accountLocked,
+                                },
+                            };
+                            chatRuntimeStore.setMembers(conversationId, next);
+                            return next;
+                        });
+                        setConversation((prev) => {
+                            if (!prev) return prev;
+                            const nextConversation = {
+                                ...prev,
+                                directPartnerLocked:
+                                    prev.type === "DIRECT" &&
+                                    Number(event.userId) !== Number(currentUserId)
+                                        ? event.accountLocked
+                                        : prev.directPartnerLocked,
+                            };
+                            chatRuntimeStore.setConversation(
+                                conversationId,
+                                nextConversation,
+                            );
+                            return nextConversation;
+                        });
+                    },
                 );
 
                 // Lắng nghe GROUP_DISBANDED để cập nhật UI ngay khi trưởng nhóm
@@ -2097,41 +2168,59 @@ if (token !== loadTokenRef.current) return;
                 setSending(true);
                 setError(null);
 
-                const clientMessageId = createClientMessageId();
-                const request: SendMessageRequest = {
-                    content: trimmed,
-                    type: "TEXT",
-                    conversationId,
-                    clientMessageId,
-                    ...(replyToId ? { replyToId } : {}),
-                };
-                const optimisticMessage = buildOptimisticTextMessage(
-                    request,
-                    currentUserId,
-                    clientMessageId,
+                const textParts = splitLongTextMessage(trimmed);
+                const baseClientMessageId = createClientMessageId();
+                const baseCreatedAt = Date.now();
+                const outboxItems: OutboxMessage[] = textParts.map(
+                    (content, partIndex) => {
+                        const clientMessageId =
+                            textParts.length === 1
+                                ? baseClientMessageId
+                                : `${baseClientMessageId}-part-${partIndex}`;
+                        const request: SendMessageRequest = {
+                            content,
+                            type: "TEXT",
+                            conversationId,
+                            clientMessageId,
+                            ...(replyToId && partIndex === 0
+                                ? { replyToId }
+                                : {}),
+                        };
+                        const createdAt = new Date(
+                            baseCreatedAt + partIndex,
+                        ).toISOString();
+                        const optimisticMessage = buildOptimisticTextMessage(
+                            request,
+                            currentUserId,
+                            clientMessageId,
+                            createdAt,
+                        );
+                        return {
+                            clientMessageId,
+                            conversationId,
+                            userId: currentUserId,
+                            request,
+                            preview: optimisticMessage,
+                            status: "pending",
+                            retryCount: 0,
+                            createdAt: optimisticMessage.createdAt,
+                            updatedAt: optimisticMessage.createdAt,
+                        };
+                    },
                 );
-                const outboxItem: OutboxMessage = {
-                    clientMessageId,
-                    conversationId,
-                    userId: currentUserId,
-                    request,
-                    preview: optimisticMessage,
-                    status: "pending",
-                    retryCount: 0,
-                    createdAt: optimisticMessage.createdAt,
-                    updatedAt: optimisticMessage.createdAt,
-                };
 
                 setMessages((prev) => {
                     const next = dedupeMessagesByIdentity([
                         ...prev,
-                        optimisticMessage,
+                        ...outboxItems.map((item) => item.preview),
                     ]);
                     chatRuntimeStore.setMessages(conversationId, next);
                     return next;
                 });
 
-                await messageOutbox.save(outboxItem);
+                for (const outboxItem of outboxItems) {
+                    await messageOutbox.save(outboxItem);
+                }
                 setMessageText("");
 
                 if (typingStopTimeoutRef.current) {
@@ -2148,7 +2237,9 @@ if (token !== loadTokenRef.current) return;
                     isTypingSentRef.current = false;
                 }
 
-                await sendOutboxItem(outboxItem).catch(() => undefined);
+                for (const outboxItem of outboxItems) {
+                    await sendOutboxItem(outboxItem).catch(() => undefined);
+                }
                 return true;
             } catch (error) {
                 const apiMessage = extractApiErrorMessage(error);

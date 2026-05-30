@@ -1,5 +1,6 @@
 import axios, { type AxiosInstance } from 'axios';
 import { clearAuthStorage, getCookie, setCookie } from '../utils/cookies';
+import { recordRequestOutcome } from '../services/auditLogService';
 
 const API_BASE_URL = '/api';
 const TOKEN_TTL_DAYS = 1 / 24;
@@ -22,13 +23,21 @@ const isPublicEndpoint = (url?: string) =>
 const axiosClient: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
   withCredentials: true,
-  headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+  headers: {
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+    'X-Client': 'admin-console',
+  },
 });
 
 const axiosRefresh: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
   withCredentials: true,
-  headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+  headers: {
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+    'X-Client': 'admin-console',
+  },
 });
 
 export function saveAccessToken(token: string): void {
@@ -83,11 +92,45 @@ axiosClient.interceptors.request.use(
 );
 
 axiosClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    recordRequestOutcome({
+      method: response.config?.method,
+      url: response.config?.url,
+      body: response.config?.data,
+      status: 'SUCCESS',
+      statusCode: response.status,
+    });
+    return response;
+  },
   async (error) => {
     const status = error.response?.status;
     const config = error.config;
-    if (isPublicEndpoint(config?.url)) return Promise.reject(error);
+    if (isPublicEndpoint(config?.url)) {
+      // Ghi nhận đăng nhập thất bại (sự kiện bảo mật quan trọng)
+      if (config?.url?.includes('/auth/login')) {
+        recordRequestOutcome({
+          method: config.method,
+          url: config.url,
+          body: config.data,
+          status: 'FAILED',
+          statusCode: status,
+          errorMessage: error.response?.data?.message || error.message,
+        });
+      }
+      return Promise.reject(error);
+    }
+
+    // Ghi log thất bại (trừ 401 sẽ được thử lại bên dưới)
+    if (config && !(status === 401 && !config._retry)) {
+      recordRequestOutcome({
+        method: config.method,
+        url: config.url,
+        body: config.data,
+        status: 'FAILED',
+        statusCode: status,
+        errorMessage: error.response?.data?.message || error.message,
+      });
+    }
 
     if (status === 401 && config && !config._retry) {
       config._retry = true;

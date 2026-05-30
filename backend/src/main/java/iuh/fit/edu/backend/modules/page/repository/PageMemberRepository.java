@@ -22,5 +22,7 @@ public interface PageMemberRepository extends JpaRepository<PageMember,Long> {
 
     boolean existsByUserIdAndPageIdAndRoleIn(Long userId, Long pageId, Collection<PageRole> roles);
 
+    List<PageMember> findByPage_IdAndStatusAndRoleIn(Long pageId, MemberStatus status, Collection<PageRole> roles);
+
     long countByPage_IdAndStatus(Long pageId, MemberStatus status);
 }

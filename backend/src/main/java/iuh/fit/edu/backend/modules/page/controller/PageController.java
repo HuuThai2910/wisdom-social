@@ -297,6 +297,12 @@ public class PageController {
     @GetMapping("/post/all/{pageId}")
     @ApiMessage("Get all posts of page successfully")
     public ResponseEntity<ApiResponse<List<Post>>> getAllPostsOfPage(@PathVariable long pageId) {
+        // Private pages only expose their posts to the owner/active members
+        User currentUser = userService.getCurrentUser();
+        long uid = currentUser != null ? currentUser.getId() : -1;
+        if (!pageMemberService.canViewPageContent(uid, pageId)) {
+            return ResponseEntity.ok(ApiResponse.success(200, "Page is private", List.of()));
+        }
         List<Post> posts = pagePostService.getAllPostOfPage(pageId);
         return ResponseEntity.ok(ApiResponse.success(200, "Get all posts of page successfully", posts));
     }

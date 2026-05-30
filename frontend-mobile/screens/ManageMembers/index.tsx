@@ -19,6 +19,7 @@ import { useGroupManagement } from "@/hooks/useGroupManagement";
 import { useGroupConversationRealtime } from "@/hooks/useGroupConversationRealtime";
 import type { ConversationMember, JoinRequest, MemberRole } from "@/types/chat";
 import { buildS3Url } from "@/utils/s3";
+import { LOCKED_ACCOUNT_NAME } from "@/utils/lockedAccount";
 
 export function ManageMembersScreen() {
     const { conversationId } = useLocalSearchParams<{ conversationId: string }>();
@@ -144,6 +145,28 @@ export function ManageMembersScreen() {
         ];
 
         if (isOwner) {
+            options.push({
+                text: "Chuyển trưởng nhóm",
+                onPress: () => {
+                    Alert.alert(
+                        "Chuyển trưởng nhóm?",
+                        `Bạn có chắc muốn chuyển quyền trưởng nhóm cho ${label}? Sau khi chuyển, bạn sẽ trở thành thành viên thường.`,
+                        [
+                            { text: "Hủy", style: "cancel" },
+                            {
+                                text: "Chuyển quyền",
+                                onPress: () => {
+                                    void groupManagement.updateMemberRole(
+                                        member.userId,
+                                        "OWNER",
+                                    );
+                                },
+                            },
+                        ],
+                    );
+                },
+            });
+
             if (member.role === "MEMBER") {
                 options.push({
                     text: "Chỉ định Phó nhóm",
@@ -182,7 +205,24 @@ export function ManageMembersScreen() {
             options.push({
                 text: "Chặn khỏi nhóm",
                 style: "destructive",
-                onPress: () => groupManagement.blockMember(member.userId),
+                onPress: () => {
+                    Alert.alert(
+                        "Chặn thành viên",
+                        `Bạn có chắc muốn chặn ${label} khỏi nhóm? Người này sẽ không thể tham gia lại nếu chưa được bỏ chặn.`,
+                        [
+                            { text: "Hủy", style: "cancel" },
+                            {
+                                text: "Chặn",
+                                style: "destructive",
+                                onPress: () => {
+                                    void groupManagement.blockMember(
+                                        member.userId,
+                                    );
+                                },
+                            },
+                        ],
+                    );
+                },
             });
         }
 
@@ -350,9 +390,10 @@ function MemberItem({
             <View style={styles.memberLeft}>
                 <View>
                     <UserAvatar
-                        uri={buildS3Url(member.avatar)}
-                        name={member.nickname || member.username || "?"}
+                        uri={member.accountLocked ? undefined : buildS3Url(member.avatar)}
+                        name={member.accountLocked ? LOCKED_ACCOUNT_NAME : member.nickname || member.username || "?"}
                         size={44}
+                        locked={member.accountLocked}
                     />
                     {member.role === "OWNER" && (
                         <View style={styles.ownerIcon}>
@@ -362,7 +403,11 @@ function MemberItem({
                 </View>
                 <View style={styles.memberInfo}>
                     <Text style={styles.memberName} numberOfLines={1}>
-                        {isMe ? "Bạn" : member.nickname || member.username || "Người dùng"}
+                        {isMe
+                            ? "Bạn"
+                            : member.accountLocked
+                              ? LOCKED_ACCOUNT_NAME
+                              : member.nickname || member.username || "Người dùng"}
                     </Text>
                     {member.role !== "MEMBER" && (
                         <Text style={styles.roleLabel}>

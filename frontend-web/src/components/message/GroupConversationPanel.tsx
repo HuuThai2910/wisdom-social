@@ -17,6 +17,10 @@ import type {
 } from "../../services/chatService";
 import { DEFAULT_AVATAR_URL } from "../../constants/ui";
 import { buildS3Url } from "../../utils/s3";
+import {
+    LOCKED_ACCOUNT_AVATAR_URL,
+    LOCKED_ACCOUNT_NAME,
+} from "../../utils/lockedAccount";
 import TransferOwnershipModal from "./TransferOwnershipModal";
 
 interface GroupConversationPanelProps {
@@ -44,7 +48,8 @@ interface GroupConversationPanelProps {
     onCloseTransferOwnerModal: () => void;
     onTransferOwnershipAndLeave: (newOwnerUserId: number) => Promise<boolean>;
     onGetBlockedMembers: () => Promise<ConversationMember[]>;
-    onBlockMember: (targetUserId: number) => Promise<boolean>;
+    onOpenConfirmBlock: (userId: number) => void;
+    onOpenConfirmTransferOwner: (userId: number) => void;
     onUnblockMember: (targetUserId: number) => Promise<boolean>;
     onUpdateMemberRole: (
         targetUserId: number,
@@ -108,6 +113,7 @@ export default function GroupConversationPanel({
     conversation,
     currentUserId,
     canManageMembers,
+    canKickMembers,
     isLeavingGroup,
     isTransferOwnerModalOpen,
     pendingJoinRequestId,
@@ -120,7 +126,8 @@ export default function GroupConversationPanel({
     onCloseTransferOwnerModal,
     onTransferOwnershipAndLeave,
     onGetBlockedMembers,
-    onBlockMember,
+    onOpenConfirmBlock,
+    onOpenConfirmTransferOwner,
     onUnblockMember,
     onUpdateMemberRole,
     onProcessJoinRequest,
@@ -393,7 +400,13 @@ export default function GroupConversationPanel({
                                     {members.map((member) => {
                                         const isMe =
                                             member.userId === currentUserId;
-                                        const canShowMenu = isMe || isOwner;
+                                        const canModerateMember =
+                                            !isMe &&
+                                            (isOwner ||
+                                                (canKickMembers &&
+                                                    member.role === "MEMBER"));
+                                        const canShowMenu =
+                                            isMe || canModerateMember;
 
                                         return (
                                             <div
@@ -412,11 +425,15 @@ export default function GroupConversationPanel({
                                                     <div className="relative">
                                                         <img
                                                             src={
-                                                                member.avatar ||
-                                                                DEFAULT_AVATAR_URL
+                                                                member.accountLocked
+                                                                    ? LOCKED_ACCOUNT_AVATAR_URL
+                                                                    : member.avatar ||
+                                                                      DEFAULT_AVATAR_URL
                                                             }
                                                             alt={
-                                                                member.nickname
+                                                                member.accountLocked
+                                                                    ? LOCKED_ACCOUNT_NAME
+                                                                    : member.nickname
                                                             }
                                                             className="h-10 w-10 rounded-full object-cover"
                                                         />
@@ -434,8 +451,10 @@ export default function GroupConversationPanel({
                                                         <p className="text-sm font-semibold text-gray-900 dark:text-white">
                                                             {isMe
                                                                 ? "Bạn"
-                                                                : member.nickname ||
-                                                                  "Người dùng"}
+                                                                : member.accountLocked
+                                                                  ? LOCKED_ACCOUNT_NAME
+                                                                  : member.nickname ||
+                                                                    "Người dùng"}
                                                         </p>
                                                         {member.role ===
                                                             "OWNER" && (
@@ -480,7 +499,7 @@ export default function GroupConversationPanel({
                                                                     ref={
                                                                         menuRef
                                                                     }
-                                                                    className="absolute right-0 top-full z-10 mt-1 w-40 rounded-xl bg-white p-1.5 shadow-2xl ring-1 ring-black/5 dark:bg-[#262626]"
+                                                                    className="absolute right-0 top-full z-10 mt-1 w-48 rounded-xl bg-white p-1.5 shadow-2xl ring-1 ring-black/5 dark:bg-[#262626]"
                                                                 >
                                                                     {isMe ? (
                                                                         <button
@@ -496,9 +515,26 @@ export default function GroupConversationPanel({
                                                                             Rời
                                                                             nhóm
                                                                         </button>
-                                                                    ) : isOwner ? (
+                                                                    ) : canModerateMember ? (
                                                                         <div className="flex flex-col">
-                                                                            {member.role ===
+                                                                            {isOwner ? (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => {
+                                                                                        setActiveMenuMemberId(
+                                                                                            null,
+                                                                                        );
+                                                                                        onOpenConfirmTransferOwner(
+                                                                                            member.userId,
+                                                                                        );
+                                                                                    }}
+                                                                                    className="flex w-full items-center whitespace-nowrap rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-[#333333]"
+                                                                                >
+                                                                                    Chuyển trưởng nhóm
+                                                                                </button>
+                                                                            ) : null}
+
+                                                                            {isOwner && member.role ===
                                                                             "MEMBER" ? (
                                                                                 <button
                                                                                     type="button"
@@ -517,7 +553,7 @@ export default function GroupConversationPanel({
                                                                                     phó
                                                                                     nhóm
                                                                                 </button>
-                                                                            ) : member.role ===
+                                                                            ) : isOwner && member.role ===
                                                                               "DEPUTY" ? (
                                                                                 <button
                                                                                     type="button"
@@ -557,7 +593,7 @@ export default function GroupConversationPanel({
                                                                                 type="button"
                                                                                 onClick={() => {
                                                                                     setActiveMenuMemberId(null);
-                                                                                    void onBlockMember(member.userId);
+                                                                                    onOpenConfirmBlock(member.userId);
                                                                                 }}
                                                                                 className="flex w-full items-center rounded-lg px-3 py-2 text-sm text-red-700 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-900/20"
                                                                             >

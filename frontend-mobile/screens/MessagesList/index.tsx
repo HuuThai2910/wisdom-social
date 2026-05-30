@@ -732,6 +732,7 @@ export default function MessagesListScreen() {
                             unreadCount={item.unreadCount ?? 0}
                             isPinned={isPinned}
                             online={isDirectPartnerOnline}
+                            locked={displayInfo.locked}
                             updatedAt={item.lastMessage?.lastMessageAt ?? item.updatedAt}
                             onPress={() => {
                                 if (suppressNextPressRef.current) {

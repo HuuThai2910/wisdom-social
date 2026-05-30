@@ -1,4 +1,8 @@
 import type { Conversation, ConversationMember } from "../services/chatService";
+import {
+    LOCKED_ACCOUNT_AVATAR_URL,
+    LOCKED_ACCOUNT_NAME,
+} from "./lockedAccount";
 
 interface MemberLike {
     userId: number;
@@ -6,6 +10,7 @@ interface MemberLike {
     username?: string;
     avatar?: string;
     status?: ConversationMember["status"];
+    accountLocked?: boolean;
 }
 
 export interface ConversationDisplayInfo {
@@ -48,10 +53,14 @@ function normalizeMembers(
             username: member.username,
             avatar: member.avatar,
             status: member.status,
+            accountLocked: member.accountLocked,
         }));
 }
 
 function resolveMemberDisplayName(member: MemberLike): string {
+    // Tài khoản bị khóa -> che tên thật.
+    if (member.accountLocked) return LOCKED_ACCOUNT_NAME;
+
     const nickname = member.nickname?.trim();
     if (nickname) return nickname;
 
@@ -83,7 +92,10 @@ function buildGroupCompositeAvatars(members: MemberLike[]): string[] {
     const seen = new Set<string>();
 
     for (const member of activeMembers) {
-        const avatar = member.avatar?.trim();
+        // Tài khoản bị khóa -> dùng avatar trắng/mặc định thay cho avatar thật.
+        const avatar = member.accountLocked
+            ? LOCKED_ACCOUNT_AVATAR_URL
+            : member.avatar?.trim();
         if (!avatar || seen.has(avatar)) continue;
         seen.add(avatar);
         avatars.push(avatar);
@@ -121,6 +133,23 @@ export function buildConversationDisplayInfo({
     );
     const explicitDirectName = conversation.name?.trim();
     const explicitDirectAvatarUrl = conversation.imageUrl?.trim();
+
+    // Đối phương bị khóa khi BẤT KỲ nguồn nào báo khóa:
+    // - member.accountLocked (chi tiết hội thoại / realtime), hoặc
+    // - conversation.directPartnerLocked (sidebar không có sẵn members,
+    //   hoặc khi cache members cũ trả về false nhưng detail/DB là true).
+    // Dùng OR thay vì ?? để cờ "đã khóa" luôn thắng dữ liệu cũ.
+    const partnerLocked =
+        Boolean(otherMember?.accountLocked) ||
+        Boolean(conversation.directPartnerLocked);
+
+    if (partnerLocked) {
+        return {
+            name: LOCKED_ACCOUNT_NAME,
+            avatarUrl: LOCKED_ACCOUNT_AVATAR_URL,
+            compositeAvatarUrls: [],
+        };
+    }
 
     return {
         name: otherMember

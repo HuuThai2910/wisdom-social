@@ -3,8 +3,7 @@ import { useNavigate } from "react-router-dom";
 import QRCode from "qrcode";
 import axios from "axios";
 import { setCookie } from "../utils/cookies";
-
-const API_BASE_URL = "http://localhost:8080/api";
+import { API_BASE_URL } from "../config/backend";
 
 export default function QRLogin() {
   const [sessionId, setSessionId] = useState<string>("");

@@ -16,6 +16,7 @@ import {
 } from "react-native";
 import UserAvatar from "@/components/UserAvatar";
 import TransferOwnershipModal from "@/components/TransferOwnershipModal";
+import { LOCKED_ACCOUNT_NAME } from "@/utils/lockedAccount";
 
 interface GroupConversationPanelProps {
     conversation: Conversation;
@@ -228,25 +229,30 @@ export default function GroupConversationPanel({
                         <View key={member.userId} style={styles.memberCard}>
                             <View style={styles.memberMainRow}>
                                 <UserAvatar
-                                    uri={member.avatar}
+                                    uri={member.accountLocked ? undefined : member.avatar}
                                     name={
-                                        member.nickname ||
-                                        member.username ||
-                                        "?"
+                                        member.accountLocked
+                                            ? LOCKED_ACCOUNT_NAME
+                                            : member.nickname ||
+                                              member.username ||
+                                              "?"
                                     }
                                     size={36}
+                                    locked={member.accountLocked}
                                 />
                                 <View style={styles.memberIdentity}>
                                     <Text
                                         style={styles.memberName}
                                         numberOfLines={1}
                                     >
-                                        {member.nickname ||
-                                            member.username ||
-                                            "Nguoi dung"}
+                                        {member.accountLocked
+                                            ? LOCKED_ACCOUNT_NAME
+                                            : member.nickname ||
+                                              member.username ||
+                                              "Nguoi dung"}
                                         {isCurrentUser ? " (Ban)" : ""}
                                     </Text>
-                                    {member.username ? (
+                                    {member.username && !member.accountLocked ? (
                                         <Text
                                             style={styles.memberUsername}
                                             numberOfLines={1}
