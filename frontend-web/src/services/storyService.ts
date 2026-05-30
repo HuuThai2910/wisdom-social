@@ -119,34 +119,52 @@ export const uploadStoryMediaAndGetFormat = async (file: File): Promise<string> 
  * @param mediaUrls Array of S3 object keys for media (from uploadStoryMediaAndGetFormat)
  */
 export const createStory = async (
-    content?: string,
-    privacy: string = "PUBLIC",
-    mediaUrls?: string[],
-    musicId?: string,
-    musicStartTime?: number,
-    muteOriginal?: boolean
+    params: {
+        content?: string;
+        textLayers?: any[];
+        musicStickers?: any[];
+        privacy: string;
+        mediaUrls?: string[];
+        musicId?: string;
+        musicStartTime?: number;
+        muteOriginal?: boolean;
+    }
 ): Promise<any> => {
     try {
-        console.log(`📝 [Story] Creating story with ${mediaUrls?.length || 0} media items, music: ${musicId}, muteOriginal: ${muteOriginal}`);
+        console.log(`📝 [Story] Creating story with text_layers:`, params.textLayers?.length || 0, "music_stickers:", params.musicStickers?.length || 0);
 
         const formData = new FormData();
-        if (content) formData.append("content", content);
-        formData.append("privacy", privacy);
 
-        if (mediaUrls && mediaUrls.length > 0) {
-            mediaUrls.forEach((url) => {
+        // Add basic fields
+        if (params.content) formData.append("content", params.content);
+        formData.append("privacy", params.privacy);
+
+        // Add text_layers as JSON
+        if (params.textLayers && params.textLayers.length > 0) {
+            formData.append("text_layers", JSON.stringify(params.textLayers));
+        }
+
+        // Add music_stickers as JSON
+        if (params.musicStickers && params.musicStickers.length > 0) {
+            formData.append("music_stickers", JSON.stringify(params.musicStickers));
+        }
+
+        // Add media URLs
+        if (params.mediaUrls && params.mediaUrls.length > 0) {
+            params.mediaUrls.forEach((url) => {
                 formData.append("mediaUrls", url);
             });
         }
 
-        if (musicId) {
-            formData.append("musicId", musicId);
+        // Add music metadata
+        if (params.musicId) {
+            formData.append("musicId", params.musicId);
         }
-        if (musicStartTime !== undefined) {
-            formData.append("musicStartTime", Math.round(musicStartTime).toString());
+        if (params.musicStartTime !== undefined) {
+            formData.append("musicStartTime", Math.round(params.musicStartTime).toString());
         }
-        if (muteOriginal !== undefined) {
-            formData.append("muteOriginal", muteOriginal.toString());
+        if (params.muteOriginal !== undefined) {
+            formData.append("muteOriginal", params.muteOriginal.toString());
         }
 
         const response = await axiosClient.post("/stories", formData, {

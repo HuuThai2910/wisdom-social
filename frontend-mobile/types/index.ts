@@ -23,6 +23,59 @@ export type StoryMedia = {
     url: string;
     type: string;
     thumbnailUrl?: string;
+    duration_ms?: number;
+};
+
+export type TextLayerStyle = {
+    fontSize: number;
+    fontFamily: string;
+    color: string;
+    align: "left" | "center" | "right";
+    rotation?: number;
+    bold?: boolean;
+    shadow?: boolean;
+};
+
+export type TextLayer = {
+    id: string;
+    content: string;
+    x_pct: number;
+    y_pct: number;
+    width_pct?: number;
+    height_pct?: number;
+    style: TextLayerStyle;
+    z_index: number;
+};
+
+export type MusicStickerStyle = "compact" | "rectangle" | "square" | "vinyl" | "hidden";
+
+export const MUSIC_STICKER_STYLES: Record<MusicStickerStyle, MusicStickerStyle> = {
+    compact: "compact",
+    rectangle: "rectangle",
+    square: "square",
+    vinyl: "vinyl",
+    hidden: "hidden",
+};
+
+export type MusicStickerMetadata = {
+    track_id: string;
+    title: string;
+    artist: string;
+    cover_url?: string;
+    start_sec?: number;
+    end_sec?: number;
+};
+
+export type MusicSticker = {
+    id: string;
+    x_pct: number;
+    y_pct: number;
+    width_pct?: number;
+    height_pct?: number;
+    rotation_deg?: number;
+    style?: MusicStickerStyle;
+    meta: MusicStickerMetadata;
+    z_index: number;
 };
 
 export type StoryMusic = {
@@ -48,8 +101,10 @@ export type Story = {
     media?: StoryMedia;
     user?: User;
     music?: StoryMusic;
-    stickers?: unknown[];
     textStyle?: unknown;
+    text_layers?: TextLayer[];
+    music_stickers?: MusicSticker[];
+    duration_ms?: number;
     privacy?: PrivacyType;
     allowReplies?: boolean;
     allowReactions?: boolean;
@@ -138,14 +193,50 @@ export type Post = {
     };
 };
 
-export type AppNotification = {
-    id: string;
-    type: "like" | "follow" | "comment" | "mention";
-    userId: string;
-    postId?: string;
+export interface ApiResponse<T> {
+    status: number;
+    success: boolean;
     message: string;
+    data: T | null;
+    errors?: unknown;
+    timestamp: string;
+}
+
+export type NotificationType =
+    | "REACTION_POST" | "REACTION_COMMENT" | "REACTION_STORY" | "REACTION_NOTE"
+    | "COMMENT_POST" | "COMMENT_MENTION" | "REPLY_COMMENT"
+    | "SHARE_POST"
+    | "TAG_POST" | "TAG_COMMENT" | "STORY_REPLY";
+
+export type TargetType = "POST" | "POST_SHARE" | "NOTE" | "STORY" | "COMMENT";
+
+export interface NotificationMetadata {
+    imageUrl?: string;
+    count?: number;
+    deepLink?: string;
+    extraData?: string;
+}
+
+export interface Notification {
+    id: string;
+    recipientId: string;
+    actorIds: string[];
+    type: NotificationType;
+    targetType?: TargetType;
+    targetId?: string;
+    content?: string;
+    metadata?: NotificationMetadata;
+    isRead: boolean;
+    readAt?: string;
     createdAt: string;
-    read: boolean;
+}
+
+export type AppNotification = Omit<Notification, "type"> & {
+    type: NotificationType | "like" | "comment" | "mention";
+    userId?: string;
+    postId?: string;
+    message?: string;
+    read?: boolean;
 };
 
 export type Message = {

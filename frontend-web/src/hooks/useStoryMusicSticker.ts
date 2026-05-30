@@ -1,7 +1,6 @@
 import { useState, useCallback } from "react";
 import type { MusicMetadata } from "../services/musicService";
-
-export type MusicStickerStyle = "compact" | "rectangle" | "square" | "vinyl" | "hidden";
+import { type MusicStickerStyle, MUSIC_STICKER_STYLES } from "../types";
 
 export interface MusicStickerState {
   id: string;
@@ -23,7 +22,7 @@ export function useStoryMusicSticker() {
     setSticker({
       id: `music_${Date.now()}`,
       music,
-      style: "rectangle",
+      style: MUSIC_STICKER_STYLES.rectangle,
       x: 50,
       y: 75,
       scale: 1,
@@ -47,11 +46,11 @@ export function useStoryMusicSticker() {
     setSticker((prev) => {
       if (!prev) return null;
       const styles: MusicStickerStyle[] = [
-        "compact",
-        "rectangle",
-        "square",
-        "vinyl",
-        "hidden",
+        MUSIC_STICKER_STYLES.compact,
+        MUSIC_STICKER_STYLES.rectangle,
+        MUSIC_STICKER_STYLES.square,
+        MUSIC_STICKER_STYLES.vinyl,
+        MUSIC_STICKER_STYLES.hidden,
       ];
       const idx = styles.indexOf(prev.style);
       return { ...prev, style: styles[(idx + 1) % styles.length] };

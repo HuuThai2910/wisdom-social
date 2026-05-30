@@ -53,11 +53,11 @@ export interface Post {
     allowShares?: boolean;
     music?: NoteMusic;
     location?:
-        | string
-        | {
-            name?: string;
-            address?: string;
-        };
+    | string
+    | {
+        name?: string;
+        address?: string;
+    };
 }
 
 export interface Comment {
@@ -69,12 +69,74 @@ export interface Comment {
 }
 
 // Story Types
+export interface TextLayerStyle {
+    fontSize: number;
+    fontFamily: string;
+    color: string;
+    align: "left" | "center" | "right";
+    rotation?: number;
+    bold?: boolean;
+    shadow?: boolean;
+}
+
+export interface TextLayer {
+    id: string;
+    content: string;
+    x_pct: number;
+    y_pct: number;
+    width_pct?: number;
+    height_pct?: number;
+    style: TextLayerStyle;
+    z_index: number;
+}
+
+export type MusicStickerStyle = "compact" | "rectangle" | "square" | "vinyl" | "hidden";
+
+export const MUSIC_STICKER_STYLES: Record<MusicStickerStyle, MusicStickerStyle> = {
+    compact: "compact",
+    rectangle: "rectangle",
+    square: "square",
+    vinyl: "vinyl",
+    hidden: "hidden",
+};
+
+export interface MusicStickerMetadata {
+    track_id: string;
+    title: string;
+    artist: string;
+    cover_url?: string;
+    start_sec?: number;
+    end_sec?: number;
+}
+
+export interface MusicSticker {
+    id: string;
+    x_pct: number;
+    y_pct: number;
+    width_pct?: number;
+    height_pct?: number;
+    rotation_deg?: number;
+    style?: MusicStickerStyle;
+    meta: MusicStickerMetadata;
+    z_index: number;
+}
+
 export interface Story {
     id: string;
     user: User;
     image: string;
     createdAt: string;
     isViewed?: boolean;
+    text?: string;
+    media?: { url: string; type: string; duration_ms?: number };
+    music?: { title?: string; artist?: string; muteOriginal?: boolean };
+    text_layers?: TextLayer[];
+    music_stickers?: MusicSticker[];
+    duration_ms?: number;
+    privacy?: string;
+    allowReplies?: boolean;
+    allowReactions?: boolean;
+    allowSharing?: boolean;
 }
 
 // Message Types
@@ -94,7 +156,7 @@ export interface Chat {
 }
 
 // Notification Types
-export type NotificationType = 
+export type NotificationType =
     | 'REACTION_POST' | 'REACTION_COMMENT' | 'REACTION_STORY' | 'REACTION_NOTE'
     | 'COMMENT_POST' | 'COMMENT_MENTION' | 'REPLY_COMMENT'
     | 'SHARE_POST'

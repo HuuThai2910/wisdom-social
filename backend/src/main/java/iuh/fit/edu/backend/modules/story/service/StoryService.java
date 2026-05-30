@@ -111,4 +111,13 @@ public interface StoryService {
      * Used for showing story ring/border on avatar
      */
     boolean hasActiveStory(String userId);
+
+    /**
+     * Calculate and set story duration based on media type and content
+     * - IMAGE only: 5000ms
+     * - IMAGE + text/sticker: 7000ms
+     * - TEXT only: 5000-10000ms (based on word count)
+     * - VIDEO: actual duration capped at 60000ms
+     */
+    Story calculateAndSetDuration(Story story);
 }

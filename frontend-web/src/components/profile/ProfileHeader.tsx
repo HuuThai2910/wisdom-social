@@ -31,11 +31,11 @@ import { useHasActiveStory } from "../../hooks/useHasActiveStory";
 import { fetchUserStories } from "../../services/storyService";
 import StoryViewerModal from "../story/StoryViewerModal";
 import { usePresenceStatus } from "../../hooks/usePresenceStatus";
+import CreateHighlightModal from "./CreateHighlightModal";
 import {
   getUserHighlights,
   type StoryHighlight,
 } from "../../services/highlightService";
-
 
 interface ProfileHeaderProps {
   user: User;
@@ -103,7 +103,7 @@ export default function ProfileHeader({
 
   // Highlights state
   const [highlights, setHighlights] = useState<StoryHighlight[]>([]);
-  const [_showCreateHighlight, setShowCreateHighlight] = useState(false);
+  const [showCreateHighlight, setShowCreateHighlight] = useState(false);
   const [viewingHighlight, setViewingHighlight] =
     useState<StoryHighlight | null>(null);
 
@@ -380,112 +380,14 @@ export default function ProfileHeader({
               )}
             </div>
           </div>
-
-          {/* Story Highlights Section - Full width */}
-          {(isOwnProfile || highlights.length > 0) && (
-            <div className="mt-6 pt-6 border-t border-gray-200 dark:border-[#262626]">
-              <div className="flex gap-5 overflow-x-auto pb-2 scrollbar-thin">
-                {/* Create New Highlight Button (own profile only) */}
-                {isOwnProfile && (
-                  <button
-                    onClick={() => setShowCreateHighlight(true)}
-                    className="flex flex-col items-center gap-2 shrink-0 group"
-                  >
-                    <div className="w-[72px] h-[72px] rounded-full border-2 border-dashed border-gray-300 dark:border-[#363636] flex items-center justify-center group-hover:border-blue-400 dark:group-hover:border-blue-500 transition-colors bg-gray-50 dark:bg-[#1a1a1a] group-hover:bg-blue-50 dark:group-hover:bg-blue-900/10">
-                      <Plus
-                        size={28}
-                        strokeWidth={1.5}
-                        className="text-gray-400 group-hover:text-blue-500 transition-colors"
-                      />
-                    </div>
-                    <span className="text-xs text-gray-600 dark:text-gray-400 font-medium group-hover:text-blue-500 transition-colors w-[72px] text-center truncate">
-                      Mới
-                    </span>
-                  </button>
-                )}
-
-                {/* Existing Highlights */}
-                {highlights.map((hl) => {
-                  const isTextCover =
-                    hl.coverImageUrl?.startsWith("text-story:");
-                  const coverUrl = isTextCover
-                    ? null
-                    : buildS3Url(hl.coverImageUrl) ||
-                      (hl.stories?.[0]?.media?.url
-                        ? buildS3Url(hl.stories[0].media.url)
-                        : null);
-
-                  return (
-                    <button
-                      key={hl.id}
-                      onClick={() => {
-                        if (hl.stories && hl.stories.length > 0) {
-                          setViewingHighlight(hl);
-                          setActiveStories(hl.stories);
-                          setIsViewerOpen(true);
-                        }
-                      }}
-                      className="flex flex-col items-center gap-2 shrink-0 group"
-                    >
-                      <div className="w-[72px] h-[72px] rounded-full p-[2px] bg-gradient-to-tr from-gray-300 to-gray-400 dark:from-[#525252] dark:to-[#404040] group-hover:from-blue-400 group-hover:to-indigo-500 transition-all">
-                        <div className="w-full h-full rounded-full overflow-hidden border-2 border-white dark:border-[#1a1a1a] bg-gray-100 dark:bg-[#262626]">
-                          {isTextCover ? (
-                            (() => {
-                              const storyText = hl.coverImageUrl!.substring(
-                                "text-story:".length
-                              );
-                              const bgMatch = storyText.match(/\[bg:(.*?)\]/);
-                              let bgClass =
-                                "bg-gradient-to-br from-purple-500 to-blue-500";
-                              let cleanText = storyText;
-                              if (bgMatch) {
-                                bgClass = bgMatch[1];
-                                cleanText = storyText
-                                  .replace(/\[bg:(.*?)\]/, "")
-                                  .trim();
-                              }
-                              return (
-                                <div
-                                  className={`w-full h-full ${bgClass} flex items-center justify-center p-1 text-center`}
-                                >
-                                  <span className="text-white text-[8px] line-clamp-2 leading-tight font-bold">
-                                    {cleanText}
-                                  </span>
-                                </div>
-                              );
-                            })()
-                          ) : coverUrl ? (
-                            <img
-                              src={coverUrl}
-                              alt={hl.title}
-                              className="w-full h-full object-cover"
-                            />
-                          ) : (
-                            <div className="w-full h-full bg-gradient-to-br from-purple-400 to-blue-400 flex items-center justify-center">
-                              <span className="text-white text-lg font-bold">
-                                {hl.title.charAt(0).toUpperCase()}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      <span className="text-xs text-gray-600 dark:text-gray-400 font-medium group-hover:text-blue-500 transition-colors w-[72px] text-center truncate">
-                        {hl.title}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
         </div>
 
         {/* ── Story Highlights Section ─────────────────────────────────── */}
         {isOwnProfile && (
           <div className="mt-6 pt-6 border-t border-gray-200 dark:border-[#262626]">
             <div className="flex gap-5 overflow-x-auto pb-2">
-              <Link
-                to="/create-story"
+              <button
+                onClick={() => setShowCreateHighlight(true)}
                 className="flex flex-col items-center gap-2 shrink-0 group"
               >
                 <div className="w-18 h-18 rounded-full border-2 border-dashed border-gray-300 dark:border-[#363636] flex items-center justify-center group-hover:border-blue-400 dark:group-hover:border-blue-500 transition-colors bg-gray-50 dark:bg-[#1a1a1a] group-hover:bg-blue-50 dark:group-hover:bg-blue-900/10">
@@ -498,7 +400,7 @@ export default function ProfileHeader({
                 <span className="text-xs text-gray-600 dark:text-gray-400 font-medium group-hover:text-blue-500 transition-colors">
                   Mới
                 </span>
-              </Link>
+              </button>
             </div>
           </div>
         )}
@@ -519,6 +421,16 @@ export default function ProfileHeader({
         <FriendsModal
           userId={user.id}
           onClose={() => setShowFriendsModal(false)}
+        />
+      )}
+
+      {/* ── Create Highlight Modal ───────────────────────────────────── */}
+      {showCreateHighlight && (
+        <CreateHighlightModal
+          userId={String(user.id)}
+          isOpen={showCreateHighlight}
+          onClose={() => setShowCreateHighlight(false)}
+          onCreated={fetchHighlights}
         />
       )}
 
