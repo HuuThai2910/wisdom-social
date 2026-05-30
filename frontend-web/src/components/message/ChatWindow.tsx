@@ -70,6 +70,7 @@ import {
   ConversationSearchProvider,
   useConversationSearch,
 } from "../../contexts/ConversationSearchContext";
+import chatRuntimeStore from "../../stores/chatRuntimeStore";
 
 interface ChatWindowProps {
   conversationId: number;
@@ -1269,9 +1270,23 @@ function ChatWindowContent({
     0,
     maxCallParticipants - (callPickerMode === "invite" ? 1 + (activeCall?.remoteUserIds.length ?? 0) : 1)
   );
+  const showAlreadyInCallError = useCallback(() => {
+    toast.error("Bạn đang trong một cuộc gọi khác. Hãy kết thúc cuộc gọi hiện tại trước.");
+  }, []);
+
+  const isStartingAnotherCall = useCallback(() => {
+    if (activeCall) return true;
+    const runtimeCall = chatRuntimeStore.getActiveCall();
+    return Boolean(runtimeCall && runtimeCall.userId === userId);
+  }, [activeCall, userId]);
 
   const openStartCallPicker = useCallback(
     (callType: "audio" | "video") => {
+      if (isStartingAnotherCall()) {
+        showAlreadyInCallError();
+        return;
+      }
+
       if (!isGroupConversation) {
         void startCall(callType);
         return;
@@ -1285,7 +1300,13 @@ function ChatWindowContent({
       setSelectedCallMemberIds(new Set());
       setCallPickerOpen(true);
     },
-    [callableMembers.length, isGroupConversation, startCall]
+    [
+      callableMembers.length,
+      isGroupConversation,
+      isStartingAnotherCall,
+      showAlreadyInCallError,
+      startCall,
+    ]
   );
 
   const openInviteCallPicker = useCallback(() => {
@@ -1318,6 +1339,10 @@ function ChatWindowContent({
     if (callPickerMode === "invite") {
       await inviteUsersToCall(ids);
     } else {
+      if (isStartingAnotherCall()) {
+        showAlreadyInCallError();
+        return;
+      }
       await startCall(callPickerType, ids);
     }
     setCallPickerOpen(false);
@@ -1325,8 +1350,10 @@ function ChatWindowContent({
   }, [
     callPickerMode,
     callPickerType,
+    isStartingAnotherCall,
     inviteUsersToCall,
     selectedCallMemberIds,
+    showAlreadyInCallError,
     startCall,
   ]);
 
@@ -2063,7 +2090,7 @@ function ChatWindowContent({
             onJumpToMessage={requestJumpToMessage}
             onRecall={handleRecall}
             canRecallOwnMessages={canRecallOwnMessages}
-            onRecallCall={(callType) => void startCall(callType)}
+            onRecallCall={(callType) => openStartCallPicker(callType)}
             onDeleteForMe={handleDeleteMessageForMe}
             onReaction={addReaction}
             onOpenRequireApprovalDetails={onToggleInfoPanel}

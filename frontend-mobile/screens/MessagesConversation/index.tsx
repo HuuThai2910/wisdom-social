@@ -112,6 +112,7 @@ import { buildPinnedBannerItemsFromSnapshot } from "@/utils/pinnedMessageSnapsho
 import { useOneToOneCall } from "@/hooks/useOneToOneCall";
 import { consumeInviteReturnSync } from "@/utils/inviteReturnSync";
 import { consumePendingIncomingCall } from "@/utils/pendingIncomingCall";
+import chatRuntimeStore from "@/stores/chatRuntimeStore";
 
 const FORWARD_BLOCKED_MEMBER_STATUSES = new Set([
     "LEFT",
@@ -1128,6 +1129,17 @@ export default function MessagesConversationScreen() {
         },
         [],
     );
+    const showAlreadyInCallError = useCallback(() => {
+        Alert.alert(
+            "Khong the goi",
+            "Ban dang trong mot cuoc goi khac. Hay ket thuc cuoc goi hien tai truoc.",
+        );
+    }, []);
+    const isStartingAnotherCall = useCallback(() => {
+        if (activeCall) return true;
+        const runtimeCall = chatRuntimeStore.getActiveCall();
+        return Boolean(runtimeCall && runtimeCall.userId === currentUserId);
+    }, [activeCall, currentUserId]);
 
     const toggleCallMember = useCallback(
         (memberId: number) => {
@@ -1151,6 +1163,10 @@ export default function MessagesConversationScreen() {
         if (callPickerMode === "invite") {
             await inviteUsersToCall(ids);
         } else {
+            if (isStartingAnotherCall()) {
+                showAlreadyInCallError();
+                return;
+            }
             await startCall(callPickerType, ids);
         }
         setCallPickerVisible(false);
@@ -1158,8 +1174,10 @@ export default function MessagesConversationScreen() {
     }, [
         callPickerMode,
         callPickerType,
+        isStartingAnotherCall,
         inviteUsersToCall,
         selectedCallMemberIds,
+        showAlreadyInCallError,
         startCall,
     ]);
 
@@ -1170,6 +1188,11 @@ export default function MessagesConversationScreen() {
                     "Tinh nang chua ho tro",
                     "Call can development build vi Expo Go khong co native WebRTC.",
                 );
+                return;
+            }
+
+            if (isStartingAnotherCall()) {
+                showAlreadyInCallError();
                 return;
             }
 
@@ -1191,9 +1214,11 @@ export default function MessagesConversationScreen() {
         [
             callableMembers.length,
             directTargetUserId,
+            isStartingAnotherCall,
             isCallSupported,
             isGroupConversation,
             openCallPicker,
+            showAlreadyInCallError,
             startCall,
         ],
     );
