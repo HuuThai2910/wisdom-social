@@ -15,6 +15,7 @@ interface ActiveCallState {
     remoteUserId: number;
     remoteUserIds: number[];
     participantUserIds: number[];
+    hostUserId: number;
     remoteName: string;
     remoteAvatar?: string;
     status: CallStatus;
@@ -114,6 +115,12 @@ function getSignalJoiningUserId(signal: CallSignalPayload): number | null {
     return Number.isFinite(id) ? id : null;
 }
 
+function getSignalHostUserId(signal: CallSignalPayload): number | null {
+    const candidate = signal.candidate as { hostUserId?: unknown } | undefined;
+    const id = Number(candidate?.hostUserId);
+    return Number.isFinite(id) ? id : null;
+}
+
 function getSignalReason(signal: CallSignalPayload): string | null {
     const candidate = signal.candidate as { reason?: unknown } | undefined;
     return typeof candidate?.reason === "string" ? candidate.reason : null;
@@ -122,10 +129,12 @@ function getSignalReason(signal: CallSignalPayload): string | null {
 function buildCallMetadata(
     participantUserIds: number[],
     joiningUserId?: number,
+    hostUserId?: number,
 ): Record<string, unknown> {
     return {
         participantUserIds: Array.from(new Set(participantUserIds)),
         ...(joiningUserId != null ? { joiningUserId } : {}),
+        ...(hostUserId != null ? { hostUserId } : {}),
     };
 }
 export function useOneToOneCall(options: UseOneToOneCallOptions) {
@@ -340,6 +349,8 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                             activeCallRef.current?.participantUserIds ?? [
                                 currentUserId,
                             ],
+                            undefined,
+                            activeCallRef.current?.hostUserId ?? currentUserId,
                         ),
                     });
                     await flushQueuedIceCandidates(remoteUserId);
@@ -382,6 +393,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                     remoteUserId: remoteUserIds[0],
                     remoteUserIds,
                     participantUserIds: [currentUserId],
+                    hostUserId: currentUserId,
                     remoteName:
                         remoteUserIds.length > 1
                             ? `Nhom (${remoteUserIds.length} nguoi)`
@@ -479,18 +491,21 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
             const answer = await peer.createAnswer();
             await peer.setLocalDescription(answer);
             await flushQueuedIceCandidates(incoming.fromUserId);
+            const participantUserIds = Array.from(
+                new Set([
+                    ...getSignalParticipantUserIds(incoming),
+                    incoming.fromUserId,
+                    currentUserId,
+                ]),
+            );
+            const hostUserId = getSignalHostUserId(incoming) ?? incoming.fromUserId;
             const nextCall: ActiveCallState = {
                 callId: incoming.callId,
                 callType: incoming.callType,
                 remoteUserId: incoming.fromUserId,
                 remoteUserIds: [incoming.fromUserId],
-                participantUserIds: Array.from(
-                    new Set([
-                        ...getSignalParticipantUserIds(incoming),
-                        incoming.fromUserId,
-                        currentUserId,
-                    ]),
-                ),
+                participantUserIds,
+                hostUserId,
                 remoteName: targetName || `Nguoi dung ${incoming.fromUserId}`,
                 remoteAvatar: targetAvatar,
                 status: "accepted",
@@ -511,13 +526,9 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                 targetUserId: incoming.fromUserId,
                 sdp: answer,
                 candidate: buildCallMetadata(
-                    Array.from(
-                        new Set([
-                            ...getSignalParticipantUserIds(incoming),
-                            incoming.fromUserId,
-                            currentUserId,
-                        ]),
-                    ),
+                    participantUserIds,
+                    undefined,
+                    hostUserId,
                 ),
             });
             return true;
@@ -577,7 +588,11 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         (participantUserIds: number[]) => {
             const current = activeCallRef.current;
             if (!current) return;
-            const metadata = buildCallMetadata(participantUserIds);
+            const metadata = buildCallMetadata(
+                participantUserIds,
+                undefined,
+                current.hostUserId,
+            );
             participantUserIds
                 .filter((id) => id !== currentUserId)
                 .forEach((targetUserId) => {
@@ -599,7 +614,11 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         (joiningUserId: number, participantUserIds: number[]) => {
             const current = activeCallRef.current;
             if (!current) return;
-            const metadata = buildCallMetadata(participantUserIds, joiningUserId);
+            const metadata = buildCallMetadata(
+                participantUserIds,
+                joiningUserId,
+                current.hostUserId,
+            );
             participantUserIds
                 .filter((id) => id !== currentUserId && id !== joiningUserId)
                 .forEach((targetUserId) => {
@@ -689,7 +708,11 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                     fromUserId: currentUserId,
                     targetUserId: incoming.fromUserId,
                     sdp: answer,
-                    candidate: buildCallMetadata(participantUserIds),
+                    candidate: buildCallMetadata(
+                        participantUserIds,
+                        undefined,
+                        current.hostUserId,
+                    ),
                 });
                 return true;
             } catch {
@@ -741,6 +764,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         const current = activeCallRef.current;
         if (!current) return;
         const shouldOfferRejoin =
+            current.hostUserId !== currentUserId &&
             current.participantUserIds.length > 2 &&
             current.status === "accepted";
         const nextRejoinableCall = shouldOfferRejoin
@@ -867,7 +891,11 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                     callType: current.callType,
                     fromUserId: currentUserId,
                     targetUserId: signal.fromUserId,
-                    candidate: buildCallMetadata(current.participantUserIds),
+                    candidate: buildCallMetadata(
+                        current.participantUserIds,
+                        undefined,
+                        current.hostUserId,
+                    ),
                 });
                 return;
             }
@@ -952,6 +980,12 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                 return;
             }
             if (signal.event === "reject-call") {
+                if (signal.fromUserId === current.hostUserId) {
+                    resetCallState();
+                    setRejoinableCall(null);
+                    return;
+                }
+
                 if (current.isCaller) {
                     if (getSignalReason(signal) === "busy") {
                         setBusyCallUserId(signal.fromUserId);
@@ -975,6 +1009,12 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                 return;
             }
             if (signal.event === "end-call") {
+                if (signal.fromUserId === current.hostUserId) {
+                    resetCallState();
+                    setRejoinableCall(null);
+                    return;
+                }
+
                 const remainingParticipants = current.participantUserIds.filter(
                     (id) => id !== signal.fromUserId,
                 );

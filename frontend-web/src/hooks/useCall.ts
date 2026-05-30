@@ -22,6 +22,7 @@ interface ActiveCall {
     callType: CallType;
     remoteUserIds: number[];
     participantUserIds: number[];
+    hostUserId: number;
     remoteName: string;
     remoteAvatar?: string;
     status: CallStatus;
@@ -83,6 +84,12 @@ function getSignalJoiningUserId(signal: CallSignalPayload): number | null {
     return Number.isFinite(id) ? id : null;
 }
 
+function getSignalHostUserId(signal: CallSignalPayload): number | null {
+    const candidate = signal.candidate as { hostUserId?: unknown } | undefined;
+    const id = Number(candidate?.hostUserId);
+    return Number.isFinite(id) ? id : null;
+}
+
 function getSignalReason(signal: CallSignalPayload): string | null {
     const candidate = signal.candidate as { reason?: unknown } | undefined;
     return typeof candidate?.reason === "string" ? candidate.reason : null;
@@ -91,10 +98,12 @@ function getSignalReason(signal: CallSignalPayload): string | null {
 function buildCallMetadata(
     participantUserIds: number[],
     joiningUserId?: number,
+    hostUserId?: number,
 ): Record<string, unknown> {
     return {
         participantUserIds: Array.from(new Set(participantUserIds)),
         ...(joiningUserId != null ? { joiningUserId } : {}),
+        ...(hostUserId != null ? { hostUserId } : {}),
     };
 }
 
@@ -800,6 +809,8 @@ export function useCall(options: UseCallOptions) {
                             activeCallRef.current?.participantUserIds ?? [
                                 userId,
                             ],
+                            undefined,
+                            activeCallRef.current?.hostUserId ?? userId,
                         ),
                     });
 
@@ -837,6 +848,7 @@ export function useCall(options: UseCallOptions) {
                 callType,
                 remoteUserIds,
                 participantUserIds: [userId],
+                hostUserId: userId,
                 remoteName:
                     remoteUserIds.length > 1
                         ? `Nhóm (${remoteUserIds.length} người)`
@@ -951,7 +963,11 @@ export function useCall(options: UseCallOptions) {
         (participantUserIds: number[]) => {
             const currentCall = activeCallRef.current;
             if (!currentCall) return;
-            const metadata = buildCallMetadata(participantUserIds);
+            const metadata = buildCallMetadata(
+                participantUserIds,
+                undefined,
+                currentCall.hostUserId,
+            );
             participantUserIds
                 .filter((id) => id !== userId)
                 .forEach((targetUserId) => {
@@ -973,7 +989,11 @@ export function useCall(options: UseCallOptions) {
         (joiningUserId: number, participantUserIds: number[]) => {
             const currentCall = activeCallRef.current;
             if (!currentCall) return;
-            const metadata = buildCallMetadata(participantUserIds, joiningUserId);
+            const metadata = buildCallMetadata(
+                participantUserIds,
+                joiningUserId,
+                currentCall.hostUserId,
+            );
             participantUserIds
                 .filter((id) => id !== userId && id !== joiningUserId)
                 .forEach((targetUserId) => {
@@ -1056,7 +1076,11 @@ export function useCall(options: UseCallOptions) {
                 fromUserId: userId,
                 targetUserId: signal.fromUserId,
                 sdp: answer,
-                candidate: buildCallMetadata(participantUserIds),
+                candidate: buildCallMetadata(
+                    participantUserIds,
+                    undefined,
+                    currentCall.hostUserId,
+                ),
             });
         },
         [
@@ -1090,17 +1114,21 @@ export function useCall(options: UseCallOptions) {
         await pc.setLocalDescription(answer);
         await flushQueuedIceCandidates(signal.callId, signal.fromUserId);
 
+        const participantUserIds = Array.from(
+            new Set([
+                ...getSignalParticipantUserIds(signal),
+                signal.fromUserId,
+                userId,
+            ]),
+        );
+        const hostUserId = getSignalHostUserId(signal) ?? signal.fromUserId;
+
         const nextCall: ActiveCall = {
             callId: signal.callId,
             callType,
             remoteUserIds: [signal.fromUserId],
-            participantUserIds: Array.from(
-                new Set([
-                    ...getSignalParticipantUserIds(signal),
-                    signal.fromUserId,
-                    userId,
-                ]),
-            ),
+            participantUserIds,
+            hostUserId,
             remoteName: targetName ?? `Người dùng ${signal.fromUserId}`,
             remoteAvatar: targetAvatar,
             status: "accepted",
@@ -1124,13 +1152,9 @@ export function useCall(options: UseCallOptions) {
             targetUserId: signal.fromUserId,
             sdp: answer,
             candidate: buildCallMetadata(
-                Array.from(
-                    new Set([
-                        ...getSignalParticipantUserIds(signal),
-                        signal.fromUserId,
-                        userId,
-                    ]),
-                ),
+                participantUserIds,
+                undefined,
+                hostUserId,
             ),
         });
     }, [
@@ -1191,6 +1215,7 @@ export function useCall(options: UseCallOptions) {
         const currentCall = activeCallRef.current;
         if (!currentCall) return;
         const shouldOfferRejoin =
+            currentCall.hostUserId !== userId &&
             currentCall.participantUserIds.length > 2 &&
             currentCall.status === "accepted";
         const nextRejoinableCall = shouldOfferRejoin
@@ -1367,7 +1392,11 @@ export function useCall(options: UseCallOptions) {
                     callType: currentCall.callType,
                     fromUserId: userId,
                     targetUserId: signal.fromUserId,
-                    candidate: buildCallMetadata(currentCall.participantUserIds),
+                    candidate: buildCallMetadata(
+                        currentCall.participantUserIds,
+                        undefined,
+                        currentCall.hostUserId,
+                    ),
                 });
                 return;
             }
@@ -1489,6 +1518,12 @@ export function useCall(options: UseCallOptions) {
             }
 
             if (signal.event === "reject-call") {
+                if (remoteUserId === currentCall.hostUserId) {
+                    resetCallState();
+                    setRejoinableCall(null);
+                    return;
+                }
+
                 if (currentCall.isCaller) {
                     if (getSignalReason(signal) === "busy") {
                         setBusyCallUserId(remoteUserId);
@@ -1545,6 +1580,12 @@ export function useCall(options: UseCallOptions) {
             }
 
             if (signal.event === "end-call") {
+                if (remoteUserId === currentCall.hostUserId) {
+                    resetCallState();
+                    setRejoinableCall(null);
+                    return;
+                }
+
                 const remainingParticipants =
                     currentCall.participantUserIds.filter(
                         (id) => id !== remoteUserId,
