@@ -120,6 +120,7 @@ export default function InCallOverlay({
     const participantCount =
         participants.length ||
         (remoteStreamUrls.length ? remoteStreamUrls.length + 1 : 1);
+    const showLocalPreview = isVideo && participantCount <= 2;
     const remoteStreamUrlByUserId = new Map(
         remoteStreamUrls.map((item) => [item.userId, item.url]),
     );
@@ -224,7 +225,7 @@ export default function InCallOverlay({
                             </View>
                         )}
 
-                        {localStreamUrl && RTCViewComponent ? (
+                        {showLocalPreview && localStreamUrl && RTCViewComponent ? (
                             <RTCViewComponent
                                 streamURL={localStreamUrl}
                                 style={styles.localVideo}

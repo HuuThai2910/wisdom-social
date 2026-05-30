@@ -79,6 +79,7 @@ export default function CallScreen({
     const isGroupCall = participants.length > 2 || remoteStreams.length > 1;
     const showParticipants = participants.length > 0;
     const participantCount = participants.length || (remoteStreams.length ? remoteStreams.length + 1 : 1);
+    const showLocalPreview = callType === "video" && participantCount <= 2;
     const remoteStreamByUserId = new Map(
         remoteStreams.map((item) => [item.userId, item.stream]),
     );
@@ -235,13 +236,15 @@ export default function CallScreen({
                         />
                     )}
 
-                    <video
-                        ref={localVideoRef}
-                        autoPlay
-                        muted
-                        playsInline
-                        className="absolute bottom-28 right-5 h-40 w-28 rounded-2xl object-cover border border-white/30 bg-gray-900 shadow-xl"
-                    />
+                    {showLocalPreview && (
+                        <video
+                            ref={localVideoRef}
+                            autoPlay
+                            muted
+                            playsInline
+                            className="absolute bottom-28 right-5 h-40 w-28 rounded-2xl object-cover border border-white/30 bg-gray-900 shadow-xl"
+                        />
+                    )}
 
                     <div className="pointer-events-none absolute inset-x-0 top-0 p-5 bg-gradient-to-b from-black/70 via-black/30 to-transparent">
                         <div className="flex items-start justify-between gap-4 pointer-events-auto">
@@ -485,13 +488,15 @@ export default function CallScreen({
                         />
                     )}
 
-                    <video
-                        ref={localVideoRef}
-                        autoPlay
-                        muted
-                        playsInline
-                        className="absolute bottom-3 right-3 h-20 w-14 rounded-xl object-cover border border-white/30 bg-gray-900"
-                    />
+                    {showLocalPreview && (
+                        <video
+                            ref={localVideoRef}
+                            autoPlay
+                            muted
+                            playsInline
+                            className="absolute bottom-3 right-3 h-20 w-14 rounded-xl object-cover border border-white/30 bg-gray-900"
+                        />
+                    )}
                 </div>
             ) : (
                 <div className="p-4 bg-[linear-gradient(135deg,#0f172a,#1e293b)] text-white">
