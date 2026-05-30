@@ -932,7 +932,10 @@ export function useCall(options: UseCallOptions) {
     );
 
     const updateCallParticipants = useCallback(
-        (participantUserIds: number[]) => {
+        (
+            participantUserIds: number[],
+            options: { preserveInvitedRemoteIds?: boolean } = {},
+        ) => {
             const normalizedParticipantIds = Array.from(
                 new Set(participantUserIds.filter(Number.isFinite)),
             );
@@ -940,9 +943,17 @@ export function useCall(options: UseCallOptions) {
 
             setActiveCall((prev) => {
                 if (!prev) return prev;
-                const remoteUserIds = normalizedParticipantIds.filter(
+                const participantRemoteUserIds = normalizedParticipantIds.filter(
                     (id) => id !== userId,
                 );
+                const remoteUserIds = options.preserveInvitedRemoteIds === false
+                    ? participantRemoteUserIds
+                    : Array.from(
+                        new Set([
+                            ...prev.remoteUserIds,
+                            ...participantRemoteUserIds,
+                        ]),
+                    );
                 const next = {
                     ...prev,
                     remoteUserIds,

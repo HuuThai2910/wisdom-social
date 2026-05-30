@@ -591,16 +591,27 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
     }, [acceptIncomingSignal]);
 
     const updateCallParticipants = useCallback(
-        (participantUserIds: number[]) => {
+        (
+            participantUserIds: number[],
+            options: { preserveInvitedRemoteIds?: boolean } = {},
+        ) => {
             const normalizedParticipantIds = Array.from(
                 new Set(participantUserIds.filter(Number.isFinite)),
             );
             if (!normalizedParticipantIds.length) return;
             setActiveCall((prev) => {
                 if (!prev) return prev;
-                const remoteUserIds = normalizedParticipantIds.filter(
+                const participantRemoteUserIds = normalizedParticipantIds.filter(
                     (id) => id !== currentUserId,
                 );
+                const remoteUserIds = options.preserveInvitedRemoteIds === false
+                    ? participantRemoteUserIds
+                    : Array.from(
+                        new Set([
+                            ...prev.remoteUserIds,
+                            ...participantRemoteUserIds,
+                        ]),
+                    );
                 const next = {
                     ...prev,
                     remoteUserId: remoteUserIds[0] ?? prev.remoteUserId,
@@ -1069,7 +1080,9 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                 );
                 if (remainingParticipants.length > 1) {
                     closePeerConnectionForUser(signal.fromUserId);
-                    updateCallParticipants(remainingParticipants);
+                    updateCallParticipants(remainingParticipants, {
+                        preserveInvitedRemoteIds: false,
+                    });
                     sendParticipantSnapshot(remainingParticipants);
                     void ensurePeerConnectionsForParticipants(
                         remainingParticipants,
