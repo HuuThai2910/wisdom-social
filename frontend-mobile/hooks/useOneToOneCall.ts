@@ -19,6 +19,12 @@ interface ActiveCallState {
     status: CallStatus;
     isCaller: boolean;
 }
+
+interface RejoinableCallState {
+    callId: string;
+    callType: CallType;
+    participantUserIds: number[];
+}
 interface UseOneToOneCallOptions {
     conversationId: number;
     currentUserId: number;
@@ -153,6 +159,8 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         null,
     );
     const [activeCall, setActiveCall] = useState<ActiveCallState | null>(null);
+    const [rejoinableCall, setRejoinableCall] =
+        useState<RejoinableCallState | null>(null);
     const [durationSeconds, setDurationSeconds] = useState(0);
     const activeCallRef = useRef<ActiveCallState | null>(null);
     const incomingCallRef = useRef<CallSignalPayload | null>(null);
@@ -337,6 +345,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
             try {
                 await createLocalStream(callType);
                 startAudioSession(callType);
+                setRejoinableCall(null);
                 const callId = `call-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
                 const nextCall: ActiveCallState = {
                     callId,
@@ -406,6 +415,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
             };
             setActiveCall(nextCall);
             activeCallRef.current = nextCall;
+            setRejoinableCall(null);
             return true;
         },
         [currentUserId, placeOutgoingCallToUsers],
@@ -416,6 +426,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         try {
             await createLocalStream(incoming.callType);
             startAudioSession(incoming.callType);
+            setRejoinableCall(null);
             const peer = createPeerConnection({
                 remoteUserId: incoming.fromUserId,
                 onIceCandidate: (candidate) => {
@@ -675,6 +686,18 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         }
         const current = activeCallRef.current;
         if (!current) return;
+        const shouldOfferRejoin =
+            current.participantUserIds.length > 2 &&
+            current.status === "accepted";
+        const nextRejoinableCall = shouldOfferRejoin
+            ? {
+                callId: current.callId,
+                callType: current.callType,
+                participantUserIds: current.participantUserIds.filter(
+                    (id) => id !== currentUserId,
+                ),
+            }
+            : null;
         clearUnansweredTimeout();
         current.remoteUserIds.forEach((remoteUserId) => {
             chatWebsocketService.sendCallSignal({
@@ -690,6 +713,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         const elapsed = durationSecondsRef.current;
         const callType = current.callType;
         resetCallState();
+        setRejoinableCall(nextRejoinableCall);
         if (shouldPersist) {
             void persistCallMessage(callType, "ended", elapsed);
         }
@@ -701,6 +725,22 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         rejectIncomingCall,
         resetCallState,
     ]);
+    const rejoinActiveCall = useCallback(() => {
+        const call = rejoinableCall;
+        if (!call || activeCallRef.current) return false;
+        activeCallRequestAtRef.current = Date.now();
+        call.participantUserIds.forEach((targetUserId) => {
+            chatWebsocketService.sendCallSignal({
+                event: "request-active-call",
+                conversationId,
+                callId: call.callId,
+                callType: call.callType,
+                fromUserId: currentUserId,
+                targetUserId,
+            });
+        });
+        return true;
+    }, [conversationId, currentUserId, rejoinableCall]);
     const handleCallSignal = useCallback(
         async (signal: CallSignalPayload) => {
             if (signal.conversationId !== conversationId) return;
@@ -776,6 +816,18 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
             if (signal.event === "call-participants") {
                 if (current?.callId === signal.callId) {
                     updateCallParticipants(getSignalParticipantUserIds(signal));
+                } else {
+                    const participantUserIds = getSignalParticipantUserIds(signal);
+                    if (
+                        participantUserIds.length > 1 &&
+                        !participantUserIds.includes(currentUserId)
+                    ) {
+                        setRejoinableCall({
+                            callId: signal.callId,
+                            callType: signal.callType,
+                            participantUserIds,
+                        });
+                    }
                 }
                 return;
             }
@@ -944,6 +996,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
     return {
         incomingCall,
         activeCall,
+        rejoinableCall,
         callStatus: activeCall?.status ?? null,
         localStreamUrl,
         remoteStreamUrl,
@@ -954,6 +1007,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         isCallSupported: isWebRTCSupported,
         callDurationText,
         startCall,
+        rejoinActiveCall,
         inviteUsersToCall,
         maxCallParticipants: MAX_CALL_PARTICIPANTS,
         acceptIncomingCall,

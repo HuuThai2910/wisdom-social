@@ -27,6 +27,12 @@ interface ActiveCall {
     isCaller: boolean;
 }
 
+interface RejoinableCall {
+    callId: string;
+    callType: CallType;
+    participantUserIds: number[];
+}
+
 interface UseCallOptions {
     conversationId: number;
     userId: number;
@@ -114,6 +120,8 @@ export function useCall(options: UseCallOptions) {
     const [remoteStreams, setRemoteStreams] = useState<
         Array<{ userId: number; stream: MediaStream }>
     >([]);
+    const [rejoinableCall, setRejoinableCall] =
+        useState<RejoinableCall | null>(null);
     const [durationSeconds, setDurationSeconds] = useState(0);
     const [micEnabled, setMicEnabled] = useState(true);
     const [cameraEnabled, setCameraEnabled] = useState(true);
@@ -643,6 +651,7 @@ export function useCall(options: UseCallOptions) {
         const stream = await navigator.mediaDevices.getUserMedia(constraints);
         setLocalStream(stream);
         localStreamRef.current = stream;
+        setRejoinableCall(null);
 
         const hasVideoTrack = stream.getVideoTracks().length > 0;
         setCameraEnabled(hasVideoTrack && stream.getVideoTracks()[0].enabled);
@@ -811,6 +820,7 @@ export function useCall(options: UseCallOptions) {
 
             setActiveCall(nextCall);
             activeCallRef.current = nextCall;
+            setRejoinableCall(null);
             setDurationSeconds(0);
             callSavedRef.current = false;
             startCallerTone();
@@ -1044,6 +1054,7 @@ export function useCall(options: UseCallOptions) {
 
         setActiveCall(nextCall);
         activeCallRef.current = nextCall;
+        setRejoinableCall(null);
         setIncomingCall(null);
         stopReceiverTone();
         setDurationSeconds(0);
@@ -1124,6 +1135,18 @@ export function useCall(options: UseCallOptions) {
     const endCall = useCallback(async () => {
         const currentCall = activeCallRef.current;
         if (!currentCall) return;
+        const shouldOfferRejoin =
+            currentCall.participantUserIds.length > 2 &&
+            currentCall.status === "accepted";
+        const nextRejoinableCall = shouldOfferRejoin
+            ? {
+                callId: currentCall.callId,
+                callType: currentCall.callType,
+                participantUserIds: currentCall.participantUserIds.filter(
+                    (id) => id !== userId,
+                ),
+            }
+            : null;
 
         // Stop local ringtone immediately, do not wait for persistence/network.
         stopCallerTone();
@@ -1148,6 +1171,7 @@ export function useCall(options: UseCallOptions) {
         const elapsedSeconds = durationSecondsRef.current;
 
         resetCallState();
+        setRejoinableCall(nextRejoinableCall);
 
         if (shouldPersist) {
             void persistCallMessage(callType, "ended", elapsedSeconds);
@@ -1163,6 +1187,23 @@ export function useCall(options: UseCallOptions) {
         stopReceiverTone,
         userId,
     ]);
+
+    const rejoinActiveCall = useCallback(async () => {
+        const call = rejoinableCall;
+        if (!call || activeCallRef.current) return;
+
+        activeCallRequestAtRef.current = Date.now();
+        call.participantUserIds.forEach((targetUserId) => {
+            websocketService.sendCallSignal({
+                event: "request-active-call",
+                conversationId,
+                callId: call.callId,
+                callType: call.callType,
+                fromUserId: userId,
+                targetUserId,
+            });
+        });
+    }, [conversationId, rejoinableCall, userId]);
 
     const toggleMic = useCallback(() => {
         const stream = localStreamRef.current;
@@ -1268,6 +1309,18 @@ export function useCall(options: UseCallOptions) {
             if (signal.event === "call-participants") {
                 if (currentCall?.callId === signal.callId) {
                     updateCallParticipants(getSignalParticipantUserIds(signal));
+                } else {
+                    const participantUserIds = getSignalParticipantUserIds(signal);
+                    if (
+                        participantUserIds.length > 1 &&
+                        !participantUserIds.includes(userId)
+                    ) {
+                        setRejoinableCall({
+                            callId: signal.callId,
+                            callType: signal.callType,
+                            participantUserIds,
+                        });
+                    }
                 }
                 return;
             }
@@ -1602,10 +1655,12 @@ export function useCall(options: UseCallOptions) {
         cameraEnabled,
         isScreenSharing,
         isInCall,
+        rejoinableCall,
         canToggleCamera,
         canShareScreen,
 
         startCall,
+        rejoinActiveCall,
         acceptIncomingCall,
         rejectIncomingCall,
         endCall,

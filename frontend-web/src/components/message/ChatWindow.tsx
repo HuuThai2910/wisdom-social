@@ -1161,7 +1161,9 @@ function ChatWindowContent({
     isScreenSharing,
     canToggleCamera,
     canShareScreen,
+    rejoinableCall,
     startCall,
+    rejoinActiveCall,
     acceptIncomingCall,
     rejectIncomingCall,
     endCall,
@@ -2323,6 +2325,17 @@ function ChatWindowContent({
           >
             <Phone size={18} />
           </button>
+          {rejoinableCall && !activeCall && (
+            <button
+              className="inline-flex h-9 items-center gap-2 rounded-lg bg-green-600 px-3 text-sm font-semibold text-white transition-colors hover:bg-green-700"
+              onClick={() => void rejoinActiveCall()}
+              title="Tham gia lại cuộc gọi"
+              type="button"
+            >
+              <Phone size={16} />
+              Tham gia lại
+            </button>
+          )}
           <button
             className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white disabled:opacity-40"
             onClick={() => openStartCallPicker("video")}

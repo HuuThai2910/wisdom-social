@@ -58,6 +58,10 @@ export const styles = StyleSheet.create({
         justifyContent: "center",
         marginLeft: spacing.xs,
     },
+    rejoinCallBtn: {
+        borderRadius: 17,
+        backgroundColor: "#16A34A",
+    },
     friendRequestBanner: {
         borderBottomWidth: 1,
         borderBottomColor: colors.border,

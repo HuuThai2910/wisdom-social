@@ -996,6 +996,7 @@ export default function MessagesConversationScreen() {
   const {
         incomingCall,
         activeCall,
+        rejoinableCall,
         callStatus,
         localStreamUrl,
         remoteStreamUrl,
@@ -1006,6 +1007,7 @@ export default function MessagesConversationScreen() {
         isCallSupported,
         callDurationText,
         startCall,
+        rejoinActiveCall,
         inviteUsersToCall,
         maxCallParticipants,
         acceptIncomingCall,
@@ -2457,6 +2459,24 @@ export default function MessagesConversationScreen() {
                                 color={colors.text}
                             />
                         </Pressable>
+                        {rejoinableCall && !activeCall ? (
+                            <Pressable
+                                style={[
+                                    styles.headerActionBtn,
+                                    styles.rejoinCallBtn,
+                                ]}
+                                hitSlop={8}
+                                onPress={() => {
+                                    void rejoinActiveCall();
+                                }}
+                            >
+                                <Ionicons
+                                    name="enter-outline"
+                                    size={22}
+                                    color={colors.white}
+                                />
+                            </Pressable>
+                        ) : null}
                         <Pressable
                             style={styles.headerActionBtn}
                             hitSlop={8}
