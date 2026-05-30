@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Maximize2,
     Mic,
@@ -117,7 +117,16 @@ export default function CallScreen({
                       : []),
               ];
 
-    const attachStreamToMediaElement = (
+    const localVideoTrackSignature = useMemo(
+        () =>
+            localStream
+                ?.getVideoTracks()
+                .map((track) => `${track.id}:${track.readyState}:${track.enabled}`)
+                .join("|") ?? "no-local-video",
+        [localStream],
+    );
+
+    const attachStreamToMediaElement = useCallback((
         element: HTMLMediaElement | null,
         stream: MediaStream | null,
     ) => {
@@ -130,7 +139,15 @@ export default function CallScreen({
         if (stream) {
             void element.play().catch(() => undefined);
         }
-    };
+    }, []);
+
+    const attachLocalVideoElement = useCallback(
+        (node: HTMLVideoElement | null) => {
+            localVideoRef.current = node;
+            attachStreamToMediaElement(node, localStream);
+        },
+        [attachStreamToMediaElement, localStream],
+    );
 
     useEffect(() => {
         if (!open) {
@@ -141,12 +158,19 @@ export default function CallScreen({
     useEffect(() => {
         if (!open) return;
         attachStreamToMediaElement(localVideoRef.current, localStream);
-    }, [open, isMinimized, localStream]);
+    }, [
+        attachStreamToMediaElement,
+        open,
+        isMinimized,
+        localStream,
+        localVideoTrackSignature,
+        showLocalPreview,
+    ]);
 
     useEffect(() => {
         if (!open) return;
         attachStreamToMediaElement(remoteVideoRef.current, remoteStream);
-    }, [open, isMinimized, remoteStream]);
+    }, [attachStreamToMediaElement, open, isMinimized, remoteStream]);
 
     useEffect(() => {
         if (!open) return;
@@ -157,7 +181,7 @@ export default function CallScreen({
         }
 
         attachStreamToMediaElement(remoteAudioRef.current, remoteStream);
-    }, [open, isMinimized, callType, remoteStream]);
+    }, [attachStreamToMediaElement, open, isMinimized, callType, remoteStream]);
 
     if (!open) return null;
 
@@ -238,10 +262,16 @@ export default function CallScreen({
 
                     {showLocalPreview && (
                         <video
-                            ref={localVideoRef}
+                            key={`local-preview-${localStream?.id ?? "none"}-${localVideoTrackSignature}`}
+                            ref={attachLocalVideoElement}
                             autoPlay
                             muted
                             playsInline
+                            onLoadedMetadata={(event) => {
+                                void event.currentTarget
+                                    .play()
+                                    .catch(() => undefined);
+                            }}
                             className="absolute bottom-28 right-5 h-40 w-28 rounded-2xl object-cover border border-white/30 bg-gray-900 shadow-xl"
                         />
                     )}
@@ -490,10 +520,16 @@ export default function CallScreen({
 
                     {showLocalPreview && (
                         <video
-                            ref={localVideoRef}
+                            key={`local-min-preview-${localStream?.id ?? "none"}-${localVideoTrackSignature}`}
+                            ref={attachLocalVideoElement}
                             autoPlay
                             muted
                             playsInline
+                            onLoadedMetadata={(event) => {
+                                void event.currentTarget
+                                    .play()
+                                    .catch(() => undefined);
+                            }}
                             className="absolute bottom-3 right-3 h-20 w-14 rounded-xl object-cover border border-white/30 bg-gray-900"
                         />
                     )}
