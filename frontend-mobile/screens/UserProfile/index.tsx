@@ -20,6 +20,7 @@ import userService from "@/services/userService";
 import { useFriendNotifications } from "@/hooks/useFriendNotifications";
 import { usePresenceStatus } from "@/hooks/usePresenceStatus";
 import type { User } from "@/services/userService";
+import ReportModal from "@/components/ReportModal";
 
 const S3_BASE = "https://cnmt-hk1-amz.s3.ap-southeast-1.amazonaws.com/";
 const toImageUrl = (url?: string): string | undefined => {
@@ -55,6 +56,7 @@ export default function UserProfileScreen() {
 
     const [profileUser, setProfileUser] = useState<User | null>(null);
     const [profileLoading, setProfileLoading] = useState(true);
+    const [showReportModal, setShowReportModal] = useState(false);
 
     const loadProfile = useCallback(async () => {
         const id = isOwnProfile ? currentUser?.id : userId;
@@ -141,6 +143,19 @@ export default function UserProfileScreen() {
                     setActionLoading(false);
                 },
             },
+        ]);
+    };
+
+    // Menu ⋮ : cho phép Báo cáo hoặc Chặn tài khoản
+    const handleOpenMenu = () => {
+        Alert.alert(profileUser?.name || profileUser?.username || "Tài khoản", undefined, [
+            { text: "Báo cáo tài khoản", onPress: () => setShowReportModal(true) },
+            {
+                text: friendStatus === "BLOCKED" ? "Bỏ chặn" : "Chặn tài khoản",
+                style: "destructive",
+                onPress: handleBlock,
+            },
+            { text: "Hủy", style: "cancel" },
         ]);
     };
 
@@ -283,7 +298,7 @@ export default function UserProfileScreen() {
                 </TouchableOpacity>
                 <Text style={styles.headerTitle}>{profileUser?.username || "Hồ sơ"}</Text>
                 {!isOwnProfile && (
-                    <TouchableOpacity style={styles.menuButton} onPress={handleBlock}>
+                    <TouchableOpacity style={styles.menuButton} onPress={handleOpenMenu}>
                         <Ionicons name="ellipsis-vertical" size={24} color={colors.text} />
                     </TouchableOpacity>
                 )}
@@ -395,6 +410,17 @@ export default function UserProfileScreen() {
                     <Text style={styles.emptyText}>Chưa có bài viết nào</Text>
                 </View>
             </ScrollView>
+
+            {!isOwnProfile && (
+                <ReportModal
+                    visible={showReportModal}
+                    targetType="USER"
+                    targetId={targetId}
+                    targetName={profileUser?.name || profileUser?.fullName || profileUser?.username}
+                    onClose={() => setShowReportModal(false)}
+                    onSubmitted={(msg) => Alert.alert("Thành công", msg)}
+                />
+            )}
         </View>
     );
 }

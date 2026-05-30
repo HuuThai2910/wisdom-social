@@ -45,6 +45,11 @@ import chatService, {
   type Message,
 } from "../../services/chatService";
 import { buildConversationDisplayInfo } from "../../utils/conversationDisplayInfo";
+import {
+  LOCKED_ACCOUNT_AVATAR_URL,
+  maskAvatarUrl,
+  maskDisplayName,
+} from "../../utils/lockedAccount";
 import { useCall } from "../../hooks/useCall";
 import { useFriendStatus } from "../../hooks/useFriendStatus";
 import { useFriendDataSafe } from "../../contexts/FriendDataContext";
@@ -832,6 +837,31 @@ function ChatWindowContent({
     [membersById, userId]
   );
   const otherMemberUserId = Number(otherMember?.userId);
+  // Hội thoại DIRECT với tài khoản đã bị khóa: dùng cả cờ trên member lẫn
+  // directPartnerLocked (DB tươi) để chắc chắn nhận diện kể cả khi cache members cũ.
+  const isPartnerAccountLocked =
+    conversation?.type === "DIRECT" &&
+    (Boolean(conversation?.directPartnerLocked) ||
+      Boolean(otherMember?.accountLocked));
+
+  // Helper dùng chung: 1 user có đang bị khóa tài khoản không.
+  // - Ưu tiên cờ trên member (membersById).
+  // - Với DIRECT: mọi user KHÔNG phải mình đều là đối phương -> bám
+  //   directPartnerLocked (DB tươi), không phụ thuộc cache members hay
+  //   việc resolve otherMember (có thể lẫn referenceUsers).
+  const isUserAccountLocked = useCallback(
+    (targetUserId?: number | null) => {
+      if (targetUserId == null || Number.isNaN(Number(targetUserId)))
+        return false;
+      if (membersById[Number(targetUserId)]?.accountLocked) return true;
+      return (
+        conversation?.type === "DIRECT" &&
+        Boolean(conversation?.directPartnerLocked) &&
+        Number(targetUserId) !== Number(userId)
+      );
+    },
+    [membersById, conversation?.type, conversation?.directPartnerLocked, userId],
+  );
   const presenceByUserId = usePresenceStatus([otherMemberUserId]);
   const otherMemberPresence = Number.isFinite(otherMemberUserId)
     ? presenceByUserId[otherMemberUserId]
@@ -1087,7 +1117,10 @@ function ChatWindowContent({
       const senderId = matchedMessage?.senderId || pin.originalSenderId;
 
       const originalSender = senderId ? membersById[senderId] : undefined;
-      const senderName = originalSender?.nickname || "Người dùng";
+      const senderName = maskDisplayName(
+        isUserAccountLocked(senderId),
+        originalSender?.nickname || "Người dùng",
+      );
 
       // Nếu tin ghim là ảnh thì hiện thumbnail nhỏ trong banner/list.
       const thumbUrl = msgType === "IMAGE" ? msgContent : undefined;
@@ -1294,7 +1327,10 @@ function ChatWindowContent({
       const sender = membersById[message.senderId];
       setReplyToMessage({
         id: message.id,
-        senderName: sender?.nickname || "Người dùng",
+        senderName: maskDisplayName(
+          isUserAccountLocked(message.senderId),
+          sender?.nickname || "Người dùng",
+        ),
         content: getMessagePreviewText(message),
       });
 
@@ -1303,7 +1339,7 @@ function ChatWindowContent({
         messageInputRef.current?.focus();
       });
     },
-    [getMessagePreviewText, membersById]
+    [getMessagePreviewText, membersById, isUserAccountLocked]
   );
 
   const openForwardModal = useCallback(
@@ -1643,8 +1679,15 @@ function ChatWindowContent({
       );
 
       const senderInfo = membersById[message.senderId];
-      const senderName = senderInfo?.nickname || "Người dùng";
-      const senderAvatar = senderInfo?.avatar;
+      // Tài khoản bị khóa -> mask tên + avatar (kể cả tin nhắn cũ).
+      const senderLocked = isUserAccountLocked(Number(message.senderId));
+      const senderName = maskDisplayName(
+        senderLocked,
+        senderInfo?.nickname || "Người dùng",
+      );
+      const senderAvatar = senderLocked
+        ? LOCKED_ACCOUNT_AVATAR_URL
+        : senderInfo?.avatar;
 
       const repliedSenderId = message.replyInfo?.senderId;
       const repliedSender =
@@ -1682,8 +1725,11 @@ function ChatWindowContent({
           repliedAttachmentMeta.poster) ||
         undefined;
 
-      // Luôn hiện tên người gửi tin gốc được reply
-      const repliedSenderName = repliedSender?.nickname || "Người dùng";
+      // Luôn hiện tên người gửi tin gốc được reply (mask nếu tài khoản bị khóa)
+      const repliedSenderName = maskDisplayName(
+        isUserAccountLocked(repliedSenderId),
+        repliedSender?.nickname || "Người dùng",
+      );
 
       const replyPreview = message.replyInfo
         ? {
@@ -1795,12 +1841,20 @@ function ChatWindowContent({
                   <span className="flex h-5 items-center -space-x-1">
                     {receiptsForThisMessage.map((receipt) => {
                       const member = membersById[receipt.userId];
+                      const receiptLocked = isUserAccountLocked(receipt.userId);
+                      const receiptName = maskDisplayName(
+                        receiptLocked,
+                        member?.nickname || "User",
+                      );
+                      const receiptAvatar =
+                        maskAvatarUrl(receiptLocked, member?.avatar) ||
+                        defaultAvatarSmallUrl;
                       return (
                         <img
                           key={receipt.userId}
-                          src={member?.avatar || defaultAvatarSmallUrl}
-                          alt={member?.nickname || "User"}
-                          title={`Đã xem bởi ${member?.nickname || "User"}`}
+                          src={receiptAvatar}
+                          alt={receiptName}
+                          title={`Đã xem bởi ${receiptName}`}
                           className="h-5 w-5 rounded-full border border-white object-cover shadow-sm dark:border-gray-800"
                         />
                       );
@@ -2013,7 +2067,7 @@ function ChatWindowContent({
           <button
             className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white disabled:opacity-40"
             onClick={() => void startCall("audio")}
-            disabled={!otherMember}
+            disabled={!otherMember || isPartnerAccountLocked}
             title="Gọi thoại"
           >
             <Phone size={18} />
@@ -2021,7 +2075,7 @@ function ChatWindowContent({
           <button
             className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white disabled:opacity-40"
             onClick={() => void startCall("video")}
-            disabled={!otherMember}
+            disabled={!otherMember || isPartnerAccountLocked}
             title="Gọi video"
           >
             <Video size={18} />
@@ -2360,7 +2414,7 @@ function ChatWindowContent({
           onChange={onFileChange}
         />
 
-        {isConversationReadOnly ? (
+        {isConversationReadOnly || isPartnerAccountLocked ? (
           /* Restriction notice — replaces composer entirely */
           <div className="flex items-center justify-center gap-2 rounded-full bg-gray-100 px-4 py-2.5 dark:bg-gray-800/60">
             <svg
@@ -2377,13 +2431,19 @@ function ChatWindowContent({
               <line x1="12" y1="8" x2="12" y2="12" />
               <line x1="12" y1="16" x2="12.01" y2="16" />
             </svg>
-            <span className="text-sm text-gray-500 dark:text-gray-400">
-              Chỉ{" "}
-              <span className="font-semibold text-gray-700 dark:text-gray-200">
-                trưởng/phó nhóm
-              </span>{" "}
-              mới được gửi tin nhắn
-            </span>
+            {isPartnerAccountLocked ? (
+              <span className="text-sm font-semibold text-gray-600 dark:text-gray-300">
+                Tài khoản đã bị khóa
+              </span>
+            ) : (
+              <span className="text-sm text-gray-500 dark:text-gray-400">
+                Chỉ{" "}
+                <span className="font-semibold text-gray-700 dark:text-gray-200">
+                  trưởng/phó nhóm
+                </span>{" "}
+                mới được gửi tin nhắn
+              </span>
+            )}
           </div>
         ) : isRecording ? (
 

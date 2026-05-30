@@ -106,6 +106,8 @@ public abstract class ConversationMapper {
             // Tái sử dụng hàm helper
             applyDirectChatPartnerInfo(currentMember.getConversation(), currentMember.getUser().getId(), response::setName, response::setImageUrl);
             response.setDirectPartnerId(findDirectPartnerId(currentMember.getConversation(), currentMember.getUser().getId()));
+            // Cờ khóa tài khoản của đối phương để FE mask. KHÔNG đụng tới name/imageUrl thật.
+            response.setDirectPartnerLocked(isDirectPartnerLocked(currentMember.getConversation(), currentMember.getUser().getId()));
         }
     }
 
@@ -114,6 +116,7 @@ public abstract class ConversationMapper {
         if (response.getType() == ConversationType.DIRECT) {
             // Tái sử dụng hàm helper
             applyDirectChatPartnerInfo(conversation, userId, response::setName, response::setImageUrl);
+            response.setDirectPartnerLocked(isDirectPartnerLocked(conversation, userId));
         }
     }
 
@@ -202,6 +205,20 @@ public abstract class ConversationMapper {
                 .map(User::getId)
                 .findFirst()
                 .orElse(null);
+    }
+
+    /**
+     * Kiểm tra đối phương trong hội thoại DIRECT có đang bị khóa tài khoản hay không.
+     * Chỉ trả về cờ boolean (User.locked) để FE tự che tên/avatar, không đổi dữ liệu thật.
+     */
+    protected boolean isDirectPartnerLocked(Conversation conversation, Long currentUserId) {
+        if (conversation.getMembers() == null) return false;
+        return conversation.getMembers().stream()
+                .map(ConversationMember::getUser)
+                .filter(user -> user != null && !user.getId().equals(currentUserId))
+                .findFirst()
+                .map(User::isLocked)
+                .orElse(false);
     }
 
     @Mapping(target = "lastMessageContent", source = "lastMessageContent")

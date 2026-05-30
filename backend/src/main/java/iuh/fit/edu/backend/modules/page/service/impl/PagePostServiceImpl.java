@@ -9,10 +9,14 @@ import iuh.fit.edu.backend.modules.page.repository.PageMemberRepository;
 import iuh.fit.edu.backend.modules.page.repository.PagePostRepository;
 import iuh.fit.edu.backend.modules.page.repository.PageRepository;
 import iuh.fit.edu.backend.modules.post.repository.PostRepository;
+import iuh.fit.edu.backend.modules.page.entity.Page;
 import iuh.fit.edu.backend.modules.page.service.PagePostService;
+import iuh.fit.edu.backend.modules.page.service.PageNotificationService;
 import iuh.fit.edu.backend.modules.page.event.publisher.PageEventPublisher;
+import iuh.fit.edu.backend.modules.notification.constant.NotificationType;
 import org.bson.types.ObjectId;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -25,20 +29,24 @@ public class PagePostServiceImpl implements PagePostService {
     private final PageRepository pageRepository;
     private final PageMemberRepository pageMemberRepository;
     private final PageEventPublisher pageEventPublisher;
+    private final PageNotificationService pageNotificationService;
 
     public PagePostServiceImpl(PageMemberRepository pageMemberRepository,
                                PostRepository postRepository,
                                PagePostRepository pagePostRepository,
                                PageRepository pageRepository,
-                               PageEventPublisher pageEventPublisher) {
+                               PageEventPublisher pageEventPublisher,
+                               PageNotificationService pageNotificationService) {
         this.pageMemberRepository = pageMemberRepository;
         this.postRepository = postRepository;
         this.pagePostRepository = pagePostRepository;
         this.pageRepository = pageRepository;
         this.pageEventPublisher = pageEventPublisher;
+        this.pageNotificationService = pageNotificationService;
     }
 
     @Override
+    @Transactional
     public boolean approvePostPage(long userId, long pageId, ObjectId postId) {
 
         if (isPageAdminOrMorderator(userId, pageId)) return false;
@@ -57,6 +65,9 @@ public class PagePostServiceImpl implements PagePostService {
         // Publish approved event with the full post payload
         Post post = postRepository.findById(postId.toString()).orElse(null);
         pageEventPublisher.publishPostApproved(pageId, postId.toString(), userId, post);
+
+        // Notify the post author that their post was approved
+        notifyPostAuthorApproved(pageId, userId, post);
 
         return true;
     }
@@ -84,6 +95,7 @@ public class PagePostServiceImpl implements PagePostService {
     }
 
     @Override
+    @Transactional
     public boolean addPostPage(long userId, long pageId, Post post) {
 
         if (!pageRepository.existsById(pageId)) return false;
@@ -105,6 +117,14 @@ public class PagePostServiceImpl implements PagePostService {
         // Publish submitted event with the full post payload
         pageEventPublisher.publishPostSubmitted(pageId, savedPost.getId(), userId, savedPost);
 
+        // Notify page admins/moderators about the post waiting for approval
+        Page page = pageRepository.findById(pageId).orElse(null);
+        if (page != null) {
+            pageNotificationService.notifyAdmins(page, userId,
+                    NotificationType.PAGE_POST_SUBMITTED,
+                    "đã đăng một bài viết chờ duyệt trong trang " + page.getName());
+        }
+
         return true;
     }
 
@@ -119,8 +139,7 @@ public class PagePostServiceImpl implements PagePostService {
         boolean isAdminOrMod = !isPageAdminOrMorderator(userId, pageId);
 
         if (!isAdminOrMod) {
-            // Not admin/mod — only allow if the post is PENDING and authored by this user
-            if (pagePost.getStatus() != PostStatus.PENDING) return false;
+            // Not admin/mod — the author may remove their own post (any status)
             Post post = postRepository.findById(postId.toString()).orElse(null);
             if (post == null || !String.valueOf(userId).equals(post.getAuthorId())) return false;
         }
@@ -173,6 +192,7 @@ public class PagePostServiceImpl implements PagePostService {
     }
 
     @Override
+    @Transactional
     public boolean approveAllPostPage(long userId, long pageId) {
         if (isPageAdminOrMorderator(userId, pageId)) return false;
 
@@ -187,9 +207,29 @@ public class PagePostServiceImpl implements PagePostService {
             // Publish approved event for each post
             Post post = postRepository.findById(pagePost.getPostId()).orElse(null);
             pageEventPublisher.publishPostApproved(pageId, pagePost.getPostId(), userId, post);
+            // Notify the post author that their post was approved
+            notifyPostAuthorApproved(pageId, userId, post);
         });
 
         return !pagePostList.isEmpty();
+    }
+
+    /**
+     * Notify the author of an approved page post (skips when the approver is the author).
+     */
+    private void notifyPostAuthorApproved(long pageId, long approverId, Post post) {
+        if (post == null || post.getAuthorId() == null) return;
+        try {
+            long authorId = Long.parseLong(post.getAuthorId());
+            if (authorId == approverId) return; // don't notify self-approval
+            Page page = pageRepository.findById(pageId).orElse(null);
+            if (page == null) return;
+            pageNotificationService.notifyUser(authorId, approverId, page,
+                    NotificationType.PAGE_POST_APPROVED,
+                    "Bài viết của bạn trong trang " + page.getName() + " đã được duyệt");
+        } catch (NumberFormatException ignored) {
+            // authorId is not numeric (e.g. page-authored post) — nothing to notify
+        }
     }
 
     @Override

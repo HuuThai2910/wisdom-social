@@ -78,6 +78,12 @@ public class PageMemberController {
     @GetMapping("/list/{pageId}")
     @ApiMessage("Get page members successfully")
     public ResponseEntity<List<PageMember>> getPageMembers(@PathVariable long pageId){
+        // Private pages only expose their member list to the owner/active members
+        User currentUser = userService.getCurrentUser();
+        long uid = currentUser != null ? currentUser.getId() : -1;
+        if (!pageMemberService.canViewPageContent(uid, pageId)) {
+            return ResponseEntity.ok(List.of());
+        }
         List<PageMember> members = pageMemberService.getMembersByPageId(pageId);
         return ResponseEntity.ok(members);
     }

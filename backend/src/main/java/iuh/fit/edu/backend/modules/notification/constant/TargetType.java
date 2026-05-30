@@ -11,5 +11,5 @@ package iuh.fit.edu.backend.modules.notification.constant;
  * @version: 1.0
  */
 public enum TargetType {
-    POST, POST_SHARE, NOTE, STORY, COMMENT
+    POST, POST_SHARE, NOTE, STORY, COMMENT, PAGE, USER
 }

@@ -72,19 +72,38 @@ public class ConversationMemberServiceImpl implements ConversationMemberService 
     public Map<Long, ConversationMemberResponse> getMembersMap(Long conversationId) {
         // Kéo từ Redis
         Map<Long, ConversationMemberResponse> cachedMap = conversationMemberCacheService.getMembersMap(conversationId);
+        Map<Long, ConversationMemberResponse> result;
         if (!cachedMap.isEmpty()) {
-            return cachedMap;
+            result = cachedMap;
+        } else {
+            // Nếu Redis trống, chọc xuống MySQL
+            List<ConversationMember> members = conversationMemberRepository.findByConversation_Id(conversationId);
+            Map<Long, ConversationMemberResponse> dbMap = members.stream()
+                    .map(conversationMemberMapper::toConversationMemberResponse)
+                    .collect(Collectors.toMap(ConversationMemberResponse::getUserId, m -> m));
+
+            // Nạp lại vào Redis để lần sau đọc cho nhanh
+            conversationMemberCacheService.saveMembersMap(conversationId, dbMap);
+            result = dbMap;
         }
 
-        // Nếu Redis trống, chọc xuống MySQL
-        List<ConversationMember> members = conversationMemberRepository.findByConversation_Id(conversationId);
-        Map<Long, ConversationMemberResponse> dbMap = members.stream()
-                .map(conversationMemberMapper::toConversationMemberResponse)
-                .collect(Collectors.toMap(ConversationMemberResponse::getUserId, m -> m));
+        // Overlay trạng thái khóa TƯƠI từ DB lên kết quả (kể cả khi lấy từ cache).
+        // Bảo đảm accountLocked luôn đúng dù cache members chưa được invalidate,
+        // để FE mask đúng tên/avatar (đặc biệt cho group, vốn không có cờ riêng).
+        applyFreshLockStatus(result);
+        return result;
+    }
 
-        // Nạp lại vào Redis để lần sau đọc cho nhanh
-        conversationMemberCacheService.saveMembersMap(conversationId, dbMap);
-        return dbMap;
+    /**
+     * Cập nhật lại cờ accountLocked cho từng member dựa trên trạng thái khóa hiện
+     * tại trong bảng User. Mutate trực tiếp các DTO (đối tượng mới deserialize từ
+     * Redis hoặc vừa map từ DB nên an toàn). Chỉ 1 truy vấn IN.
+     */
+    private void applyFreshLockStatus(Map<Long, ConversationMemberResponse> membersMap) {
+        if (membersMap == null || membersMap.isEmpty()) return;
+        Set<Long> lockedUserIds = userRepository.findLockedUserIds(membersMap.keySet());
+        membersMap.forEach((userId, response) ->
+                response.setAccountLocked(lockedUserIds.contains(userId)));
     }
 
     /**

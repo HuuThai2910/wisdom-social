@@ -202,6 +202,10 @@ function App() {
                       />
                       <Route path="/pages/:pageId" element={<PageDetail />} />
                       <Route
+                        path="/pages/:pageId/create-post"
+                        element={<CreatePost />}
+                      />
+                      <Route
                         path="/pages/:pageId/edit"
                         element={<EditPageForm />}
                       />

@@ -274,6 +274,73 @@ function toMembersByUserId(
     return normalized;
 }
 
+function hasUsefulMemberIdentity(member: ConversationMember | undefined): boolean {
+    if (!member) return false;
+    const nickname = member.nickname?.trim();
+    const username = member.username?.trim();
+    return Boolean(
+        (nickname && nickname !== "Unknown") ||
+            (username && username !== "Unknown") ||
+            member.avatar?.trim(),
+    );
+}
+
+function mergeMembersByIdentity(
+    ...sources: Array<MembersByUserId | null | undefined>
+): MembersByUserId {
+    const merged: MembersByUserId = {};
+
+    for (const source of sources) {
+        if (!source) continue;
+
+        for (const member of Object.values(source)) {
+            const userId = Number(member.userId);
+            if (!Number.isFinite(userId)) continue;
+
+            const existing = merged[userId];
+            if (!existing) {
+                merged[userId] = {
+                    ...member,
+                    userId,
+                    nickname: member.nickname || "Unknown",
+                    username: member.username || "",
+                };
+                continue;
+            }
+
+            const incomingHasIdentity = hasUsefulMemberIdentity(member);
+            const existingHasIdentity = hasUsefulMemberIdentity(existing);
+            const hasIncomingLockFlag = Object.prototype.hasOwnProperty.call(
+                member,
+                "accountLocked",
+            );
+
+            merged[userId] = {
+                ...existing,
+                ...member,
+                userId,
+                nickname:
+                    incomingHasIdentity || !existingHasIdentity
+                        ? member.nickname || existing.nickname || "Unknown"
+                        : existing.nickname || member.nickname || "Unknown",
+                username:
+                    incomingHasIdentity || !existingHasIdentity
+                        ? member.username || existing.username || ""
+                        : existing.username || member.username || "",
+                avatar:
+                    incomingHasIdentity || !existingHasIdentity
+                        ? member.avatar || existing.avatar
+                        : existing.avatar || member.avatar,
+                accountLocked: hasIncomingLockFlag
+                    ? Boolean(member.accountLocked)
+                    : Boolean(existing.accountLocked),
+            };
+        }
+    }
+
+    return merged;
+}
+
 function normalizeReplyPreviewContent(message: Message): Message {
     if (!message.replyInfo) return message;
 
@@ -861,11 +928,13 @@ export function useChatWindowController(args: {
                 const cachedPins = chatRuntimeStore.getPins(conversationId);
 
                 if (cachedConversation) {
+                    const cachedVisibleMembers = mergeMembersByIdentity(
+                        toMembersByUserId(cachedConversation.members),
+                        cachedMembers,
+                    );
                     const cachedConversationWithMembers: Conversation = {
                         ...cachedConversation,
-                        members:
-                            cachedConversation.members ??
-                            Object.values(cachedMembers),
+                        members: Object.values(cachedVisibleMembers),
                     };
                     const cachedReadOnlyReason =
                         resolveReadOnlyReasonFromCachedConversation(
@@ -874,7 +943,7 @@ export function useChatWindowController(args: {
                         );
 
                     setConversation(cachedConversationWithMembers);
-                    setMembersById(cachedMembers);
+                    setMembersById(cachedVisibleMembers);
                     if (cachedReadOnlyReason) {
                         setReadOnlyNotice(cachedReadOnlyReason);
                         setMessages([]);
@@ -937,9 +1006,18 @@ if (token !== loadTokenRef.current) return;
                     ? normalizeMessagesForUi(cursorData.data)
                     : [];
 
+                const membersFromDetail = toMembersByUserId(
+                    convResponse.data.members,
+                );
                 const membersFromApi = toMembersByUserId(membersResponse);
-                const mergedMembers = mergeReferenceUsers(
+                const baseMembers = mergeMembersByIdentity(
+                    toMembersByUserId(cachedConversation?.members),
+                    cachedMembers,
+                    membersFromDetail,
                     membersFromApi,
+                );
+                const mergedMembers = mergeReferenceUsers(
+                    baseMembers,
                     cursorData?.referenceUsers ?? {},
                 );
 
@@ -1656,6 +1734,67 @@ if (token !== loadTokenRef.current) return;
                             chatRuntimeStore.setMembers(conversationId, next);
                             return next;
                         });
+                    },
+                    // Khóa/mở khóa tài khoản 1 thành viên -> cập nhật cờ accountLocked
+                    // realtime để mask/bỏ mask tên + avatar ở hội thoại đang mở.
+                    (event) => {
+                        const cachedMember =
+                            chatRuntimeStore.getMembers(conversationId)[
+                                event.userId
+                            ];
+                        const shouldRefreshIdentity =
+                            !event.accountLocked &&
+                            (!cachedMember ||
+                                !cachedMember.nickname ||
+                                cachedMember.nickname === "Unknown");
+
+                        setMembersById((prev) => {
+                            const existing = prev[event.userId];
+                            const next = {
+                                ...prev,
+                                [event.userId]: {
+                                    ...(existing ?? {
+                                        userId: event.userId,
+                                        username: "",
+                                        nickname: "Unknown",
+                                    }),
+                                    userId: event.userId,
+                                    accountLocked: event.accountLocked,
+                                },
+                            };
+                            chatRuntimeStore.setMembers(conversationId, next);
+                            return next;
+                        });
+                        setConversation((prev) => {
+                            if (!prev) return prev;
+                            const nextConversation = {
+                                ...prev,
+                                members: (prev.members ?? []).map((member) =>
+                                    Number(member.userId) ===
+                                    Number(event.userId)
+                                        ? {
+                                              ...member,
+                                              accountLocked:
+                                                  event.accountLocked,
+                                          }
+                                        : member,
+                                ),
+                                directPartnerLocked:
+                                    prev.type === "DIRECT" &&
+                                    Number(event.userId) !== Number(currentUserId)
+                                        ? event.accountLocked
+                                        : prev.directPartnerLocked,
+                            };
+                            chatRuntimeStore.setConversation(
+                                conversationId,
+                                nextConversation,
+                            );
+                            return nextConversation;
+                        });
+                        if (shouldRefreshIdentity) {
+                            const token = ++loadTokenRef.current;
+                            void loadInitialDataRef.current(token);
+                        }
                     },
                 );
 

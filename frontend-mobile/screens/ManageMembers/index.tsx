@@ -19,6 +19,7 @@ import { useGroupManagement } from "@/hooks/useGroupManagement";
 import { useGroupConversationRealtime } from "@/hooks/useGroupConversationRealtime";
 import type { ConversationMember, JoinRequest, MemberRole } from "@/types/chat";
 import { buildS3Url } from "@/utils/s3";
+import { LOCKED_ACCOUNT_NAME } from "@/utils/lockedAccount";
 
 export function ManageMembersScreen() {
     const { conversationId } = useLocalSearchParams<{ conversationId: string }>();
@@ -389,9 +390,10 @@ function MemberItem({
             <View style={styles.memberLeft}>
                 <View>
                     <UserAvatar
-                        uri={buildS3Url(member.avatar)}
-                        name={member.nickname || member.username || "?"}
+                        uri={member.accountLocked ? undefined : buildS3Url(member.avatar)}
+                        name={member.accountLocked ? LOCKED_ACCOUNT_NAME : member.nickname || member.username || "?"}
                         size={44}
+                        locked={member.accountLocked}
                     />
                     {member.role === "OWNER" && (
                         <View style={styles.ownerIcon}>
@@ -401,7 +403,11 @@ function MemberItem({
                 </View>
                 <View style={styles.memberInfo}>
                     <Text style={styles.memberName} numberOfLines={1}>
-                        {isMe ? "Bạn" : member.nickname || member.username || "Người dùng"}
+                        {isMe
+                            ? "Bạn"
+                            : member.accountLocked
+                              ? LOCKED_ACCOUNT_NAME
+                              : member.nickname || member.username || "Người dùng"}
                     </Text>
                     {member.role !== "MEMBER" && (
                         <Text style={styles.roleLabel}>

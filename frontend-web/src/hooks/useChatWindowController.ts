@@ -9,6 +9,7 @@ import {
 import chatService, {
     type BulkPresignedRequest,
     type Conversation,
+    type ConversationMember,
     type Message,
     type MessageType,
     type PollResponse,
@@ -20,6 +21,7 @@ import {
     type OutboxMessage,
 } from "../services/messageOutbox";
 import websocketService, {
+    type MemberAccountLockChangedEvent,
     type MemberUpdatedEvent,
     type MessageSeenEvent,
     type PinUpdatedEvent,
@@ -901,6 +903,41 @@ export function useChatWindowController(args: {
         [],
     );
 
+    const mergeDetailMembers = useCallback(
+        (
+            baseMembers: MembersByUserId,
+            detailMembers?: ConversationMember[] | null,
+        ): MembersByUserId => {
+            if (!Array.isArray(detailMembers) || detailMembers.length === 0) {
+                return baseMembers;
+            }
+
+            const nextMembers = { ...baseMembers };
+            for (const detailMember of detailMembers) {
+                const detailMemberId = Number(detailMember.userId);
+                if (!Number.isFinite(detailMemberId)) continue;
+
+                const existing = nextMembers[detailMemberId];
+                nextMembers[detailMemberId] = {
+                    ...detailMember,
+                    ...existing,
+                    userId: detailMemberId,
+                    nickname:
+                        existing?.nickname &&
+                        existing.nickname !== "Unknown"
+                            ? existing.nickname
+                            : detailMember.nickname || "Unknown",
+                    username: existing?.username || detailMember.username || "",
+                    avatar: existing?.avatar || detailMember.avatar,
+                    accountLocked: Boolean(detailMember.accountLocked),
+                };
+            }
+
+            return nextMembers;
+        },
+        [],
+    );
+
     const applyReadReceiptsFromMembers = useCallback(
         (members: MembersByUserId) => {
             const receipts: ReadReceipt[] = Object.values(members)
@@ -975,11 +1012,15 @@ export function useChatWindowController(args: {
             ]);
 
             const normalizedMembers = toMembersByUserId(membersResponse);
+            const completeMembers = mergeDetailMembers(
+                normalizedMembers,
+                convResponse.data?.members,
+            );
 
             if (convResponse.success && convResponse.data) {
                 const nextConversation = {
                     ...convResponse.data,
-                    members: Object.values(normalizedMembers),
+                    members: Object.values(completeMembers),
                 };
 
                 setConversation(nextConversation);
@@ -989,18 +1030,18 @@ export function useChatWindowController(args: {
             setMembersById((prev) => {
                 const merged = {
                     ...prev,
-                    ...normalizedMembers,
+                    ...completeMembers,
                 };
                 chatRuntimeStore.setMembers(conversationId, merged);
                 return merged;
             });
-            applyReadReceiptsFromMembers(normalizedMembers);
+            applyReadReceiptsFromMembers(completeMembers);
         } catch (err) {
             console.error("Failed to sync conversation data:", err);
         } finally {
             membersSyncInFlightRef.current = false;
         }
-    }, [applyReadReceiptsFromMembers, conversationId]);
+    }, [applyReadReceiptsFromMembers, conversationId, mergeDetailMembers]);
 
     const applyWindowForOlder = useCallback((nextMessages: Message[]) => {
         if (nextMessages.length <= MESSAGE_WINDOW_LIMIT) {
@@ -1110,10 +1151,36 @@ const list = Array.isArray(cursorData?.data)
 
                 const membersFromApi = toMembersByUserId(membersResponse);
                 const sideLoadedRefs = cursorData?.referenceUsers ?? {};
-                const mergedMembers = mergeReferenceUsers(
+                let mergedMembers = mergeReferenceUsers(
                     membersFromApi,
                     sideLoadedRefs,
                 );
+
+                // Đồng bộ cờ accountLocked từ response CHI TIẾT (nguồn DB tươi qua
+                // conversationMapper) đè lên members lấy từ API getConversationMembers
+                // (vốn đi qua Redis cache, có thể cũ). Tránh việc tài khoản đã bị khóa
+                // nhưng cache cũ vẫn báo false làm UI hiển thị sai.
+                const detailMembers = Array.isArray(convResponse.data.members)
+                    ? convResponse.data.members
+                    : [];
+                mergedMembers = mergeDetailMembers(
+                    mergedMembers,
+                    detailMembers,
+                );
+                // Direct: bảo đảm đối phương bám theo directPartnerLocked (DB tươi),
+                // kể cả khi member tương ứng chưa có trong map.
+                const directPartnerId = convResponse.data.directPartnerId;
+                if (
+                    convResponse.data.type === "DIRECT" &&
+                    convResponse.data.directPartnerLocked &&
+                    directPartnerId != null &&
+                    mergedMembers[Number(directPartnerId)]
+                ) {
+                    mergedMembers[Number(directPartnerId)] = {
+                        ...mergedMembers[Number(directPartnerId)],
+                        accountLocked: true,
+                    };
+                }
 
                 const normalizedConversation: Conversation = {
                     ...convResponse.data,
@@ -1218,7 +1285,7 @@ const list = Array.isArray(cursorData?.data)
                 }
             }
         },
-        [conversationId, mergeReferenceUsers, userId],
+        [conversationId, mergeDetailMembers, mergeReferenceUsers, userId],
     );
 
     useEffect(() => {
@@ -2633,6 +2700,65 @@ const list = Array.isArray(cursorData?.data)
             });
         };
 
+        // Tài khoản 1 thành viên bị khóa/mở khóa -> cập nhật cờ accountLocked realtime
+        // để mask/bỏ mask tên + avatar ở mọi nơi (header, message, member list, ...).
+        const handleMemberAccountLockChanged = (
+            event: MemberAccountLockChangedEvent,
+        ) => {
+            if (Number(event.conversationId) !== Number(conversationId)) return;
+
+            const cachedMember = chatRuntimeStore.getMembers(conversationId)[
+                event.userId
+            ];
+            const shouldRefreshIdentity =
+                !event.accountLocked &&
+                (!cachedMember ||
+                    !cachedMember.nickname ||
+                    cachedMember.nickname === "Unknown");
+
+            setMembersById((prev) => {
+                const existing = prev[event.userId];
+                // Nếu chưa có member trong map (vd: đối phương direct chưa nạp),
+                // vẫn tạo entry tối thiểu để giữ cờ khóa.
+                const next = {
+                    ...prev,
+                    [event.userId]: {
+                        ...(existing ?? {
+                            userId: event.userId,
+                            username: "",
+                            nickname: "Unknown",
+                        }),
+                        accountLocked: event.accountLocked,
+                    },
+                };
+                chatRuntimeStore.setMembers(conversationId, next);
+                setConversation((previousConversation) => {
+                    if (!previousConversation) return previousConversation;
+                    const nextConversation = {
+                        ...previousConversation,
+                        members: Object.values(next),
+                        // Với hội thoại DIRECT cập nhật luôn cờ đối phương để
+                        // sidebar/header mask đúng kể cả khi members chưa đầy đủ.
+                        directPartnerLocked:
+                            previousConversation.type === "DIRECT" &&
+                            Number(event.userId) !== Number(userId)
+                                ? event.accountLocked
+                                : previousConversation.directPartnerLocked,
+                    };
+                    chatRuntimeStore.setConversation(
+                        conversationId,
+                        nextConversation,
+                    );
+                    return nextConversation;
+                });
+                return next;
+            });
+
+            if (shouldRefreshIdentity) {
+                void syncConversationData();
+            }
+        };
+
         const handlePinUpdated = (event: PinUpdatedEvent) => {
             if (Number(event.conversationId) !== Number(conversationId)) return;
 
@@ -2666,6 +2792,7 @@ const list = Array.isArray(cursorData?.data)
                 websocketService.subscribeToConversationMembers(
                     conversationId,
                     handleMemberUpdated,
+                    handleMemberAccountLockChanged,
                 );
                 websocketService.subscribeToConversationPins(
                     conversationId,
@@ -2745,6 +2872,7 @@ const list = Array.isArray(cursorData?.data)
         handlePollUpdatedEvent,
         loadInitialData,
         markAsRead,
+        syncConversationData,
     ]);
 
     const handleScroll = useCallback(() => {

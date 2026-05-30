@@ -18,6 +18,15 @@ export default function NotificationItem({
       ? notification.actorIds[0]
       : "";
   const avatarUrl = notification.metadata?.imageUrl || "/default-avatar.png";
+  // Page-centric outcomes already read as full sentences ("Bài viết của bạn đã được duyệt"),
+  // so we only prefix the actor's name on actor-centric notifications.
+  const hideActorName =
+    notification.type === "PAGE_JOIN_APPROVED" ||
+    notification.type === "PAGE_POST_APPROVED" ||
+    notification.type === "PAGE_MEMBER_ADDED";
+  const actorName = hideActorName
+    ? undefined
+    : notification.metadata?.actorName;
 
   const handleItemClick = () => {
     // 1. Mark as read
@@ -28,6 +37,12 @@ export default function NotificationItem({
     // 2. Navigate
     const deepLink = notification.metadata?.deepLink;
     if (deepLink) {
+      // Page notifications -> open the page detail
+      if (deepLink.startsWith("/pages/") || deepLink.startsWith("/profile/")) {
+        navigate(deepLink);
+        return;
+      }
+
       const postId = deepLink.split("/").pop();
 
       // Parse extraData for commentId
@@ -63,6 +78,9 @@ export default function NotificationItem({
     ) {
       // Fallback for friend notifications if deepLink is missing
       navigate(`/profile/${primaryActorId}`);
+    } else if (notification.targetType === "PAGE" && notification.targetId) {
+      // Fallback for page notifications if deepLink is missing
+      navigate(`/pages/${notification.targetId}`);
     }
   };
 
@@ -94,6 +112,7 @@ export default function NotificationItem({
       <div className="flex-1 min-w-0">
         <p className="text-[14px] leading-[18px]">
           <span className="text-gray-900 dark:text-white">
+            {actorName && <span className="font-semibold">{actorName} </span>}
             {notification.content || getNotificationText(notification.type)}
           </span>
           <br />
@@ -120,26 +139,30 @@ function getNotificationText(type: string): string {
   switch (type) {
     case "REACTION_POST":
       return "Đã thích bài viết của bạn";
-    case "REACTION_COMMENT":
-      return "Đã thích bình luận của bạn";
-    case "REACTION_STORY":
-      return "Đã thích story của bạn";
-    case "REACTION_NOTE":
-      return "Đã thích ghi chú của bạn";
     case "COMMENT_POST":
       return "Đã bình luận bài viết của bạn";
-    case "COMMENT_MENTION":
-      return "Đã mention bạn trong bình luận";
-    case "REPLY_COMMENT":
-      return "Đã trả lời bình luận của bạn";
     case "SHARE_POST":
       return "Đã chia sẻ bài viết của bạn";
-    case "TAG_POST":
-      return "Đã tag bạn trong bài viết";
-    case "TAG_COMMENT":
-      return "Đã tag bạn trong bình luận";
-    case "STORY_REPLY":
-      return "Đã trả lời story của bạn";
+    case "FRIEND_REQUEST":
+      return "Đã gửi lời mời kết bạn";
+    case "FRIEND_ACCEPT":
+      return "Đã chấp nhận lời mời kết bạn";
+    case "PAGE_JOIN_REQUEST":
+      return "Đã yêu cầu tham gia trang của bạn";
+    case "PAGE_POST_SUBMITTED":
+      return "Đã đăng một bài viết chờ duyệt";
+    case "PAGE_LIKE":
+      return "Đã thích trang của bạn";
+    case "PAGE_FOLLOW":
+      return "Đã theo dõi trang của bạn";
+    case "PAGE_JOIN_APPROVED":
+      return "Yêu cầu tham gia trang của bạn đã được chấp nhận";
+    case "PAGE_POST_APPROVED":
+      return "Bài viết của bạn đã được duyệt";
+    case "PAGE_MEMBER_ADDED":
+      return "Bạn đã được thêm vào trang";
+    case "REPORT_REVIEWED":
+      return "Báo cáo của bạn đã được xem xét";
     default:
       return "Có thông báo mới";
   }

@@ -19,6 +19,8 @@ type Props = {
     isPinned?: boolean;
     hideMeta?: boolean;
     online?: boolean;
+    // Tài khoản đối phương (DIRECT) đang bị khóa -> render avatar khóa.
+    locked?: boolean;
     onPress: () => void;
     onLongPress?: (event: GestureResponderEvent) => void;
     delayLongPress?: number;
@@ -32,6 +34,7 @@ export default function MessageItem({
     isPinned = false,
     hideMeta = false,
     online = false,
+    locked = false,
     onPress,
     onLongPress,
     delayLongPress = 300,
@@ -45,7 +48,7 @@ export default function MessageItem({
             onLongPress={onLongPress}
             delayLongPress={delayLongPress}
         >
-            <UserAvatar uri={user.avatarUrl} name={user.username} size={52} online={online} />
+            <UserAvatar uri={locked ? undefined : user.avatarUrl} name={user.username} size={52} online={locked ? false : online} locked={locked} />
             <View style={styles.content}>
                 <View style={styles.nameRow}>
                     {isPinned ? (

@@ -160,12 +160,19 @@ export type NotificationType =
     | 'REACTION_POST' | 'REACTION_COMMENT' | 'REACTION_STORY' | 'REACTION_NOTE'
     | 'COMMENT_POST' | 'COMMENT_MENTION' | 'REPLY_COMMENT'
     | 'SHARE_POST'
-    | 'TAG_POST' | 'TAG_COMMENT' | 'STORY_REPLY';
+    | 'FRIEND_REQUEST' | 'FRIEND_ACCEPT'
+    | 'TAG_POST' | 'TAG_COMMENT' | 'TAG_STORY'
+    | 'STORY_MENTION' | 'STORY_REPLY'
+    | 'GROUP_INVITE' | 'GROUP_POST' | 'GROUP_MENTION'
+    | 'PAGE_JOIN_REQUEST' | 'PAGE_POST_SUBMITTED' | 'PAGE_LIKE' | 'PAGE_FOLLOW'
+    | 'PAGE_JOIN_APPROVED' | 'PAGE_POST_APPROVED' | 'PAGE_MEMBER_ADDED'
+    | 'SYSTEM_ANNOUNCEMENT' | 'BIRTHDAY_REMINDER' | 'MEMORY_REMINDER';
 
-export type TargetType = 'POST' | 'POST_SHARE' | 'NOTE' | 'STORY' | 'COMMENT';
+export type TargetType = 'POST' | 'POST_SHARE' | 'NOTE' | 'STORY' | 'COMMENT' | 'PAGE' | 'USER';
 
 export interface NotificationMetadata {
     imageUrl?: string;
+    actorName?: string;
     count?: number;
     deepLink?: string;
     extraData?: string;

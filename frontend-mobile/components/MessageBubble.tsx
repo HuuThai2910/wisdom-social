@@ -48,6 +48,7 @@ import {
 } from "@/utils/messageUtils";
 import { buildSystemGroupMessage } from "@/utils/systemCreateGroupMessage";
 import { extractGroupInviteToken } from "@/utils/groupInvite";
+import { LOCKED_ACCOUNT_NAME } from "@/utils/lockedAccount";
 
 const RIGHT_SCROLL_CUE_HEIGHT = 38;
 const MESSAGE_LONG_PRESS_DELAY_MS = 500;
@@ -404,8 +405,25 @@ export const MessageBubble = React.memo(
 
         const mine = item.senderId === currentUserId;
         const sender = membersById[item.senderId];
-        const senderDisplayName =
-            sender?.nickname || sender?.username || "Nguoi dung";
+        // 1 user có đang bị khóa tài khoản không. DIRECT: mọi người không phải
+        // mình đều là đối phương -> bám directPartnerLocked (tươi từ DB),
+        // không phụ thuộc cache members.
+        const isUserAccountLocked = React.useCallback(
+            (uid?: number | null) => {
+                if (uid == null || Number.isNaN(Number(uid))) return false;
+                if (membersById[Number(uid)]?.accountLocked) return true;
+                return (
+                    conversation?.type === "DIRECT" &&
+                    Boolean(conversation?.directPartnerLocked) &&
+                    Number(uid) !== Number(currentUserId)
+                );
+            },
+            [membersById, conversation?.type, conversation?.directPartnerLocked, currentUserId],
+        );
+        const senderLocked = isUserAccountLocked(item.senderId);
+        const senderDisplayName = senderLocked
+            ? LOCKED_ACCOUNT_NAME
+            : sender?.nickname || sender?.username || "Nguoi dung";
         const currentMemberRole = membersById[currentUserId]?.role;
         const canManageCurrentPoll =
             Boolean(localPoll) &&
@@ -418,7 +436,9 @@ export const MessageBubble = React.memo(
         const pollCreatorName =
             Number(localPoll?.creatorId) === Number(currentUserId)
                 ? "Bạn"
-                : pollCreator?.nickname || pollCreator?.username || senderDisplayName;
+                : isUserAccountLocked(localPoll?.creatorId)
+                  ? LOCKED_ACCOUNT_NAME
+                  : pollCreator?.nickname || pollCreator?.username || senderDisplayName;
         const pollCreatedDayLabel = formatContextDay(localPoll?.createdAt || item.createdAt);
         const getPollMember = React.useCallback(
             (userId: number) => membersById[userId],
@@ -427,10 +447,11 @@ export const MessageBubble = React.memo(
         const getPollMemberName = React.useCallback(
             (userId: number) => {
                 if (Number(userId) === Number(currentUserId)) return "Bạn";
+                if (isUserAccountLocked(userId)) return LOCKED_ACCOUNT_NAME;
                 const member = getPollMember(userId);
                 return member?.nickname || member?.username || `Người dùng ${userId}`;
             },
-            [currentUserId, getPollMember],
+            [currentUserId, getPollMember, isUserAccountLocked],
         );
         const renderPollAvatarStack = React.useCallback(
             (voterIds?: number[]) => {
@@ -455,6 +476,7 @@ export const MessageBubble = React.memo(
                                         uri={member?.avatar}
                                         name={getPollMemberName(voterId)}
                                         size={22}
+                                        locked={isUserAccountLocked(voterId)}
                                     />
                                 </View>
                             );
@@ -467,7 +489,7 @@ export const MessageBubble = React.memo(
                     </View>
                 );
             },
-            [getPollMember, getPollMemberName],
+            [getPollMember, getPollMemberName, isUserAccountLocked],
         );
 
         // ===== Gesture handling (từ develop) =====
@@ -694,9 +716,11 @@ export const MessageBubble = React.memo(
         }));
         const replySenderName =
             typeof item.replyInfo?.senderId === "number"
-                ? membersById[item.replyInfo.senderId]?.nickname ||
-                  membersById[item.replyInfo.senderId]?.username ||
-                  "Nguoi dung"
+                ? isUserAccountLocked(item.replyInfo.senderId)
+                    ? LOCKED_ACCOUNT_NAME
+                    : membersById[item.replyInfo.senderId]?.nickname ||
+                      membersById[item.replyInfo.senderId]?.username ||
+                      "Nguoi dung"
                 : "Nguoi dung";
 
         const replyPreviewType = inferReplyPreviewType(item.replyInfo);
@@ -1169,9 +1193,10 @@ export const MessageBubble = React.memo(
                             {!mine && !isPollMessage ? (
                                 showAvatar ? (
                                     <UserAvatar
-                                        uri={sender?.avatar}
-                                        name={sender?.username ?? "?"}
+                                        uri={senderLocked ? undefined : sender?.avatar}
+                                        name={senderLocked ? LOCKED_ACCOUNT_NAME : sender?.username ?? "?"}
                                         size={30}
+                                        locked={senderLocked}
                                     />
                                 ) : (
                                     <View style={styles.avatarSpacer} />
@@ -2752,19 +2777,23 @@ export const MessageBubble = React.memo(
                                 <View style={styles.deliverySeenAvatarRow}>
                                     {receiptsForThisMessage.map((receipt) => {
                                         const member = membersById[receipt.userId];
+                                        const receiptLocked = isUserAccountLocked(receipt.userId);
                                         return (
                                             <View
                                                 key={`${item.id}-${receipt.userId}`}
                                                 style={styles.deliverySeenAvatar}
                                             >
                                                 <UserAvatar
-                                                    uri={member?.avatar}
+                                                    uri={receiptLocked ? undefined : member?.avatar}
                                                     name={
-                                                        member?.nickname ||
-                                                        member?.username ||
-                                                        "?"
+                                                        receiptLocked
+                                                            ? LOCKED_ACCOUNT_NAME
+                                                            : member?.nickname ||
+                                                              member?.username ||
+                                                              "?"
                                                     }
                                                     size={20}
+                                                    locked={receiptLocked}
                                                 />
                                             </View>
                                         );
