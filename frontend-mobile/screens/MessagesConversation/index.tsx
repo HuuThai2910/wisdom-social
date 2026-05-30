@@ -3035,6 +3035,38 @@ export default function MessagesConversationScreen() {
                 onClose={closeAddMembersModal}
                 onSubmit={addMembersToGroup}
               />
+            <IncomingCallOverlay
+                visible={Boolean(incomingCall)}
+                callerName={incomingCallerName}
+                callType={incomingCall?.callType ?? "audio"}
+                onAccept={() => void acceptIncomingCall()}
+                onReject={rejectIncomingCall}
+            />
+            <InCallOverlay
+                visible={Boolean(activeCall)}
+                callType={activeCall?.callType ?? "audio"}
+                remoteName={activeCall?.remoteName || incomingCallerName}
+                remoteAvatar={activeCall?.remoteAvatar || otherUser?.avatar}
+                status={callStatus ?? "calling"}
+                durationText={callDurationText}
+                localStreamUrl={localStreamUrl}
+                remoteStreamUrl={remoteStreamUrl}
+                remoteStreamUrls={remoteStreamUrls}
+                participants={callParticipants}
+                micEnabled={micEnabled}
+                cameraEnabled={cameraEnabled}
+                speakerEnabled={speakerEnabled}
+                onToggleMic={toggleMic}
+                onToggleCamera={toggleCamera}
+                onSwitchCamera={switchCamera}
+                onToggleSpeaker={toggleSpeaker}
+                onInviteParticipants={
+                    conversation?.type === "GROUP" && hasInviteCallCandidates
+                        ? () => openCallPicker("invite", activeCall?.callType ?? "audio")
+                        : undefined
+                }
+                onEndCall={() => void endCall()}
+            />
             <Modal transparent animationType="fade" visible={callPickerVisible}>
                 <View style={localCallPickerStyles.backdrop}>
                     <View style={localCallPickerStyles.card}>
@@ -3138,38 +3170,6 @@ export default function MessagesConversationScreen() {
                     </View>
                 </View>
             </Modal>
-          <IncomingCallOverlay
-                visible={Boolean(incomingCall)}
-                callerName={incomingCallerName}
-                callType={incomingCall?.callType ?? "audio"}
-                onAccept={() => void acceptIncomingCall()}
-                onReject={rejectIncomingCall}
-            />
-            <InCallOverlay
-                visible={Boolean(activeCall)}
-                callType={activeCall?.callType ?? "audio"}
-                remoteName={activeCall?.remoteName || incomingCallerName}
-                remoteAvatar={activeCall?.remoteAvatar || otherUser?.avatar}
-                status={callStatus ?? "calling"}
-                durationText={callDurationText}
-                localStreamUrl={localStreamUrl}
-                remoteStreamUrl={remoteStreamUrl}
-                remoteStreamUrls={remoteStreamUrls}
-                participants={callParticipants}
-                micEnabled={micEnabled}
-                cameraEnabled={cameraEnabled}
-                speakerEnabled={speakerEnabled}
-                onToggleMic={toggleMic}
-                onToggleCamera={toggleCamera}
-                onSwitchCamera={switchCamera}
-                onToggleSpeaker={toggleSpeaker}
-                onInviteParticipants={
-                    conversation?.type === "GROUP" && hasInviteCallCandidates
-                        ? () => openCallPicker("invite", activeCall?.callType ?? "audio")
-                        : undefined
-                }
-                onEndCall={() => void endCall()}
-            />
         </SafeAreaView>
         </ConversationSearchProvider>
     );

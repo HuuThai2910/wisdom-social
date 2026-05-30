@@ -6,6 +6,8 @@ import {
   useEffect,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   Send,
   Calendar,
@@ -657,6 +659,8 @@ function ChatWindowContent({
   searchOpenSignal = 0,
   peerRelationshipInfo = null,
 }: ChatWindowProps) {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [searchOpen, setSearchOpen] = useState(false);
   const [isAiPanelOpen, setIsAiPanelOpen] = useState(false);
   const [internalOpenPollMessageId, setInternalOpenPollMessageId] = useState<string | null>(null);
@@ -869,6 +873,17 @@ function ChatWindowContent({
       return fromConversationMembers;
     }
 
+    const fromLoadedConversationMembers = Number(
+      conversation?.members?.find((member) => Number(member.userId) !== userId)
+        ?.userId
+    );
+    if (
+      Number.isFinite(fromLoadedConversationMembers) &&
+      fromLoadedConversationMembers !== userId
+    ) {
+      return fromLoadedConversationMembers;
+    }
+
     const fromConversation = Number(conversation?.directPartnerId);
     if (Number.isFinite(fromConversation) && fromConversation !== userId) {
       return fromConversation;
@@ -877,6 +892,7 @@ function ChatWindowContent({
     return undefined;
   }, [
     conversation?.directPartnerId,
+    conversation?.members,
     conversationMembers,
     directPartnerId,
     otherMember?.userId,
@@ -1179,6 +1195,32 @@ function ChatWindowContent({
     summarizeConversation,
     suggestReplies,
   } = useChatAI({ conversationId });
+
+  useEffect(() => {
+    const callPath = `/messages/${conversationId}/call`;
+    const messagePath = `/messages/${conversationId}`;
+
+    if (activeCall && location.pathname !== callPath) {
+      navigate(callPath, { replace: false });
+      return;
+    }
+
+    if (
+      !activeCall &&
+      !incomingCall &&
+      !pendingIncomingCall &&
+      location.pathname === callPath
+    ) {
+      navigate(messagePath, { replace: true });
+    }
+  }, [
+    activeCall,
+    conversationId,
+    incomingCall,
+    location.pathname,
+    navigate,
+    pendingIncomingCall,
+  ]);
 
   const callParticipants = useMemo(() => {
     if (!activeCall || !isGroupConversation) return [];
@@ -3122,8 +3164,8 @@ function ChatWindowContent({
         </div>
       )}
 
-      {callPickerOpen && (
-        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/45 px-4">
+      {callPickerOpen && typeof document !== "undefined" && createPortal(
+        <div className="fixed inset-0 z-[2147483647] flex items-center justify-center bg-black/45 px-4">
           <div className="w-full max-w-md rounded-xl bg-white shadow-2xl dark:bg-gray-900">
             <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3 dark:border-gray-800">
               <div className="min-w-0">
@@ -3216,7 +3258,8 @@ function ChatWindowContent({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       <IncomingCallModal

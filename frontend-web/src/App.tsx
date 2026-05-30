@@ -164,6 +164,10 @@ function App() {
                         path="/messages/:conversationId"
                         element={<Messages />}
                       />
+                      <Route
+                        path="/messages/:conversationId/call"
+                        element={<Messages />}
+                      />
                       <Route path="/create" element={<CreatePost />} />
                       <Route path="/create-story" element={<CreateStory />} />
 

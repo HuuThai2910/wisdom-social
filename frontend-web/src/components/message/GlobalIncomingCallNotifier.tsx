@@ -11,7 +11,7 @@ const STOP_ALL_CALL_AUDIO_EVENT = "call:stop-all-audio";
 const PENDING_INCOMING_CALL_KEY = "pending_incoming_call";
 
 function getConversationIdFromPath(pathname: string): number | null {
-    const match = pathname.match(/^\/messages\/(\d+)$/);
+    const match = pathname.match(/^\/messages\/(\d+)(?:\/call)?$/);
     if (!match) return null;
 
     const parsed = Number(match[1]);
@@ -180,7 +180,7 @@ export default function GlobalIncomingCallNotifier() {
             PENDING_INCOMING_CALL_KEY,
             JSON.stringify(incomingCall),
         );
-        navigate(`/messages/${incomingCall.conversationId}`);
+        navigate(`/messages/${incomingCall.conversationId}/call`);
     }, [
         broadcastStopAllCallAudio,
         incomingCall,
