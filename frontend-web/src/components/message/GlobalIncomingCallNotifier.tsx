@@ -4,22 +4,10 @@ import IncomingCallModal from "./IncomingCallModal";
 import websocketService, {
     type CallSignalPayload,
 } from "../../services/websocket";
+import { useAuth } from "../../contexts/AuthContext";
 
-const LAST_USER_ID_KEY = "ws_user_id";
 const RECEIVER_RINGTONE_SRC = "/2.mp3";
 const STOP_ALL_CALL_AUDIO_EVENT = "call:stop-all-audio";
-
-function parseUserIdFromSearch(search: string): number {
-    const params = new URLSearchParams(search);
-    const parsed = Number(params.get("userId"));
-    if (Number.isFinite(parsed)) {
-        localStorage.setItem(LAST_USER_ID_KEY, String(parsed));
-        return parsed;
-    }
-
-    const persisted = Number(localStorage.getItem(LAST_USER_ID_KEY));
-    return Number.isFinite(persisted) ? persisted : 1;
-}
 
 function getConversationIdFromPath(pathname: string): number | null {
     const match = pathname.match(/^\/messages\/(\d+)$/);
@@ -32,6 +20,7 @@ function getConversationIdFromPath(pathname: string): number | null {
 export default function GlobalIncomingCallNotifier() {
     const location = useLocation();
     const navigate = useNavigate();
+    const { currentUser } = useAuth();
 
     const [incomingCall, setIncomingCall] = useState<CallSignalPayload | null>(
         null,
@@ -42,10 +31,7 @@ export default function GlobalIncomingCallNotifier() {
     const incomingCallRef = useRef<CallSignalPayload | null>(null);
     const incomingNotificationRef = useRef<Notification | null>(null);
 
-    const userId = useMemo(
-        () => parseUserIdFromSearch(location.search),
-        [location.search],
-    );
+    const userId = currentUser?.id ?? 0;
     const currentConversationId = useMemo(
         () => getConversationIdFromPath(location.pathname),
         [location.pathname],
@@ -169,6 +155,7 @@ export default function GlobalIncomingCallNotifier() {
 
     const rejectIncomingCall = useCallback(() => {
         if (!incomingCall) return;
+        if (!userId) return;
 
         websocketService.sendCallSignal({
             event: "reject-call",
@@ -188,17 +175,18 @@ export default function GlobalIncomingCallNotifier() {
 
         broadcastStopAllCallAudio();
         stopRingtone();
-        navigate(`/messages/${incomingCall.conversationId}?userId=${userId}`);
+        navigate(`/messages/${incomingCall.conversationId}`);
     }, [
         broadcastStopAllCallAudio,
         incomingCall,
         navigate,
         stopRingtone,
-        userId,
     ]);
 
     useEffect(() => {
         let active = true;
+        if (!userId) return;
+
         const onCallEvent = (event: CallSignalPayload) => {
             if (!active) return;
 
@@ -254,7 +242,8 @@ export default function GlobalIncomingCallNotifier() {
         if (!incomingCall) return;
         if (currentConversationId !== incomingCall.conversationId) return;
 
-        clearIncoming();
+        const timer = window.setTimeout(clearIncoming, 0);
+        return () => window.clearTimeout(timer);
     }, [clearIncoming, currentConversationId, incomingCall]);
 
     useEffect(() => {

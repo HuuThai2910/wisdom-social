@@ -1,4 +1,5 @@
 import { AppProvider } from "@/context/AppContext";
+import GlobalIncomingCallNotifier from "@/components/GlobalIncomingCallNotifier";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -22,6 +23,7 @@ export default function RootLayout() {
         <GestureHandlerRootView style={{ flex: 1 }}>
             <AppProvider>
                 <RootNavigator />
+                <GlobalIncomingCallNotifier />
             </AppProvider>
         </GestureHandlerRootView>
     );

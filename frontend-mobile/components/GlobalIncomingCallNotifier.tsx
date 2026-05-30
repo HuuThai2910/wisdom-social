@@ -1,0 +1,134 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter } from "expo-router";
+import IncomingCallOverlay from "@/components/IncomingCallOverlay";
+import { useAppContext } from "@/context/AppContext";
+import chatWebsocketService, {
+    type CallSignalPayload,
+} from "@/services/chatWebsocketService";
+
+function getConversationIdFromPath(pathname: string): number | null {
+    const match = pathname.match(/\/messages\/(\d+)(?:$|\/)/);
+    if (!match) return null;
+
+    const parsed = Number(match[1]);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+export default function GlobalIncomingCallNotifier() {
+    const router = useRouter();
+    const pathname = usePathname();
+    const { currentUser, loggedIn } = useAppContext();
+    const [incomingCall, setIncomingCall] = useState<CallSignalPayload | null>(
+        null,
+    );
+    const incomingCallRef = useRef<CallSignalPayload | null>(null);
+
+    const currentUserId = Number(currentUser?.id ?? 0);
+    const currentConversationId = useMemo(
+        () => getConversationIdFromPath(pathname),
+        [pathname],
+    );
+
+    useEffect(() => {
+        incomingCallRef.current = incomingCall;
+    }, [incomingCall]);
+
+    const clearIncoming = useCallback(() => {
+        setIncomingCall(null);
+        incomingCallRef.current = null;
+    }, []);
+
+    const rejectIncomingCall = useCallback(() => {
+        const current = incomingCallRef.current;
+        if (!current || !currentUserId) return;
+
+        chatWebsocketService.sendCallSignal({
+            event: "reject-call",
+            conversationId: current.conversationId,
+            callId: current.callId,
+            callType: current.callType,
+            fromUserId: currentUserId,
+            targetUserId: current.fromUserId,
+        });
+
+        clearIncoming();
+    }, [clearIncoming, currentUserId]);
+
+    const openConversation = useCallback(() => {
+        const current = incomingCallRef.current;
+        if (!current) return;
+
+        clearIncoming();
+        router.push({
+            pathname: "/(stack)/messages/[conversationId]",
+            params: { conversationId: String(current.conversationId) },
+        });
+    }, [clearIncoming, router]);
+
+    useEffect(() => {
+        if (!loggedIn || !Number.isFinite(currentUserId) || !currentUserId) {
+            clearIncoming();
+            return;
+        }
+
+        let disposed = false;
+        const onCallEvent = (event: CallSignalPayload) => {
+            if (disposed) return;
+
+            if (event.event === "incoming-call" || event.event === "call-user") {
+                if (currentConversationId === event.conversationId) {
+                    return;
+                }
+
+                setIncomingCall(event);
+                incomingCallRef.current = event;
+                return;
+            }
+
+            if (
+                (event.event === "reject-call" || event.event === "end-call") &&
+                incomingCallRef.current?.callId === event.callId &&
+                incomingCallRef.current?.fromUserId === event.fromUserId
+            ) {
+                clearIncoming();
+            }
+        };
+
+        const setup = async () => {
+            if (!chatWebsocketService.isConnected()) {
+                await chatWebsocketService.connect();
+            }
+
+            if (disposed) return;
+            chatWebsocketService.subscribeToCallEvents(currentUserId, onCallEvent);
+        };
+
+        void setup();
+
+        return () => {
+            disposed = true;
+            chatWebsocketService.unsubscribeFromCallEvents(
+                currentUserId,
+                onCallEvent,
+            );
+        };
+    }, [clearIncoming, currentConversationId, currentUserId, loggedIn]);
+
+    useEffect(() => {
+        if (!incomingCall) return;
+        if (currentConversationId !== incomingCall.conversationId) return;
+        clearIncoming();
+    }, [clearIncoming, currentConversationId, incomingCall]);
+
+    return (
+        <IncomingCallOverlay
+            visible={Boolean(incomingCall)}
+            callerName={
+                incomingCall ? `Nguoi dung ${incomingCall.fromUserId}` : "Nguoi dung"
+            }
+            callType={incomingCall?.callType ?? "audio"}
+            onAccept={openConversation}
+            onReject={rejectIncomingCall}
+        />
+    );
+}
