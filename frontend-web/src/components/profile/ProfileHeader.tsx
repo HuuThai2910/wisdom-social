@@ -15,9 +15,11 @@ import {
   MessageSquare,
   Phone,
   Plus,
+  Flag,
 } from "lucide-react";
 import { logout } from "../../utils/auth";
 import NoteModal from "./note-modal/NoteModal";
+import ReportModal from "../common/ReportModal";
 import FriendsModal from "./FriendsModal";
 import { buildS3Url } from "../../utils/s3";
 import BlockUnblockButton from "../friend/BlockUnblockButton";
@@ -67,6 +69,7 @@ export default function ProfileHeader({
 }: ProfileHeaderProps) {
   const [showFriendsModal, setShowFriendsModal] = useState(false);
   const [showInfoModal, setShowInfoModal] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
   const [postsCount, setPostsCount] = useState(0);
   const [notePlaceholder] = useState(
     () =>
@@ -366,6 +369,13 @@ export default function ProfileHeader({
                       username={user.username}
                     />
                   </div>
+                  <button
+                    onClick={() => setShowReportModal(true)}
+                    className="inline-flex items-center justify-center w-8.5 h-8.5 bg-[#efefef] dark:bg-[#262626] hover:bg-red-50 dark:hover:bg-red-900/30 border border-[#dbdbdb] dark:border-[#363636] text-red-600 dark:text-red-400 rounded-lg transition-colors"
+                    title="Báo cáo tài khoản"
+                  >
+                    <Flag size={15} />
+                  </button>
                 </>
               )}
             </div>
@@ -532,6 +542,17 @@ export default function ProfileHeader({
           initialGroupIdx={0}
           initialStoryIdx={0}
           onStoryViewed={refreshActiveStory}
+        />
+      )}
+
+      {/* ── Report modal (other user) ───────────────────────────────── */}
+      {!isOwnProfile && (
+        <ReportModal
+          open={showReportModal}
+          targetType="USER"
+          targetId={Number(user.id)}
+          targetName={displayName}
+          onClose={() => setShowReportModal(false)}
         />
       )}
 

@@ -51,6 +51,7 @@ import type { User } from "../types";
 import { useRealtimePagePosts } from "../hooks/useRealtimePagePosts";
 import { useRealtimePageList } from "../hooks/useRealtimePageList";
 import ConfirmModal from "../components/common/ConfirmModal";
+import ReportModal from "../components/common/ReportModal";
 
 type MemberStatus =
   | "loading"
@@ -164,6 +165,7 @@ export default function PageDetail() {
     number | null
   >(null);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
   const [notification, setNotification] = useState<{
     title: string;
     message: string;
@@ -1229,7 +1231,13 @@ export default function PageDetail() {
                         </>
                       )}
                       {!isOwnerOrAdmin && (
-                        <button className="w-full flex items-center gap-3 px-4 py-3 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-[#4e4f50] text-[15px]">
+                        <button
+                          onClick={() => {
+                            setShowMoreMenu(false);
+                            setShowReportModal(true);
+                          }}
+                          className="w-full flex items-center gap-3 px-4 py-3 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 text-[15px]"
+                        >
                           <Flag size={18} />
                           Báo cáo page
                         </button>
@@ -2276,6 +2284,17 @@ export default function PageDetail() {
         <div
           className="fixed inset-0 z-40"
           onClick={() => setShowMoreMenu(false)}
+        />
+      )}
+
+      {/* Report page modal */}
+      {numericPageId && (
+        <ReportModal
+          open={showReportModal}
+          targetType="PAGE"
+          targetId={numericPageId}
+          targetName={page?.name}
+          onClose={() => setShowReportModal(false)}
         />
       )}
 

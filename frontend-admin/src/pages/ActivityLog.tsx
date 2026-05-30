@@ -44,6 +44,7 @@ const CATEGORY_META: Record<AuditCategory, { label: string; cls: string }> = {
   POST: { label: 'Bài đăng', cls: 'bg-emerald-50 text-emerald-700' },
   STORY: { label: 'Story', cls: 'bg-pink-50 text-pink-700' },
   MUSIC: { label: 'Nhạc', cls: 'bg-fuchsia-50 text-fuchsia-700' },
+  REPORT: { label: 'Báo cáo', cls: 'bg-rose-50 text-rose-700' },
   SYSTEM: { label: 'Hệ thống', cls: 'bg-slate-100 text-slate-600' },
 };
 
@@ -62,6 +63,7 @@ const CATEGORY_FILTERS: Array<{ value: AuditCategory | 'all'; label: string }> =
   { value: 'POST', label: 'Bài đăng' },
   { value: 'STORY', label: 'Story' },
   { value: 'MUSIC', label: 'Nhạc' },
+  { value: 'REPORT', label: 'Báo cáo' },
   { value: 'SYSTEM', label: 'Hệ thống' },
 ];
 

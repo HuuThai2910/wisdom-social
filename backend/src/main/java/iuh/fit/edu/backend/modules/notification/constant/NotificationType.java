@@ -44,6 +44,9 @@ public enum NotificationType {
     PAGE_POST_APPROVED,  // submitted post approved
     PAGE_MEMBER_ADDED,   // an admin added the user to the page
 
+    // Report notifications - for the reporter
+    REPORT_REVIEWED,     // admin đã xem xét/xử lý báo cáo của người dùng
+
     // System notifications
     SYSTEM_ANNOUNCEMENT,
     BIRTHDAY_REMINDER,
