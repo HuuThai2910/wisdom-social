@@ -1065,7 +1065,10 @@ export function useCall(options: UseCallOptions) {
     const ensurePeerConnectionsForParticipants = useCallback(
         async (
             participantUserIds: number[],
-            options: { repairMissingStreams?: boolean } = {},
+            options: {
+                repairMissingStreams?: boolean;
+                forceReconnect?: boolean;
+            } = {},
         ) => {
             const currentCall = activeCallRef.current;
             if (!currentCall || currentCall.status !== "accepted") return;
@@ -1080,6 +1083,11 @@ export function useCall(options: UseCallOptions) {
                 if (id === userId) return false;
 
                 const pc = peerConnectionsRef.current.get(id);
+                if (options.forceReconnect) {
+                    if (pc) closePeerConnectionForUser(id);
+                    return true;
+                }
+
                 if (!pc) return true;
 
                 const brokenConnection =
@@ -1118,11 +1126,18 @@ export function useCall(options: UseCallOptions) {
     );
 
     const schedulePeerRepairForParticipants = useCallback(
-        (participantUserIds: number[]) => {
+        (
+            participantUserIds: number[],
+            options: {
+                repairMissingStreams?: boolean;
+                forceReconnect?: boolean;
+            } = { repairMissingStreams: true },
+        ) => {
             window.setTimeout(() => {
-                void ensurePeerConnectionsForParticipants(participantUserIds, {
-                    repairMissingStreams: true,
-                });
+                void ensurePeerConnectionsForParticipants(
+                    participantUserIds,
+                    options,
+                );
             }, 1200);
         },
         [ensurePeerConnectionsForParticipants],
@@ -1171,8 +1186,12 @@ export function useCall(options: UseCallOptions) {
             activeCallRef.current = nextCall;
             setActiveCall(nextCall);
             sendParticipantSnapshot(remainingParticipants);
-            void ensurePeerConnectionsForParticipants(remainingParticipants);
-            schedulePeerRepairForParticipants(remainingParticipants);
+            void ensurePeerConnectionsForParticipants(remainingParticipants, {
+                forceReconnect: true,
+            });
+            schedulePeerRepairForParticipants(remainingParticipants, {
+                forceReconnect: true,
+            });
         },
         [
             closePeerConnectionForUser,
