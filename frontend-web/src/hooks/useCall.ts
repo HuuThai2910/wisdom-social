@@ -13,6 +13,7 @@ import websocketService, {
     type CallSignalPayload,
     type CallStatus,
 } from "../services/websocket";
+import chatRuntimeStore from "../stores/chatRuntimeStore";
 
 export type CallType = "audio" | "video";
 
@@ -165,6 +166,26 @@ export function useCall(options: UseCallOptions) {
     useEffect(() => {
         incomingCallRef.current = incomingCall;
     }, [incomingCall]);
+
+    useEffect(() => {
+        if (activeCall) {
+            chatRuntimeStore.setActiveCall({
+                callId: activeCall.callId,
+                conversationId,
+                callType: activeCall.callType,
+                userId,
+            });
+            return;
+        }
+
+        const currentRuntimeCall = chatRuntimeStore.getActiveCall();
+        if (
+            currentRuntimeCall?.conversationId === conversationId &&
+            currentRuntimeCall.userId === userId
+        ) {
+            chatRuntimeStore.setActiveCall(null);
+        }
+    }, [activeCall, conversationId, userId]);
 
     const clearDurationTimer = useCallback(() => {
         if (durationTimerRef.current != null) {
@@ -1633,6 +1654,14 @@ export function useCall(options: UseCallOptions) {
 
     useEffect(() => {
         return () => {
+            const currentRuntimeCall = chatRuntimeStore.getActiveCall();
+            if (
+                currentRuntimeCall?.conversationId === conversationId &&
+                currentRuntimeCall.userId === userId
+            ) {
+                chatRuntimeStore.setActiveCall(null);
+            }
+
             resetCallState();
             clearIncomingNotification();
 
@@ -1646,7 +1675,7 @@ export function useCall(options: UseCallOptions) {
                 receiverToneRef.current = null;
             }
         };
-    }, [clearIncomingNotification, resetCallState, stopTone]);
+    }, [clearIncomingNotification, conversationId, resetCallState, stopTone, userId]);
 
     const callStatus: CallStatus | null = activeCall?.status ?? null;
 

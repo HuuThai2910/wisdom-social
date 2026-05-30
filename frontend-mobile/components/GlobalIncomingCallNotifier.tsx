@@ -6,6 +6,7 @@ import chatWebsocketService, {
     type CallSignalPayload,
 } from "@/services/chatWebsocketService";
 import { setPendingIncomingCall } from "@/utils/pendingIncomingCall";
+import chatRuntimeStore from "@/stores/chatRuntimeStore";
 
 function getConversationIdFromPath(pathname: string): number | null {
     const match = pathname.match(/\/messages\/(\d+)(?:$|\/)/);
@@ -78,6 +79,24 @@ export default function GlobalIncomingCallNotifier() {
             if (disposed) return;
 
             if (event.event === "incoming-call" || event.event === "call-user") {
+                const activeCall = chatRuntimeStore.getActiveCall();
+                if (
+                    activeCall &&
+                    activeCall.userId === currentUserId &&
+                    activeCall.callId !== event.callId
+                ) {
+                    chatWebsocketService.sendCallSignal({
+                        event: "reject-call",
+                        conversationId: event.conversationId,
+                        callId: event.callId,
+                        callType: event.callType,
+                        fromUserId: currentUserId,
+                        targetUserId: event.fromUserId,
+                        candidate: { reason: "busy" },
+                    });
+                    return;
+                }
+
                 if (currentConversationId === event.conversationId) {
                     return;
                 }

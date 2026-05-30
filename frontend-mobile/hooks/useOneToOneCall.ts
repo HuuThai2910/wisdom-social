@@ -7,6 +7,7 @@ import chatWebsocketService, {
 } from "@/services/chatWebsocketService";
 import type { Message } from "@/types/chat";
 import { useCallMediaPeer } from "@/hooks/useCallMediaPeer";
+import chatRuntimeStore from "@/stores/chatRuntimeStore";
 export type CallType = "audio" | "video";
 interface ActiveCallState {
     callId: string;
@@ -180,6 +181,25 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
     useEffect(() => {
         activeCallRef.current = activeCall;
     }, [activeCall]);
+    useEffect(() => {
+        if (activeCall) {
+            chatRuntimeStore.setActiveCall({
+                callId: activeCall.callId,
+                conversationId,
+                callType: activeCall.callType,
+                userId: currentUserId,
+            });
+            return;
+        }
+
+        const currentRuntimeCall = chatRuntimeStore.getActiveCall();
+        if (
+            currentRuntimeCall?.conversationId === conversationId &&
+            currentRuntimeCall.userId === currentUserId
+        ) {
+            chatRuntimeStore.setActiveCall(null);
+        }
+    }, [activeCall, conversationId, currentUserId]);
     useEffect(() => {
         incomingCallRef.current = incomingCall;
     }, [incomingCall]);
@@ -988,6 +1008,13 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         return () => {
             disposed = true;
             chatWebsocketService.unsubscribeFromCallEvents(currentUserId, onCallEvent);
+            const currentRuntimeCall = chatRuntimeStore.getActiveCall();
+            if (
+                currentRuntimeCall?.conversationId === conversationId &&
+                currentRuntimeCall.userId === currentUserId
+            ) {
+                chatRuntimeStore.setActiveCall(null);
+            }
             resetCallState();
         };
     }, [

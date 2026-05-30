@@ -5,6 +5,7 @@ import websocketService, {
     type CallSignalPayload,
 } from "../../services/websocket";
 import { useAuth } from "../../contexts/AuthContext";
+import chatRuntimeStore from "../../stores/chatRuntimeStore";
 
 const RECEIVER_RINGTONE_SRC = "/2.mp3";
 const STOP_ALL_CALL_AUDIO_EVENT = "call:stop-all-audio";
@@ -199,6 +200,24 @@ export default function GlobalIncomingCallNotifier() {
                 event.event === "incoming-call" ||
                 event.event === "call-user"
             ) {
+                const activeCall = chatRuntimeStore.getActiveCall();
+                if (
+                    activeCall &&
+                    activeCall.userId === userId &&
+                    activeCall.callId !== event.callId
+                ) {
+                    websocketService.sendCallSignal({
+                        event: "reject-call",
+                        conversationId: event.conversationId,
+                        callId: event.callId,
+                        callType: event.callType,
+                        fromUserId: userId,
+                        targetUserId: event.fromUserId,
+                        candidate: { reason: "busy" },
+                    });
+                    return;
+                }
+
                 if (currentConversationId === event.conversationId) {
                     return;
                 }
