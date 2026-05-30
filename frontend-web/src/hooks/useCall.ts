@@ -1128,14 +1128,26 @@ export function useCall(options: UseCallOptions) {
         [ensurePeerConnectionsForParticipants],
     );
 
+    const getRemainingParticipantIds = useCallback(
+        (currentCall: ActiveCall, leavingUserId: number) =>
+            Array.from(
+                new Set([
+                    userId,
+                    ...currentCall.participantUserIds,
+                    ...currentCall.remoteUserIds,
+                ]),
+            ).filter((id) => Number.isFinite(id) && id !== leavingUserId),
+        [userId],
+    );
+
     const continueCallAfterParticipantLeft = useCallback(
         (
             currentCall: ActiveCall,
             remoteUserId: number,
             remainingParticipants: number[],
         ) => {
-            const remainingRemoteUserIds = currentCall.remoteUserIds.filter(
-                (id) => id !== remoteUserId,
+            const remainingRemoteUserIds = remainingParticipants.filter(
+                (id) => id !== userId,
             );
             const nextHostUserId = remainingParticipants.includes(
                 currentCall.hostUserId,
@@ -1167,6 +1179,7 @@ export function useCall(options: UseCallOptions) {
             ensurePeerConnectionsForParticipants,
             schedulePeerRepairForParticipants,
             sendParticipantSnapshot,
+            userId,
         ],
     );
 
@@ -1662,10 +1675,10 @@ export function useCall(options: UseCallOptions) {
 
             if (signal.event === "reject-call") {
                 if (remoteUserId === currentCall.hostUserId) {
-                    const remainingParticipants =
-                        currentCall.participantUserIds.filter(
-                            (id) => id !== remoteUserId,
-                        );
+                    const remainingParticipants = getRemainingParticipantIds(
+                        currentCall,
+                        remoteUserId,
+                    );
                     if (remainingParticipants.length <= 1) {
                         resetCallState();
                         setRejoinableCall(null);
@@ -1683,13 +1696,14 @@ export function useCall(options: UseCallOptions) {
                     if (getSignalReason(signal) === "busy") {
                         setBusyCallUserId(remoteUserId);
                     }
-                    const remaining = currentCall.remoteUserIds.filter(
-                        (id) => id !== remoteUserId,
+                    const remainingParticipants = getRemainingParticipantIds(
+                        currentCall,
+                        remoteUserId,
+                    );
+                    const remaining = remainingParticipants.filter(
+                        (id) => id !== userId,
                     );
                     closePeerConnectionForUser(remoteUserId);
-                    setRemoteStreams((prev) =>
-                        prev.filter((item) => item.userId !== remoteUserId),
-                    );
 
                     if (!remaining.length) {
                         stopCallerTone();
@@ -1707,25 +1721,15 @@ export function useCall(options: UseCallOptions) {
                             ? {
                                 ...prev,
                                 remoteUserIds: remaining,
-                                participantUserIds:
-                                    prev.participantUserIds.filter(
-                                        (id) => id !== remoteUserId,
-                                    ),
+                                participantUserIds: remainingParticipants,
                             }
                             : prev,
                     );
                     activeCallRef.current = {
                         ...currentCall,
                         remoteUserIds: remaining,
-                        participantUserIds:
-                            currentCall.participantUserIds.filter(
-                                (id) => id !== remoteUserId,
-                            ),
+                        participantUserIds: remainingParticipants,
                     };
-                    const remainingParticipants =
-                        currentCall.participantUserIds.filter(
-                            (id) => id !== remoteUserId,
-                        );
                     sendParticipantSnapshot(remainingParticipants);
                     void ensurePeerConnectionsForParticipants(
                         remainingParticipants,
@@ -1742,23 +1746,20 @@ export function useCall(options: UseCallOptions) {
                     return;
                 }
 
-                const remainingParticipants =
-                    currentCall.participantUserIds.filter(
-                        (id) => id !== remoteUserId,
-                    );
+                const remainingParticipants = getRemainingParticipantIds(
+                    currentCall,
+                    remoteUserId,
+                );
 
                 if (!currentCall.isCaller && remainingParticipants.length <= 1) {
                     resetCallState();
                     return;
                 }
 
-                const remaining = currentCall.remoteUserIds.filter(
-                    (id) => id !== remoteUserId,
+                const remaining = remainingParticipants.filter(
+                    (id) => id !== userId,
                 );
                 closePeerConnectionForUser(remoteUserId);
-                setRemoteStreams((prev) =>
-                    prev.filter((item) => item.userId !== remoteUserId),
-                );
 
                 if (remainingParticipants.length <= 1) {
                     if (currentCall.hostUserId === userId) {
@@ -1785,23 +1786,11 @@ export function useCall(options: UseCallOptions) {
                     return;
                 }
 
-                setActiveCall((prev) =>
-                    prev
-                        ? {
-                            ...prev,
-                            remoteUserIds: remaining,
-                            participantUserIds: remainingParticipants,
-                        }
-                        : prev,
+                continueCallAfterParticipantLeft(
+                    currentCall,
+                    remoteUserId,
+                    remainingParticipants,
                 );
-                activeCallRef.current = {
-                    ...currentCall,
-                    remoteUserIds: remaining,
-                    participantUserIds: remainingParticipants,
-                };
-                sendParticipantSnapshot(remainingParticipants);
-                void ensurePeerConnectionsForParticipants(remainingParticipants);
-                schedulePeerRepairForParticipants(remainingParticipants);
             }
         },
         [
@@ -1814,6 +1803,7 @@ export function useCall(options: UseCallOptions) {
             clearIncomingNotification,
             flushQueuedIceCandidates,
             ensurePeerConnectionsForParticipants,
+            getRemainingParticipantIds,
             notifyIncomingCall,
             notifyExistingParticipantsToConnect,
             persistCallMessage,

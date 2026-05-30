@@ -778,14 +778,26 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         [ensurePeerConnectionsForParticipants],
     );
 
+    const getRemainingParticipantIds = useCallback(
+        (current: ActiveCallState, leavingUserId: number) =>
+            Array.from(
+                new Set([
+                    currentUserId,
+                    ...current.participantUserIds,
+                    ...current.remoteUserIds,
+                ]),
+            ).filter((id) => Number.isFinite(id) && id !== leavingUserId),
+        [currentUserId],
+    );
+
     const continueCallAfterParticipantLeft = useCallback(
         (
             current: ActiveCallState,
             remoteUserId: number,
             remainingParticipants: number[],
         ) => {
-            const remainingRemoteUserIds = current.remoteUserIds.filter(
-                (id) => id !== remoteUserId,
+            const remainingRemoteUserIds = remainingParticipants.filter(
+                (id) => id !== currentUserId,
             );
             const nextHostUserId = remainingParticipants.includes(
                 current.hostUserId,
@@ -815,6 +827,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         },
         [
             closePeerConnectionForUser,
+            currentUserId,
             ensurePeerConnectionsForParticipants,
             schedulePeerRepairForParticipants,
             sendParticipantSnapshot,
@@ -1148,10 +1161,10 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
             }
             if (signal.event === "reject-call") {
                 if (signal.fromUserId === current.hostUserId) {
-                    const remainingParticipants =
-                        current.participantUserIds.filter(
-                            (id) => id !== signal.fromUserId,
-                        );
+                    const remainingParticipants = getRemainingParticipantIds(
+                        current,
+                        signal.fromUserId,
+                    );
                     if (remainingParticipants.length <= 1) {
                         resetCallState();
                         setRejoinableCall(null);
@@ -1169,13 +1182,13 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                     if (getSignalReason(signal) === "busy") {
                         setBusyCallUserId(signal.fromUserId);
                     }
-                    const remaining = current.remoteUserIds.filter(
-                        (id) => id !== signal.fromUserId,
+                    const remainingParticipants = getRemainingParticipantIds(
+                        current,
+                        signal.fromUserId,
                     );
-                    const remainingParticipants =
-                        current.participantUserIds.filter(
-                            (id) => id !== signal.fromUserId,
-                        );
+                    const remaining = remainingParticipants.filter(
+                        (id) => id !== currentUserId,
+                    );
                     closePeerConnectionForUser(signal.fromUserId);
 
                     if (!remaining.length) {
@@ -1210,19 +1223,16 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                     return;
                 }
 
-                const remainingParticipants = current.participantUserIds.filter(
-                    (id) => id !== signal.fromUserId,
+                const remainingParticipants = getRemainingParticipantIds(
+                    current,
+                    signal.fromUserId,
                 );
                 if (remainingParticipants.length > 1) {
-                    closePeerConnectionForUser(signal.fromUserId);
-                    updateCallParticipants(remainingParticipants, {
-                        preserveInvitedRemoteIds: false,
-                    });
-                    sendParticipantSnapshot(remainingParticipants);
-                    void ensurePeerConnectionsForParticipants(
+                    continueCallAfterParticipantLeft(
+                        current,
+                        signal.fromUserId,
                         remainingParticipants,
                     );
-                    schedulePeerRepairForParticipants(remainingParticipants);
                     return;
                 }
 
@@ -1261,6 +1271,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
             conversationId,
             currentUserId,
             flushQueuedIceCandidates,
+            getRemainingParticipantIds,
             getPeerConnection,
             ensurePeerConnectionsForParticipants,
             isWebRTCSupported,
