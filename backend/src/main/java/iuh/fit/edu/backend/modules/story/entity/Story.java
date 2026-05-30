@@ -53,18 +53,23 @@ public class Story {
     @Indexed
     private String userId;
 
+    // Content (text and background gradients)
+    private String content;
+
     // Media (image/video)
     private StoryMedia media;
 
-    // Text overlay
-    private String text;
-    private TextStyle textStyle;
+    // Text layers (with positioning and styling)
+    private List<TextLayer> text_layers;
 
     // Music/Audio
     private Music music;
 
-    // Stickers/GIFs
-    private List<Sticker> stickers;
+    // Music stickers (with positioning and metadata)
+    private List<MusicSticker> music_stickers;
+
+    // Story duration in milliseconds (auto-calculated based on media type)
+    private Long duration_ms;
 
     // Tags
     private List<String> taggedUserIds;
@@ -117,43 +122,8 @@ public class Story {
         private String thumbnailUrl;
         private Integer width;
         private Integer height;
-        private Long duration; // cho video
+        private Long duration_ms; // Duration in milliseconds for video
         // Filter/Effect applied
         private String filterName;
-    }
-
-    @Data
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class TextStyle {
-        private String fontFamily;
-        private String fontSize;
-        private String color;
-        private String backgroundColor;
-        private String alignment; // left | center | right
-        private String animation; // fade | slide | bounce...
-    }
-
-    @Data
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class Sticker {
-        private String type; // emoji | gif | poll | question | countdown | location
-        private String url;
-        private Position position;
-        private Integer rotation; // degrees
-        private Float scale;
-        private String data; // JSON data cho interactive stickers (poll, question...)
-    }
-
-    @Data
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class Position {
-        private Float x; // percentage
-        private Float y; // percentage
     }
 }

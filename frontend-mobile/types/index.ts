@@ -23,6 +23,59 @@ export type StoryMedia = {
     url: string;
     type: string;
     thumbnailUrl?: string;
+    duration_ms?: number;
+};
+
+export type TextLayerStyle = {
+    fontSize: number;
+    fontFamily: string;
+    color: string;
+    align: "left" | "center" | "right";
+    rotation?: number;
+    bold?: boolean;
+    shadow?: boolean;
+};
+
+export type TextLayer = {
+    id: string;
+    content: string;
+    x_pct: number;
+    y_pct: number;
+    width_pct?: number;
+    height_pct?: number;
+    style: TextLayerStyle;
+    z_index: number;
+};
+
+export type MusicStickerStyle = "compact" | "rectangle" | "square" | "vinyl" | "hidden";
+
+export const MUSIC_STICKER_STYLES: Record<MusicStickerStyle, MusicStickerStyle> = {
+    compact: "compact",
+    rectangle: "rectangle",
+    square: "square",
+    vinyl: "vinyl",
+    hidden: "hidden",
+};
+
+export type MusicStickerMetadata = {
+    track_id: string;
+    title: string;
+    artist: string;
+    cover_url?: string;
+    start_sec?: number;
+    end_sec?: number;
+};
+
+export type MusicSticker = {
+    id: string;
+    x_pct: number;
+    y_pct: number;
+    width_pct?: number;
+    height_pct?: number;
+    rotation_deg?: number;
+    style?: MusicStickerStyle;
+    meta: MusicStickerMetadata;
+    z_index: number;
 };
 
 export type StoryMusic = {
@@ -49,6 +102,9 @@ export type Story = {
     user?: User;
     music?: StoryMusic;
     textStyle?: unknown;
+    text_layers?: TextLayer[];
+    music_stickers?: MusicSticker[];
+    duration_ms?: number;
     privacy?: PrivacyType;
     allowReplies?: boolean;
     allowReactions?: boolean;

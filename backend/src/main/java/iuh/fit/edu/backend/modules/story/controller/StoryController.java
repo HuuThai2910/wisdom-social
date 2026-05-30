@@ -41,6 +41,9 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
+import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
 
 /**
  * Story Controller - REST endpoints for story management
@@ -199,7 +202,9 @@ public class StoryController {
             @RequestParam(required = false) List<String> mediaUrls,
             @RequestParam(required = false) String musicId,
             @RequestParam(required = false) Integer musicStartTime,
-            @RequestParam(required = false) Boolean muteOriginal) {
+            @RequestParam(required = false) Boolean muteOriginal,
+            @RequestParam(required = false) String text_layers,
+            @RequestParam(required = false) String music_stickers) {
         try {
             String currentUserId = getCurrentUserId();
             log.info("Creating story for user: {} with music: {}, muteOriginal: {}", currentUserId, musicId, muteOriginal);
@@ -243,10 +248,95 @@ public class StoryController {
             }
 
             // Create story object
+            // Parse text_layers from request parameter if provided
+            List<iuh.fit.edu.backend.modules.story.entity.TextLayer> textLayers = new ArrayList<>();
+            
+            if (text_layers != null && !text_layers.isBlank()) {
+                // Parse JSON text_layers from frontend
+                try {
+                    Gson gson = new Gson();
+                    JsonArray layersArray = gson.fromJson(text_layers, JsonArray.class);
+                    
+                    for (int i = 0; i < layersArray.size(); i++) {
+                        JsonObject layerObj = layersArray.get(i).getAsJsonObject();
+                        
+                        // Parse style object
+                        JsonObject styleObj = layerObj.has("style") ? layerObj.getAsJsonObject("style") : new JsonObject();
+                        
+                        iuh.fit.edu.backend.modules.story.entity.TextLayer.TextStyle style = 
+                            iuh.fit.edu.backend.modules.story.entity.TextLayer.TextStyle.builder()
+                                .fontSize(styleObj.has("fontSize") ? styleObj.get("fontSize").getAsInt() : 16)
+                                .fontFamily(styleObj.has("fontFamily") ? styleObj.get("fontFamily").getAsString() : "Arial")
+                                .color(styleObj.has("color") ? styleObj.get("color").getAsString() : "#FFFFFF")
+                                .align(styleObj.has("align") ? styleObj.get("align").getAsString() : "center")
+                                .rotation(styleObj.has("rotation") ? styleObj.get("rotation").getAsFloat() : 0f)
+                                .bold(styleObj.has("bold") ? styleObj.get("bold").getAsBoolean() : false)
+                                .shadow(styleObj.has("shadow") ? styleObj.get("shadow").getAsBoolean() : false)
+                                .build();
+                        
+                        iuh.fit.edu.backend.modules.story.entity.TextLayer layer = 
+                            iuh.fit.edu.backend.modules.story.entity.TextLayer.builder()
+                                .id(layerObj.has("id") ? layerObj.get("id").getAsString() : UUID.randomUUID().toString())
+                                .content(layerObj.has("content") ? layerObj.get("content").getAsString() : "")
+                                .x_pct(layerObj.has("x_pct") ? layerObj.get("x_pct").getAsFloat() : 0.5f)
+                                .y_pct(layerObj.has("y_pct") ? layerObj.get("y_pct").getAsFloat() : 0.5f)
+                                .width_pct(layerObj.has("width_pct") ? layerObj.get("width_pct").getAsFloat() : null)
+                                .height_pct(layerObj.has("height_pct") ? layerObj.get("height_pct").getAsFloat() : null)
+                                .style(style)
+                                .z_index(layerObj.has("z_index") ? layerObj.get("z_index").getAsInt() : i)
+                                .build();
+                        
+                        textLayers.add(layer);
+                    }
+                    
+                    log.info("Parsed {} text layers from request", textLayers.size());
+                } catch (Exception e) {
+                    log.warn("Failed to parse text_layers JSON, falling back to content parameter: {}", e.getMessage());
+                    // Fallback to content parameter
+                    if (content != null && !content.isBlank()) {
+                        String cleanText = content.replaceAll("\\[bg:.*?\\]", "").trim();
+                        if (!cleanText.isEmpty()) {
+                            textLayers.add(iuh.fit.edu.backend.modules.story.entity.TextLayer.builder()
+                                    .id(UUID.randomUUID().toString())
+                                    .content(cleanText)
+                                    .x_pct(0.5f)
+                                    .y_pct(0.5f)
+                                    .style(iuh.fit.edu.backend.modules.story.entity.TextLayer.TextStyle.builder()
+                                            .fontSize(16)
+                                            .fontFamily("Arial")
+                                            .color("#FFFFFF")
+                                            .align("center")
+                                            .build())
+                                    .z_index(1)
+                                    .build());
+                        }
+                    }
+                }
+            } else if (content != null && !content.isBlank()) {
+                // Fallback: create text layer from content parameter only
+                String cleanText = content.replaceAll("\\[bg:.*?\\]", "").trim();
+                if (!cleanText.isEmpty()) {
+                    textLayers.add(iuh.fit.edu.backend.modules.story.entity.TextLayer.builder()
+                            .id(UUID.randomUUID().toString())
+                            .content(cleanText)
+                            .x_pct(0.5f)
+                            .y_pct(0.5f)
+                            .style(iuh.fit.edu.backend.modules.story.entity.TextLayer.TextStyle.builder()
+                                    .fontSize(16)
+                                    .fontFamily("Arial")
+                                    .color("#FFFFFF")
+                                    .align("center")
+                                    .build())
+                            .z_index(1)
+                            .build());
+                }
+            }
+
             Story story = Story.builder()
+                    .content(content)
                     .media(null)
-                    .text(content)
-                    .textStyle(null)
+                    .text_layers(textLayers)
+                    .music_stickers(parseMusicStickers(music_stickers))
                     .music(storyMusic)
                     .privacy(privacyType)
                     .allowReplies(true)
@@ -1372,10 +1462,12 @@ public class StoryController {
                 .id(story.getId())
                 .userId(story.getUserId())
                 .user(userSummary)
+                .content(story.getContent())
                 .media(story.getMedia())
-                .text(story.getText())
-                .textStyle(story.getTextStyle())
+                .text_layers(story.getText_layers())
+                .music_stickers(story.getMusic_stickers())
                 .music(story.getMusic())
+                .duration_ms(story.getDuration_ms())
                 .privacy(story.getPrivacy())
                 .allowReplies(story.isAllowReplies())
                 .allowReactions(story.isAllowReactions())
@@ -1390,4 +1482,59 @@ public class StoryController {
                 .expireAt(story.getExpireAt())
                 .build();
     }
+
+    /**
+     * Parse music_stickers JSON from request parameter
+     */
+    private List<iuh.fit.edu.backend.modules.story.entity.MusicSticker> parseMusicStickers(String music_stickers_json) {
+        List<iuh.fit.edu.backend.modules.story.entity.MusicSticker> stickers = new ArrayList<>();
+        
+        if (music_stickers_json == null || music_stickers_json.isBlank()) {
+            return stickers;
+        }
+        
+        try {
+            Gson gson = new Gson();
+            JsonArray stickersArray = gson.fromJson(music_stickers_json, JsonArray.class);
+            
+            for (int i = 0; i < stickersArray.size(); i++) {
+                JsonObject stickerObj = stickersArray.get(i).getAsJsonObject();
+                
+                // Parse meta object
+                JsonObject metaObj = stickerObj.has("meta") ? stickerObj.getAsJsonObject("meta") : new JsonObject();
+                
+                iuh.fit.edu.backend.modules.story.entity.MusicSticker.MusicMetadata meta = 
+                    iuh.fit.edu.backend.modules.story.entity.MusicSticker.MusicMetadata.builder()
+                        .track_id(metaObj.has("track_id") ? metaObj.get("track_id").getAsString() : "")
+                        .title(metaObj.has("title") ? metaObj.get("title").getAsString() : "")
+                        .artist(metaObj.has("artist") ? metaObj.get("artist").getAsString() : "")
+                        .cover_url(metaObj.has("cover_url") ? metaObj.get("cover_url").getAsString() : null)
+                        .start_sec(metaObj.has("start_sec") ? metaObj.get("start_sec").getAsInt() : null)
+                        .end_sec(metaObj.has("end_sec") ? metaObj.get("end_sec").getAsInt() : null)
+                        .build();
+                
+                iuh.fit.edu.backend.modules.story.entity.MusicSticker sticker = 
+                    iuh.fit.edu.backend.modules.story.entity.MusicSticker.builder()
+                        .id(stickerObj.has("id") ? stickerObj.get("id").getAsString() : UUID.randomUUID().toString())
+                        .x_pct(stickerObj.has("x_pct") ? stickerObj.get("x_pct").getAsFloat() : 0.5f)
+                        .y_pct(stickerObj.has("y_pct") ? stickerObj.get("y_pct").getAsFloat() : 0.5f)
+                        .width_pct(stickerObj.has("width_pct") ? stickerObj.get("width_pct").getAsFloat() : null)
+                        .height_pct(stickerObj.has("height_pct") ? stickerObj.get("height_pct").getAsFloat() : null)
+                        .rotation_deg(stickerObj.has("rotation_deg") ? stickerObj.get("rotation_deg").getAsFloat() : 0f)
+                        .meta(meta)
+                        .style(stickerObj.has("style") ? stickerObj.get("style").getAsString() : "rectangle")
+                        .z_index(stickerObj.has("z_index") ? stickerObj.get("z_index").getAsInt() : i)
+                        .build();
+                
+                stickers.add(sticker);
+            }
+            
+            log.info("Parsed {} music stickers from request", stickers.size());
+        } catch (Exception e) {
+            log.warn("Failed to parse music_stickers JSON: {}", e.getMessage());
+        }
+        
+        return stickers;
+    }
 }
+

@@ -7,6 +7,7 @@ import {
   Users,
 } from "lucide-react";
 import { buildS3Url } from "../../utils/s3";
+import { MUSIC_STICKER_STYLES, type MusicStickerStyle } from "../../types";
 import {
   viewStory,
   deleteStory,
@@ -420,7 +421,7 @@ export default function StoryViewerModal({
     const isVideoStory = activeStory.media?.type?.toUpperCase() === "VIDEO";
     if (isVideoStory) return; // Handled by inline video element events
 
-    const duration = 5000;
+    const duration = activeStory.duration_ms || 5000;
     const step = 50;
     const increment = (step / duration) * 100;
     progressRef.current = 0;
@@ -580,14 +581,275 @@ export default function StoryViewerModal({
       }
     }
 
+    const hasTextLayers = story.text_layers && story.text_layers.length > 0;
+
     return (
       <div
         className={`w-full h-full ${bgClass} flex items-center justify-center p-8 text-center`}
       >
-        <span className="text-white text-xl font-bold whitespace-pre-wrap leading-relaxed drop-shadow-md">
-          {cleanText}
-        </span>
+        {!hasTextLayers && cleanText && (
+          <span className="text-white text-xl font-bold whitespace-pre-wrap leading-relaxed drop-shadow-md">
+            {cleanText}
+          </span>
+        )}
       </div>
+    );
+  };
+
+  const renderTextLayers = (story: any) => {
+    if (!story?.text_layers || story.text_layers.length === 0) return null;
+
+    const containerWidth = 420; // Fixed story container width in pixels
+    const containerHeight = (420 * 16) / 9; // Aspect ratio 9:16
+
+    const sorted = [...story.text_layers].sort(
+      (a: any, b: any) => (a.z_index || 1) - (b.z_index || 1)
+    );
+
+    return (
+      <>
+        {sorted.map((layer: any) => (
+          <div
+            key={layer.id}
+            className="absolute pointer-events-none"
+            style={{
+              left: `${(layer.x_pct || 0.5) * 100}%`,
+              top: `${(layer.y_pct || 0.5) * 100}%`,
+              transform: `translate(-50%, -50%) ${
+                layer.style?.rotation
+                  ? `rotate(${layer.style.rotation}deg)`
+                  : ""
+              }`,
+              zIndex: layer.z_index || 1,
+            }}
+          >
+            <span
+              style={{
+                color: layer.style?.color || "#FFFFFF",
+                fontSize: `${layer.style?.fontSize || 16}px`,
+                fontFamily: layer.style?.fontFamily || "Arial",
+                fontWeight: layer.style?.bold ? "bold" : "normal",
+                textAlign: layer.style?.align || "center",
+                textShadow: layer.style?.shadow
+                  ? "1px 1px 2px rgba(0, 0, 0, 0.5)"
+                  : "none",
+                display: "block",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {layer.content}
+            </span>
+          </div>
+        ))}
+      </>
+    );
+  };
+
+  const renderMusicStickers = (story: any) => {
+    if (!story?.music_stickers || story.music_stickers.length === 0)
+      return null;
+
+    const sorted = [...story.music_stickers].sort(
+      (a: any, b: any) => (a.z_index || 1) - (b.z_index || 1)
+    );
+
+    return (
+      <>
+        {sorted.map((sticker: any) => {
+          const albumUrl = sticker.meta?.cover_url
+            ? buildS3Url(sticker.meta.cover_url)
+            : null;
+          const style = (sticker.style ||
+            MUSIC_STICKER_STYLES.rectangle) as MusicStickerStyle;
+
+          // Render based on style variant
+          let content;
+
+          if (style === MUSIC_STICKER_STYLES.compact) {
+            content = (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-full bg-black/50 backdrop-blur-md border border-white/10">
+                <div className="flex items-end gap-[2px] h-3">
+                  {[1, 2, 3].map((i) => (
+                    <div
+                      key={i}
+                      className="w-[3px] bg-white rounded-full"
+                      style={{
+                        height: !isPaused ? undefined : "4px",
+                        animation: !isPaused
+                          ? `musicBar${i} 0.${4 + i}s ease-in-out infinite alternate`
+                          : "none",
+                      }}
+                    />
+                  ))}
+                </div>
+                <div className="text-white min-w-0">
+                  <p className="text-[11px] font-semibold truncate leading-tight">
+                    {sticker.meta?.title}
+                  </p>
+                  <p className="text-[9px] text-white/60 truncate leading-tight">
+                    {sticker.meta?.artist}
+                  </p>
+                </div>
+              </div>
+            );
+          } else if (style === MUSIC_STICKER_STYLES.square) {
+            content = (
+              <div className="w-[150px] rounded-2xl overflow-hidden bg-black/60 backdrop-blur-xl border border-white/10 shadow-xl">
+                <div className="w-full aspect-square relative">
+                  {albumUrl ? (
+                    <img
+                      src={albumUrl}
+                      alt=""
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-gradient-to-br from-indigo-600 to-purple-600 flex items-center justify-center">
+                      <span className="text-white text-4xl">♪</span>
+                    </div>
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
+                  {!isPaused && (
+                    <div className="absolute bottom-2 left-2 flex items-end gap-[2px] h-3">
+                      {[1, 2, 3, 4].map((i) => (
+                        <div
+                          key={i}
+                          className="w-[2px] bg-white rounded-full"
+                          style={{
+                            animation: `musicBar${i} 0.${3 + i}s ease-in-out infinite alternate`,
+                          }}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="px-3 py-2">
+                  <p className="text-[11px] font-semibold text-white truncate">
+                    {sticker.meta?.title}
+                  </p>
+                  <p className="text-[9px] text-white/50 truncate">
+                    {sticker.meta?.artist}
+                  </p>
+                </div>
+              </div>
+            );
+          } else if (style === MUSIC_STICKER_STYLES.vinyl) {
+            content = (
+              <div className="flex flex-col items-center gap-1.5">
+                <div className="relative w-[120px] h-[120px]">
+                  <div
+                    className="absolute inset-0 rounded-full bg-[#1a1a1a] shadow-[0_0_20px_rgba(0,0,0,0.4),inset_0_0_30px_rgba(0,0,0,0.3)]"
+                    style={{
+                      animation: !isPaused
+                        ? "vinylSpin 3s linear infinite"
+                        : "none",
+                      background: `radial-gradient(circle at center,
+                        transparent 22%,
+                        #222 23%, #222 24%, #333 24.5%,
+                        #222 25%, #222 35%, #333 35.5%,
+                        #222 36%, #222 46%, #333 46.5%,
+                        #222 47%, #1a1a1a 48%)`,
+                    }}
+                  >
+                    <div className="absolute top-1/2 left-1/2 w-[50px] h-[50px] -translate-x-1/2 -translate-y-1/2 rounded-full overflow-hidden border-2 border-white/10 shadow-inner">
+                      {albumUrl ? (
+                        <img
+                          src={albumUrl}
+                          alt=""
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+                          <span className="text-white text-sm">♪</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="absolute top-1/2 left-1/2 w-[8px] h-[8px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#1a1a1a] border border-white/10" />
+                  </div>
+                  {/* Glow */}
+                  {!isPaused && (
+                    <div className="absolute inset-[-4px] rounded-full bg-purple-500/10 blur-md pointer-events-none animate-pulse" />
+                  )}
+                </div>
+                <div className="text-center max-w-[130px]">
+                  <p className="text-[10px] font-semibold text-white truncate">
+                    {sticker.meta?.title}
+                  </p>
+                  <p className="text-[8px] text-white/50 truncate">
+                    {sticker.meta?.artist}
+                  </p>
+                </div>
+              </div>
+            );
+          } else if (style === MUSIC_STICKER_STYLES.hidden) {
+            content = (
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-black/40 backdrop-blur-sm border border-white/10">
+                <div className="w-4 h-4 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-sm">
+                  <span className="text-white text-[8px]">♪</span>
+                </div>
+                {!isPaused && (
+                  <div className="flex items-end gap-[1.5px] h-2.5">
+                    {[1, 2, 3].map((i) => (
+                      <div
+                        key={i}
+                        className="w-[2px] bg-white/70 rounded-full"
+                        style={{
+                          animation: `musicBar${i} 0.${4 + i}s ease-in-out infinite alternate`,
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          } else {
+            // Default: rectangle style
+            content = (
+              <div className="flex items-center gap-3 px-3 py-2.5 rounded-2xl bg-black/60 backdrop-blur-xl border border-white/10 min-w-[200px] max-w-[260px] shadow-lg">
+                <div className="w-11 h-11 rounded-xl overflow-hidden shrink-0 shadow-md">
+                  {albumUrl ? (
+                    <img
+                      src={albumUrl}
+                      alt=""
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+                      <span className="text-white text-lg">♪</span>
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[12px] font-semibold text-white truncate leading-tight">
+                    {sticker.meta?.title}
+                  </p>
+                  <p className="text-[10px] text-white/50 truncate leading-tight mt-0.5">
+                    {sticker.meta?.artist}
+                  </p>
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div
+              key={sticker.id}
+              className="absolute pointer-events-none"
+              style={{
+                left: `${(sticker.x_pct || 0.5) * 100}%`,
+                top: `${(sticker.y_pct || 0.5) * 100}%`,
+                transform: `translate(-50%, -50%) ${
+                  sticker.rotation_deg
+                    ? `rotate(${sticker.rotation_deg}deg)`
+                    : ""
+                }`,
+                zIndex: sticker.z_index || 1,
+              }}
+            >
+              {content}
+            </div>
+          );
+        })}
+      </>
     );
   };
 
@@ -747,64 +1009,13 @@ export default function StoryViewerModal({
             </div>
 
             {/* Main content body */}
-            <div className="flex-1 w-full h-full">
+            <div className="flex-1 w-full h-full relative">
               {renderStoryContent(activeStory)}
+              {/* Text layers overlay */}
+              {renderTextLayers(activeStory)}
+              {/* Music stickers overlay */}
+              {renderMusicStickers(activeStory)}
             </div>
-
-            {/* Floating Music Sticker Overlay */}
-            {activeStory?.music && activeStory?.music?.title && (
-              <div className="absolute top-20 left-4 right-4 bg-black/40 backdrop-blur-md px-3 py-2 rounded-xl border border-white/10 flex items-center gap-2.5 pointer-events-none animate-pulse">
-                <div className="w-9 h-9 rounded-lg overflow-hidden flex-shrink-0 bg-white/10 relative">
-                  <img
-                    src={
-                      activeStory.music.thumbnail ||
-                      "https://i.pravatar.cc/150?u=music"
-                    }
-                    alt={activeStory.music.title}
-                    className="w-full h-full object-cover animate-spin"
-                    style={{ animationDuration: "6s" }}
-                  />
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/25">
-                    <span className="text-white text-[10px]">🎵</span>
-                  </div>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-white text-xs font-semibold truncate leading-tight">
-                    {activeStory.music.title}
-                  </p>
-                  <p className="text-white/60 text-[10px] truncate leading-tight mt-0.5">
-                    {activeStory.music.artist}
-                  </p>
-                </div>
-                <div className="flex items-end gap-0.5 h-3">
-                  <div
-                    className="w-0.5 bg-blue-400 rounded-full animate-bounce h-2"
-                    style={{
-                      animationDelay: "0.1s",
-                      animationDuration: "0.6s",
-                    }}
-                  />
-                  <div
-                    className="w-0.5 bg-blue-400 rounded-full animate-bounce h-3"
-                    style={{
-                      animationDelay: "0.3s",
-                      animationDuration: "0.4s",
-                    }}
-                  />
-                  <div
-                    className="w-0.5 bg-blue-400 rounded-full animate-bounce h-1.5"
-                    style={{ animationDelay: "0s", animationDuration: "0.5s" }}
-                  />
-                  <div
-                    className="w-0.5 bg-blue-400 rounded-full animate-bounce h-2.5"
-                    style={{
-                      animationDelay: "0.2s",
-                      animationDuration: "0.7s",
-                    }}
-                  />
-                </div>
-              </div>
-            )}
 
             {/* Text Overlay for media stories */}
             {activeStory?.media?.url && cleanText && (
