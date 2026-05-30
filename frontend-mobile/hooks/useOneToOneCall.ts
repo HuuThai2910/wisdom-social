@@ -217,6 +217,9 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
     const rejoinProbeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
         null,
     );
+    const remoteStreamUrlsRef = useRef<Array<{ userId: number; url: string }>>(
+        [],
+    );
     useEffect(() => {
         activeCallRef.current = activeCall;
     }, [activeCall]);
@@ -245,6 +248,9 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
     useEffect(() => {
         durationSecondsRef.current = durationSeconds;
     }, [durationSeconds]);
+    useEffect(() => {
+        remoteStreamUrlsRef.current = remoteStreamUrls;
+    }, [remoteStreamUrls]);
     const targetUserIdsKey = useMemo(
         () => (targetUserIds ?? []).filter(Number.isFinite).join(","),
         [targetUserIds],
@@ -716,7 +722,10 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
     );
 
     const ensurePeerConnectionsForParticipants = useCallback(
-        async (participantUserIds: number[]) => {
+        async (
+            participantUserIds: number[],
+            options: { repairMissingStreams?: boolean } = {},
+        ) => {
             const current = activeCallRef.current;
             if (!current || current.status !== "accepted") return;
 
@@ -726,9 +735,22 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
             if (normalizedParticipantIds.length < 2) return;
             if (Math.min(...normalizedParticipantIds) !== currentUserId) return;
 
-            const missingRemoteUserIds = normalizedParticipantIds.filter(
-                (id) => id !== currentUserId && !getPeerConnection(id),
-            );
+            const missingRemoteUserIds = normalizedParticipantIds.filter((id) => {
+                if (id === currentUserId) return false;
+
+                const peer = getPeerConnection(id);
+                if (!peer) return true;
+
+                if (!options.repairMissingStreams) return false;
+
+                const hasRemoteStream = remoteStreamUrlsRef.current.some(
+                    (item) => item.userId === id && Boolean(item.url),
+                );
+                if (hasRemoteStream) return false;
+
+                closePeerConnectionForUser(id);
+                return true;
+            });
             if (!missingRemoteUserIds.length) return;
 
             await placeOutgoingCallToUsers(
@@ -737,7 +759,23 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                 missingRemoteUserIds,
             );
         },
-        [currentUserId, getPeerConnection, placeOutgoingCallToUsers],
+        [
+            closePeerConnectionForUser,
+            currentUserId,
+            getPeerConnection,
+            placeOutgoingCallToUsers,
+        ],
+    );
+
+    const schedulePeerRepairForParticipants = useCallback(
+        (participantUserIds: number[]) => {
+            setTimeout(() => {
+                void ensurePeerConnectionsForParticipants(participantUserIds, {
+                    repairMissingStreams: true,
+                });
+            }, 1200);
+        },
+        [ensurePeerConnectionsForParticipants],
     );
 
     const acceptPeerOffer = useCallback(
@@ -962,6 +1000,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                     participantUserIds,
                 );
                 sendParticipantSnapshot(participantUserIds);
+                schedulePeerRepairForParticipants(participantUserIds);
                 return;
             }
             if (signal.event === "check-active-call") {
@@ -990,6 +1029,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                 await placeOutgoingCallToUsers(signal.callId, signal.callType, [
                     joiningUserId,
                 ]);
+                schedulePeerRepairForParticipants(getSignalParticipantUserIds(signal));
                 return;
             }
             if (signal.event === "call-participants") {
@@ -998,6 +1038,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                         getSignalParticipantUserIds(signal);
                     updateCallParticipants(participantUserIds);
                     void ensurePeerConnectionsForParticipants(participantUserIds);
+                    schedulePeerRepairForParticipants(participantUserIds);
                 } else {
                     const participantUserIds = getSignalParticipantUserIds(signal);
                     if (
@@ -1049,6 +1090,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                     participantUserIds,
                 );
                 sendParticipantSnapshot(participantUserIds);
+                schedulePeerRepairForParticipants(participantUserIds);
                 setDurationSeconds(0);
                 startDurationTimer();
                 return;
@@ -1102,6 +1144,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                     void ensurePeerConnectionsForParticipants(
                         nextParticipants,
                     );
+                    schedulePeerRepairForParticipants(nextParticipants);
                 }
                 return;
             }
@@ -1124,6 +1167,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                     void ensurePeerConnectionsForParticipants(
                         remainingParticipants,
                     );
+                    schedulePeerRepairForParticipants(remainingParticipants);
                     return;
                 }
 
@@ -1168,6 +1212,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
             persistCallMessage,
             placeOutgoingCallToUsers,
             resetCallState,
+            schedulePeerRepairForParticipants,
             sendParticipantSnapshot,
             startDurationTimer,
             updateCallParticipants,

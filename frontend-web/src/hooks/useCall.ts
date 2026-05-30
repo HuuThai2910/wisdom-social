@@ -172,6 +172,9 @@ export function useCall(options: UseCallOptions) {
     const peerConnectionsRef = useRef<Map<number, RTCPeerConnection>>(
         new Map(),
     );
+    const remoteStreamsRef = useRef<Array<{ userId: number; stream: MediaStream }>>(
+        [],
+    );
     const localStreamRef = useRef<MediaStream | null>(null);
     const pendingIceCandidatesRef = useRef<
         Map<string, RTCIceCandidateInit[]>
@@ -203,6 +206,10 @@ export function useCall(options: UseCallOptions) {
     useEffect(() => {
         incomingCallRef.current = incomingCall;
     }, [incomingCall]);
+
+    useEffect(() => {
+        remoteStreamsRef.current = remoteStreams;
+    }, [remoteStreams]);
 
     useEffect(() => {
         if (activeCall) {
@@ -1053,7 +1060,10 @@ export function useCall(options: UseCallOptions) {
     );
 
     const ensurePeerConnectionsForParticipants = useCallback(
-        async (participantUserIds: number[]) => {
+        async (
+            participantUserIds: number[],
+            options: { repairMissingStreams?: boolean } = {},
+        ) => {
             const currentCall = activeCallRef.current;
             if (!currentCall || currentCall.status !== "accepted") return;
 
@@ -1063,11 +1073,36 @@ export function useCall(options: UseCallOptions) {
             if (normalizedParticipantIds.length < 2) return;
             if (Math.min(...normalizedParticipantIds) !== userId) return;
 
-            const missingRemoteUserIds = normalizedParticipantIds.filter(
-                (id) =>
-                    id !== userId &&
-                    !peerConnectionsRef.current.has(id),
-            );
+            const missingRemoteUserIds = normalizedParticipantIds.filter((id) => {
+                if (id === userId) return false;
+
+                const pc = peerConnectionsRef.current.get(id);
+                if (!pc) return true;
+
+                const brokenConnection =
+                    pc.connectionState === "failed" ||
+                    pc.connectionState === "closed" ||
+                    pc.iceConnectionState === "failed" ||
+                    pc.iceConnectionState === "closed";
+                if (brokenConnection) {
+                    closePeerConnectionForUser(id);
+                    return true;
+                }
+
+                if (!options.repairMissingStreams) return false;
+
+                const hasLiveRemoteStream = remoteStreamsRef.current.some(
+                    (item) =>
+                        item.userId === id &&
+                        item.stream
+                            .getTracks()
+                            .some((track) => track.readyState === "live"),
+                );
+                if (hasLiveRemoteStream) return false;
+
+                closePeerConnectionForUser(id);
+                return true;
+            });
             if (!missingRemoteUserIds.length) return;
 
             await placeOutgoingCallToUsers(
@@ -1076,7 +1111,18 @@ export function useCall(options: UseCallOptions) {
                 missingRemoteUserIds,
             );
         },
-        [placeOutgoingCallToUsers, userId],
+        [closePeerConnectionForUser, placeOutgoingCallToUsers, userId],
+    );
+
+    const schedulePeerRepairForParticipants = useCallback(
+        (participantUserIds: number[]) => {
+            window.setTimeout(() => {
+                void ensurePeerConnectionsForParticipants(participantUserIds, {
+                    repairMissingStreams: true,
+                });
+            }, 1200);
+        },
+        [ensurePeerConnectionsForParticipants],
     );
 
     const acceptPeerOffer = useCallback(
@@ -1428,6 +1474,7 @@ export function useCall(options: UseCallOptions) {
                     participantUserIds,
                 );
                 sendParticipantSnapshot(participantUserIds);
+                schedulePeerRepairForParticipants(participantUserIds);
                 return;
             }
 
@@ -1459,6 +1506,7 @@ export function useCall(options: UseCallOptions) {
                 await placeOutgoingCallToUsers(signal.callId, signal.callType, [
                     joiningUserId,
                 ]);
+                schedulePeerRepairForParticipants(getSignalParticipantUserIds(signal));
                 return;
             }
 
@@ -1468,6 +1516,7 @@ export function useCall(options: UseCallOptions) {
                         getSignalParticipantUserIds(signal);
                     updateCallParticipants(participantUserIds);
                     void ensurePeerConnectionsForParticipants(participantUserIds);
+                    schedulePeerRepairForParticipants(participantUserIds);
                 } else {
                     const participantUserIds = getSignalParticipantUserIds(signal);
                     if (
@@ -1530,6 +1579,7 @@ export function useCall(options: UseCallOptions) {
                         participantUserIds,
                     );
                     sendParticipantSnapshot(participantUserIds);
+                    schedulePeerRepairForParticipants(participantUserIds);
                     setDurationSeconds(0);
                     startDurationTimer();
                 }
@@ -1623,6 +1673,7 @@ export function useCall(options: UseCallOptions) {
                     void ensurePeerConnectionsForParticipants(
                         remainingParticipants,
                     );
+                    schedulePeerRepairForParticipants(remainingParticipants);
                 }
                 return;
             }
@@ -1693,6 +1744,7 @@ export function useCall(options: UseCallOptions) {
                 };
                 sendParticipantSnapshot(remainingParticipants);
                 void ensurePeerConnectionsForParticipants(remainingParticipants);
+                schedulePeerRepairForParticipants(remainingParticipants);
             }
         },
         [
@@ -1711,6 +1763,7 @@ export function useCall(options: UseCallOptions) {
             queueIceCandidate,
             resetCallState,
             clearUnansweredTimeout,
+            schedulePeerRepairForParticipants,
             sendParticipantSnapshot,
             startDurationTimer,
             startReceiverTone,
