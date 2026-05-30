@@ -89,6 +89,7 @@ interface ChatWindowProps {
   openPollModalToken?: number;
   onPollModalClose?: () => void;
   searchOpenSignal?: number;
+  onActiveCallChange?: (conversationId: number, active: boolean) => void;
   peerRelationshipInfo?: {
     friendStatus?: string | null;
     mutualGroupsCount?: number | null;
@@ -658,6 +659,7 @@ function ChatWindowContent({
   openPollModalToken = 0,
   onPollModalClose,
   searchOpenSignal = 0,
+  onActiveCallChange,
   peerRelationshipInfo = null,
 }: ChatWindowProps) {
   const location = useLocation();
@@ -1216,13 +1218,12 @@ function ChatWindowContent({
   } = useChatAI({ conversationId });
 
   useEffect(() => {
+    onActiveCallChange?.(conversationId, Boolean(activeCall));
+  }, [activeCall, conversationId, onActiveCallChange]);
+
+  useEffect(() => {
     const callPath = `/messages/${conversationId}/call`;
     const messagePath = `/messages/${conversationId}`;
-
-    if (activeCall && location.pathname !== callPath) {
-      navigate(callPath, { replace: false });
-      return;
-    }
 
     if (
       !activeCall &&
