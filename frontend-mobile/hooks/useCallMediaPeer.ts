@@ -294,6 +294,10 @@ export function useCallMediaPeer() {
                 existingPeer.ontrack = undefined;
                 existingPeer.close();
                 peerConnectionsRef.current.delete(remoteUserId);
+                setRemoteStreamUrls((prev) =>
+                    prev.filter((item) => item.userId !== remoteUserId),
+                );
+                remoteStreamsByUserRef.current.delete(remoteUserId);
             }
 
             if (!WEBRTC_SUPPORTED || !RTCPeerConnectionClass) {

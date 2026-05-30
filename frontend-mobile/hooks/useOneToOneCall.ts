@@ -778,6 +778,49 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         [ensurePeerConnectionsForParticipants],
     );
 
+    const continueCallAfterParticipantLeft = useCallback(
+        (
+            current: ActiveCallState,
+            remoteUserId: number,
+            remainingParticipants: number[],
+        ) => {
+            const remainingRemoteUserIds = current.remoteUserIds.filter(
+                (id) => id !== remoteUserId,
+            );
+            const nextHostUserId = remainingParticipants.includes(
+                current.hostUserId,
+            )
+                ? current.hostUserId
+                : Math.min(...remainingParticipants);
+
+            closePeerConnectionForUser(remoteUserId);
+
+            const nextCall: ActiveCallState = {
+                ...current,
+                remoteUserId: remainingRemoteUserIds[0] ?? current.remoteUserId,
+                remoteUserIds: remainingRemoteUserIds,
+                participantUserIds: remainingParticipants,
+                hostUserId: nextHostUserId,
+                remoteName:
+                    remainingParticipants.length > 2
+                        ? `Nhom (${remainingParticipants.length} nguoi)`
+                        : current.remoteName,
+            };
+
+            setActiveCall(nextCall);
+            activeCallRef.current = nextCall;
+            sendParticipantSnapshot(remainingParticipants);
+            void ensurePeerConnectionsForParticipants(remainingParticipants);
+            schedulePeerRepairForParticipants(remainingParticipants);
+        },
+        [
+            closePeerConnectionForUser,
+            ensurePeerConnectionsForParticipants,
+            schedulePeerRepairForParticipants,
+            sendParticipantSnapshot,
+        ],
+    );
+
     const acceptPeerOffer = useCallback(
         async (incoming: CallSignalPayload) => {
             const current = activeCallRef.current;
@@ -1105,8 +1148,20 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
             }
             if (signal.event === "reject-call") {
                 if (signal.fromUserId === current.hostUserId) {
-                    resetCallState();
-                    setRejoinableCall(null);
+                    const remainingParticipants =
+                        current.participantUserIds.filter(
+                            (id) => id !== signal.fromUserId,
+                        );
+                    if (remainingParticipants.length <= 1) {
+                        resetCallState();
+                        setRejoinableCall(null);
+                    } else {
+                        continueCallAfterParticipantLeft(
+                            current,
+                            signal.fromUserId,
+                            remainingParticipants,
+                        );
+                    }
                     return;
                 }
 
@@ -1150,8 +1205,20 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
             }
             if (signal.event === "end-call") {
                 if (signal.fromUserId === current.hostUserId) {
-                    resetCallState();
-                    setRejoinableCall(null);
+                    const remainingParticipants =
+                        current.participantUserIds.filter(
+                            (id) => id !== signal.fromUserId,
+                        );
+                    if (remainingParticipants.length <= 1) {
+                        resetCallState();
+                        setRejoinableCall(null);
+                    } else {
+                        continueCallAfterParticipantLeft(
+                            current,
+                            signal.fromUserId,
+                            remainingParticipants,
+                        );
+                    }
                     return;
                 }
 
@@ -1202,6 +1269,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
             applyStatus,
             clearUnansweredTimeout,
             closePeerConnectionForUser,
+            continueCallAfterParticipantLeft,
             conversationId,
             currentUserId,
             flushQueuedIceCandidates,

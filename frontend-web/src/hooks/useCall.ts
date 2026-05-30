@@ -581,6 +581,9 @@ export function useCall(options: UseCallOptions) {
         pc.ontrack = null;
         pc.close();
         peerConnectionsRef.current.delete(remoteUserId);
+        setRemoteStreams((prev) =>
+            prev.filter((item) => item.userId !== remoteUserId),
+        );
     }, []);
 
     const cleanupPeer = useCallback(() => {
@@ -1125,6 +1128,48 @@ export function useCall(options: UseCallOptions) {
         [ensurePeerConnectionsForParticipants],
     );
 
+    const continueCallAfterParticipantLeft = useCallback(
+        (
+            currentCall: ActiveCall,
+            remoteUserId: number,
+            remainingParticipants: number[],
+        ) => {
+            const remainingRemoteUserIds = currentCall.remoteUserIds.filter(
+                (id) => id !== remoteUserId,
+            );
+            const nextHostUserId = remainingParticipants.includes(
+                currentCall.hostUserId,
+            )
+                ? currentCall.hostUserId
+                : Math.min(...remainingParticipants);
+
+            closePeerConnectionForUser(remoteUserId);
+
+            const nextCall: ActiveCall = {
+                ...currentCall,
+                remoteUserIds: remainingRemoteUserIds,
+                participantUserIds: remainingParticipants,
+                hostUserId: nextHostUserId,
+                remoteName:
+                    remainingParticipants.length > 2
+                        ? `Nhóm (${remainingParticipants.length} người)`
+                        : currentCall.remoteName,
+            };
+
+            activeCallRef.current = nextCall;
+            setActiveCall(nextCall);
+            sendParticipantSnapshot(remainingParticipants);
+            void ensurePeerConnectionsForParticipants(remainingParticipants);
+            schedulePeerRepairForParticipants(remainingParticipants);
+        },
+        [
+            closePeerConnectionForUser,
+            ensurePeerConnectionsForParticipants,
+            schedulePeerRepairForParticipants,
+            sendParticipantSnapshot,
+        ],
+    );
+
     const acceptPeerOffer = useCallback(
         async (signal: CallSignalPayload) => {
             const currentCall = activeCallRef.current;
@@ -1617,8 +1662,20 @@ export function useCall(options: UseCallOptions) {
 
             if (signal.event === "reject-call") {
                 if (remoteUserId === currentCall.hostUserId) {
-                    resetCallState();
-                    setRejoinableCall(null);
+                    const remainingParticipants =
+                        currentCall.participantUserIds.filter(
+                            (id) => id !== remoteUserId,
+                        );
+                    if (remainingParticipants.length <= 1) {
+                        resetCallState();
+                        setRejoinableCall(null);
+                    } else {
+                        continueCallAfterParticipantLeft(
+                            currentCall,
+                            remoteUserId,
+                            remainingParticipants,
+                        );
+                    }
                     return;
                 }
 
@@ -1680,8 +1737,20 @@ export function useCall(options: UseCallOptions) {
 
             if (signal.event === "end-call") {
                 if (remoteUserId === currentCall.hostUserId) {
-                    resetCallState();
-                    setRejoinableCall(null);
+                    const remainingParticipants =
+                        currentCall.participantUserIds.filter(
+                            (id) => id !== remoteUserId,
+                        );
+                    if (remainingParticipants.length <= 1) {
+                        resetCallState();
+                        setRejoinableCall(null);
+                    } else {
+                        continueCallAfterParticipantLeft(
+                            currentCall,
+                            remoteUserId,
+                            remainingParticipants,
+                        );
+                    }
                     return;
                 }
 
@@ -1752,6 +1821,7 @@ export function useCall(options: UseCallOptions) {
             acceptPeerOffer,
             applyStatus,
             closePeerConnectionForUser,
+            continueCallAfterParticipantLeft,
             conversationId,
             clearIncomingNotification,
             flushQueuedIceCandidates,
