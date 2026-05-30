@@ -41,6 +41,8 @@ public class AuditLogService {
      */
     private static final Pattern[] IGNORE = {
             Pattern.compile("/admin/audit-logs"),
+            // Luồng SSE báo cáo giữ kết nối lâu, không cần ghi log
+            Pattern.compile("/admin/reports/stream"),
     };
 
     /* ----- Kết quả ánh xạ hành động ----- */
@@ -87,7 +89,10 @@ public class AuditLogService {
             rule("POST", "/comments", m -> new ActionInfo("CREATE_COMMENT", "POST", "Bình luận", "POST", null)),
             // STORY
             rule("POST", "/stories$", m -> new ActionInfo("CREATE_STORY", "STORY", "Đăng story", "STORY", null)),
-            rule("DELETE", "/admin/stories/([\\w-]+)$", m -> new ActionInfo("DELETE_STORY", "STORY", "Xoá story", "STORY", m.group(1)))
+            rule("DELETE", "/admin/stories/([\\w-]+)$", m -> new ActionInfo("DELETE_STORY", "STORY", "Xoá story", "STORY", m.group(1))),
+            // REPORT
+            rule("POST", "/report$", m -> new ActionInfo("SUBMIT_REPORT", "REPORT", "Gửi báo cáo", null, null)),
+            rule("POST", "/admin/reports/(\\d+)/handle$", m -> new ActionInfo("HANDLE_REPORT", "REPORT", "Xử lý báo cáo", "REPORT", m.group(1)))
     );
 
     private static Rule rule(String method, String regex, Builder b) {
