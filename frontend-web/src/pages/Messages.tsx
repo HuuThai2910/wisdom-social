@@ -2024,6 +2024,47 @@ export default function Messages() {
                                         );
                                     },
                                 )}
+                                <ChatWindow
+                                    key={selectedConversationId}
+                                    conversationId={selectedConversationId}
+                                    onMarkAsRead={clearUnreadCount}
+                                    onToggleInfoPanel={handleToggleInfoPanel}
+                                    showInfoPanel={showInfoPanel}
+                                    forcedReadOnlyNotice={
+                                        selectedConversationReadOnlyNotice
+                                    }
+                                    onForbidden={handleConversationForbidden}
+                                    peerRelationshipInfo={
+                                        selectedChatUserMeta &&
+                                        selectedConversationId ===
+                                            (selectedChatUserMeta.existingDirectConversationId ??
+                                                selectedConversationId)
+                                            ? selectedChatUserMeta
+                                            : null
+                                    }
+                                    name={selectedDisplayInfo?.name}
+                                    avatarUrl={
+                                        selectedDisplayInfo?.avatar ?? undefined
+                                    }
+                                    compositeAvatarUrls={
+                                        selectedDisplayInfo?.hasCompositeAvatar
+                                            ? selectedDisplayInfo.compositeAvatars
+                                            : undefined
+                                    }
+                                    conversationType={
+                                        selectedConversation?.type
+                                    }
+                                    conversationMembers={
+                                        selectedConversation?.members
+                                    }
+                                    directPartnerId={selectedDirectPartnerId}
+                                    openPollMessageId={openPollMessageId}
+                                    openPollModalToken={openPollModalToken}
+                                    onPollModalClose={() =>
+                                        setOpenPollMessageId(null)
+                                    }
+                                    searchOpenSignal={searchOpenSignal}
+                                />
                             </div>
 
                             {isInfoPanelRendered && (

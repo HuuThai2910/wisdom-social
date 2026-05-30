@@ -76,10 +76,17 @@ export default function CallScreen({
     const remoteAudioRef = useRef<HTMLAudioElement>(null);
     const [isMinimized, setIsMinimized] = useState(false);
 
+<<<<<<< HEAD
     const showParticipants = participants.length > 0;
     const participantCount = participants.length || (remoteStreams.length ? remoteStreams.length + 1 : 1);
     const useVideoTiles = callType === "video" && participantCount > 1;
     const showLocalPreview = callType === "video" && !useVideoTiles;
+=======
+    const isGroupCall = participants.length > 2 || remoteStreams.length > 1;
+    const showParticipants = participants.length > 0;
+    const participantCount = participants.length || (remoteStreams.length ? remoteStreams.length + 1 : 1);
+    const showLocalPreview = callType === "video" && participantCount <= 2;
+>>>>>>> aed507bbeeb69c34c52862984fb5770f4cb4c84a
     const remoteStreamByUserId = new Map(
         remoteStreams.map((item) => [item.userId, item.stream]),
     );
@@ -203,7 +210,11 @@ export default function CallScreen({
 
             {callType === "video" ? (
                 <div className="relative h-full w-full overflow-hidden bg-black">
+<<<<<<< HEAD
                     {useVideoTiles ? (
+=======
+                    {isGroupCall ? (
+>>>>>>> aed507bbeeb69c34c52862984fb5770f4cb4c84a
                         <div className="h-full w-full grid grid-cols-2 auto-rows-fr gap-2 p-2 bg-black">
                             {videoTiles.map((tile) => (
                                 <div
@@ -262,6 +273,7 @@ export default function CallScreen({
 
                     {showLocalPreview && (
                         <video
+<<<<<<< HEAD
                             key={`local-preview-${localStream?.id ?? "none"}-${localVideoTrackSignature}`}
                             ref={attachLocalVideoElement}
                             autoPlay
@@ -272,6 +284,12 @@ export default function CallScreen({
                                     .play()
                                     .catch(() => undefined);
                             }}
+=======
+                            ref={localVideoRef}
+                            autoPlay
+                            muted
+                            playsInline
+>>>>>>> aed507bbeeb69c34c52862984fb5770f4cb4c84a
                             className="absolute bottom-28 right-5 h-40 w-28 rounded-2xl object-cover border border-white/30 bg-gray-900 shadow-xl"
                         />
                     )}
@@ -520,6 +538,7 @@ export default function CallScreen({
 
                     {showLocalPreview && (
                         <video
+<<<<<<< HEAD
                             key={`local-min-preview-${localStream?.id ?? "none"}-${localVideoTrackSignature}`}
                             ref={attachLocalVideoElement}
                             autoPlay
@@ -530,6 +549,12 @@ export default function CallScreen({
                                     .play()
                                     .catch(() => undefined);
                             }}
+=======
+                            ref={localVideoRef}
+                            autoPlay
+                            muted
+                            playsInline
+>>>>>>> aed507bbeeb69c34c52862984fb5770f4cb4c84a
                             className="absolute bottom-3 right-3 h-20 w-14 rounded-xl object-cover border border-white/30 bg-gray-900"
                         />
                     )}
