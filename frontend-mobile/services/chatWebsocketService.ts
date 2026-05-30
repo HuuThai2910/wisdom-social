@@ -149,7 +149,8 @@ export type CallSignalEvent =
     | "end-call"
     | "join-call"
     | "call-participants"
-    | "request-active-call";
+    | "request-active-call"
+    | "check-active-call";
 
 export interface CallSignalPayload {
     event: CallSignalEvent;

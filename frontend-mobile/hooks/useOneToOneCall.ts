@@ -178,6 +178,9 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         null,
     );
     const activeCallRequestAtRef = useRef(0);
+    const rejoinProbeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+        null,
+    );
     useEffect(() => {
         activeCallRef.current = activeCall;
     }, [activeCall]);
@@ -614,6 +617,31 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         [conversationId, currentUserId],
     );
 
+    const ensurePeerConnectionsForParticipants = useCallback(
+        async (participantUserIds: number[]) => {
+            const current = activeCallRef.current;
+            if (!current || current.status !== "accepted") return;
+
+            const normalizedParticipantIds = Array.from(
+                new Set(participantUserIds.filter(Number.isFinite)),
+            );
+            if (normalizedParticipantIds.length < 2) return;
+            if (Math.min(...normalizedParticipantIds) !== currentUserId) return;
+
+            const missingRemoteUserIds = normalizedParticipantIds.filter(
+                (id) => id !== currentUserId && !getPeerConnection(id),
+            );
+            if (!missingRemoteUserIds.length) return;
+
+            await placeOutgoingCallToUsers(
+                current.callId,
+                current.callType,
+                missingRemoteUserIds,
+            );
+        },
+        [currentUserId, getPeerConnection, placeOutgoingCallToUsers],
+    );
+
     const acceptPeerOffer = useCallback(
         async (incoming: CallSignalPayload) => {
             const current = activeCallRef.current;
@@ -830,6 +858,19 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                 sendParticipantSnapshot(participantUserIds);
                 return;
             }
+            if (signal.event === "check-active-call") {
+                if (!current || current.status !== "accepted") return;
+                chatWebsocketService.sendCallSignal({
+                    event: "call-participants",
+                    conversationId,
+                    callId: current.callId,
+                    callType: current.callType,
+                    fromUserId: currentUserId,
+                    targetUserId: signal.fromUserId,
+                    candidate: buildCallMetadata(current.participantUserIds),
+                });
+                return;
+            }
             if (signal.event === "join-call") {
                 if (!current || current.callId !== signal.callId) return;
                 const joiningUserId = getSignalJoiningUserId(signal);
@@ -842,7 +883,10 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
             }
             if (signal.event === "call-participants") {
                 if (current?.callId === signal.callId) {
-                    updateCallParticipants(getSignalParticipantUserIds(signal));
+                    const participantUserIds =
+                        getSignalParticipantUserIds(signal);
+                    updateCallParticipants(participantUserIds);
+                    void ensurePeerConnectionsForParticipants(participantUserIds);
                 } else {
                     const participantUserIds = getSignalParticipantUserIds(signal);
                     if (
@@ -854,6 +898,8 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                             callType: signal.callType,
                             participantUserIds,
                         });
+                    } else if (participantUserIds.length <= 1) {
+                        setRejoinableCall(null);
                     }
                 }
                 return;
@@ -922,6 +968,9 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                     closePeerConnectionForUser(signal.fromUserId);
                     updateCallParticipants(remainingParticipants);
                     sendParticipantSnapshot(remainingParticipants);
+                    void ensurePeerConnectionsForParticipants(
+                        remainingParticipants,
+                    );
                 }
                 return;
             }
@@ -933,6 +982,9 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                     closePeerConnectionForUser(signal.fromUserId);
                     updateCallParticipants(remainingParticipants);
                     sendParticipantSnapshot(remainingParticipants);
+                    void ensurePeerConnectionsForParticipants(
+                        remainingParticipants,
+                    );
                     return;
                 }
                 const elapsed = durationSecondsRef.current;
@@ -955,6 +1007,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
             currentUserId,
             flushQueuedIceCandidates,
             getPeerConnection,
+            ensurePeerConnectionsForParticipants,
             isWebRTCSupported,
             notifyExistingParticipantsToConnect,
             persistCallMessage,
@@ -965,6 +1018,38 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
             updateCallParticipants,
         ],
     );
+    useEffect(() => {
+        if (rejoinProbeTimerRef.current) {
+            clearTimeout(rejoinProbeTimerRef.current);
+            rejoinProbeTimerRef.current = null;
+        }
+
+        if (!rejoinableCall) return;
+
+        rejoinableCall.participantUserIds.forEach((targetUserId) => {
+            chatWebsocketService.sendCallSignal({
+                event: "check-active-call",
+                conversationId,
+                callId: rejoinableCall.callId,
+                callType: rejoinableCall.callType,
+                fromUserId: currentUserId,
+                targetUserId,
+            });
+        });
+
+        rejoinProbeTimerRef.current = setTimeout(() => {
+            setRejoinableCall(null);
+            rejoinProbeTimerRef.current = null;
+        }, 7000);
+
+        return () => {
+            if (rejoinProbeTimerRef.current) {
+                clearTimeout(rejoinProbeTimerRef.current);
+                rejoinProbeTimerRef.current = null;
+            }
+        };
+    }, [conversationId, currentUserId, rejoinableCall]);
+
     useEffect(() => {
         let disposed = false;
         const onCallEvent = (event: CallSignalPayload) => {
@@ -1008,6 +1093,10 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         return () => {
             disposed = true;
             chatWebsocketService.unsubscribeFromCallEvents(currentUserId, onCallEvent);
+            if (rejoinProbeTimerRef.current) {
+                clearTimeout(rejoinProbeTimerRef.current);
+                rejoinProbeTimerRef.current = null;
+            }
             const currentRuntimeCall = chatRuntimeStore.getActiveCall();
             if (
                 currentRuntimeCall?.conversationId === conversationId &&
