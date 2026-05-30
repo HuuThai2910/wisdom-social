@@ -1225,7 +1225,11 @@ function ChatWindowContent({
   const callParticipants = useMemo(() => {
     if (!activeCall || !isGroupConversation) return [];
 
-    const callMemberIds = new Set<number>(activeCall.remoteUserIds);
+    const callMemberIds = new Set<number>(
+      activeCall.participantUserIds?.length
+        ? activeCall.participantUserIds
+        : activeCall.remoteUserIds
+    );
     callMemberIds.add(userId);
 
     return Object.values(membersById)

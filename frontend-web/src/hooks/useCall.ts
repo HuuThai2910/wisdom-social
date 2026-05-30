@@ -20,6 +20,7 @@ interface ActiveCall {
     callId: string;
     callType: CallType;
     remoteUserIds: number[];
+    participantUserIds: number[];
     remoteName: string;
     remoteAvatar?: string;
     status: CallStatus;
@@ -53,6 +54,36 @@ function createCallId() {
         return crypto.randomUUID();
     }
     return `call-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function getSignalParticipantUserIds(signal: CallSignalPayload): number[] {
+    const direct = signal.participantUserIds;
+    if (direct?.length) return direct.filter(Number.isFinite);
+
+    const candidate = signal.candidate as
+        | { participantUserIds?: unknown }
+        | undefined;
+    if (!Array.isArray(candidate?.participantUserIds)) return [];
+
+    return candidate.participantUserIds
+        .map((id) => Number(id))
+        .filter(Number.isFinite);
+}
+
+function getSignalJoiningUserId(signal: CallSignalPayload): number | null {
+    const candidate = signal.candidate as { joiningUserId?: unknown } | undefined;
+    const id = Number(candidate?.joiningUserId);
+    return Number.isFinite(id) ? id : null;
+}
+
+function buildCallMetadata(
+    participantUserIds: number[],
+    joiningUserId?: number,
+): Record<string, unknown> {
+    return {
+        participantUserIds: Array.from(new Set(participantUserIds)),
+        ...(joiningUserId != null ? { joiningUserId } : {}),
+    };
 }
 
 export function useCall(options: UseCallOptions) {
@@ -111,6 +142,7 @@ export function useCall(options: UseCallOptions) {
     const screenTrackRef = useRef<MediaStreamTrack | null>(null);
     const cameraTrackBeforeShareRef = useRef<MediaStreamTrack | null>(null);
     const incomingNotificationRef = useRef<Notification | null>(null);
+    const activeCallRequestAtRef = useRef(0);
 
     useEffect(() => {
         durationSecondsRef.current = durationSeconds;
@@ -727,6 +759,11 @@ export function useCall(options: UseCallOptions) {
                         fromUserId: userId,
                         targetUserId: remoteUserId,
                         sdp: offer,
+                        candidate: buildCallMetadata(
+                            activeCallRef.current?.participantUserIds ?? [
+                                userId,
+                            ],
+                        ),
                     });
 
                     await flushQueuedIceCandidates(callId, remoteUserId);
@@ -762,6 +799,7 @@ export function useCall(options: UseCallOptions) {
                 callId,
                 callType,
                 remoteUserIds,
+                participantUserIds: [userId],
                 remoteName:
                     remoteUserIds.length > 1
                         ? `Nhóm (${remoteUserIds.length} người)`
@@ -828,6 +866,7 @@ export function useCall(options: UseCallOptions) {
                     remoteUserIds: Array.from(
                         new Set([...prev.remoteUserIds, ...nextRemoteUserIds]),
                     ),
+                    participantUserIds: prev.participantUserIds,
                     remoteName:
                         prev.remoteUserIds.length + nextRemoteUserIds.length > 1
                             ? `Nhóm (${prev.remoteUserIds.length + nextRemoteUserIds.length} người)`
@@ -840,6 +879,128 @@ export function useCall(options: UseCallOptions) {
             return true;
         },
         [placeOutgoingCallToUsers, userId],
+    );
+
+    const updateCallParticipants = useCallback(
+        (participantUserIds: number[]) => {
+            const normalizedParticipantIds = Array.from(
+                new Set(participantUserIds.filter(Number.isFinite)),
+            );
+            if (!normalizedParticipantIds.length) return;
+
+            setActiveCall((prev) => {
+                if (!prev) return prev;
+                const remoteUserIds = normalizedParticipantIds.filter(
+                    (id) => id !== userId,
+                );
+                const next = {
+                    ...prev,
+                    remoteUserIds,
+                    participantUserIds: normalizedParticipantIds,
+                    remoteName:
+                        normalizedParticipantIds.length > 2
+                            ? `Nhóm (${normalizedParticipantIds.length} người)`
+                            : prev.remoteName,
+                };
+                activeCallRef.current = next;
+                return next;
+            });
+        },
+        [userId],
+    );
+
+    const sendParticipantSnapshot = useCallback(
+        (participantUserIds: number[]) => {
+            const currentCall = activeCallRef.current;
+            if (!currentCall) return;
+            const metadata = buildCallMetadata(participantUserIds);
+            participantUserIds
+                .filter((id) => id !== userId)
+                .forEach((targetUserId) => {
+                    websocketService.sendCallSignal({
+                        event: "call-participants",
+                        conversationId,
+                        callId: currentCall.callId,
+                        callType: currentCall.callType,
+                        fromUserId: userId,
+                        targetUserId,
+                        candidate: metadata,
+                    });
+                });
+        },
+        [conversationId, userId],
+    );
+
+    const notifyExistingParticipantsToConnect = useCallback(
+        (joiningUserId: number, participantUserIds: number[]) => {
+            const currentCall = activeCallRef.current;
+            if (!currentCall) return;
+            const metadata = buildCallMetadata(participantUserIds, joiningUserId);
+            participantUserIds
+                .filter((id) => id !== userId && id !== joiningUserId)
+                .forEach((targetUserId) => {
+                    websocketService.sendCallSignal({
+                        event: "join-call",
+                        conversationId,
+                        callId: currentCall.callId,
+                        callType: currentCall.callType,
+                        fromUserId: userId,
+                        targetUserId,
+                        candidate: metadata,
+                    });
+                });
+        },
+        [conversationId, userId],
+    );
+
+    const acceptPeerOffer = useCallback(
+        async (signal: CallSignalPayload) => {
+            const currentCall = activeCallRef.current;
+            if (!currentCall || currentCall.callId !== signal.callId) return;
+            if (signal.fromUserId === userId) return;
+
+            const pc = createPeerConnection(
+                signal.fromUserId,
+                signal.callId,
+                signal.callType,
+            );
+            if (signal.sdp) {
+                await pc.setRemoteDescription(
+                    new RTCSessionDescription(signal.sdp),
+                );
+            }
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            await flushQueuedIceCandidates(signal.callId, signal.fromUserId);
+
+            const participantUserIds = Array.from(
+                new Set([
+                    ...currentCall.participantUserIds,
+                    ...getSignalParticipantUserIds(signal),
+                    signal.fromUserId,
+                    userId,
+                ]),
+            );
+            updateCallParticipants(participantUserIds);
+
+            websocketService.sendCallSignal({
+                event: "answer-call",
+                conversationId,
+                callId: signal.callId,
+                callType: signal.callType,
+                fromUserId: userId,
+                targetUserId: signal.fromUserId,
+                sdp: answer,
+                candidate: buildCallMetadata(participantUserIds),
+            });
+        },
+        [
+            conversationId,
+            createPeerConnection,
+            flushQueuedIceCandidates,
+            updateCallParticipants,
+            userId,
+        ],
     );
 
     const acceptIncomingSignal = useCallback(async (signal: CallSignalPayload) => {
@@ -868,6 +1029,13 @@ export function useCall(options: UseCallOptions) {
             callId: signal.callId,
             callType,
             remoteUserIds: [signal.fromUserId],
+            participantUserIds: Array.from(
+                new Set([
+                    ...getSignalParticipantUserIds(signal),
+                    signal.fromUserId,
+                    userId,
+                ]),
+            ),
             remoteName: targetName ?? `Người dùng ${signal.fromUserId}`,
             remoteAvatar: targetAvatar,
             status: "accepted",
@@ -889,6 +1057,15 @@ export function useCall(options: UseCallOptions) {
             fromUserId: userId,
             targetUserId: signal.fromUserId,
             sdp: answer,
+            candidate: buildCallMetadata(
+                Array.from(
+                    new Set([
+                        ...getSignalParticipantUserIds(signal),
+                        signal.fromUserId,
+                        userId,
+                    ]),
+                ),
+            ),
         });
     }, [
         conversationId,
@@ -1031,10 +1208,66 @@ export function useCall(options: UseCallOptions) {
                 signal.event === "incoming-call" ||
                 signal.event === "call-user"
             ) {
+                if (currentCall?.callId === signal.callId) {
+                    await acceptPeerOffer(signal);
+                    return;
+                }
+
                 if (!currentCall) {
+                    const shouldAutoAccept =
+                        Date.now() - activeCallRequestAtRef.current < 8000 &&
+                        getSignalParticipantUserIds(signal).length > 0;
+                    if (shouldAutoAccept) {
+                        await acceptIncomingSignal(signal);
+                        return;
+                    }
+
                     setIncomingCall(signal);
                     startReceiverTone();
                     notifyIncomingCall(signal);
+                }
+                return;
+            }
+
+            if (signal.event === "request-active-call") {
+                if (!currentCall || currentCall.status !== "accepted") return;
+                if (currentCall.participantUserIds.includes(signal.fromUserId)) {
+                    return;
+                }
+                const leaderId = Math.min(...currentCall.participantUserIds);
+                if (leaderId !== userId) return;
+
+                const participantUserIds = Array.from(
+                    new Set([...currentCall.participantUserIds, signal.fromUserId]),
+                );
+                updateCallParticipants(participantUserIds);
+                await placeOutgoingCallToUsers(currentCall.callId, currentCall.callType, [
+                    signal.fromUserId,
+                ]);
+                notifyExistingParticipantsToConnect(
+                    signal.fromUserId,
+                    participantUserIds,
+                );
+                sendParticipantSnapshot(participantUserIds);
+                return;
+            }
+
+            if (signal.event === "join-call") {
+                if (!currentCall || currentCall.callId !== signal.callId) return;
+                const joiningUserId = getSignalJoiningUserId(signal);
+                if (!joiningUserId || joiningUserId === userId) return;
+                if (peerConnectionsRef.current.has(joiningUserId)) return;
+
+                updateCallParticipants(getSignalParticipantUserIds(signal));
+                await placeOutgoingCallToUsers(signal.callId, signal.callType, [
+                    joiningUserId,
+                ]);
+                return;
+            }
+
+            if (signal.event === "call-participants") {
+                if (currentCall?.callId === signal.callId) {
+                    updateCallParticipants(getSignalParticipantUserIds(signal));
                 }
                 return;
             }
@@ -1067,6 +1300,22 @@ export function useCall(options: UseCallOptions) {
                     clearUnansweredTimeout();
                     stopCallerTone();
                     applyStatus("accepted");
+                    const previousParticipantIds =
+                        currentCall.participantUserIds;
+                    const participantUserIds = Array.from(
+                        new Set([
+                            ...previousParticipantIds,
+                            ...getSignalParticipantUserIds(signal),
+                            remoteUserId,
+                            userId,
+                        ]),
+                    );
+                    updateCallParticipants(participantUserIds);
+                    notifyExistingParticipantsToConnect(
+                        remoteUserId,
+                        participantUserIds,
+                    );
+                    sendParticipantSnapshot(participantUserIds);
                     setDurationSeconds(0);
                     startDurationTimer();
                 }
@@ -1081,18 +1330,22 @@ export function useCall(options: UseCallOptions) {
                     queueIceCandidate(
                         signal.callId,
                         remoteUserId,
-                        signal.candidate,
+                        signal.candidate as RTCIceCandidateInit,
                     );
                     return;
                 }
 
                 try {
-                    await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+                    await pc.addIceCandidate(
+                        new RTCIceCandidate(
+                            signal.candidate as RTCIceCandidateInit,
+                        ),
+                    );
                 } catch {
                     queueIceCandidate(
                         signal.callId,
                         remoteUserId,
-                        signal.candidate,
+                        signal.candidate as RTCIceCandidateInit,
                     );
                 }
                 return;
@@ -1120,18 +1373,41 @@ export function useCall(options: UseCallOptions) {
                     }
 
                     setActiveCall((prev) =>
-                        prev ? { ...prev, remoteUserIds: remaining } : prev,
+                        prev
+                            ? {
+                                ...prev,
+                                remoteUserIds: remaining,
+                                participantUserIds:
+                                    prev.participantUserIds.filter(
+                                        (id) => id !== remoteUserId,
+                                    ),
+                            }
+                            : prev,
                     );
                     activeCallRef.current = {
                         ...currentCall,
                         remoteUserIds: remaining,
+                        participantUserIds:
+                            currentCall.participantUserIds.filter(
+                                (id) => id !== remoteUserId,
+                            ),
                     };
+                    sendParticipantSnapshot(
+                        currentCall.participantUserIds.filter(
+                            (id) => id !== remoteUserId,
+                        ),
+                    );
                 }
                 return;
             }
 
             if (signal.event === "end-call") {
-                if (!currentCall.isCaller) {
+                const remainingParticipants =
+                    currentCall.participantUserIds.filter(
+                        (id) => id !== remoteUserId,
+                    );
+
+                if (!currentCall.isCaller && remainingParticipants.length <= 1) {
                     resetCallState();
                     return;
                 }
@@ -1157,29 +1433,44 @@ export function useCall(options: UseCallOptions) {
                 }
 
                 setActiveCall((prev) =>
-                    prev ? { ...prev, remoteUserIds: remaining } : prev,
+                    prev
+                        ? {
+                            ...prev,
+                            remoteUserIds: remaining,
+                            participantUserIds: remainingParticipants,
+                        }
+                        : prev,
                 );
                 activeCallRef.current = {
                     ...currentCall,
                     remoteUserIds: remaining,
+                    participantUserIds: remainingParticipants,
                 };
+                sendParticipantSnapshot(remainingParticipants);
             }
         },
         [
+            acceptIncomingSignal,
+            acceptPeerOffer,
             applyStatus,
             closePeerConnectionForUser,
             conversationId,
             clearIncomingNotification,
             flushQueuedIceCandidates,
             notifyIncomingCall,
+            notifyExistingParticipantsToConnect,
             persistCallMessage,
+            placeOutgoingCallToUsers,
             queueIceCandidate,
             resetCallState,
             clearUnansweredTimeout,
+            sendParticipantSnapshot,
             startDurationTimer,
             startReceiverTone,
             stopCallerTone,
             stopReceiverTone,
+            updateCallParticipants,
+            userId,
         ],
     );
 
@@ -1238,19 +1529,35 @@ export function useCall(options: UseCallOptions) {
             void handleCallSignalRef.current?.(event);
         };
 
+        let disposed = false;
         const setup = async () => {
             if (!websocketService.isConnected()) {
                 await websocketService.connect();
             }
+            if (disposed) return;
             websocketService.subscribeToCallEvents(userId, onCallEvent);
+            const targetIds = await resolveCallTargetUserIds();
+            if (disposed || activeCallRef.current) return;
+            activeCallRequestAtRef.current = Date.now();
+            targetIds.forEach((targetUserId) => {
+                websocketService.sendCallSignal({
+                    event: "request-active-call",
+                    conversationId,
+                    callId: `conversation-${conversationId}`,
+                    callType: "audio",
+                    fromUserId: userId,
+                    targetUserId,
+                });
+            });
         };
 
         void setup();
 
         return () => {
+            disposed = true;
             websocketService.unsubscribeFromCallEvents(userId, onCallEvent);
         };
-    }, [userId]);
+    }, [conversationId, resolveCallTargetUserIds, userId]);
 
     useEffect(() => {
         return () => {

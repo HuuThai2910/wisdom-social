@@ -146,7 +146,10 @@ export type CallSignalEvent =
     | "answer-call"
     | "ice-candidate"
     | "reject-call"
-    | "end-call";
+    | "end-call"
+    | "join-call"
+    | "call-participants"
+    | "request-active-call";
 
 export interface CallSignalPayload {
     event: CallSignalEvent;
@@ -155,8 +158,9 @@ export interface CallSignalPayload {
     callType: "audio" | "video";
     fromUserId: number;
     targetUserId: number;
+    participantUserIds?: number[];
     sdp?: RTCSessionDescriptionInit;
-    candidate?: RTCIceCandidateInit;
+    candidate?: RTCIceCandidateInit | Record<string, unknown>;
     timestamp?: string;
 }
 

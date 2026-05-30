@@ -1078,7 +1078,11 @@ export default function MessagesConversationScreen() {
     );
     const callParticipants = useMemo(() => {
         if (!activeCall) return [];
-        const ids = new Set(activeCall.remoteUserIds);
+        const ids = new Set(
+            activeCall.participantUserIds?.length
+                ? activeCall.participantUserIds
+                : activeCall.remoteUserIds,
+        );
         ids.add(currentUserId);
         return Object.values(membersById)
             .filter((member) => ids.has(member.userId))

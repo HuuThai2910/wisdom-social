@@ -195,6 +195,24 @@ export function useCallMediaPeer() {
         peerConnectionRef.current = null;
     }, []);
 
+    const closePeerConnectionForUser = useCallback((remoteUserId: number) => {
+        const peer = peerConnectionsRef.current.get(remoteUserId);
+        if (!peer) return;
+
+        peer.onicecandidate = undefined;
+        peer.ontrack = undefined;
+        peer.close();
+        peerConnectionsRef.current.delete(remoteUserId);
+
+        if (peerConnectionRef.current === peer) {
+            peerConnectionRef.current = null;
+        }
+
+        setRemoteStreamUrls((prev) =>
+            prev.filter((item) => item.userId !== remoteUserId),
+        );
+    }, []);
+
     const cleanupMedia = useCallback(() => {
         localStreamRef.current?.getTracks().forEach((track) => track.stop());
         remoteStreamRef.current?.getTracks?.().forEach((track) => track.stop());
@@ -473,6 +491,7 @@ export function useCallMediaPeer() {
         flushQueuedIceCandidates,
         addIceCandidateOrQueue,
         getPeerConnection,
+        closePeerConnectionForUser,
         resetPeerAndMedia,
         toggleMic,
         toggleCamera,
