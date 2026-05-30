@@ -5,6 +5,7 @@ import { useAppContext } from "@/context/AppContext";
 import chatWebsocketService, {
     type CallSignalPayload,
 } from "@/services/chatWebsocketService";
+import { setPendingIncomingCall } from "@/utils/pendingIncomingCall";
 
 function getConversationIdFromPath(pathname: string): number | null {
     const match = pathname.match(/\/messages\/(\d+)(?:$|\/)/);
@@ -58,6 +59,7 @@ export default function GlobalIncomingCallNotifier() {
         const current = incomingCallRef.current;
         if (!current) return;
 
+        setPendingIncomingCall(current);
         clearIncoming();
         router.push({
             pathname: "/(stack)/messages/[conversationId]",

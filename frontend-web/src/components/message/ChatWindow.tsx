@@ -51,7 +51,7 @@ import {
   maskAvatarUrl,
   maskDisplayName,
 } from "../../utils/lockedAccount";
-import { useCall } from "../../hooks/useCall";
+import { useCall, type CallSignalPayload } from "../../hooks/useCall";
 import { useFriendStatus } from "../../hooks/useFriendStatus";
 import { useFriendDataSafe } from "../../contexts/FriendDataContext";
 import IncomingCallModal from "./IncomingCallModal";
@@ -125,6 +125,7 @@ const FORWARD_BLOCKED_MEMBER_STATUSES = new Set([
   "BLOCKED",
   "GROUP_DISBANDED",
 ]);
+const PENDING_INCOMING_CALL_KEY = "pending_incoming_call";
 
 function canForwardToConversation(
   conversation: ConversationSidebar,
@@ -1015,6 +1016,24 @@ function ChatWindowContent({
     [membersById, userId]
   );
 
+  const [pendingIncomingCall, setPendingIncomingCall] =
+    useState<CallSignalPayload | null>(() => {
+      if (typeof sessionStorage === "undefined") return null;
+      const raw = sessionStorage.getItem(PENDING_INCOMING_CALL_KEY);
+      if (!raw) return null;
+      try {
+        const parsed = JSON.parse(raw) as CallSignalPayload;
+        return parsed?.conversationId === conversationId ? parsed : null;
+      } catch {
+        return null;
+      }
+    });
+
+  const consumePendingIncomingCall = useCallback(() => {
+    sessionStorage.removeItem(PENDING_INCOMING_CALL_KEY);
+    setPendingIncomingCall(null);
+  }, []);
+
   const {
     incomingCall,
     activeCall,
@@ -1043,6 +1062,8 @@ function ChatWindowContent({
     targetUserId: otherMember?.userId,
     targetName: otherMember?.nickname,
     targetAvatar: otherMember?.avatar,
+    pendingIncomingCall,
+    onPendingIncomingCallConsumed: consumePendingIncomingCall,
     onCallMessageSaved: appendRealtimeMessage,
   });
 

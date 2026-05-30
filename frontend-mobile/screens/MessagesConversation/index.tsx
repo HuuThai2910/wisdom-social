@@ -111,6 +111,7 @@ import {
 import { buildPinnedBannerItemsFromSnapshot } from "@/utils/pinnedMessageSnapshot";
 import { useOneToOneCall } from "@/hooks/useOneToOneCall";
 import { consumeInviteReturnSync } from "@/utils/inviteReturnSync";
+import { consumePendingIncomingCall } from "@/utils/pendingIncomingCall";
 
 const FORWARD_BLOCKED_MEMBER_STATUSES = new Set([
     "LEFT",
@@ -925,6 +926,14 @@ export default function MessagesConversationScreen() {
             members: Object.values(membersById),
         });
     }, [conversation, currentUserId, membersById]);
+    const [pendingIncomingCall, setPendingIncomingCall] = useState(() =>
+        consumePendingIncomingCall(
+            Number.isFinite(conversationId) ? conversationId : 0,
+        ),
+    );
+    const clearPendingIncomingCall = useCallback(() => {
+        setPendingIncomingCall(null);
+    }, []);
   const {
         incomingCall,
         activeCall,
@@ -956,6 +965,8 @@ export default function MessagesConversationScreen() {
             .map((member) => member.userId),
         targetName: otherUser?.nickname || otherUser?.username,
         targetAvatar: otherUser?.avatar,
+        pendingIncomingCall,
+        onPendingIncomingCallConsumed: clearPendingIncomingCall,
     });
 
     const incomingCallerName = useMemo(() => {

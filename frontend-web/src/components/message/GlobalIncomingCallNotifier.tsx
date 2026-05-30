@@ -8,6 +8,7 @@ import { useAuth } from "../../contexts/AuthContext";
 
 const RECEIVER_RINGTONE_SRC = "/2.mp3";
 const STOP_ALL_CALL_AUDIO_EVENT = "call:stop-all-audio";
+const PENDING_INCOMING_CALL_KEY = "pending_incoming_call";
 
 function getConversationIdFromPath(pathname: string): number | null {
     const match = pathname.match(/^\/messages\/(\d+)$/);
@@ -175,6 +176,10 @@ export default function GlobalIncomingCallNotifier() {
 
         broadcastStopAllCallAudio();
         stopRingtone();
+        sessionStorage.setItem(
+            PENDING_INCOMING_CALL_KEY,
+            JSON.stringify(incomingCall),
+        );
         navigate(`/messages/${incomingCall.conversationId}`);
     }, [
         broadcastStopAllCallAudio,

@@ -25,6 +25,8 @@ interface UseOneToOneCallOptions {
     targetUserIds?: number[];
     targetName?: string;
     targetAvatar?: string;
+    pendingIncomingCall?: CallSignalPayload | null;
+    onPendingIncomingCallConsumed?: () => void;
     onCallMessageSaved?: (message: Message) => void;
 }
 const UNANSWERED_CALL_TIMEOUT_MS = 20_000;
@@ -93,6 +95,8 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         targetUserIds,
         targetName,
         targetAvatar,
+        pendingIncomingCall,
+        onPendingIncomingCallConsumed,
         onCallMessageSaved,
     } = options;
     const {
@@ -364,10 +368,8 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         },
         [currentUserId, placeOutgoingCallToUsers],
     );
-    const acceptIncomingCall = useCallback(async () => {
+    const acceptIncomingSignal = useCallback(async (incoming: CallSignalPayload) => {
         if (!isWebRTCSupported) return false;
-        const incoming = incomingCallRef.current;
-        if (!incoming) return false;
         callSavedRef.current = false;
         try {
             await createLocalStream(incoming.callType);
@@ -437,6 +439,26 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         targetAvatar,
         targetName,
         isWebRTCSupported,
+    ]);
+
+    const acceptIncomingCall = useCallback(async () => {
+        const incoming = incomingCallRef.current;
+        if (!incoming) return false;
+        return acceptIncomingSignal(incoming);
+    }, [acceptIncomingSignal]);
+
+    useEffect(() => {
+        if (!pendingIncomingCall) return;
+        if (pendingIncomingCall.conversationId !== conversationId) return;
+        if (activeCallRef.current) return;
+
+        onPendingIncomingCallConsumed?.();
+        void acceptIncomingSignal(pendingIncomingCall);
+    }, [
+        acceptIncomingSignal,
+        conversationId,
+        onPendingIncomingCallConsumed,
+        pendingIncomingCall,
     ]);
     const rejectIncomingCall = useCallback(() => {
         const incoming = incomingCallRef.current;

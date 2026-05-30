@@ -33,6 +33,8 @@ interface UseCallOptions {
     targetUserIds?: number[];
     targetName?: string;
     targetAvatar?: string;
+    pendingIncomingCall?: CallSignalPayload | null;
+    onPendingIncomingCallConsumed?: () => void;
     onCallMessageSaved?: (message: Message) => void;
 }
 
@@ -61,6 +63,8 @@ export function useCall(options: UseCallOptions) {
         targetUserIds,
         targetName,
         targetAvatar,
+        pendingIncomingCall,
+        onPendingIncomingCallConsumed,
     } = options;
     const { onCallMessageSaved } = options;
 
@@ -838,33 +842,33 @@ export function useCall(options: UseCallOptions) {
         [placeOutgoingCallToUsers, userId],
     );
 
-    const acceptIncomingCall = useCallback(async () => {
-        if (!incomingCall) return;
+    const acceptIncomingSignal = useCallback(async (signal: CallSignalPayload) => {
+        if (activeCallRef.current) return;
 
-        const callType = incomingCall.callType;
+        const callType = signal.callType;
         await createLocalStream(callType);
 
         const pc = createPeerConnection(
-            incomingCall.fromUserId,
-            incomingCall.callId,
+            signal.fromUserId,
+            signal.callId,
             callType,
         );
 
-        if (incomingCall.sdp) {
+        if (signal.sdp) {
             await pc.setRemoteDescription(
-                new RTCSessionDescription(incomingCall.sdp),
+                new RTCSessionDescription(signal.sdp),
             );
         }
 
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
-        await flushQueuedIceCandidates(incomingCall.callId, incomingCall.fromUserId);
+        await flushQueuedIceCandidates(signal.callId, signal.fromUserId);
 
         const nextCall: ActiveCall = {
-            callId: incomingCall.callId,
+            callId: signal.callId,
             callType,
-            remoteUserIds: [incomingCall.fromUserId],
-            remoteName: targetName ?? `Người dùng ${incomingCall.fromUserId}`,
+            remoteUserIds: [signal.fromUserId],
+            remoteName: targetName ?? `Người dùng ${signal.fromUserId}`,
             remoteAvatar: targetAvatar,
             status: "accepted",
             isCaller: false,
@@ -880,10 +884,10 @@ export function useCall(options: UseCallOptions) {
         websocketService.sendCallSignal({
             event: "answer-call",
             conversationId,
-            callId: incomingCall.callId,
+            callId: signal.callId,
             callType,
             fromUserId: userId,
-            targetUserId: incomingCall.fromUserId,
+            targetUserId: signal.fromUserId,
             sdp: answer,
         });
     }, [
@@ -891,12 +895,30 @@ export function useCall(options: UseCallOptions) {
         createLocalStream,
         createPeerConnection,
         flushQueuedIceCandidates,
-        incomingCall,
         startDurationTimer,
         targetAvatar,
         targetName,
         userId,
         stopReceiverTone,
+    ]);
+
+    const acceptIncomingCall = useCallback(async () => {
+        if (!incomingCall) return;
+        await acceptIncomingSignal(incomingCall);
+    }, [acceptIncomingSignal, incomingCall]);
+
+    useEffect(() => {
+        if (!pendingIncomingCall) return;
+        if (pendingIncomingCall.conversationId !== conversationId) return;
+        if (activeCallRef.current) return;
+
+        onPendingIncomingCallConsumed?.();
+        void acceptIncomingSignal(pendingIncomingCall);
+    }, [
+        acceptIncomingSignal,
+        conversationId,
+        onPendingIncomingCallConsumed,
+        pendingIncomingCall,
     ]);
 
     const rejectIncomingCall = useCallback(() => {
