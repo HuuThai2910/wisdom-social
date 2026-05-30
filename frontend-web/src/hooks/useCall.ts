@@ -44,6 +44,7 @@ const CALLER_RINGTONE_SRC = "/1.mp3";
 const RECEIVER_RINGTONE_SRC = "/2.mp3";
 const UNANSWERED_CALL_TIMEOUT_MS = 20_000;
 const STOP_ALL_CALL_AUDIO_EVENT = "call:stop-all-audio";
+export const MAX_CALL_PARTICIPANTS = 8;
 
 function createCallId() {
     if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -698,11 +699,54 @@ export function useCall(options: UseCallOptions) {
         }
     }, [conversationId, resolvedTargetUserIds, userId]);
 
+    const placeOutgoingCallToUsers = useCallback(
+        async (
+            callId: string,
+            callType: CallType,
+            remoteUserIds: number[],
+        ) => {
+            await Promise.all(
+                remoteUserIds.map(async (remoteUserId) => {
+                    const pc = createPeerConnection(
+                        remoteUserId,
+                        callId,
+                        callType,
+                    );
+                    const offer = await pc.createOffer();
+                    await pc.setLocalDescription(offer);
+
+                    websocketService.sendCallSignal({
+                        event: "call-user",
+                        conversationId,
+                        callId,
+                        callType,
+                        fromUserId: userId,
+                        targetUserId: remoteUserId,
+                        sdp: offer,
+                    });
+
+                    await flushQueuedIceCandidates(callId, remoteUserId);
+                }),
+            );
+        },
+        [
+            conversationId,
+            createPeerConnection,
+            flushQueuedIceCandidates,
+            userId,
+        ],
+    );
+
     const startCall = useCallback(
-        async (callType: CallType) => {
+        async (callType: CallType, selectedUserIds?: number[]) => {
             if (activeCallRef.current) return;
 
-            const remoteUserIds = await resolveCallTargetUserIds();
+            const targetIds = selectedUserIds?.length
+                ? selectedUserIds
+                : await resolveCallTargetUserIds();
+            const remoteUserIds = Array.from(
+                new Set(targetIds.filter((id) => id !== userId)),
+            ).slice(0, MAX_CALL_PARTICIPANTS - 1);
             if (!remoteUserIds.length) return;
 
             const stream = await createLocalStream(callType);
@@ -729,37 +773,13 @@ export function useCall(options: UseCallOptions) {
             callSavedRef.current = false;
             startCallerTone();
 
-            await Promise.all(
-                remoteUserIds.map(async (remoteUserId) => {
-                    const pc = createPeerConnection(
-                        remoteUserId,
-                        callId,
-                        callType,
-                    );
-                    const offer = await pc.createOffer();
-                    await pc.setLocalDescription(offer);
-
-                    websocketService.sendCallSignal({
-                        event: "call-user",
-                        conversationId,
-                        callId,
-                        callType,
-                        fromUserId: userId,
-                        targetUserId: remoteUserId,
-                        sdp: offer,
-                    });
-
-                    await flushQueuedIceCandidates(callId, remoteUserId);
-                }),
-            );
+            await placeOutgoingCallToUsers(callId, callType, remoteUserIds);
 
             startUnansweredTimeout(callId, callType, remoteUserIds);
         },
         [
-            conversationId,
             createLocalStream,
-            createPeerConnection,
-            flushQueuedIceCandidates,
+            placeOutgoingCallToUsers,
             resolveCallTargetUserIds,
             startUnansweredTimeout,
             targetAvatar,
@@ -767,6 +787,55 @@ export function useCall(options: UseCallOptions) {
             userId,
             startCallerTone,
         ],
+    );
+
+    const inviteUsersToCall = useCallback(
+        async (userIds: number[]) => {
+            const currentCall = activeCallRef.current;
+            if (!currentCall || !localStreamRef.current) return false;
+
+            const existingIds = new Set(currentCall.remoteUserIds);
+            const nextRemoteUserIds = Array.from(
+                new Set(
+                    userIds.filter(
+                        (id) => id !== userId && !existingIds.has(id),
+                    ),
+                ),
+            ).slice(
+                0,
+                Math.max(
+                    0,
+                    MAX_CALL_PARTICIPANTS - 1 - currentCall.remoteUserIds.length,
+                ),
+            );
+
+            if (!nextRemoteUserIds.length) return false;
+
+            await placeOutgoingCallToUsers(
+                currentCall.callId,
+                currentCall.callType,
+                nextRemoteUserIds,
+            );
+
+            setActiveCall((prev) => {
+                if (!prev) return prev;
+                const next = {
+                    ...prev,
+                    remoteUserIds: Array.from(
+                        new Set([...prev.remoteUserIds, ...nextRemoteUserIds]),
+                    ),
+                    remoteName:
+                        prev.remoteUserIds.length + nextRemoteUserIds.length > 1
+                            ? `Nhóm (${prev.remoteUserIds.length + nextRemoteUserIds.length} người)`
+                            : prev.remoteName,
+                };
+                activeCallRef.current = next;
+                return next;
+            });
+
+            return true;
+        },
+        [placeOutgoingCallToUsers, userId],
     );
 
     const acceptIncomingCall = useCallback(async () => {
@@ -1214,6 +1283,8 @@ export function useCall(options: UseCallOptions) {
         toggleMic,
         toggleCamera,
         toggleScreenShare,
+        inviteUsersToCall,
+        maxCallParticipants: MAX_CALL_PARTICIPANTS,
     };
 }
 

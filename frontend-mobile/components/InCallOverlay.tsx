@@ -1,5 +1,13 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Image, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+    Image,
+    Modal,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    View,
+} from "react-native";
 import Constants from "expo-constants";
 import { colors } from "@/constants";
 
@@ -37,6 +45,8 @@ interface InCallOverlayProps {
     durationText: string;
     localStreamUrl: string | null;
     remoteStreamUrl: string | null;
+    remoteStreamUrls?: { userId: number; url: string }[];
+    participants?: { userId: number; name: string; avatar?: string }[];
     micEnabled: boolean;
     cameraEnabled: boolean;
     speakerEnabled: boolean;
@@ -44,6 +54,7 @@ interface InCallOverlayProps {
     onToggleCamera: () => void;
     onSwitchCamera: () => void;
     onToggleSpeaker: () => void;
+    onInviteParticipants?: () => void;
     onEndCall: () => void;
 }
 
@@ -89,6 +100,8 @@ export default function InCallOverlay({
     durationText,
     localStreamUrl,
     remoteStreamUrl,
+    remoteStreamUrls = [],
+    participants = [],
     micEnabled,
     cameraEnabled,
     speakerEnabled,
@@ -96,6 +109,7 @@ export default function InCallOverlay({
     onToggleCamera,
     onSwitchCamera,
     onToggleSpeaker,
+    onInviteParticipants,
     onEndCall,
 }: InCallOverlayProps) {
     if (!visible) return null;
@@ -111,7 +125,19 @@ export default function InCallOverlay({
             <View style={styles.root}>
                 {isVideo ? (
                     <View style={styles.videoLayer}>
-                        {remoteStreamUrl && RTCViewComponent ? (
+                        {remoteStreamUrls.length > 1 && RTCViewComponent ? (
+                            <View style={styles.remoteGrid}>
+                                {remoteStreamUrls.slice(0, 4).map((item) => (
+                                    <RTCViewComponent
+                                        key={item.userId}
+                                        streamURL={item.url}
+                                        style={styles.remoteGridVideo}
+                                        objectFit="cover"
+                                        mirror={false}
+                                    />
+                                ))}
+                            </View>
+                        ) : remoteStreamUrl && RTCViewComponent ? (
                             <RTCViewComponent
                                 streamURL={remoteStreamUrl}
                                 style={styles.remoteVideo}
@@ -160,6 +186,31 @@ export default function InCallOverlay({
                     </Text>
                 </View>
 
+                {participants.length > 0 ? (
+                    <View style={styles.participantsPanel}>
+                        <Text style={styles.participantsTitle}>
+                            Thanh vien cuoc goi ({participants.length})
+                        </Text>
+                        <ScrollView style={styles.participantsList}>
+                            {participants.map((member) => (
+                                <View key={member.userId} style={styles.participantRow}>
+                                    <Image
+                                        source={{
+                                            uri:
+                                                member.avatar ||
+                                                "https://cdn-icons-png.flaticon.com/512/149/149071.png",
+                                        }}
+                                        style={styles.participantAvatar}
+                                    />
+                                    <Text style={styles.participantName} numberOfLines={1}>
+                                        {member.name}
+                                    </Text>
+                                </View>
+                            ))}
+                        </ScrollView>
+                    </View>
+                ) : null}
+
                 <View style={styles.controlsRow}>
                     <ControlButton
                         icon={micEnabled ? "mic" : "mic-off"}
@@ -188,6 +239,13 @@ export default function InCallOverlay({
                         onPress={onToggleSpeaker}
                     />
 
+                    {onInviteParticipants ? (
+                        <ControlButton
+                            icon="person-add"
+                            onPress={onInviteParticipants}
+                        />
+                    ) : null}
+
                     <ControlButton icon="call" danger onPress={onEndCall} />
                 </View>
             </View>
@@ -207,6 +265,20 @@ const styles = StyleSheet.create({
     remoteVideo: {
         width: "100%",
         height: "100%",
+    },
+    remoteGrid: {
+        flex: 1,
+        flexDirection: "row",
+        flexWrap: "wrap",
+        gap: 4,
+        padding: 4,
+    },
+    remoteGridVideo: {
+        width: "49%",
+        height: "49%",
+        borderRadius: 10,
+        overflow: "hidden",
+        backgroundColor: "#111827",
     },
     remoteVideoFallback: {
         flex: 1,
@@ -256,6 +328,41 @@ const styles = StyleSheet.create({
         marginTop: 8,
         fontSize: 14,
         color: "#CBD5E1",
+    },
+    participantsPanel: {
+        position: "absolute",
+        top: 120,
+        left: 16,
+        right: 16,
+        maxHeight: 170,
+        borderRadius: 14,
+        backgroundColor: "rgba(15, 23, 42, 0.72)",
+        padding: 12,
+    },
+    participantsTitle: {
+        color: "#CBD5E1",
+        fontSize: 12,
+        fontWeight: "700",
+        marginBottom: 8,
+    },
+    participantsList: {
+        maxHeight: 120,
+    },
+    participantRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        paddingVertical: 4,
+    },
+    participantAvatar: {
+        width: 28,
+        height: 28,
+        borderRadius: 14,
+    },
+    participantName: {
+        flex: 1,
+        color: colors.white,
+        fontSize: 13,
     },
     controlsRow: {
         position: "absolute",

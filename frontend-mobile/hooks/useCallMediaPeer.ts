@@ -102,12 +102,16 @@ const RTC_CONFIG: RTCConfiguration = {
 };
 
 interface CreatePeerParams {
+    remoteUserId?: number;
     onIceCandidate: (candidate: RTCIceCandidateInit) => void;
 }
 
 export function useCallMediaPeer() {
     const [localStreamUrl, setLocalStreamUrl] = useState<string | null>(null);
     const [remoteStreamUrl, setRemoteStreamUrl] = useState<string | null>(null);
+    const [remoteStreamUrls, setRemoteStreamUrls] = useState<
+        Array<{ userId: number; url: string }>
+    >([]);
     const [micEnabled, setMicEnabled] = useState(true);
     const [cameraEnabled, setCameraEnabled] = useState(true);
     const [speakerEnabled, setSpeakerEnabled] = useState(false);
@@ -123,6 +127,22 @@ export function useCallMediaPeer() {
         onicecandidate?: (event: { candidate?: { toJSON: () => RTCIceCandidateInit } | null }) => void;
         ontrack?: (event: { streams: Array<{ toURL: () => string }>; track: unknown }) => void;
     } | null>(null);
+    const peerConnectionsRef = useRef<
+        Map<
+            number,
+            {
+                close: () => void;
+                addTrack: (track: unknown, stream: unknown) => void;
+                addIceCandidate: (candidate: unknown) => Promise<void>;
+                createOffer: () => Promise<RTCSessionDescriptionInit>;
+                createAnswer: () => Promise<RTCSessionDescriptionInit>;
+                setLocalDescription: (description: unknown) => Promise<void>;
+                setRemoteDescription: (description: unknown) => Promise<void>;
+                onicecandidate?: (event: { candidate?: { toJSON: () => RTCIceCandidateInit } | null }) => void;
+                ontrack?: (event: { streams: Array<{ toURL: () => string }>; track: unknown }) => void;
+            }
+        >
+    >(new Map());
     const localStreamRef = useRef<{
         getTracks: () => Array<{ stop: () => void }>;
         getAudioTracks: () => Array<{ enabled: boolean }>;
@@ -135,6 +155,9 @@ export function useCallMediaPeer() {
         toURL: () => string;
     } | null>(null);
     const pendingIceCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
+    const pendingIceCandidatesByUserRef = useRef<Map<number, RTCIceCandidateInit[]>>(
+        new Map(),
+    );
 
     const stopAudioSession = useCallback(() => {
         if (!inCallManager) return;
@@ -163,14 +186,12 @@ export function useCallMediaPeer() {
     }, []);
 
     const cleanupPeer = useCallback(() => {
-        const peer = peerConnectionRef.current;
-        if (!peer) return;
-
-        const mutablePeer = peer;
-        mutablePeer.onicecandidate = undefined;
-        mutablePeer.ontrack = undefined;
-
-        peer.close();
+        peerConnectionsRef.current.forEach((peer) => {
+            peer.onicecandidate = undefined;
+            peer.ontrack = undefined;
+            peer.close();
+        });
+        peerConnectionsRef.current.clear();
         peerConnectionRef.current = null;
     }, []);
 
@@ -183,6 +204,7 @@ export function useCallMediaPeer() {
 
         setLocalStreamUrl(null);
         setRemoteStreamUrl(null);
+        setRemoteStreamUrls([]);
         setMicEnabled(true);
         setCameraEnabled(true);
         setSpeakerEnabled(false);
@@ -193,6 +215,7 @@ export function useCallMediaPeer() {
         cleanupPeer();
         cleanupMedia();
         pendingIceCandidatesRef.current = [];
+        pendingIceCandidatesByUserRef.current.clear();
     }, [cleanupMedia, cleanupPeer, stopAudioSession]);
 
     const createLocalStream = useCallback(async (callType: MobileCallType) => {
@@ -224,13 +247,21 @@ export function useCallMediaPeer() {
 
     const createPeerConnection = useCallback(
         (params: CreatePeerParams) => {
-            cleanupPeer();
+            const remoteUserId = params.remoteUserId ?? 0;
+            const existingPeer = peerConnectionsRef.current.get(remoteUserId);
+            if (existingPeer) {
+                existingPeer.onicecandidate = undefined;
+                existingPeer.ontrack = undefined;
+                existingPeer.close();
+                peerConnectionsRef.current.delete(remoteUserId);
+            }
 
             if (!WEBRTC_SUPPORTED || !RTCPeerConnectionClass) {
                 throw new Error("WEBRTC_NOT_SUPPORTED");
             }
 
             const peer = new RTCPeerConnectionClass(RTC_CONFIG);
+            peerConnectionsRef.current.set(remoteUserId, peer);
             peerConnectionRef.current = peer;
 
             const mutablePeer = peer;
@@ -244,7 +275,17 @@ export function useCallMediaPeer() {
                 const inboundStream = event.streams[0];
                 if (inboundStream) {
                     remoteStreamRef.current = inboundStream;
-                    setRemoteStreamUrl(inboundStream.toURL());
+                    const url = inboundStream.toURL();
+                    setRemoteStreamUrl((prev) => prev ?? url);
+                    setRemoteStreamUrls((prev) => {
+                        const existing = prev.find((item) => item.userId === remoteUserId);
+                        if (existing) {
+                            return prev.map((item) =>
+                                item.userId === remoteUserId ? { userId: remoteUserId, url } : item,
+                            );
+                        }
+                        return [...prev, { userId: remoteUserId, url }];
+                    });
                     return;
                 }
 
@@ -254,7 +295,17 @@ export function useCallMediaPeer() {
                 }
 
                 remoteStreamRef.current.addTrack?.(event.track);
-                setRemoteStreamUrl(remoteStreamRef.current.toURL());
+                const url = remoteStreamRef.current.toURL();
+                setRemoteStreamUrl((prev) => prev ?? url);
+                setRemoteStreamUrls((prev) => {
+                    const existing = prev.find((item) => item.userId === remoteUserId);
+                    if (existing) {
+                        return prev.map((item) =>
+                            item.userId === remoteUserId ? { userId: remoteUserId, url } : item,
+                        );
+                    }
+                    return [...prev, { userId: remoteUserId, url }];
+                });
             };
 
             if (localStreamRef.current) {
@@ -265,18 +316,24 @@ export function useCallMediaPeer() {
 
             return peer;
         },
-        [cleanupPeer],
+        [],
     );
 
     const queueIceCandidate = useCallback((candidate: RTCIceCandidateInit) => {
         pendingIceCandidatesRef.current.push(candidate);
     }, []);
 
-    const flushQueuedIceCandidates = useCallback(async () => {
-        const peer = peerConnectionRef.current;
+    const flushQueuedIceCandidates = useCallback(async (remoteUserId?: number) => {
+        const peer =
+            remoteUserId == null
+                ? peerConnectionRef.current
+                : peerConnectionsRef.current.get(remoteUserId);
         if (!peer) return;
 
-        const queued = [...pendingIceCandidatesRef.current];
+        const queued =
+            remoteUserId == null
+                ? [...pendingIceCandidatesRef.current]
+                : [...(pendingIceCandidatesByUserRef.current.get(remoteUserId) ?? [])];
         if (!queued.length) return;
 
         for (const candidate of queued) {
@@ -288,28 +345,61 @@ export function useCallMediaPeer() {
             }
         }
 
-        pendingIceCandidatesRef.current = [];
+        if (remoteUserId == null) {
+            pendingIceCandidatesRef.current = [];
+        } else {
+            pendingIceCandidatesByUserRef.current.delete(remoteUserId);
+        }
     }, []);
 
     const addIceCandidateOrQueue = useCallback(
-        async (candidate: RTCIceCandidateInit) => {
-            const peer = peerConnectionRef.current;
+        async (candidate: RTCIceCandidateInit, remoteUserId?: number) => {
+            const peer =
+                remoteUserId == null
+                    ? peerConnectionRef.current
+                    : peerConnectionsRef.current.get(remoteUserId);
             if (!peer) {
-                queueIceCandidate(candidate);
+                if (remoteUserId == null) {
+                    queueIceCandidate(candidate);
+                } else {
+                    const existing =
+                        pendingIceCandidatesByUserRef.current.get(remoteUserId) ?? [];
+                    pendingIceCandidatesByUserRef.current.set(remoteUserId, [
+                        ...existing,
+                        candidate,
+                    ]);
+                }
                 return;
             }
 
             try {
                 if (!RTCIceCandidateClass) {
-                    queueIceCandidate(candidate);
+                    if (remoteUserId == null) queueIceCandidate(candidate);
                     return;
                 }
                 await peer.addIceCandidate(new RTCIceCandidateClass(candidate));
             } catch {
-                queueIceCandidate(candidate);
+                if (remoteUserId == null) {
+                    queueIceCandidate(candidate);
+                } else {
+                    const existing =
+                        pendingIceCandidatesByUserRef.current.get(remoteUserId) ?? [];
+                    pendingIceCandidatesByUserRef.current.set(remoteUserId, [
+                        ...existing,
+                        candidate,
+                    ]);
+                }
             }
         },
         [queueIceCandidate],
+    );
+
+    const getPeerConnection = useCallback(
+        (remoteUserId?: number) =>
+            remoteUserId == null
+                ? peerConnectionRef.current
+                : peerConnectionsRef.current.get(remoteUserId) ?? null,
+        [],
     );
 
     const toggleMic = useCallback(() => {
@@ -370,6 +460,7 @@ export function useCallMediaPeer() {
         localStreamRef,
         localStreamUrl,
         remoteStreamUrl,
+        remoteStreamUrls,
         micEnabled,
         cameraEnabled,
         speakerEnabled,
@@ -381,6 +472,7 @@ export function useCallMediaPeer() {
         queueIceCandidate,
         flushQueuedIceCandidates,
         addIceCandidateOrQueue,
+        getPeerConnection,
         resetPeerAndMedia,
         toggleMic,
         toggleCamera,

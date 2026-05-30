@@ -5,6 +5,7 @@ import {
     MicOff,
     Minimize2,
     PhoneOff,
+    UserPlus,
     Video,
     VideoOff,
 } from "lucide-react";
@@ -31,6 +32,7 @@ interface CallScreenProps {
     isScreenSharing: boolean;
     canToggleCamera: boolean;
     canShareScreen: boolean;
+    onInviteParticipants?: () => void;
     onToggleMic: () => void;
     onToggleCamera: () => void;
     onToggleScreenShare: () => void;
@@ -61,6 +63,7 @@ export default function CallScreen({
     isScreenSharing,
     canToggleCamera,
     canShareScreen,
+    onInviteParticipants,
     onToggleMic,
     onToggleCamera,
     onToggleScreenShare,
@@ -331,6 +334,17 @@ export default function CallScreen({
                         }
                     >
                         {isScreenSharing ? "Dừng share" : "Share màn hình"}
+                    </button>
+                )}
+
+                {onInviteParticipants && (
+                    <button
+                        type="button"
+                        onClick={onInviteParticipants}
+                        className={`${controlButtonBase} bg-white/20 hover:bg-white/30`}
+                        title="Mời thêm người"
+                    >
+                        <UserPlus size={20} />
                     </button>
                 )}
 

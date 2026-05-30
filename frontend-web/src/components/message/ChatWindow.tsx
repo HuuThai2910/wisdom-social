@@ -28,6 +28,7 @@ import {
   Smile,
   Search,
   UserRound,
+  UserPlus,
 } from "lucide-react";
 import EmojiPicker, {
   Emoji,
@@ -1033,6 +1034,8 @@ function ChatWindowContent({
     toggleMic,
     toggleCamera,
     toggleScreenShare,
+    inviteUsersToCall,
+    maxCallParticipants,
   } = useCall({
     conversationId,
     userId,
@@ -1061,10 +1064,7 @@ function ChatWindowContent({
     if (!activeCall || conversation?.type !== "GROUP") return [];
 
     const callMemberIds = new Set<number>(activeCall.remoteUserIds);
-
-    if (!activeCall.isCaller) {
-      callMemberIds.add(userId);
-    }
+    callMemberIds.add(userId);
 
     return Object.values(membersById)
       .filter((member) => callMemberIds.has(member.userId))
@@ -1074,6 +1074,94 @@ function ChatWindowContent({
         avatar: member.avatar,
       }));
   }, [activeCall, conversation?.type, membersById, userId]);
+
+  const callableMembers = useMemo(
+    () =>
+      Object.values(membersById).filter(
+        (member) =>
+          member.userId !== userId &&
+          (!member.status || member.status === "ACTIVE") &&
+          !member.accountLocked
+      ),
+    [membersById, userId]
+  );
+
+  const [callPickerOpen, setCallPickerOpen] = useState(false);
+  const [callPickerMode, setCallPickerMode] = useState<"start" | "invite">("start");
+  const [callPickerType, setCallPickerType] = useState<"audio" | "video">("audio");
+  const [selectedCallMemberIds, setSelectedCallMemberIds] = useState<Set<number>>(new Set());
+  const callPickerLimit = Math.max(
+    0,
+    maxCallParticipants - (callPickerMode === "invite" ? 1 + (activeCall?.remoteUserIds.length ?? 0) : 1)
+  );
+
+  const openStartCallPicker = useCallback(
+    (callType: "audio" | "video") => {
+      if (conversation?.type !== "GROUP") {
+        void startCall(callType);
+        return;
+      }
+      setCallPickerMode("start");
+      setCallPickerType(callType);
+      setSelectedCallMemberIds(new Set());
+      setCallPickerOpen(true);
+    },
+    [conversation?.type, startCall]
+  );
+
+  const openInviteCallPicker = useCallback(() => {
+    if (!activeCall) return;
+    setCallPickerMode("invite");
+    setCallPickerType(activeCall.callType);
+    setSelectedCallMemberIds(new Set());
+    setCallPickerOpen(true);
+  }, [activeCall]);
+
+  const toggleCallMember = useCallback(
+    (memberId: number) => {
+      setSelectedCallMemberIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(memberId)) {
+          next.delete(memberId);
+          return next;
+        }
+        if (next.size >= callPickerLimit) return next;
+        next.add(memberId);
+        return next;
+      });
+    },
+    [callPickerLimit]
+  );
+
+  const submitCallPicker = useCallback(async () => {
+    const ids = Array.from(selectedCallMemberIds);
+    if (!ids.length) return;
+    if (callPickerMode === "invite") {
+      await inviteUsersToCall(ids);
+    } else {
+      await startCall(callPickerType, ids);
+    }
+    setCallPickerOpen(false);
+    setSelectedCallMemberIds(new Set());
+  }, [
+    callPickerMode,
+    callPickerType,
+    inviteUsersToCall,
+    selectedCallMemberIds,
+    startCall,
+  ]);
+
+  const callPickerMembers = useMemo(() => {
+    const activeRemoteIds = new Set(activeCall?.remoteUserIds ?? []);
+    return callableMembers.filter((member) =>
+      callPickerMode === "invite" ? !activeRemoteIds.has(member.userId) : true
+    );
+  }, [activeCall?.remoteUserIds, callableMembers, callPickerMode]);
+
+  const hasInviteCallCandidates = useMemo(() => {
+    const activeRemoteIds = new Set(activeCall?.remoteUserIds ?? []);
+    return callableMembers.some((member) => !activeRemoteIds.has(member.userId));
+  }, [activeCall?.remoteUserIds, callableMembers]);
 
   // UI state cho khu vực banner ghim:
   // - false: hiển thị dạng gọn (1 item chính)
@@ -2066,16 +2154,24 @@ function ChatWindowContent({
           </button>
           <button
             className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white disabled:opacity-40"
-            onClick={() => void startCall("audio")}
-            disabled={!otherMember || isPartnerAccountLocked}
+            onClick={() => openStartCallPicker("audio")}
+            disabled={
+              conversation?.type === "GROUP"
+                ? callableMembers.length === 0
+                : !otherMember || isPartnerAccountLocked
+            }
             title="Gọi thoại"
           >
             <Phone size={18} />
           </button>
           <button
             className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white disabled:opacity-40"
-            onClick={() => void startCall("video")}
-            disabled={!otherMember || isPartnerAccountLocked}
+            onClick={() => openStartCallPicker("video")}
+            disabled={
+              conversation?.type === "GROUP"
+                ? callableMembers.length === 0
+                : !otherMember || isPartnerAccountLocked
+            }
             title="Gọi video"
           >
             <Video size={18} />
@@ -2913,6 +3009,103 @@ function ChatWindowContent({
         </div>
       )}
 
+      {callPickerOpen && (
+        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/45 px-4">
+          <div className="w-full max-w-md rounded-xl bg-white shadow-2xl dark:bg-gray-900">
+            <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3 dark:border-gray-800">
+              <div className="min-w-0">
+                <h3 className="text-base font-semibold text-gray-900 dark:text-white">
+                  {callPickerMode === "invite"
+                    ? "Mời thêm người"
+                    : "Chọn người để gọi"}
+                </h3>
+                <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  Đã chọn {selectedCallMemberIds.size}/{callPickerLimit}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCallPickerOpen(false)}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+                title="Đóng"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="max-h-[55vh] overflow-y-auto px-2 py-2">
+              {callPickerMembers.length === 0 ? (
+                <div className="px-3 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                  Không còn thành viên phù hợp để gọi.
+                </div>
+              ) : (
+                callPickerMembers.map((member) => {
+                  const checked = selectedCallMemberIds.has(member.userId);
+                  const disabled = !checked && selectedCallMemberIds.size >= callPickerLimit;
+                  return (
+                    <button
+                      key={member.userId}
+                      type="button"
+                      onClick={() => toggleCallMember(member.userId)}
+                      disabled={disabled}
+                      className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors ${
+                        checked
+                          ? "bg-blue-50 dark:bg-blue-950/35"
+                          : "hover:bg-gray-50 dark:hover:bg-gray-800"
+                      } disabled:cursor-not-allowed disabled:opacity-50`}
+                    >
+                      <img
+                        src={member.avatar || "https://cdn-icons-png.flaticon.com/512/149/149071.png"}
+                        alt={member.nickname || member.username || "Thành viên"}
+                        className="h-10 w-10 rounded-full object-cover"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-gray-900 dark:text-white">
+                          {member.nickname || member.username || "Thành viên"}
+                        </p>
+                        {member.username && (
+                          <p className="truncate text-xs text-gray-500 dark:text-gray-400">
+                            @{member.username}
+                          </p>
+                        )}
+                      </div>
+                      <span
+                        className={`inline-flex h-5 w-5 items-center justify-center rounded-full border ${
+                          checked
+                            ? "border-blue-600 bg-blue-600"
+                            : "border-gray-300 dark:border-gray-600"
+                        }`}
+                      >
+                        {checked && <CheckCircle2 size={14} className="text-white" />}
+                      </span>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-gray-100 px-4 py-3 dark:border-gray-800">
+              <button
+                type="button"
+                onClick={() => setCallPickerOpen(false)}
+                className="rounded-lg px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={() => void submitCallPicker()}
+                disabled={selectedCallMemberIds.size === 0}
+                className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {callPickerMode === "invite" ? <UserPlus size={16} /> : callPickerType === "video" ? <Video size={16} /> : <Phone size={16} />}
+                {callPickerMode === "invite" ? "Mời" : "Gọi"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <IncomingCallModal
         open={Boolean(incomingCall)}
         callerName={
@@ -2953,6 +3146,11 @@ function ChatWindowContent({
         isScreenSharing={isScreenSharing}
         canToggleCamera={canToggleCamera}
         canShareScreen={canShareScreen}
+        onInviteParticipants={
+          conversation?.type === "GROUP" && hasInviteCallCandidates
+            ? openInviteCallPicker
+            : undefined
+        }
         onToggleMic={toggleMic}
         onToggleCamera={toggleCamera}
         onToggleScreenShare={() => void toggleScreenShare()}

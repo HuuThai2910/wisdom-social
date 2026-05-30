@@ -12,6 +12,7 @@ interface ActiveCallState {
     callId: string;
     callType: CallType;
     remoteUserId: number;
+    remoteUserIds: number[];
     remoteName: string;
     remoteAvatar?: string;
     status: CallStatus;
@@ -21,11 +22,13 @@ interface UseOneToOneCallOptions {
     conversationId: number;
     currentUserId: number;
     targetUserId?: number;
+    targetUserIds?: number[];
     targetName?: string;
     targetAvatar?: string;
     onCallMessageSaved?: (message: Message) => void;
 }
 const UNANSWERED_CALL_TIMEOUT_MS = 20_000;
+export const MAX_CALL_PARTICIPANTS = 8;
 
 const expoEnv = Constants as {
     executionEnvironment?: string;
@@ -87,14 +90,15 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         conversationId,
         currentUserId,
         targetUserId,
+        targetUserIds,
         targetName,
         targetAvatar,
         onCallMessageSaved,
     } = options;
     const {
-        peerConnectionRef,
         localStreamUrl,
         remoteStreamUrl,
+        remoteStreamUrls,
         micEnabled,
         cameraEnabled,
         speakerEnabled,
@@ -104,6 +108,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         createPeerConnection,
         flushQueuedIceCandidates,
         addIceCandidateOrQueue,
+        getPeerConnection,
         resetPeerAndMedia,
         toggleMic,
         toggleCamera,
@@ -201,7 +206,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         });
     }, []);
     const startUnansweredTimeout = useCallback(
-        (callId: string, callType: CallType, remoteUserId: number) => {
+        (callId: string, callType: CallType, remoteUserIds: number[]) => {
             clearUnansweredTimeout();
             unansweredTimeoutRef.current = setTimeout(() => {
                 const current = activeCallRef.current;
@@ -213,7 +218,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                     callId,
                     callType,
                     fromUserId: currentUserId,
-                    targetUserId: remoteUserId,
+                    targetUserId: remoteUserIds[0],
                 });
                 void persistCallMessage(callType, "ended", 0);
                 resetCallState();
@@ -227,10 +232,62 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
             resetCallState,
         ],
     );
+    const placeOutgoingCallToUsers = useCallback(
+        async (callId: string, callType: CallType, remoteUserIds: number[]) => {
+            await Promise.all(
+                remoteUserIds.map(async (remoteUserId) => {
+                    const peer = createPeerConnection({
+                        remoteUserId,
+                        onIceCandidate: (candidate) => {
+                            chatWebsocketService.sendCallSignal({
+                                event: "ice-candidate",
+                                conversationId,
+                                callId,
+                                callType,
+                                fromUserId: currentUserId,
+                                targetUserId: remoteUserId,
+                                candidate,
+                            });
+                        },
+                    });
+                    const offer = await peer.createOffer();
+                    await peer.setLocalDescription(offer);
+                    chatWebsocketService.sendCallSignal({
+                        event: "call-user",
+                        conversationId,
+                        callId,
+                        callType,
+                        fromUserId: currentUserId,
+                        targetUserId: remoteUserId,
+                        sdp: offer,
+                    });
+                    await flushQueuedIceCandidates(remoteUserId);
+                }),
+            );
+        },
+        [
+            conversationId,
+            createPeerConnection,
+            currentUserId,
+            flushQueuedIceCandidates,
+        ],
+    );
     const startCall = useCallback(
-        async (callType: CallType) => {
+        async (callType: CallType, selectedUserIds?: number[]) => {
             if (!isWebRTCSupported) return false;
-            if (!targetUserId) return false;
+            const remoteUserIds = Array.from(
+                new Set(
+                    (selectedUserIds?.length
+                        ? selectedUserIds
+                        : targetUserIds?.length
+                          ? targetUserIds
+                          : targetUserId
+                            ? [targetUserId]
+                            : []
+                    ).filter((id) => id !== currentUserId),
+                ),
+            ).slice(0, MAX_CALL_PARTICIPANTS - 1);
+            if (!remoteUserIds.length) return false;
             if (activeCallRef.current || incomingCallRef.current) return false;
             callSavedRef.current = false;
             try {
@@ -240,8 +297,12 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                 const nextCall: ActiveCallState = {
                     callId,
                     callType,
-                    remoteUserId: targetUserId,
-                    remoteName: targetName || `Nguoi dung ${targetUserId}`,
+                    remoteUserId: remoteUserIds[0],
+                    remoteUserIds,
+                    remoteName:
+                        remoteUserIds.length > 1
+                            ? `Nhom (${remoteUserIds.length} nguoi)`
+                            : targetName || `Nguoi dung ${remoteUserIds[0]}`,
                     remoteAvatar: targetAvatar,
                     status: "calling",
                     isCaller: true,
@@ -249,32 +310,8 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                 setActiveCall(nextCall);
                 activeCallRef.current = nextCall;
                 setDurationSeconds(0);
-                const peer = createPeerConnection({
-                    onIceCandidate: (candidate) => {
-                        chatWebsocketService.sendCallSignal({
-                            event: "ice-candidate",
-                            conversationId,
-                            callId,
-                            callType,
-                            fromUserId: currentUserId,
-                            targetUserId,
-                            candidate,
-                        });
-                    },
-                });
-                const offer = await peer.createOffer();
-                await peer.setLocalDescription(offer);
-                chatWebsocketService.sendCallSignal({
-                    event: "call-user",
-                    conversationId,
-                    callId,
-                    callType,
-                    fromUserId: currentUserId,
-                    targetUserId,
-                    sdp: offer,
-                });
-                await flushQueuedIceCandidates();
-                startUnansweredTimeout(callId, callType, targetUserId);
+                await placeOutgoingCallToUsers(callId, callType, remoteUserIds);
+                startUnansweredTimeout(callId, callType, remoteUserIds);
                 return true;
             } catch {
                 resetCallState();
@@ -283,18 +320,49 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         },
         [
             targetUserId,
+            targetUserIds,
             createLocalStream,
             startAudioSession,
             targetName,
             targetAvatar,
-            createPeerConnection,
-            conversationId,
             currentUserId,
-            flushQueuedIceCandidates,
             isWebRTCSupported,
+            placeOutgoingCallToUsers,
             startUnansweredTimeout,
             resetCallState,
         ],
+    );
+    const inviteUsersToCall = useCallback(
+        async (userIds: number[]) => {
+            const current = activeCallRef.current;
+            if (!current) return false;
+            const existingIds = new Set(current.remoteUserIds);
+            const nextIds = Array.from(
+                new Set(
+                    userIds.filter(
+                        (id) => id !== currentUserId && !existingIds.has(id),
+                    ),
+                ),
+            ).slice(
+                0,
+                Math.max(
+                    0,
+                    MAX_CALL_PARTICIPANTS - 1 - current.remoteUserIds.length,
+                ),
+            );
+            if (!nextIds.length) return false;
+
+            await placeOutgoingCallToUsers(current.callId, current.callType, nextIds);
+            const nextCall = {
+                ...current,
+                remoteUserIds: [...current.remoteUserIds, ...nextIds],
+                remoteName: `Nhom (${current.remoteUserIds.length + nextIds.length} nguoi)`,
+            };
+            setActiveCall(nextCall);
+            activeCallRef.current = nextCall;
+            return true;
+        },
+        [currentUserId, placeOutgoingCallToUsers],
     );
     const acceptIncomingCall = useCallback(async () => {
         if (!isWebRTCSupported) return false;
@@ -305,6 +373,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
             await createLocalStream(incoming.callType);
             startAudioSession(incoming.callType);
             const peer = createPeerConnection({
+                remoteUserId: incoming.fromUserId,
                 onIceCandidate: (candidate) => {
                     chatWebsocketService.sendCallSignal({
                         event: "ice-candidate",
@@ -325,11 +394,12 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
             }
             const answer = await peer.createAnswer();
             await peer.setLocalDescription(answer);
-            await flushQueuedIceCandidates();
+            await flushQueuedIceCandidates(incoming.fromUserId);
             const nextCall: ActiveCallState = {
                 callId: incoming.callId,
                 callType: incoming.callType,
                 remoteUserId: incoming.fromUserId,
+                remoteUserIds: [incoming.fromUserId],
                 remoteName: targetName || `Nguoi dung ${incoming.fromUserId}`,
                 remoteAvatar: targetAvatar,
                 status: "accepted",
@@ -390,13 +460,15 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         const current = activeCallRef.current;
         if (!current) return;
         clearUnansweredTimeout();
-        chatWebsocketService.sendCallSignal({
-            event: "end-call",
-            conversationId,
-            callId: current.callId,
-            callType: current.callType,
-            fromUserId: currentUserId,
-            targetUserId: current.remoteUserId,
+        current.remoteUserIds.forEach((remoteUserId) => {
+            chatWebsocketService.sendCallSignal({
+                event: "end-call",
+                conversationId,
+                callId: current.callId,
+                callType: current.callType,
+                fromUserId: currentUserId,
+                targetUserId: remoteUserId,
+            });
         });
         const shouldPersist = current.isCaller;
         const elapsed = durationSecondsRef.current;
@@ -457,13 +529,13 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
             if (!current || current.callId !== signal.callId) return;
             if (signal.event === "answer-call") {
                 if (!current.isCaller) return;
-                const peer = peerConnectionRef.current;
+                const peer = getPeerConnection(signal.fromUserId);
                 const remoteDescription = toNativeSessionDescription(signal.sdp);
                 if (!peer || !remoteDescription) return;
                 await peer.setRemoteDescription(
                     toPeerSessionDescription(remoteDescription) as never,
                 );
-                await flushQueuedIceCandidates();
+                await flushQueuedIceCandidates(signal.fromUserId);
                 clearUnansweredTimeout();
                 applyStatus("accepted");
                 setDurationSeconds(0);
@@ -472,7 +544,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
             }
             if (signal.event === "ice-candidate") {
                 if (!signal.candidate) return;
-                await addIceCandidateOrQueue(signal.candidate);
+                await addIceCandidateOrQueue(signal.candidate, signal.fromUserId);
                 return;
             }
             if (signal.event === "reject-call") {
@@ -499,8 +571,8 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
             conversationId,
             currentUserId,
             flushQueuedIceCandidates,
+            getPeerConnection,
             isWebRTCSupported,
-            peerConnectionRef,
             persistCallMessage,
             resetCallState,
             startDurationTimer,
@@ -537,12 +609,15 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         callStatus: activeCall?.status ?? null,
         localStreamUrl,
         remoteStreamUrl,
+        remoteStreamUrls,
         micEnabled,
         cameraEnabled,
         speakerEnabled,
         isCallSupported: isWebRTCSupported,
         callDurationText,
         startCall,
+        inviteUsersToCall,
+        maxCallParticipants: MAX_CALL_PARTICIPANTS,
         acceptIncomingCall,
         rejectIncomingCall,
         endCall,
