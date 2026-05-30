@@ -5,6 +5,7 @@ import {
     MicOff,
     Minimize2,
     PhoneOff,
+    UserPlus,
     Video,
     VideoOff,
 } from "lucide-react";
@@ -19,6 +20,7 @@ interface CallScreenProps {
     status: CallStatus;
     durationText: string;
     localStream: MediaStream | null;
+    localUserId?: number;
     remoteStream: MediaStream | null;
     remoteStreams?: Array<{ userId: number; stream: MediaStream }>;
     participants?: Array<{
@@ -31,6 +33,7 @@ interface CallScreenProps {
     isScreenSharing: boolean;
     canToggleCamera: boolean;
     canShareScreen: boolean;
+    onInviteParticipants?: () => void;
     onToggleMic: () => void;
     onToggleCamera: () => void;
     onToggleScreenShare: () => void;
@@ -53,6 +56,7 @@ export default function CallScreen({
     status,
     durationText,
     localStream,
+    localUserId,
     remoteStream,
     remoteStreams = [],
     participants = [],
@@ -61,6 +65,7 @@ export default function CallScreen({
     isScreenSharing,
     canToggleCamera,
     canShareScreen,
+    onInviteParticipants,
     onToggleMic,
     onToggleCamera,
     onToggleScreenShare,
@@ -71,8 +76,46 @@ export default function CallScreen({
     const remoteAudioRef = useRef<HTMLAudioElement>(null);
     const [isMinimized, setIsMinimized] = useState(false);
 
-    const isGroupCall = remoteStreams.length > 1;
+    const isGroupCall = participants.length > 2 || remoteStreams.length > 1;
     const showParticipants = participants.length > 0;
+    const participantCount = participants.length || (remoteStreams.length ? remoteStreams.length + 1 : 1);
+    const showLocalPreview = callType === "video" && participantCount <= 2;
+    const remoteStreamByUserId = new Map(
+        remoteStreams.map((item) => [item.userId, item.stream]),
+    );
+    const videoTiles =
+        participants.length > 0
+            ? participants.map((participant) => {
+                  const isLocal =
+                      localUserId != null && participant.userId === localUserId;
+                  return {
+                      ...participant,
+                      isLocal,
+                      stream: isLocal
+                          ? localStream
+                          : remoteStreamByUserId.get(participant.userId) ?? null,
+                  };
+              })
+            : [
+                  ...remoteStreams.map((remote) => ({
+                      userId: remote.userId,
+                      name: `Người dùng ${remote.userId}`,
+                      avatar: undefined,
+                      isLocal: false,
+                      stream: remote.stream,
+                  })),
+                  ...(localStream
+                      ? [
+                            {
+                                userId: localUserId ?? -1,
+                                name: "Bạn",
+                                avatar: undefined,
+                                isLocal: true,
+                                stream: localStream,
+                            },
+                        ]
+                      : []),
+              ];
 
     const attachStreamToMediaElement = (
         element: HTMLMediaElement | null,
@@ -137,29 +180,51 @@ export default function CallScreen({
             {callType === "video" ? (
                 <div className="relative h-full w-full overflow-hidden bg-black">
                     {isGroupCall ? (
-                        <div className="h-full w-full grid grid-cols-2 gap-2 p-2 bg-black">
-                            {remoteStreams.map((remote) => (
-                                <video
-                                    key={remote.userId}
-                                    autoPlay
-                                    playsInline
-                                    ref={(node) => {
-                                        if (node) {
-                                            node.srcObject = remote.stream;
-                                            void node
-                                                .play()
-                                                .catch(() => undefined);
-                                        }
-                                    }}
-                                    onLoadedMetadata={(event) => {
-                                        const element =
-                                            event.currentTarget as HTMLVideoElement;
-                                        void element
-                                            .play()
-                                            .catch(() => undefined);
-                                    }}
-                                    className="h-full w-full object-cover rounded-lg bg-gray-900"
-                                />
+                        <div className="h-full w-full grid grid-cols-2 auto-rows-fr gap-2 p-2 bg-black">
+                            {videoTiles.map((tile) => (
+                                <div
+                                    key={`${tile.isLocal ? "local" : "remote"}-${tile.userId}`}
+                                    className="relative min-h-0 overflow-hidden rounded-lg bg-gray-900"
+                                >
+                                    {tile.stream ? (
+                                        <video
+                                            autoPlay
+                                            muted={tile.isLocal}
+                                            playsInline
+                                            ref={(node) => {
+                                                if (!node) return;
+                                                if (node.srcObject !== tile.stream) {
+                                                    node.srcObject = tile.stream;
+                                                }
+                                                void node
+                                                    .play()
+                                                    .catch(() => undefined);
+                                            }}
+                                            className={`h-full w-full object-cover ${
+                                                tile.isLocal ? "scale-x-[-1]" : ""
+                                            }`}
+                                        />
+                                    ) : (
+                                        <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-gray-900">
+                                            <img
+                                                src={
+                                                    tile.avatar ||
+                                                    "https://cdn-icons-png.flaticon.com/512/149/149071.png"
+                                                }
+                                                alt={tile.name}
+                                                className="h-16 w-16 rounded-full object-cover border border-white/20"
+                                            />
+                                            <p className="text-sm text-gray-200">
+                                                Đang kết nối camera...
+                                            </p>
+                                        </div>
+                                    )}
+                                    <div className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] rounded bg-black/55 px-2 py-1 text-xs text-white">
+                                        <span className="block truncate">
+                                            {tile.isLocal ? "Bạn" : tile.name}
+                                        </span>
+                                    </div>
+                                </div>
                             ))}
                         </div>
                     ) : (
@@ -171,13 +236,15 @@ export default function CallScreen({
                         />
                     )}
 
-                    <video
-                        ref={localVideoRef}
-                        autoPlay
-                        muted
-                        playsInline
-                        className="absolute bottom-28 right-5 h-40 w-28 rounded-2xl object-cover border border-white/30 bg-gray-900 shadow-xl"
-                    />
+                    {showLocalPreview && (
+                        <video
+                            ref={localVideoRef}
+                            autoPlay
+                            muted
+                            playsInline
+                            className="absolute bottom-28 right-5 h-40 w-28 rounded-2xl object-cover border border-white/30 bg-gray-900 shadow-xl"
+                        />
+                    )}
 
                     <div className="pointer-events-none absolute inset-x-0 top-0 p-5 bg-gradient-to-b from-black/70 via-black/30 to-transparent">
                         <div className="flex items-start justify-between gap-4 pointer-events-auto">
@@ -191,6 +258,9 @@ export default function CallScreen({
                                 <p className="text-xs text-gray-300 mt-1">
                                     {getStatusText(status)}
                                     {showTimer ? ` • ${durationText}` : ""}
+                                    {participantCount > 1
+                                        ? ` • ${participantCount} người`
+                                        : ""}
                                 </p>
                             </div>
                             <button
@@ -207,7 +277,7 @@ export default function CallScreen({
                     {showParticipants && (
                         <div className="absolute top-20 left-4 w-[280px] max-w-[calc(100vw-2rem)] rounded-2xl border border-white/15 bg-black/45 backdrop-blur-sm p-3">
                             <p className="text-xs uppercase tracking-wide text-gray-300 mb-2">
-                                Thành viên cuộc gọi
+                                Thành viên cuộc gọi ({participantCount})
                             </p>
                             <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
                                 {participants.map((member) => (
@@ -257,6 +327,7 @@ export default function CallScreen({
                     <p className="mt-2 text-sm text-gray-300">{callLabel}</p>
                     <p className="mt-1 text-sm text-gray-300">
                         {getStatusText(status)}
+                        {participantCount > 1 ? ` • ${participantCount} người` : ""}
                     </p>
                     {showTimer && (
                         <p className="mt-2 text-sm text-gray-200 font-medium">
@@ -267,7 +338,7 @@ export default function CallScreen({
                     {showParticipants && (
                         <div className="mt-6 w-full max-w-sm rounded-2xl border border-white/15 bg-white/5 p-3 text-left">
                             <p className="text-xs uppercase tracking-wide text-gray-300 mb-2">
-                                Thành viên cuộc gọi
+                                Thành viên cuộc gọi ({participantCount})
                             </p>
                             <div className="space-y-2 max-h-44 overflow-y-auto">
                                 {participants.map((member) => (
@@ -334,6 +405,17 @@ export default function CallScreen({
                     </button>
                 )}
 
+                {onInviteParticipants && (
+                    <button
+                        type="button"
+                        onClick={onInviteParticipants}
+                        className={`${controlButtonBase} bg-white/20 hover:bg-white/30`}
+                        title="Mời thêm người"
+                    >
+                        <UserPlus size={20} />
+                    </button>
+                )}
+
                 <button
                     type="button"
                     onClick={onEndCall}
@@ -359,21 +441,42 @@ export default function CallScreen({
                 <div className="relative bg-black">
                     {isGroupCall ? (
                         <div className="h-48 w-full grid grid-cols-2 gap-1 p-1">
-                            {remoteStreams.slice(0, 4).map((remote) => (
-                                <video
-                                    key={remote.userId}
-                                    autoPlay
-                                    playsInline
-                                    ref={(node) => {
-                                        if (node) {
-                                            node.srcObject = remote.stream;
-                                            void node
-                                                .play()
-                                                .catch(() => undefined);
-                                        }
-                                    }}
-                                    className="h-full w-full object-cover rounded-md"
-                                />
+                            {videoTiles.slice(0, 4).map((tile) => (
+                                <div
+                                    key={`${tile.isLocal ? "local" : "remote"}-${tile.userId}`}
+                                    className="relative overflow-hidden rounded-md bg-gray-900"
+                                >
+                                    {tile.stream ? (
+                                        <video
+                                            autoPlay
+                                            muted={tile.isLocal}
+                                            playsInline
+                                            ref={(node) => {
+                                                if (!node) return;
+                                                if (node.srcObject !== tile.stream) {
+                                                    node.srcObject = tile.stream;
+                                                }
+                                                void node
+                                                    .play()
+                                                    .catch(() => undefined);
+                                            }}
+                                            className={`h-full w-full object-cover ${
+                                                tile.isLocal ? "scale-x-[-1]" : ""
+                                            }`}
+                                        />
+                                    ) : (
+                                        <div className="flex h-full w-full items-center justify-center">
+                                            <img
+                                                src={
+                                                    tile.avatar ||
+                                                    "https://cdn-icons-png.flaticon.com/512/149/149071.png"
+                                                }
+                                                alt={tile.name}
+                                                className="h-10 w-10 rounded-full object-cover"
+                                            />
+                                        </div>
+                                    )}
+                                </div>
                             ))}
                         </div>
                     ) : (
@@ -385,13 +488,15 @@ export default function CallScreen({
                         />
                     )}
 
-                    <video
-                        ref={localVideoRef}
-                        autoPlay
-                        muted
-                        playsInline
-                        className="absolute bottom-3 right-3 h-20 w-14 rounded-xl object-cover border border-white/30 bg-gray-900"
-                    />
+                    {showLocalPreview && (
+                        <video
+                            ref={localVideoRef}
+                            autoPlay
+                            muted
+                            playsInline
+                            className="absolute bottom-3 right-3 h-20 w-14 rounded-xl object-cover border border-white/30 bg-gray-900"
+                        />
+                    )}
                 </div>
             ) : (
                 <div className="p-4 bg-[linear-gradient(135deg,#0f172a,#1e293b)] text-white">

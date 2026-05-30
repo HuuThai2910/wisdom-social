@@ -111,8 +111,15 @@ import {
 import { buildPinnedBannerItemsFromSnapshot } from "@/utils/pinnedMessageSnapshot";
 import { useOneToOneCall } from "@/hooks/useOneToOneCall";
 import { consumeInviteReturnSync } from "@/utils/inviteReturnSync";
+import { consumePendingIncomingCall } from "@/utils/pendingIncomingCall";
 
 const FORWARD_BLOCKED_MEMBER_STATUSES = new Set([
+    "LEFT",
+    "KICKED",
+    "BLOCKED",
+    "GROUP_DISBANDED",
+]);
+const CALL_BLOCKED_MEMBER_STATUSES = new Set([
     "LEFT",
     "KICKED",
     "BLOCKED",
@@ -573,6 +580,7 @@ export default function MessagesConversationScreen() {
         loadNewerMessages,
         handleJumpToMessage,
         resetToPresent,
+        appendRealtimeMessage,
     } = useChatWindowController({
         conversationId: Number.isFinite(conversationId) ? conversationId : 0,
         onAccessBlocked: handleAccessBlocked,
@@ -762,6 +770,39 @@ export default function MessagesConversationScreen() {
         );
     }, [currentUserId, membersById]);
     const otherUserId = Number(otherUser?.userId);
+    const directTargetUserId = useMemo(() => {
+        const fromMember = Number(otherUser?.userId);
+        if (Number.isFinite(fromMember) && fromMember !== currentUserId) {
+            return fromMember;
+        }
+
+        const fromConversationMembers = Number(
+            conversation?.members?.find(
+                (member) => Number(member.userId) !== Number(currentUserId),
+            )?.userId,
+        );
+        if (
+            Number.isFinite(fromConversationMembers) &&
+            fromConversationMembers !== currentUserId
+        ) {
+            return fromConversationMembers;
+        }
+
+        const fromConversation = Number(conversation?.directPartnerId);
+        if (
+            Number.isFinite(fromConversation) &&
+            fromConversation !== currentUserId
+        ) {
+            return fromConversation;
+        }
+
+        return undefined;
+    }, [
+        conversation?.directPartnerId,
+        conversation?.members,
+        currentUserId,
+        otherUser?.userId,
+    ]);
     const presenceByUserId = usePresenceStatus([otherUserId]);
     const otherUserPresence = Number.isFinite(otherUserId)
         ? presenceByUserId[otherUserId]
@@ -925,18 +966,53 @@ export default function MessagesConversationScreen() {
             members: Object.values(membersById),
         });
     }, [conversation, currentUserId, membersById]);
+    const callMemberSource = useMemo(() => {
+        const mergedMembers = new Map<number, ConversationMember>();
+        for (const member of conversation?.members ?? []) {
+            if (Number.isFinite(Number(member.userId))) {
+                mergedMembers.set(Number(member.userId), member);
+            }
+        }
+        for (const member of Object.values(membersById)) {
+            if (Number.isFinite(Number(member.userId))) {
+                mergedMembers.set(Number(member.userId), {
+                    ...mergedMembers.get(Number(member.userId)),
+                    ...member,
+                });
+            }
+        }
+        return Array.from(mergedMembers.values());
+    }, [conversation?.members, membersById]);
+    const isGroupConversation =
+        String(conversation?.type ?? "").toUpperCase() === "GROUP" ||
+        callMemberSource.length > 2;
+    const [pendingIncomingCall, setPendingIncomingCall] = useState(() =>
+        consumePendingIncomingCall(
+            Number.isFinite(conversationId) ? conversationId : 0,
+        ),
+    );
+    const clearPendingIncomingCall = useCallback(() => {
+        setPendingIncomingCall(null);
+    }, []);
   const {
         incomingCall,
         activeCall,
+        rejoinableCall,
+        busyCallUserId,
         callStatus,
         localStreamUrl,
         remoteStreamUrl,
+        remoteStreamUrls,
         micEnabled,
         cameraEnabled,
         speakerEnabled,
         isCallSupported,
         callDurationText,
         startCall,
+        rejoinActiveCall,
+        clearBusyCallNotice,
+        inviteUsersToCall,
+        maxCallParticipants,
         acceptIncomingCall,
         rejectIncomingCall,
         endCall,
@@ -947,10 +1023,32 @@ export default function MessagesConversationScreen() {
     } = useOneToOneCall({
         conversationId: Number.isFinite(conversationId) ? conversationId : 0,
         currentUserId,
-        targetUserId: otherUser?.userId,
+        callerName:
+            membersById[currentUserId]?.nickname ||
+            membersById[currentUserId]?.username ||
+            `Nguoi dung ${currentUserId}`,
+        callerAvatar: membersById[currentUserId]?.avatar,
+        targetUserId: directTargetUserId,
+        targetUserIds: callMemberSource
+            .filter((member) => member.userId !== currentUserId)
+            .map((member) => member.userId),
         targetName: otherUser?.nickname || otherUser?.username,
         targetAvatar: otherUser?.avatar,
+        pendingIncomingCall,
+        onPendingIncomingCallConsumed: clearPendingIncomingCall,
+        onCallMessageSaved: appendRealtimeMessage,
     });
+
+    useEffect(() => {
+        if (!busyCallUserId) return;
+        const member = membersById[busyCallUserId];
+        const name =
+            member?.nickname ||
+            member?.username ||
+            `Nguoi dung ${busyCallUserId}`;
+        Alert.alert("Dang ban", `${name} dang ban trong cuoc goi khac`);
+        clearBusyCallNotice();
+    }, [busyCallUserId, clearBusyCallNotice, membersById]);
 
     const incomingCallerName = useMemo(() => {
         const incomingCallerId = incomingCall?.fromUserId ?? null;
@@ -964,6 +1062,107 @@ export default function MessagesConversationScreen() {
         );
     }, [incomingCall?.fromUserId, membersById]);
 
+    const callableMembers = useMemo(
+        () =>
+            callMemberSource.filter((member) => {
+                const status = String(member.status ?? "ACTIVE").toUpperCase();
+                return (
+                    member.userId !== currentUserId &&
+                    !CALL_BLOCKED_MEMBER_STATUSES.has(status) &&
+                    !member.accountLocked
+                );
+            }),
+        [callMemberSource, currentUserId],
+    );
+    const [callPickerVisible, setCallPickerVisible] = useState(false);
+    const [callPickerMode, setCallPickerMode] = useState<"start" | "invite">("start");
+    const [callPickerType, setCallPickerType] = useState<"audio" | "video">("audio");
+    const [selectedCallMemberIds, setSelectedCallMemberIds] = useState<Set<number>>(new Set());
+    const activeRemoteIds = useMemo(
+        () => new Set(activeCall?.remoteUserIds ?? []),
+        [activeCall?.remoteUserIds],
+    );
+    const callPickerMembers = useMemo(
+        () =>
+            callableMembers.filter((member) =>
+                callPickerMode === "invite"
+                    ? !activeRemoteIds.has(member.userId)
+                    : true,
+            ),
+        [activeRemoteIds, callableMembers, callPickerMode],
+    );
+    const callPickerLimit = Math.max(
+        0,
+        maxCallParticipants -
+            (callPickerMode === "invite"
+                ? 1 + (activeCall?.remoteUserIds.length ?? 0)
+                : 1),
+    );
+    const callParticipants = useMemo(() => {
+        if (!activeCall) return [];
+        const ids = new Set(
+            activeCall.participantUserIds?.length
+                ? activeCall.participantUserIds
+                : activeCall.remoteUserIds,
+        );
+        ids.add(currentUserId);
+        return Object.values(membersById)
+            .filter((member) => ids.has(member.userId))
+            .map((member) => ({
+                userId: member.userId,
+                name: member.nickname || member.username || "Nguoi dung",
+                avatar: member.avatar,
+            }));
+    }, [activeCall, currentUserId, membersById]);
+    const hasInviteCallCandidates = useMemo(
+        () => callableMembers.some((member) => !activeRemoteIds.has(member.userId)),
+        [activeRemoteIds, callableMembers],
+    );
+
+    const openCallPicker = useCallback(
+        (mode: "start" | "invite", callType: "audio" | "video") => {
+            setCallPickerMode(mode);
+            setCallPickerType(callType);
+            setSelectedCallMemberIds(new Set());
+            setCallPickerVisible(true);
+        },
+        [],
+    );
+
+    const toggleCallMember = useCallback(
+        (memberId: number) => {
+            setSelectedCallMemberIds((prev) => {
+                const next = new Set(prev);
+                if (next.has(memberId)) {
+                    next.delete(memberId);
+                    return next;
+                }
+                if (next.size >= callPickerLimit) return next;
+                next.add(memberId);
+                return next;
+            });
+        },
+        [callPickerLimit],
+    );
+
+    const submitCallPicker = useCallback(async () => {
+        const ids = Array.from(selectedCallMemberIds);
+        if (!ids.length) return;
+        if (callPickerMode === "invite") {
+            await inviteUsersToCall(ids);
+        } else {
+            await startCall(callPickerType, ids);
+        }
+        setCallPickerVisible(false);
+        setSelectedCallMemberIds(new Set());
+    }, [
+        callPickerMode,
+        callPickerType,
+        inviteUsersToCall,
+        selectedCallMemberIds,
+        startCall,
+    ]);
+
     const tryStartCall = useCallback(
         async (callType: "audio" | "video") => {
             if (!isCallSupported) {
@@ -974,9 +1173,29 @@ export default function MessagesConversationScreen() {
                 return;
             }
 
+            if (isGroupConversation && callableMembers.length > 0) {
+                openCallPicker("start", callType);
+                return;
+            }
+
+            if (!isGroupConversation && !directTargetUserId) {
+                Alert.alert(
+                    "Khong the goi",
+                    "Chua xac dinh duoc nguoi nhan cuoc goi trong doan chat nay.",
+                );
+                return;
+            }
+
             await startCall(callType);
         },
-        [isCallSupported, startCall],
+        [
+            callableMembers.length,
+            directTargetUserId,
+            isCallSupported,
+            isGroupConversation,
+            openCallPicker,
+            startCall,
+        ],
     );
 
     const typingParticipantIds = useMemo(
@@ -2260,6 +2479,24 @@ export default function MessagesConversationScreen() {
                                 color={colors.text}
                             />
                         </Pressable>
+                        {rejoinableCall && !activeCall ? (
+                            <Pressable
+                                style={[
+                                    styles.headerActionBtn,
+                                    styles.rejoinCallBtn,
+                                ]}
+                                hitSlop={8}
+                                onPress={() => {
+                                    void rejoinActiveCall();
+                                }}
+                            >
+                                <Ionicons
+                                    name="enter-outline"
+                                    size={22}
+                                    color={colors.white}
+                                />
+                            </Pressable>
+                        ) : null}
                         <Pressable
                             style={styles.headerActionBtn}
                             hitSlop={8}
@@ -2842,7 +3079,7 @@ export default function MessagesConversationScreen() {
                 onClose={closeAddMembersModal}
                 onSubmit={addMembersToGroup}
               />
-          <IncomingCallOverlay
+            <IncomingCallOverlay
                 visible={Boolean(incomingCall)}
                 callerName={incomingCallerName}
                 callType={incomingCall?.callType ?? "audio"}
@@ -2857,7 +3094,10 @@ export default function MessagesConversationScreen() {
                 status={callStatus ?? "calling"}
                 durationText={callDurationText}
                 localStreamUrl={localStreamUrl}
+                localUserId={currentUserId}
                 remoteStreamUrl={remoteStreamUrl}
+                remoteStreamUrls={remoteStreamUrls}
+                participants={callParticipants}
                 micEnabled={micEnabled}
                 cameraEnabled={cameraEnabled}
                 speakerEnabled={speakerEnabled}
@@ -2865,12 +3105,245 @@ export default function MessagesConversationScreen() {
                 onToggleCamera={toggleCamera}
                 onSwitchCamera={switchCamera}
                 onToggleSpeaker={toggleSpeaker}
+                onInviteParticipants={
+                    conversation?.type === "GROUP" && hasInviteCallCandidates
+                        ? () => openCallPicker("invite", activeCall?.callType ?? "audio")
+                        : undefined
+                }
                 onEndCall={() => void endCall()}
             />
+            <Modal transparent animationType="fade" visible={callPickerVisible}>
+                <View style={localCallPickerStyles.backdrop}>
+                    <View style={localCallPickerStyles.card}>
+                        <View style={localCallPickerStyles.header}>
+                            <View>
+                                <Text style={localCallPickerStyles.title}>
+                                    {callPickerMode === "invite"
+                                        ? "Moi them nguoi"
+                                        : "Chon nguoi de goi"}
+                                </Text>
+                                <Text style={localCallPickerStyles.subtitle}>
+                                    Da chon {selectedCallMemberIds.size}/{callPickerLimit}
+                                </Text>
+                            </View>
+                            <Pressable
+                                onPress={() => setCallPickerVisible(false)}
+                                style={localCallPickerStyles.closeBtn}
+                            >
+                                <Ionicons name="close" size={20} color="#374151" />
+                            </Pressable>
+                        </View>
+
+                        <FlatList
+                            data={callPickerMembers}
+                            keyExtractor={(item) => String(item.userId)}
+                            style={localCallPickerStyles.list}
+                            ListEmptyComponent={
+                                <Text style={localCallPickerStyles.emptyText}>
+                                    Khong con thanh vien phu hop de goi.
+                                </Text>
+                            }
+                            renderItem={({ item }) => {
+                                const checked = selectedCallMemberIds.has(item.userId);
+                                const disabled =
+                                    !checked && selectedCallMemberIds.size >= callPickerLimit;
+                                return (
+                                    <Pressable
+                                        onPress={() => toggleCallMember(item.userId)}
+                                        disabled={disabled}
+                                        style={[
+                                            localCallPickerStyles.memberRow,
+                                            checked && localCallPickerStyles.memberRowSelected,
+                                            disabled && localCallPickerStyles.memberRowDisabled,
+                                        ]}
+                                    >
+                                        <Image
+                                            source={{
+                                                uri:
+                                                    item.avatar ||
+                                                    "https://cdn-icons-png.flaticon.com/512/149/149071.png",
+                                            }}
+                                            style={localCallPickerStyles.memberAvatar}
+                                        />
+                                        <View style={localCallPickerStyles.memberMeta}>
+                                            <Text
+                                                style={localCallPickerStyles.memberName}
+                                                numberOfLines={1}
+                                            >
+                                                {item.nickname || item.username || "Thanh vien"}
+                                            </Text>
+                                            {item.username ? (
+                                                <Text
+                                                    style={localCallPickerStyles.memberUsername}
+                                                    numberOfLines={1}
+                                                >
+                                                    @{item.username}
+                                                </Text>
+                                            ) : null}
+                                        </View>
+                                        <Ionicons
+                                            name={checked ? "checkmark-circle" : "ellipse-outline"}
+                                            size={22}
+                                            color={checked ? "#2563EB" : "#9CA3AF"}
+                                        />
+                                    </Pressable>
+                                );
+                            }}
+                        />
+
+                        <View style={localCallPickerStyles.actions}>
+                            <Pressable
+                                onPress={() => setCallPickerVisible(false)}
+                                style={localCallPickerStyles.secondaryBtn}
+                            >
+                                <Text style={localCallPickerStyles.secondaryText}>Huy</Text>
+                            </Pressable>
+                            <Pressable
+                                onPress={() => void submitCallPicker()}
+                                disabled={selectedCallMemberIds.size === 0}
+                                style={[
+                                    localCallPickerStyles.primaryBtn,
+                                    selectedCallMemberIds.size === 0 &&
+                                        localCallPickerStyles.primaryBtnDisabled,
+                                ]}
+                            >
+                                <Text style={localCallPickerStyles.primaryText}>
+                                    {callPickerMode === "invite" ? "Moi" : "Goi"}
+                                </Text>
+                            </Pressable>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
         </SafeAreaView>
         </ConversationSearchProvider>
     );
 }
+
+const localCallPickerStyles = StyleSheet.create({
+    backdrop: {
+        flex: 1,
+        backgroundColor: "rgba(2, 6, 23, 0.45)",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 18,
+    },
+    card: {
+        width: "100%",
+        maxHeight: "78%",
+        borderRadius: 18,
+        backgroundColor: colors.white,
+        overflow: "hidden",
+    },
+    header: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        paddingHorizontal: 16,
+        paddingVertical: 14,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: "#E5E7EB",
+    },
+    title: {
+        fontSize: 17,
+        fontWeight: "700",
+        color: "#111827",
+    },
+    subtitle: {
+        marginTop: 2,
+        fontSize: 12,
+        color: "#6B7280",
+    },
+    closeBtn: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#F3F4F6",
+    },
+    list: {
+        maxHeight: 360,
+        paddingHorizontal: 8,
+        paddingVertical: 6,
+    },
+    emptyText: {
+        paddingVertical: 28,
+        textAlign: "center",
+        color: "#6B7280",
+        fontSize: 14,
+    },
+    memberRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 10,
+        paddingHorizontal: 10,
+        paddingVertical: 9,
+        borderRadius: 12,
+    },
+    memberRowSelected: {
+        backgroundColor: "#EFF6FF",
+    },
+    memberRowDisabled: {
+        opacity: 0.45,
+    },
+    memberAvatar: {
+        width: 42,
+        height: 42,
+        borderRadius: 21,
+    },
+    memberMeta: {
+        flex: 1,
+        minWidth: 0,
+    },
+    memberName: {
+        fontSize: 14,
+        fontWeight: "700",
+        color: "#111827",
+    },
+    memberUsername: {
+        marginTop: 2,
+        fontSize: 12,
+        color: "#6B7280",
+    },
+    actions: {
+        flexDirection: "row",
+        justifyContent: "flex-end",
+        gap: 10,
+        padding: 14,
+        borderTopWidth: StyleSheet.hairlineWidth,
+        borderTopColor: "#E5E7EB",
+    },
+    secondaryBtn: {
+        paddingHorizontal: 16,
+        height: 40,
+        borderRadius: 10,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#F3F4F6",
+    },
+    secondaryText: {
+        fontSize: 14,
+        fontWeight: "700",
+        color: "#374151",
+    },
+    primaryBtn: {
+        paddingHorizontal: 18,
+        height: 40,
+        borderRadius: 10,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#2563EB",
+    },
+    primaryBtnDisabled: {
+        opacity: 0.55,
+    },
+    primaryText: {
+        fontSize: 14,
+        fontWeight: "700",
+        color: colors.white,
+    },
+});
 
 const searchStyles = StyleSheet.create({
     wrap: {

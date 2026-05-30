@@ -7,25 +7,41 @@ import chatWebsocketService, {
 } from "@/services/chatWebsocketService";
 import type { Message } from "@/types/chat";
 import { useCallMediaPeer } from "@/hooks/useCallMediaPeer";
+import chatRuntimeStore from "@/stores/chatRuntimeStore";
 export type CallType = "audio" | "video";
 interface ActiveCallState {
     callId: string;
     callType: CallType;
     remoteUserId: number;
+    remoteUserIds: number[];
+    participantUserIds: number[];
+    hostUserId: number;
     remoteName: string;
     remoteAvatar?: string;
     status: CallStatus;
     isCaller: boolean;
 }
+
+interface RejoinableCallState {
+    callId: string;
+    callType: CallType;
+    participantUserIds: number[];
+}
 interface UseOneToOneCallOptions {
     conversationId: number;
     currentUserId: number;
+    callerName?: string;
+    callerAvatar?: string;
     targetUserId?: number;
+    targetUserIds?: number[];
     targetName?: string;
     targetAvatar?: string;
+    pendingIncomingCall?: CallSignalPayload | null;
+    onPendingIncomingCallConsumed?: () => void;
     onCallMessageSaved?: (message: Message) => void;
 }
 const UNANSWERED_CALL_TIMEOUT_MS = 20_000;
+export const MAX_CALL_PARTICIPANTS = 8;
 
 const expoEnv = Constants as {
     executionEnvironment?: string;
@@ -82,19 +98,87 @@ function toNativeSessionDescription(input: CallSignalPayload["sdp"]): {
         sdp: input.sdp,
     };
 }
+
+function getSignalParticipantUserIds(signal: CallSignalPayload): number[] {
+    const direct = signal.participantUserIds;
+    if (direct?.length) return direct.filter(Number.isFinite);
+    const candidate = signal.candidate as
+        | { participantUserIds?: unknown }
+        | undefined;
+    if (!Array.isArray(candidate?.participantUserIds)) return [];
+    return candidate.participantUserIds
+        .map((id) => Number(id))
+        .filter(Number.isFinite);
+}
+
+function getSignalJoiningUserId(signal: CallSignalPayload): number | null {
+    const candidate = signal.candidate as { joiningUserId?: unknown } | undefined;
+    const id = Number(candidate?.joiningUserId);
+    return Number.isFinite(id) ? id : null;
+}
+
+function getSignalHostUserId(signal: CallSignalPayload): number | null {
+    const candidate = signal.candidate as { hostUserId?: unknown } | undefined;
+    const id = Number(candidate?.hostUserId);
+    return Number.isFinite(id) ? id : null;
+}
+
+function getSignalCallerInfo(signal: CallSignalPayload): {
+    callerName?: string;
+    callerAvatar?: string;
+} {
+    const candidate = signal.candidate as
+        | { callerName?: unknown; callerAvatar?: unknown }
+        | undefined;
+    return {
+        callerName:
+            typeof candidate?.callerName === "string"
+                ? candidate.callerName
+                : undefined,
+        callerAvatar:
+            typeof candidate?.callerAvatar === "string"
+                ? candidate.callerAvatar
+                : undefined,
+    };
+}
+
+function getSignalReason(signal: CallSignalPayload): string | null {
+    const candidate = signal.candidate as { reason?: unknown } | undefined;
+    return typeof candidate?.reason === "string" ? candidate.reason : null;
+}
+
+function buildCallMetadata(
+    participantUserIds: number[],
+    joiningUserId?: number,
+    hostUserId?: number,
+    callerInfo?: { callerName?: string; callerAvatar?: string },
+): Record<string, unknown> {
+    return {
+        participantUserIds: Array.from(new Set(participantUserIds)),
+        ...(joiningUserId != null ? { joiningUserId } : {}),
+        ...(hostUserId != null ? { hostUserId } : {}),
+        ...(callerInfo?.callerName ? { callerName: callerInfo.callerName } : {}),
+        ...(callerInfo?.callerAvatar ? { callerAvatar: callerInfo.callerAvatar } : {}),
+    };
+}
 export function useOneToOneCall(options: UseOneToOneCallOptions) {
     const {
         conversationId,
         currentUserId,
+        callerName,
+        callerAvatar,
         targetUserId,
+        targetUserIds,
         targetName,
         targetAvatar,
+        pendingIncomingCall,
+        onPendingIncomingCallConsumed,
         onCallMessageSaved,
     } = options;
     const {
-        peerConnectionRef,
         localStreamUrl,
         remoteStreamUrl,
+        remoteStreamUrls,
         micEnabled,
         cameraEnabled,
         speakerEnabled,
@@ -104,6 +188,8 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         createPeerConnection,
         flushQueuedIceCandidates,
         addIceCandidateOrQueue,
+        getPeerConnection,
+        closePeerConnectionForUser,
         resetPeerAndMedia,
         toggleMic,
         toggleCamera,
@@ -114,6 +200,9 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         null,
     );
     const [activeCall, setActiveCall] = useState<ActiveCallState | null>(null);
+    const [rejoinableCall, setRejoinableCall] =
+        useState<RejoinableCallState | null>(null);
+    const [busyCallUserId, setBusyCallUserId] = useState<number | null>(null);
     const [durationSeconds, setDurationSeconds] = useState(0);
     const activeCallRef = useRef<ActiveCallState | null>(null);
     const incomingCallRef = useRef<CallSignalPayload | null>(null);
@@ -123,15 +212,49 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
     const unansweredTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
         null,
     );
+    const activeCallRequestAtRef = useRef(0);
+    const activeCallRequestCallIdRef = useRef<string | null>(null);
+    const rejoinProbeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+        null,
+    );
+    const remoteStreamUrlsRef = useRef<Array<{ userId: number; url: string }>>(
+        [],
+    );
     useEffect(() => {
         activeCallRef.current = activeCall;
     }, [activeCall]);
+    useEffect(() => {
+        if (activeCall) {
+            chatRuntimeStore.setActiveCall({
+                callId: activeCall.callId,
+                conversationId,
+                callType: activeCall.callType,
+                userId: currentUserId,
+            });
+            return;
+        }
+
+        const currentRuntimeCall = chatRuntimeStore.getActiveCall();
+        if (
+            currentRuntimeCall?.conversationId === conversationId &&
+            currentRuntimeCall.userId === currentUserId
+        ) {
+            chatRuntimeStore.setActiveCall(null);
+        }
+    }, [activeCall, conversationId, currentUserId]);
     useEffect(() => {
         incomingCallRef.current = incomingCall;
     }, [incomingCall]);
     useEffect(() => {
         durationSecondsRef.current = durationSeconds;
     }, [durationSeconds]);
+    useEffect(() => {
+        remoteStreamUrlsRef.current = remoteStreamUrls;
+    }, [remoteStreamUrls]);
+    const targetUserIdsKey = useMemo(
+        () => (targetUserIds ?? []).filter(Number.isFinite).join(","),
+        [targetUserIds],
+    );
     const clearDurationTimer = useCallback(() => {
         if (durationTimerRef.current) {
             clearInterval(durationTimerRef.current);
@@ -201,47 +324,151 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         });
     }, []);
     const startUnansweredTimeout = useCallback(
-        (callId: string, callType: CallType, remoteUserId: number) => {
+        (callId: string, callType: CallType, remoteUserIds: number[]) => {
             clearUnansweredTimeout();
             unansweredTimeoutRef.current = setTimeout(() => {
                 const current = activeCallRef.current;
                 if (!current || current.callId !== callId) return;
                 if (current.status !== "calling") return;
-                chatWebsocketService.sendCallSignal({
-                    event: "end-call",
-                    conversationId,
-                    callId,
-                    callType,
-                    fromUserId: currentUserId,
-                    targetUserId: remoteUserId,
+
+                remoteUserIds.forEach((remoteUserId) => {
+                    chatWebsocketService.sendCallSignal({
+                        event: "end-call",
+                        conversationId,
+                        callId,
+                        callType,
+                        fromUserId: currentUserId,
+                        targetUserId: remoteUserId,
+                    });
+                    closePeerConnectionForUser(remoteUserId);
                 });
+
                 void persistCallMessage(callType, "ended", 0);
                 resetCallState();
             }, UNANSWERED_CALL_TIMEOUT_MS);
         },
         [
             clearUnansweredTimeout,
+            closePeerConnectionForUser,
             conversationId,
             currentUserId,
             persistCallMessage,
             resetCallState,
         ],
     );
+    const resolveCallTargetUserIds = useCallback(async () => {
+        const fromProps = Array.from(
+            new Set(
+                (targetUserIdsKey
+                    ? targetUserIdsKey
+                          .split(",")
+                          .map((id) => Number(id))
+                          .filter(Number.isFinite)
+                    : targetUserId
+                      ? [targetUserId]
+                      : []
+                ).filter((id) => id !== currentUserId),
+            ),
+        );
+
+        try {
+            const response = await chatService.getConversation(
+                conversationId,
+                currentUserId,
+            );
+            const fromConversation =
+                response.success && response.data?.members?.length
+                    ? response.data.members
+                          .map((member) => member.userId)
+                          .filter((id) => id !== currentUserId)
+                    : [];
+
+            return Array.from(new Set([...fromProps, ...fromConversation]));
+        } catch {
+            return fromProps;
+        }
+    }, [conversationId, currentUserId, targetUserId, targetUserIdsKey]);
+
+    const placeOutgoingCallToUsers = useCallback(
+        async (callId: string, callType: CallType, remoteUserIds: number[]) => {
+            await Promise.all(
+                remoteUserIds.map(async (remoteUserId) => {
+                    const peer = createPeerConnection({
+                        remoteUserId,
+                        onIceCandidate: (candidate) => {
+                            chatWebsocketService.sendCallSignal({
+                                event: "ice-candidate",
+                                conversationId,
+                                callId,
+                                callType,
+                                fromUserId: currentUserId,
+                                targetUserId: remoteUserId,
+                                candidate,
+                            });
+                        },
+                    });
+                    const offer = await peer.createOffer();
+                    await peer.setLocalDescription(offer);
+                    chatWebsocketService.sendCallSignal({
+                        event: "call-user",
+                        conversationId,
+                        callId,
+                        callType,
+                        fromUserId: currentUserId,
+                        targetUserId: remoteUserId,
+                        sdp: offer,
+                        candidate: buildCallMetadata(
+                            activeCallRef.current?.participantUserIds ?? [
+                                currentUserId,
+                            ],
+                            undefined,
+                            activeCallRef.current?.hostUserId ?? currentUserId,
+                            { callerName, callerAvatar },
+                        ),
+                    });
+                    await flushQueuedIceCandidates(remoteUserId);
+                }),
+            );
+        },
+        [
+            conversationId,
+            createPeerConnection,
+            callerAvatar,
+            callerName,
+            currentUserId,
+            flushQueuedIceCandidates,
+        ],
+    );
     const startCall = useCallback(
-        async (callType: CallType) => {
+        async (callType: CallType, selectedUserIds?: number[]) => {
             if (!isWebRTCSupported) return false;
-            if (!targetUserId) return false;
+            const remoteUserIds = Array.from(
+                new Set(
+                    (selectedUserIds?.length
+                        ? selectedUserIds
+                        : await resolveCallTargetUserIds()
+                    ).filter((id) => id !== currentUserId),
+                ),
+            ).slice(0, MAX_CALL_PARTICIPANTS - 1);
+            if (!remoteUserIds.length) return false;
             if (activeCallRef.current || incomingCallRef.current) return false;
             callSavedRef.current = false;
             try {
                 await createLocalStream(callType);
                 startAudioSession(callType);
+                setRejoinableCall(null);
                 const callId = `call-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
                 const nextCall: ActiveCallState = {
                     callId,
                     callType,
-                    remoteUserId: targetUserId,
-                    remoteName: targetName || `Nguoi dung ${targetUserId}`,
+                    remoteUserId: remoteUserIds[0],
+                    remoteUserIds,
+                    participantUserIds: [currentUserId],
+                    hostUserId: currentUserId,
+                    remoteName:
+                        remoteUserIds.length > 1
+                            ? `Nhom (${remoteUserIds.length} nguoi)`
+                            : targetName || `Nguoi dung ${remoteUserIds[0]}`,
                     remoteAvatar: targetAvatar,
                     status: "calling",
                     isCaller: true,
@@ -249,32 +476,8 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                 setActiveCall(nextCall);
                 activeCallRef.current = nextCall;
                 setDurationSeconds(0);
-                const peer = createPeerConnection({
-                    onIceCandidate: (candidate) => {
-                        chatWebsocketService.sendCallSignal({
-                            event: "ice-candidate",
-                            conversationId,
-                            callId,
-                            callType,
-                            fromUserId: currentUserId,
-                            targetUserId,
-                            candidate,
-                        });
-                    },
-                });
-                const offer = await peer.createOffer();
-                await peer.setLocalDescription(offer);
-                chatWebsocketService.sendCallSignal({
-                    event: "call-user",
-                    conversationId,
-                    callId,
-                    callType,
-                    fromUserId: currentUserId,
-                    targetUserId,
-                    sdp: offer,
-                });
-                await flushQueuedIceCandidates();
-                startUnansweredTimeout(callId, callType, targetUserId);
+                await placeOutgoingCallToUsers(callId, callType, remoteUserIds);
+                startUnansweredTimeout(callId, callType, remoteUserIds);
                 return true;
             } catch {
                 resetCallState();
@@ -282,29 +485,61 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
             }
         },
         [
-            targetUserId,
             createLocalStream,
             startAudioSession,
             targetName,
             targetAvatar,
-            createPeerConnection,
-            conversationId,
             currentUserId,
-            flushQueuedIceCandidates,
             isWebRTCSupported,
+            placeOutgoingCallToUsers,
+            resolveCallTargetUserIds,
             startUnansweredTimeout,
             resetCallState,
         ],
     );
-    const acceptIncomingCall = useCallback(async () => {
+    const inviteUsersToCall = useCallback(
+        async (userIds: number[]) => {
+            const current = activeCallRef.current;
+            if (!current) return false;
+            const existingIds = new Set(current.remoteUserIds);
+            const nextIds = Array.from(
+                new Set(
+                    userIds.filter(
+                        (id) => id !== currentUserId && !existingIds.has(id),
+                    ),
+                ),
+            ).slice(
+                0,
+                Math.max(
+                    0,
+                    MAX_CALL_PARTICIPANTS - 1 - current.remoteUserIds.length,
+                ),
+            );
+            if (!nextIds.length) return false;
+
+            await placeOutgoingCallToUsers(current.callId, current.callType, nextIds);
+            const nextCall = {
+                ...current,
+                remoteUserIds: [...current.remoteUserIds, ...nextIds],
+                participantUserIds: current.participantUserIds,
+                remoteName: `Nhom (${current.remoteUserIds.length + nextIds.length} nguoi)`,
+            };
+            setActiveCall(nextCall);
+            activeCallRef.current = nextCall;
+            setRejoinableCall(null);
+            return true;
+        },
+        [currentUserId, placeOutgoingCallToUsers],
+    );
+    const acceptIncomingSignal = useCallback(async (incoming: CallSignalPayload) => {
         if (!isWebRTCSupported) return false;
-        const incoming = incomingCallRef.current;
-        if (!incoming) return false;
         callSavedRef.current = false;
         try {
             await createLocalStream(incoming.callType);
             startAudioSession(incoming.callType);
+            setRejoinableCall(null);
             const peer = createPeerConnection({
+                remoteUserId: incoming.fromUserId,
                 onIceCandidate: (candidate) => {
                     chatWebsocketService.sendCallSignal({
                         event: "ice-candidate",
@@ -325,13 +560,28 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
             }
             const answer = await peer.createAnswer();
             await peer.setLocalDescription(answer);
-            await flushQueuedIceCandidates();
+            await flushQueuedIceCandidates(incoming.fromUserId);
+            const participantUserIds = Array.from(
+                new Set([
+                    ...getSignalParticipantUserIds(incoming),
+                    incoming.fromUserId,
+                    currentUserId,
+                ]),
+            );
+            const hostUserId = getSignalHostUserId(incoming) ?? incoming.fromUserId;
+            const callerInfo = getSignalCallerInfo(incoming);
             const nextCall: ActiveCallState = {
                 callId: incoming.callId,
                 callType: incoming.callType,
                 remoteUserId: incoming.fromUserId,
-                remoteName: targetName || `Nguoi dung ${incoming.fromUserId}`,
-                remoteAvatar: targetAvatar,
+                remoteUserIds: [incoming.fromUserId],
+                participantUserIds,
+                hostUserId,
+                remoteName:
+                    callerInfo.callerName ||
+                    targetName ||
+                    `Nguoi dung ${incoming.fromUserId}`,
+                remoteAvatar: callerInfo.callerAvatar || targetAvatar,
                 status: "accepted",
                 isCaller: false,
             };
@@ -349,6 +599,11 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                 fromUserId: currentUserId,
                 targetUserId: incoming.fromUserId,
                 sdp: answer,
+                candidate: buildCallMetadata(
+                    participantUserIds,
+                    undefined,
+                    hostUserId,
+                ),
             });
             return true;
         } catch {
@@ -367,6 +622,242 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         targetAvatar,
         targetName,
         isWebRTCSupported,
+    ]);
+
+    const acceptIncomingCall = useCallback(async () => {
+        const incoming = incomingCallRef.current;
+        if (!incoming) return false;
+        return acceptIncomingSignal(incoming);
+    }, [acceptIncomingSignal]);
+
+    const updateCallParticipants = useCallback(
+        (
+            participantUserIds: number[],
+            options: { preserveInvitedRemoteIds?: boolean } = {},
+        ) => {
+            const normalizedParticipantIds = Array.from(
+                new Set(participantUserIds.filter(Number.isFinite)),
+            );
+            if (!normalizedParticipantIds.length) return;
+            setActiveCall((prev) => {
+                if (!prev) return prev;
+                const participantRemoteUserIds = normalizedParticipantIds.filter(
+                    (id) => id !== currentUserId,
+                );
+                const remoteUserIds = options.preserveInvitedRemoteIds === false
+                    ? participantRemoteUserIds
+                    : Array.from(
+                        new Set([
+                            ...prev.remoteUserIds,
+                            ...participantRemoteUserIds,
+                        ]),
+                    );
+                const next = {
+                    ...prev,
+                    remoteUserId: remoteUserIds[0] ?? prev.remoteUserId,
+                    remoteUserIds,
+                    participantUserIds: normalizedParticipantIds,
+                    remoteName:
+                        normalizedParticipantIds.length > 2
+                            ? `Nhom (${normalizedParticipantIds.length} nguoi)`
+                            : prev.remoteName,
+                };
+                activeCallRef.current = next;
+                return next;
+            });
+        },
+        [currentUserId],
+    );
+
+    const sendParticipantSnapshot = useCallback(
+        (participantUserIds: number[]) => {
+            const current = activeCallRef.current;
+            if (!current) return;
+            const metadata = buildCallMetadata(
+                participantUserIds,
+                undefined,
+                current.hostUserId,
+            );
+            participantUserIds
+                .filter((id) => id !== currentUserId)
+                .forEach((targetUserId) => {
+                    chatWebsocketService.sendCallSignal({
+                        event: "call-participants",
+                        conversationId,
+                        callId: current.callId,
+                        callType: current.callType,
+                        fromUserId: currentUserId,
+                        targetUserId,
+                        candidate: metadata,
+                    });
+                });
+        },
+        [conversationId, currentUserId],
+    );
+
+    const notifyExistingParticipantsToConnect = useCallback(
+        (joiningUserId: number, participantUserIds: number[]) => {
+            const current = activeCallRef.current;
+            if (!current) return;
+            const metadata = buildCallMetadata(
+                participantUserIds,
+                joiningUserId,
+                current.hostUserId,
+            );
+            participantUserIds
+                .filter((id) => id !== currentUserId && id !== joiningUserId)
+                .forEach((targetUserId) => {
+                    chatWebsocketService.sendCallSignal({
+                        event: "join-call",
+                        conversationId,
+                        callId: current.callId,
+                        callType: current.callType,
+                        fromUserId: currentUserId,
+                        targetUserId,
+                        candidate: metadata,
+                    });
+                });
+        },
+        [conversationId, currentUserId],
+    );
+
+    const ensurePeerConnectionsForParticipants = useCallback(
+        async (
+            participantUserIds: number[],
+            options: { repairMissingStreams?: boolean } = {},
+        ) => {
+            const current = activeCallRef.current;
+            if (!current || current.status !== "accepted") return;
+
+            const normalizedParticipantIds = Array.from(
+                new Set(participantUserIds.filter(Number.isFinite)),
+            );
+            if (normalizedParticipantIds.length < 2) return;
+            if (Math.min(...normalizedParticipantIds) !== currentUserId) return;
+
+            const missingRemoteUserIds = normalizedParticipantIds.filter((id) => {
+                if (id === currentUserId) return false;
+
+                const peer = getPeerConnection(id);
+                if (!peer) return true;
+
+                if (!options.repairMissingStreams) return false;
+
+                const hasRemoteStream = remoteStreamUrlsRef.current.some(
+                    (item) => item.userId === id && Boolean(item.url),
+                );
+                if (hasRemoteStream) return false;
+
+                closePeerConnectionForUser(id);
+                return true;
+            });
+            if (!missingRemoteUserIds.length) return;
+
+            await placeOutgoingCallToUsers(
+                current.callId,
+                current.callType,
+                missingRemoteUserIds,
+            );
+        },
+        [
+            closePeerConnectionForUser,
+            currentUserId,
+            getPeerConnection,
+            placeOutgoingCallToUsers,
+        ],
+    );
+
+    const schedulePeerRepairForParticipants = useCallback(
+        (participantUserIds: number[]) => {
+            setTimeout(() => {
+                void ensurePeerConnectionsForParticipants(participantUserIds, {
+                    repairMissingStreams: true,
+                });
+            }, 1200);
+        },
+        [ensurePeerConnectionsForParticipants],
+    );
+
+    const acceptPeerOffer = useCallback(
+        async (incoming: CallSignalPayload) => {
+            const current = activeCallRef.current;
+            if (!current || current.callId !== incoming.callId) return false;
+            if (incoming.fromUserId === currentUserId) return false;
+            if (!isWebRTCSupported) return false;
+            try {
+                const peer = createPeerConnection({
+                    remoteUserId: incoming.fromUserId,
+                    onIceCandidate: (candidate) => {
+                        chatWebsocketService.sendCallSignal({
+                            event: "ice-candidate",
+                            conversationId,
+                            callId: incoming.callId,
+                            callType: incoming.callType,
+                            fromUserId: currentUserId,
+                            targetUserId: incoming.fromUserId,
+                            candidate,
+                        });
+                    },
+                });
+                const remoteDescription = toNativeSessionDescription(incoming.sdp);
+                if (remoteDescription) {
+                    await peer.setRemoteDescription(
+                        toPeerSessionDescription(remoteDescription) as never,
+                    );
+                }
+                const answer = await peer.createAnswer();
+                await peer.setLocalDescription(answer);
+                await flushQueuedIceCandidates(incoming.fromUserId);
+                const participantUserIds = Array.from(
+                    new Set([
+                        ...current.participantUserIds,
+                        ...getSignalParticipantUserIds(incoming),
+                        incoming.fromUserId,
+                        currentUserId,
+                    ]),
+                );
+                updateCallParticipants(participantUserIds);
+                chatWebsocketService.sendCallSignal({
+                    event: "answer-call",
+                    conversationId,
+                    callId: incoming.callId,
+                    callType: incoming.callType,
+                    fromUserId: currentUserId,
+                    targetUserId: incoming.fromUserId,
+                    sdp: answer,
+                    candidate: buildCallMetadata(
+                        participantUserIds,
+                        undefined,
+                        current.hostUserId,
+                    ),
+                });
+                return true;
+            } catch {
+                return false;
+            }
+        },
+        [
+            conversationId,
+            createPeerConnection,
+            currentUserId,
+            flushQueuedIceCandidates,
+            isWebRTCSupported,
+            updateCallParticipants,
+        ],
+    );
+
+    useEffect(() => {
+        if (!pendingIncomingCall) return;
+        if (pendingIncomingCall.conversationId !== conversationId) return;
+        if (activeCallRef.current) return;
+
+        onPendingIncomingCallConsumed?.();
+        void acceptIncomingSignal(pendingIncomingCall);
+    }, [
+        acceptIncomingSignal,
+        conversationId,
+        onPendingIncomingCallConsumed,
+        pendingIncomingCall,
     ]);
     const rejectIncomingCall = useCallback(() => {
         const incoming = incomingCallRef.current;
@@ -389,19 +880,35 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         }
         const current = activeCallRef.current;
         if (!current) return;
+        const shouldOfferRejoin =
+            current.hostUserId !== currentUserId &&
+            current.participantUserIds.length > 2 &&
+            current.status === "accepted";
+        const nextRejoinableCall = shouldOfferRejoin
+            ? {
+                callId: current.callId,
+                callType: current.callType,
+                participantUserIds: current.participantUserIds.filter(
+                    (id) => id !== currentUserId,
+                ),
+            }
+            : null;
         clearUnansweredTimeout();
-        chatWebsocketService.sendCallSignal({
-            event: "end-call",
-            conversationId,
-            callId: current.callId,
-            callType: current.callType,
-            fromUserId: currentUserId,
-            targetUserId: current.remoteUserId,
+        current.remoteUserIds.forEach((remoteUserId) => {
+            chatWebsocketService.sendCallSignal({
+                event: "end-call",
+                conversationId,
+                callId: current.callId,
+                callType: current.callType,
+                fromUserId: currentUserId,
+                targetUserId: remoteUserId,
+            });
         });
         const shouldPersist = current.isCaller;
         const elapsed = durationSecondsRef.current;
         const callType = current.callType;
         resetCallState();
+        setRejoinableCall(nextRejoinableCall);
         if (shouldPersist) {
             void persistCallMessage(callType, "ended", elapsed);
         }
@@ -413,11 +920,32 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         rejectIncomingCall,
         resetCallState,
     ]);
+    const rejoinActiveCall = useCallback(() => {
+        const call = rejoinableCall;
+        if (!call || activeCallRef.current) return false;
+        activeCallRequestAtRef.current = Date.now();
+        activeCallRequestCallIdRef.current = call.callId;
+        call.participantUserIds.forEach((targetUserId) => {
+            chatWebsocketService.sendCallSignal({
+                event: "request-active-call",
+                conversationId,
+                callId: call.callId,
+                callType: call.callType,
+                fromUserId: currentUserId,
+                targetUserId,
+            });
+        });
+        return true;
+    }, [conversationId, currentUserId, rejoinableCall]);
     const handleCallSignal = useCallback(
         async (signal: CallSignalPayload) => {
             if (signal.conversationId !== conversationId) return;
             const current = activeCallRef.current;
             if (signal.event === "incoming-call" || signal.event === "call-user") {
+                if (current?.callId === signal.callId) {
+                    await acceptPeerOffer(signal);
+                    return;
+                }
                 if (!isWebRTCSupported) {
                     chatWebsocketService.sendCallSignal({
                         event: "reject-call",
@@ -438,11 +966,94 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                         callType: signal.callType,
                         fromUserId: currentUserId,
                         targetUserId: signal.fromUserId,
+                        candidate: { reason: "busy" },
                     });
+                    return;
+                }
+                const shouldAutoAccept =
+                    Date.now() - activeCallRequestAtRef.current < 8000 &&
+                    activeCallRequestCallIdRef.current === signal.callId &&
+                    getSignalParticipantUserIds(signal).length > 0;
+                if (shouldAutoAccept) {
+                    activeCallRequestCallIdRef.current = null;
+                    await acceptIncomingSignal(signal);
                     return;
                 }
                 setIncomingCall(signal);
                 incomingCallRef.current = signal;
+                return;
+            }
+            if (signal.event === "request-active-call") {
+                if (!current || current.status !== "accepted") return;
+                if (current.participantUserIds.includes(signal.fromUserId)) return;
+                const leaderId = Math.min(...current.participantUserIds);
+                if (leaderId !== currentUserId) return;
+                const participantUserIds = Array.from(
+                    new Set([...current.participantUserIds, signal.fromUserId]),
+                );
+                updateCallParticipants(participantUserIds);
+                await placeOutgoingCallToUsers(current.callId, current.callType, [
+                    signal.fromUserId,
+                ]);
+                notifyExistingParticipantsToConnect(
+                    signal.fromUserId,
+                    participantUserIds,
+                );
+                sendParticipantSnapshot(participantUserIds);
+                schedulePeerRepairForParticipants(participantUserIds);
+                return;
+            }
+            if (signal.event === "check-active-call") {
+                if (!current || current.status !== "accepted") return;
+                chatWebsocketService.sendCallSignal({
+                    event: "call-participants",
+                    conversationId,
+                    callId: current.callId,
+                    callType: current.callType,
+                    fromUserId: currentUserId,
+                    targetUserId: signal.fromUserId,
+                    candidate: buildCallMetadata(
+                        current.participantUserIds,
+                        undefined,
+                        current.hostUserId,
+                    ),
+                });
+                return;
+            }
+            if (signal.event === "join-call") {
+                if (!current || current.callId !== signal.callId) return;
+                const joiningUserId = getSignalJoiningUserId(signal);
+                if (!joiningUserId || joiningUserId === currentUserId) return;
+                if (getPeerConnection(joiningUserId)) return;
+                updateCallParticipants(getSignalParticipantUserIds(signal));
+                await placeOutgoingCallToUsers(signal.callId, signal.callType, [
+                    joiningUserId,
+                ]);
+                schedulePeerRepairForParticipants(getSignalParticipantUserIds(signal));
+                return;
+            }
+            if (signal.event === "call-participants") {
+                if (current?.callId === signal.callId) {
+                    const participantUserIds =
+                        getSignalParticipantUserIds(signal);
+                    updateCallParticipants(participantUserIds);
+                    void ensurePeerConnectionsForParticipants(participantUserIds);
+                    schedulePeerRepairForParticipants(participantUserIds);
+                } else {
+                    const participantUserIds = getSignalParticipantUserIds(signal);
+                    if (
+                        participantUserIds.length > 1 &&
+                        !participantUserIds.includes(currentUserId)
+                    ) {
+                        setRejoinableCall({
+                            callId: signal.callId,
+                            callType: signal.callType,
+                            participantUserIds,
+                        });
+                    } else if (participantUserIds.length <= 1) {
+                        setRejoinableCall(null);
+                    }
+                }
                 return;
             }
             const currentIncoming = incomingCallRef.current;
@@ -456,33 +1067,125 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
             }
             if (!current || current.callId !== signal.callId) return;
             if (signal.event === "answer-call") {
-                if (!current.isCaller) return;
-                const peer = peerConnectionRef.current;
+                const peer = getPeerConnection(signal.fromUserId);
                 const remoteDescription = toNativeSessionDescription(signal.sdp);
                 if (!peer || !remoteDescription) return;
                 await peer.setRemoteDescription(
                     toPeerSessionDescription(remoteDescription) as never,
                 );
-                await flushQueuedIceCandidates();
+                await flushQueuedIceCandidates(signal.fromUserId);
                 clearUnansweredTimeout();
                 applyStatus("accepted");
+                const participantUserIds = Array.from(
+                    new Set([
+                        ...current.participantUserIds,
+                        ...getSignalParticipantUserIds(signal),
+                        signal.fromUserId,
+                        currentUserId,
+                    ]),
+                );
+                updateCallParticipants(participantUserIds);
+                notifyExistingParticipantsToConnect(
+                    signal.fromUserId,
+                    participantUserIds,
+                );
+                sendParticipantSnapshot(participantUserIds);
+                schedulePeerRepairForParticipants(participantUserIds);
                 setDurationSeconds(0);
                 startDurationTimer();
                 return;
             }
             if (signal.event === "ice-candidate") {
                 if (!signal.candidate) return;
-                await addIceCandidateOrQueue(signal.candidate);
+                await addIceCandidateOrQueue(
+                    signal.candidate as RTCIceCandidateInit,
+                    signal.fromUserId,
+                );
                 return;
             }
             if (signal.event === "reject-call") {
-                if (current.isCaller) {
+                if (signal.fromUserId === current.hostUserId) {
                     resetCallState();
-                    void persistCallMessage(current.callType, "rejected", 0);
+                    setRejoinableCall(null);
+                    return;
+                }
+
+                if (current.isCaller) {
+                    if (getSignalReason(signal) === "busy") {
+                        setBusyCallUserId(signal.fromUserId);
+                    }
+                    const remaining = current.remoteUserIds.filter(
+                        (id) => id !== signal.fromUserId,
+                    );
+                    const remainingParticipants =
+                        current.participantUserIds.filter(
+                            (id) => id !== signal.fromUserId,
+                        );
+                    closePeerConnectionForUser(signal.fromUserId);
+
+                    if (!remaining.length) {
+                        resetCallState();
+                        void persistCallMessage(current.callType, "rejected", 0);
+                        return;
+                    }
+
+                    const nextParticipants = remainingParticipants.length
+                        ? remainingParticipants
+                        : [currentUserId];
+                    const nextCall = {
+                        ...current,
+                        remoteUserIds: remaining,
+                        remoteUserId: remaining[0] ?? current.remoteUserId,
+                        participantUserIds: nextParticipants,
+                    };
+                    setActiveCall(nextCall);
+                    activeCallRef.current = nextCall;
+                    sendParticipantSnapshot(nextParticipants);
+                    void ensurePeerConnectionsForParticipants(
+                        nextParticipants,
+                    );
+                    schedulePeerRepairForParticipants(nextParticipants);
                 }
                 return;
             }
             if (signal.event === "end-call") {
+                if (signal.fromUserId === current.hostUserId) {
+                    resetCallState();
+                    setRejoinableCall(null);
+                    return;
+                }
+
+                const remainingParticipants = current.participantUserIds.filter(
+                    (id) => id !== signal.fromUserId,
+                );
+                if (remainingParticipants.length > 1) {
+                    closePeerConnectionForUser(signal.fromUserId);
+                    updateCallParticipants(remainingParticipants, {
+                        preserveInvitedRemoteIds: false,
+                    });
+                    sendParticipantSnapshot(remainingParticipants);
+                    void ensurePeerConnectionsForParticipants(
+                        remainingParticipants,
+                    );
+                    schedulePeerRepairForParticipants(remainingParticipants);
+                    return;
+                }
+
+                if (current.hostUserId === currentUserId) {
+                    current.remoteUserIds
+                        .filter((id) => id !== signal.fromUserId)
+                        .forEach((targetUserId) => {
+                            chatWebsocketService.sendCallSignal({
+                                event: "end-call",
+                                conversationId,
+                                callId: current.callId,
+                                callType: current.callType,
+                                fromUserId: currentUserId,
+                                targetUserId,
+                            });
+                        });
+                }
+
                 const elapsed = durationSecondsRef.current;
                 const shouldPersist = current.isCaller;
                 const callType = current.callType;
@@ -494,18 +1197,59 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         },
         [
             addIceCandidateOrQueue,
+            acceptIncomingSignal,
+            acceptPeerOffer,
             applyStatus,
             clearUnansweredTimeout,
+            closePeerConnectionForUser,
             conversationId,
             currentUserId,
             flushQueuedIceCandidates,
+            getPeerConnection,
+            ensurePeerConnectionsForParticipants,
             isWebRTCSupported,
-            peerConnectionRef,
+            notifyExistingParticipantsToConnect,
             persistCallMessage,
+            placeOutgoingCallToUsers,
             resetCallState,
+            schedulePeerRepairForParticipants,
+            sendParticipantSnapshot,
             startDurationTimer,
+            updateCallParticipants,
         ],
     );
+    useEffect(() => {
+        if (rejoinProbeTimerRef.current) {
+            clearTimeout(rejoinProbeTimerRef.current);
+            rejoinProbeTimerRef.current = null;
+        }
+
+        if (!rejoinableCall) return;
+
+        rejoinableCall.participantUserIds.forEach((targetUserId) => {
+            chatWebsocketService.sendCallSignal({
+                event: "check-active-call",
+                conversationId,
+                callId: rejoinableCall.callId,
+                callType: rejoinableCall.callType,
+                fromUserId: currentUserId,
+                targetUserId,
+            });
+        });
+
+        rejoinProbeTimerRef.current = setTimeout(() => {
+            setRejoinableCall(null);
+            rejoinProbeTimerRef.current = null;
+        }, 7000);
+
+        return () => {
+            if (rejoinProbeTimerRef.current) {
+                clearTimeout(rejoinProbeTimerRef.current);
+                rejoinProbeTimerRef.current = null;
+            }
+        };
+    }, [conversationId, currentUserId, rejoinableCall]);
+
     useEffect(() => {
         let disposed = false;
         const onCallEvent = (event: CallSignalPayload) => {
@@ -518,14 +1262,44 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
             }
             if (disposed) return;
             chatWebsocketService.subscribeToCallEvents(currentUserId, onCallEvent);
+            const targetIds = await resolveCallTargetUserIds();
+            if (targetIds.length && !activeCallRef.current) {
+                targetIds.forEach((targetId) => {
+                    chatWebsocketService.sendCallSignal({
+                        event: "request-active-call",
+                        conversationId,
+                        callId: `conversation-${conversationId}`,
+                        callType: "audio",
+                        fromUserId: currentUserId,
+                        targetUserId: targetId,
+                    });
+                });
+            }
         };
         void setup();
         return () => {
             disposed = true;
             chatWebsocketService.unsubscribeFromCallEvents(currentUserId, onCallEvent);
+            if (rejoinProbeTimerRef.current) {
+                clearTimeout(rejoinProbeTimerRef.current);
+                rejoinProbeTimerRef.current = null;
+            }
+            const currentRuntimeCall = chatRuntimeStore.getActiveCall();
+            if (
+                currentRuntimeCall?.conversationId === conversationId &&
+                currentRuntimeCall.userId === currentUserId
+            ) {
+                chatRuntimeStore.setActiveCall(null);
+            }
             resetCallState();
         };
-    }, [currentUserId, handleCallSignal, resetCallState]);
+    }, [
+        conversationId,
+        currentUserId,
+        handleCallSignal,
+        resetCallState,
+        resolveCallTargetUserIds,
+    ]);
     const callDurationText = useMemo(() => {
         const minutes = Math.floor(durationSeconds / 60);
         const seconds = durationSeconds % 60;
@@ -534,15 +1308,22 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
     return {
         incomingCall,
         activeCall,
+        rejoinableCall,
+        busyCallUserId,
         callStatus: activeCall?.status ?? null,
         localStreamUrl,
         remoteStreamUrl,
+        remoteStreamUrls,
         micEnabled,
         cameraEnabled,
         speakerEnabled,
         isCallSupported: isWebRTCSupported,
         callDurationText,
         startCall,
+        rejoinActiveCall,
+        clearBusyCallNotice: () => setBusyCallUserId(null),
+        inviteUsersToCall,
+        maxCallParticipants: MAX_CALL_PARTICIPANTS,
         acceptIncomingCall,
         rejectIncomingCall,
         endCall,

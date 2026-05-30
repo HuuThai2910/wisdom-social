@@ -3055,5 +3055,6 @@ if (token !== loadTokenRef.current) return;
         loadNewerMessages,
         handleJumpToMessage,
         resetToPresent,
+        appendRealtimeMessage: handleNewMessage,
     };
 }

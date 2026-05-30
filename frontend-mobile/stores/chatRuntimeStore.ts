@@ -13,6 +13,12 @@ export interface ConversationPagingState {
 }
 
 export type MembersByUserId = Record<number, ConversationMember>;
+export interface ActiveCallRuntimeState {
+    callId: string;
+    conversationId: number;
+    callType: "audio" | "video";
+    userId: number;
+}
 type ConversationListener = (conversation: Conversation) => void;
 interface SetConversationOptions {
     memberSnapshotVersion?: number;
@@ -42,6 +48,7 @@ class ChatRuntimeStore {
     private readonly memberSnapshotGuardUntil = new Map<number, number>();
     private readonly acceptedMemberSnapshotVersions = new Map<number, number>();
     private readonly dismissedPendingRequestIds = new Map<number, Set<number>>();
+    private activeCall: ActiveCallRuntimeState | null = null;
 
     private createDefaultPagingState(): ConversationPagingState {
         return {
@@ -431,6 +438,14 @@ class ChatRuntimeStore {
     clearConversationRuntime(conversationId: number): void {
         this.messagesByConversation.delete(conversationId);
         this.pagingByConversation.delete(conversationId);
+    }
+
+    setActiveCall(call: ActiveCallRuntimeState | null): void {
+        this.activeCall = call;
+    }
+
+    getActiveCall(): ActiveCallRuntimeState | null {
+        return this.activeCall;
     }
 }
 
