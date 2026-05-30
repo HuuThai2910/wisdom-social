@@ -997,6 +997,7 @@ export default function MessagesConversationScreen() {
         incomingCall,
         activeCall,
         rejoinableCall,
+        busyCallUserId,
         callStatus,
         localStreamUrl,
         remoteStreamUrl,
@@ -1008,6 +1009,7 @@ export default function MessagesConversationScreen() {
         callDurationText,
         startCall,
         rejoinActiveCall,
+        clearBusyCallNotice,
         inviteUsersToCall,
         maxCallParticipants,
         acceptIncomingCall,
@@ -1029,6 +1031,17 @@ export default function MessagesConversationScreen() {
         pendingIncomingCall,
         onPendingIncomingCallConsumed: clearPendingIncomingCall,
     });
+
+    useEffect(() => {
+        if (!busyCallUserId) return;
+        const member = membersById[busyCallUserId];
+        const name =
+            member?.nickname ||
+            member?.username ||
+            `Nguoi dung ${busyCallUserId}`;
+        Alert.alert("Dang ban", `${name} dang ban trong cuoc goi khac`);
+        clearBusyCallNotice();
+    }, [busyCallUserId, clearBusyCallNotice, membersById]);
 
     const incomingCallerName = useMemo(() => {
         const incomingCallerId = incomingCall?.fromUserId ?? null;
@@ -3074,6 +3087,7 @@ export default function MessagesConversationScreen() {
                 status={callStatus ?? "calling"}
                 durationText={callDurationText}
                 localStreamUrl={localStreamUrl}
+                localUserId={currentUserId}
                 remoteStreamUrl={remoteStreamUrl}
                 remoteStreamUrls={remoteStreamUrls}
                 participants={callParticipants}

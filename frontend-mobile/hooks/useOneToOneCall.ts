@@ -113,6 +113,11 @@ function getSignalJoiningUserId(signal: CallSignalPayload): number | null {
     return Number.isFinite(id) ? id : null;
 }
 
+function getSignalReason(signal: CallSignalPayload): string | null {
+    const candidate = signal.candidate as { reason?: unknown } | undefined;
+    return typeof candidate?.reason === "string" ? candidate.reason : null;
+}
+
 function buildCallMetadata(
     participantUserIds: number[],
     joiningUserId?: number,
@@ -161,6 +166,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
     const [activeCall, setActiveCall] = useState<ActiveCallState | null>(null);
     const [rejoinableCall, setRejoinableCall] =
         useState<RejoinableCallState | null>(null);
+    const [busyCallUserId, setBusyCallUserId] = useState<number | null>(null);
     const [durationSeconds, setDurationSeconds] = useState(0);
     const activeCallRef = useRef<ActiveCallState | null>(null);
     const incomingCallRef = useRef<CallSignalPayload | null>(null);
@@ -770,6 +776,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
                         callType: signal.callType,
                         fromUserId: currentUserId,
                         targetUserId: signal.fromUserId,
+                        candidate: { reason: "busy" },
                     });
                     return;
                 }
@@ -880,6 +887,9 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
             }
             if (signal.event === "reject-call") {
                 if (current.isCaller) {
+                    if (getSignalReason(signal) === "busy") {
+                        setBusyCallUserId(signal.fromUserId);
+                    }
                     const remainingParticipants =
                         current.participantUserIds.filter(
                             (id) => id !== signal.fromUserId,
@@ -997,6 +1007,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         incomingCall,
         activeCall,
         rejoinableCall,
+        busyCallUserId,
         callStatus: activeCall?.status ?? null,
         localStreamUrl,
         remoteStreamUrl,
@@ -1008,6 +1019,7 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
         callDurationText,
         startCall,
         rejoinActiveCall,
+        clearBusyCallNotice: () => setBusyCallUserId(null),
         inviteUsersToCall,
         maxCallParticipants: MAX_CALL_PARTICIPANTS,
         acceptIncomingCall,

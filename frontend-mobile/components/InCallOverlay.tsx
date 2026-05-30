@@ -44,6 +44,7 @@ interface InCallOverlayProps {
     status: CallStatus;
     durationText: string;
     localStreamUrl: string | null;
+    localUserId?: number;
     remoteStreamUrl: string | null;
     remoteStreamUrls?: { userId: number; url: string }[];
     participants?: { userId: number; name: string; avatar?: string }[];
@@ -99,6 +100,7 @@ export default function InCallOverlay({
     status,
     durationText,
     localStreamUrl,
+    localUserId,
     remoteStreamUrl,
     remoteStreamUrls = [],
     participants = [],
@@ -115,6 +117,46 @@ export default function InCallOverlay({
     if (!visible) return null;
 
     const isVideo = callType === "video";
+    const participantCount =
+        participants.length ||
+        (remoteStreamUrls.length ? remoteStreamUrls.length + 1 : 1);
+    const remoteStreamUrlByUserId = new Map(
+        remoteStreamUrls.map((item) => [item.userId, item.url]),
+    );
+    const videoTiles =
+        participants.length > 0
+            ? participants.map((participant) => {
+                  const isLocal =
+                      localUserId != null && participant.userId === localUserId;
+                  return {
+                      ...participant,
+                      isLocal,
+                      streamUrl: isLocal
+                          ? localStreamUrl
+                          : remoteStreamUrlByUserId.get(participant.userId) ??
+                            null,
+                  };
+              })
+            : [
+                  ...remoteStreamUrls.map((item) => ({
+                      userId: item.userId,
+                      name: `Nguoi dung ${item.userId}`,
+                      avatar: undefined,
+                      isLocal: false,
+                      streamUrl: item.url,
+                  })),
+                  ...(localStreamUrl
+                      ? [
+                            {
+                                userId: localUserId ?? -1,
+                                name: "Ban",
+                                avatar: undefined,
+                                isLocal: true,
+                                streamUrl: localStreamUrl,
+                            },
+                        ]
+                      : []),
+              ];
 
     return (
         <Modal
@@ -125,16 +167,44 @@ export default function InCallOverlay({
             <View style={styles.root}>
                 {isVideo ? (
                     <View style={styles.videoLayer}>
-                        {remoteStreamUrls.length > 1 && RTCViewComponent ? (
+                        {videoTiles.length > 2 ? (
                             <View style={styles.remoteGrid}>
-                                {remoteStreamUrls.slice(0, 4).map((item) => (
-                                    <RTCViewComponent
-                                        key={item.userId}
-                                        streamURL={item.url}
-                                        style={styles.remoteGridVideo}
-                                        objectFit="cover"
-                                        mirror={false}
-                                    />
+                                {videoTiles.map((item) => (
+                                    <View
+                                        key={`${item.isLocal ? "local" : "remote"}-${item.userId}`}
+                                        style={styles.videoTile}
+                                    >
+                                        {item.streamUrl && RTCViewComponent ? (
+                                            <RTCViewComponent
+                                                streamURL={item.streamUrl}
+                                                style={styles.videoTileMedia}
+                                                objectFit="cover"
+                                                mirror={item.isLocal}
+                                            />
+                                        ) : (
+                                            <View style={styles.videoTileFallback}>
+                                                <Image
+                                                    source={{
+                                                        uri:
+                                                            item.avatar ||
+                                                            "https://cdn-icons-png.flaticon.com/512/149/149071.png",
+                                                    }}
+                                                    style={styles.videoTileAvatar}
+                                                />
+                                                <Text style={styles.videoTileFallbackText}>
+                                                    Dang ket noi camera...
+                                                </Text>
+                                            </View>
+                                        )}
+                                        <View style={styles.videoTileNamePill}>
+                                            <Text
+                                                style={styles.videoTileName}
+                                                numberOfLines={1}
+                                            >
+                                                {item.isLocal ? "Ban" : item.name}
+                                            </Text>
+                                        </View>
+                                    </View>
                                 ))}
                             </View>
                         ) : remoteStreamUrl && RTCViewComponent ? (
@@ -183,13 +253,14 @@ export default function InCallOverlay({
                     <Text style={styles.callStatus}>
                         {getStatusText(status)}
                         {status === "accepted" ? ` • ${durationText}` : ""}
+                        {participantCount > 1 ? ` • ${participantCount} nguoi` : ""}
                     </Text>
                 </View>
 
                 {participants.length > 0 ? (
                     <View style={styles.participantsPanel}>
                         <Text style={styles.participantsTitle}>
-                            Thanh vien cuoc goi ({participants.length})
+                            Thanh vien cuoc goi ({participantCount})
                         </Text>
                         <ScrollView style={styles.participantsList}>
                             {participants.map((member) => (
@@ -272,6 +343,48 @@ const styles = StyleSheet.create({
         flexWrap: "wrap",
         gap: 4,
         padding: 4,
+    },
+    videoTile: {
+        width: "49%",
+        height: "49%",
+        borderRadius: 10,
+        overflow: "hidden",
+        backgroundColor: "#111827",
+    },
+    videoTileMedia: {
+        width: "100%",
+        height: "100%",
+    },
+    videoTileFallback: {
+        flex: 1,
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
+        backgroundColor: "#111827",
+    },
+    videoTileAvatar: {
+        width: 54,
+        height: 54,
+        borderRadius: 27,
+    },
+    videoTileFallbackText: {
+        color: "#CBD5E1",
+        fontSize: 12,
+    },
+    videoTileNamePill: {
+        position: "absolute",
+        left: 8,
+        right: 8,
+        bottom: 8,
+        borderRadius: 6,
+        backgroundColor: "rgba(0,0,0,0.55)",
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+    },
+    videoTileName: {
+        color: colors.white,
+        fontSize: 12,
+        fontWeight: "600",
     },
     remoteGridVideo: {
         width: "49%",

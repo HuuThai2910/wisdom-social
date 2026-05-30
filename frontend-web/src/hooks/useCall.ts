@@ -82,6 +82,11 @@ function getSignalJoiningUserId(signal: CallSignalPayload): number | null {
     return Number.isFinite(id) ? id : null;
 }
 
+function getSignalReason(signal: CallSignalPayload): string | null {
+    const candidate = signal.candidate as { reason?: unknown } | undefined;
+    return typeof candidate?.reason === "string" ? candidate.reason : null;
+}
+
 function buildCallMetadata(
     participantUserIds: number[],
     joiningUserId?: number,
@@ -122,6 +127,7 @@ export function useCall(options: UseCallOptions) {
     >([]);
     const [rejoinableCall, setRejoinableCall] =
         useState<RejoinableCall | null>(null);
+    const [busyCallUserId, setBusyCallUserId] = useState<number | null>(null);
     const [durationSeconds, setDurationSeconds] = useState(0);
     const [micEnabled, setMicEnabled] = useState(true);
     const [cameraEnabled, setCameraEnabled] = useState(true);
@@ -1266,6 +1272,16 @@ export function useCall(options: UseCallOptions) {
                     setIncomingCall(signal);
                     startReceiverTone();
                     notifyIncomingCall(signal);
+                } else {
+                    websocketService.sendCallSignal({
+                        event: "reject-call",
+                        conversationId,
+                        callId: signal.callId,
+                        callType: signal.callType,
+                        fromUserId: userId,
+                        targetUserId: signal.fromUserId,
+                        candidate: { reason: "busy" },
+                    });
                 }
                 return;
             }
@@ -1406,6 +1422,9 @@ export function useCall(options: UseCallOptions) {
 
             if (signal.event === "reject-call") {
                 if (currentCall.isCaller) {
+                    if (getSignalReason(signal) === "busy") {
+                        setBusyCallUserId(remoteUserId);
+                    }
                     const remaining = currentCall.remoteUserIds.filter(
                         (id) => id !== remoteUserId,
                     );
@@ -1656,11 +1675,13 @@ export function useCall(options: UseCallOptions) {
         isScreenSharing,
         isInCall,
         rejoinableCall,
+        busyCallUserId,
         canToggleCamera,
         canShareScreen,
 
         startCall,
         rejoinActiveCall,
+        clearBusyCallNotice: () => setBusyCallUserId(null),
         acceptIncomingCall,
         rejectIncomingCall,
         endCall,

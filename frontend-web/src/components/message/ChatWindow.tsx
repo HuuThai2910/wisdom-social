@@ -8,6 +8,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router-dom";
+import toast from "react-hot-toast";
 import {
   Send,
   Calendar,
@@ -1162,8 +1163,10 @@ function ChatWindowContent({
     canToggleCamera,
     canShareScreen,
     rejoinableCall,
+    busyCallUserId,
     startCall,
     rejoinActiveCall,
+    clearBusyCallNotice,
     acceptIncomingCall,
     rejectIncomingCall,
     endCall,
@@ -1183,6 +1186,15 @@ function ChatWindowContent({
     onPendingIncomingCallConsumed: consumePendingIncomingCall,
     onCallMessageSaved: appendRealtimeMessage,
   });
+
+  useEffect(() => {
+    if (!busyCallUserId) return;
+    const member = membersById[busyCallUserId];
+    const name =
+      member?.nickname || member?.username || `Người dùng ${busyCallUserId}`;
+    toast.error(`${name} đang bận trong cuộc gọi khác`);
+    clearBusyCallNotice();
+  }, [busyCallUserId, clearBusyCallNotice, membersById]);
 
   const {
     consentLoading,
@@ -3311,6 +3323,7 @@ function ChatWindowContent({
         status={activeCall?.status || "calling"}
         durationText={callDurationText}
         localStream={localStream}
+        localUserId={userId}
         remoteStream={remoteStream}
         remoteStreams={remoteStreams}
         participants={callParticipants}
