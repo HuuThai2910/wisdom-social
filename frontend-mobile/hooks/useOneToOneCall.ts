@@ -1205,20 +1205,8 @@ export function useOneToOneCall(options: UseOneToOneCallOptions) {
             }
             if (signal.event === "end-call") {
                 if (signal.fromUserId === current.hostUserId) {
-                    const remainingParticipants =
-                        current.participantUserIds.filter(
-                            (id) => id !== signal.fromUserId,
-                        );
-                    if (remainingParticipants.length <= 1) {
-                        resetCallState();
-                        setRejoinableCall(null);
-                    } else {
-                        continueCallAfterParticipantLeft(
-                            current,
-                            signal.fromUserId,
-                            remainingParticipants,
-                        );
-                    }
+                    resetCallState();
+                    setRejoinableCall(null);
                     return;
                 }
 

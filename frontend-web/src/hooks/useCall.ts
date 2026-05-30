@@ -1737,20 +1737,8 @@ export function useCall(options: UseCallOptions) {
 
             if (signal.event === "end-call") {
                 if (remoteUserId === currentCall.hostUserId) {
-                    const remainingParticipants =
-                        currentCall.participantUserIds.filter(
-                            (id) => id !== remoteUserId,
-                        );
-                    if (remainingParticipants.length <= 1) {
-                        resetCallState();
-                        setRejoinableCall(null);
-                    } else {
-                        continueCallAfterParticipantLeft(
-                            currentCall,
-                            remoteUserId,
-                            remainingParticipants,
-                        );
-                    }
+                    resetCallState();
+                    setRejoinableCall(null);
                     return;
                 }
 
