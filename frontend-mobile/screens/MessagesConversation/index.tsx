@@ -119,6 +119,12 @@ const FORWARD_BLOCKED_MEMBER_STATUSES = new Set([
     "BLOCKED",
     "GROUP_DISBANDED",
 ]);
+const CALL_BLOCKED_MEMBER_STATUSES = new Set([
+    "LEFT",
+    "KICKED",
+    "BLOCKED",
+    "GROUP_DISBANDED",
+]);
 
 function canForwardToConversation(
     conversation: ConversationSidebar,
@@ -763,6 +769,39 @@ export default function MessagesConversationScreen() {
         );
     }, [currentUserId, membersById]);
     const otherUserId = Number(otherUser?.userId);
+    const directTargetUserId = useMemo(() => {
+        const fromMember = Number(otherUser?.userId);
+        if (Number.isFinite(fromMember) && fromMember !== currentUserId) {
+            return fromMember;
+        }
+
+        const fromConversationMembers = Number(
+            conversation?.members?.find(
+                (member) => Number(member.userId) !== Number(currentUserId),
+            )?.userId,
+        );
+        if (
+            Number.isFinite(fromConversationMembers) &&
+            fromConversationMembers !== currentUserId
+        ) {
+            return fromConversationMembers;
+        }
+
+        const fromConversation = Number(conversation?.directPartnerId);
+        if (
+            Number.isFinite(fromConversation) &&
+            fromConversation !== currentUserId
+        ) {
+            return fromConversation;
+        }
+
+        return undefined;
+    }, [
+        conversation?.directPartnerId,
+        conversation?.members,
+        currentUserId,
+        otherUser?.userId,
+    ]);
     const presenceByUserId = usePresenceStatus([otherUserId]);
     const otherUserPresence = Number.isFinite(otherUserId)
         ? presenceByUserId[otherUserId]
@@ -926,6 +965,26 @@ export default function MessagesConversationScreen() {
             members: Object.values(membersById),
         });
     }, [conversation, currentUserId, membersById]);
+    const callMemberSource = useMemo(() => {
+        const mergedMembers = new Map<number, ConversationMember>();
+        for (const member of conversation?.members ?? []) {
+            if (Number.isFinite(Number(member.userId))) {
+                mergedMembers.set(Number(member.userId), member);
+            }
+        }
+        for (const member of Object.values(membersById)) {
+            if (Number.isFinite(Number(member.userId))) {
+                mergedMembers.set(Number(member.userId), {
+                    ...mergedMembers.get(Number(member.userId)),
+                    ...member,
+                });
+            }
+        }
+        return Array.from(mergedMembers.values());
+    }, [conversation?.members, membersById]);
+    const isGroupConversation =
+        String(conversation?.type ?? "").toUpperCase() === "GROUP" ||
+        callMemberSource.length > 2;
     const [pendingIncomingCall, setPendingIncomingCall] = useState(() =>
         consumePendingIncomingCall(
             Number.isFinite(conversationId) ? conversationId : 0,
@@ -959,8 +1018,8 @@ export default function MessagesConversationScreen() {
     } = useOneToOneCall({
         conversationId: Number.isFinite(conversationId) ? conversationId : 0,
         currentUserId,
-        targetUserId: otherUser?.userId,
-        targetUserIds: Object.values(membersById)
+        targetUserId: directTargetUserId,
+        targetUserIds: callMemberSource
             .filter((member) => member.userId !== currentUserId)
             .map((member) => member.userId),
         targetName: otherUser?.nickname || otherUser?.username,
@@ -983,13 +1042,15 @@ export default function MessagesConversationScreen() {
 
     const callableMembers = useMemo(
         () =>
-            Object.values(membersById).filter(
-                (member) =>
+            callMemberSource.filter((member) => {
+                const status = String(member.status ?? "ACTIVE").toUpperCase();
+                return (
                     member.userId !== currentUserId &&
-                    (!member.status || member.status === "ACTIVE") &&
-                    !member.accountLocked,
-            ),
-        [currentUserId, membersById],
+                    !CALL_BLOCKED_MEMBER_STATUSES.has(status) &&
+                    !member.accountLocked
+                );
+            }),
+        [callMemberSource, currentUserId],
     );
     const [callPickerVisible, setCallPickerVisible] = useState(false);
     const [callPickerMode, setCallPickerMode] = useState<"start" | "invite">("start");
@@ -1086,14 +1147,29 @@ export default function MessagesConversationScreen() {
                 return;
             }
 
-            if (conversation?.type === "GROUP") {
+            if (isGroupConversation && callableMembers.length > 0) {
                 openCallPicker("start", callType);
+                return;
+            }
+
+            if (!isGroupConversation && !directTargetUserId) {
+                Alert.alert(
+                    "Khong the goi",
+                    "Chua xac dinh duoc nguoi nhan cuoc goi trong doan chat nay.",
+                );
                 return;
             }
 
             await startCall(callType);
         },
-        [conversation?.type, isCallSupported, openCallPicker, startCall],
+        [
+            callableMembers.length,
+            directTargetUserId,
+            isCallSupported,
+            isGroupConversation,
+            openCallPicker,
+            startCall,
+        ],
     );
 
     const typingParticipantIds = useMemo(

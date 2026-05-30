@@ -412,6 +412,36 @@ export default function Messages() {
     const selectedDisplayInfo = selectedConversation
         ? getDisplayInfo(selectedConversation)
         : null;
+    const selectedDirectPartnerId = useMemo(() => {
+        if (selectedConversation?.type !== "DIRECT") return undefined;
+
+        const candidates = [
+            selectedConversation.directPartnerId,
+            selectedConversation.members?.find(
+                (member) => Number(member.userId) !== Number(currentUserId),
+            )?.userId,
+            selectedChatUserMeta?.existingDirectConversationId ===
+            selectedConversation.id
+                ? selectedChatUserMeta.userId
+                : undefined,
+        ];
+
+        const partnerId = candidates
+            .map((value) => Number(value))
+            .find(
+                (value) =>
+                    Number.isFinite(value) &&
+                    value > 0 &&
+                    value !== Number(currentUserId),
+            );
+
+        return partnerId;
+    }, [
+        currentUserId,
+        selectedChatUserMeta?.existingDirectConversationId,
+        selectedChatUserMeta?.userId,
+        selectedConversation,
+    ]);
 
     const selectedStatus = selectedConversation?.lastMessage?.lastMessageAt
         ? `Hoạt động ${formatTime(selectedConversation.lastMessage.lastMessageAt)} trước`
@@ -1855,6 +1885,13 @@ export default function Messages() {
                                             ? selectedDisplayInfo.compositeAvatars
                                             : undefined
                                     }
+                                    conversationType={
+                                        selectedConversation?.type
+                                    }
+                                    conversationMembers={
+                                        selectedConversation?.members
+                                    }
+                                    directPartnerId={selectedDirectPartnerId}
                                     openPollMessageId={openPollMessageId}
                                     openPollModalToken={openPollModalToken}
                                     onPollModalClose={() =>

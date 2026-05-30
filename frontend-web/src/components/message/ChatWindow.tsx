@@ -79,6 +79,9 @@ interface ChatWindowProps {
   name?: string;
   avatarUrl?: string;
   compositeAvatarUrls?: string[];
+  conversationType?: "DIRECT" | "GROUP";
+  conversationMembers?: ConversationMember[];
+  directPartnerId?: number;
   openPollMessageId?: string | null;
   openPollModalToken?: number;
   onPollModalClose?: () => void;
@@ -126,6 +129,12 @@ const FORWARD_BLOCKED_MEMBER_STATUSES = new Set([
   "GROUP_DISBANDED",
 ]);
 const PENDING_INCOMING_CALL_KEY = "pending_incoming_call";
+const CALL_BLOCKED_MEMBER_STATUSES = new Set([
+  "LEFT",
+  "KICKED",
+  "BLOCKED",
+  "GROUP_DISBANDED",
+]);
 
 function canForwardToConversation(
   conversation: ConversationSidebar,
@@ -639,6 +648,9 @@ function ChatWindowContent({
   onForbidden,
   name,
   avatarUrl,
+  conversationType,
+  conversationMembers,
+  directPartnerId,
   openPollMessageId = null,
   openPollModalToken = 0,
   onPollModalClose,
@@ -839,10 +851,44 @@ function ChatWindowContent({
     [membersById, userId]
   );
   const otherMemberUserId = Number(otherMember?.userId);
+  const directTargetUserId = useMemo(() => {
+    const fromMember = Number(otherMember?.userId);
+    if (Number.isFinite(fromMember) && fromMember !== userId) return fromMember;
+
+    const fromProp = Number(directPartnerId);
+    if (Number.isFinite(fromProp) && fromProp !== userId) return fromProp;
+
+    const fromConversationMembers = Number(
+      conversationMembers?.find((member) => Number(member.userId) !== userId)
+        ?.userId
+    );
+    if (
+      Number.isFinite(fromConversationMembers) &&
+      fromConversationMembers !== userId
+    ) {
+      return fromConversationMembers;
+    }
+
+    const fromConversation = Number(conversation?.directPartnerId);
+    if (Number.isFinite(fromConversation) && fromConversation !== userId) {
+      return fromConversation;
+    }
+
+    return undefined;
+  }, [
+    conversation?.directPartnerId,
+    conversationMembers,
+    directPartnerId,
+    otherMember?.userId,
+    userId,
+  ]);
+  const isDirectConversation =
+    String(conversationType ?? conversation?.type ?? "").toUpperCase() ===
+    "DIRECT";
   // Hội thoại DIRECT với tài khoản đã bị khóa: dùng cả cờ trên member lẫn
   // directPartnerLocked (DB tươi) để chắc chắn nhận diện kể cả khi cache members cũ.
   const isPartnerAccountLocked =
-    conversation?.type === "DIRECT" &&
+    isDirectConversation &&
     (Boolean(conversation?.directPartnerLocked) ||
       Boolean(otherMember?.accountLocked));
 
@@ -857,12 +903,12 @@ function ChatWindowContent({
         return false;
       if (membersById[Number(targetUserId)]?.accountLocked) return true;
       return (
-        conversation?.type === "DIRECT" &&
+        isDirectConversation &&
         Boolean(conversation?.directPartnerLocked) &&
         Number(targetUserId) !== Number(userId)
       );
     },
-    [membersById, conversation?.type, conversation?.directPartnerLocked, userId],
+    [membersById, isDirectConversation, conversation?.directPartnerLocked, userId],
   );
   const presenceByUserId = usePresenceStatus([otherMemberUserId]);
   const otherMemberPresence = Number.isFinite(otherMemberUserId)
@@ -1008,12 +1054,65 @@ function ChatWindowContent({
     };
   }, [conversation?.type, otherMember?.userId, peerRelationshipInfo]);
 
-  const targetMemberIds = useMemo(
+  const callMemberSource = useMemo(() => {
+    if (conversationMembers?.length) {
+      return conversationMembers
+        .filter((member) => {
+          const status = String(member.status ?? "ACTIVE").toUpperCase();
+          return status === "ACTIVE";
+        })
+        .map((member) => {
+          const realtimeMember = membersById[Number(member.userId)];
+          return realtimeMember
+            ? {
+                ...member,
+                accountLocked: realtimeMember.accountLocked ?? member.accountLocked,
+                role: realtimeMember.role ?? member.role,
+                nickname: realtimeMember.nickname || member.nickname,
+                avatar: realtimeMember.avatar || member.avatar,
+                username: realtimeMember.username || member.username,
+              }
+            : member;
+        });
+    }
+
+    const mergedMembers = new Map<number, ConversationMember>();
+    for (const member of conversation?.members ?? []) {
+      if (Number.isFinite(Number(member.userId))) {
+        mergedMembers.set(Number(member.userId), member);
+      }
+    }
+    for (const member of Object.values(membersById)) {
+      if (Number.isFinite(Number(member.userId))) {
+        mergedMembers.set(Number(member.userId), {
+          ...mergedMembers.get(Number(member.userId)),
+          ...member,
+        });
+      }
+    }
+    return Array.from(mergedMembers.values());
+  }, [conversation?.members, conversationMembers, membersById]);
+
+  const isGroupConversation =
+    String(conversationType ?? conversation?.type ?? "").toUpperCase() === "GROUP" ||
+    callMemberSource.length > 2;
+
+  const callableMembers = useMemo(
     () =>
-      Object.values(membersById)
-        .filter((m) => m.userId !== userId)
-        .map((m) => m.userId),
-    [membersById, userId]
+      callMemberSource.filter((member) => {
+        const status = String(member.status ?? "ACTIVE").toUpperCase();
+        return (
+          member.userId !== userId &&
+          !CALL_BLOCKED_MEMBER_STATUSES.has(status) &&
+          !member.accountLocked
+        );
+      }),
+    [callMemberSource, userId]
+  );
+
+  const targetMemberIds = useMemo(
+    () => callableMembers.map((member) => member.userId),
+    [callableMembers]
   );
 
   const [pendingIncomingCall, setPendingIncomingCall] =
@@ -1059,7 +1158,7 @@ function ChatWindowContent({
     conversationId,
     userId,
     targetUserIds: targetMemberIds,
-    targetUserId: otherMember?.userId,
+    targetUserId: directTargetUserId,
     targetName: otherMember?.nickname,
     targetAvatar: otherMember?.avatar,
     pendingIncomingCall,
@@ -1082,7 +1181,7 @@ function ChatWindowContent({
   } = useChatAI({ conversationId });
 
   const callParticipants = useMemo(() => {
-    if (!activeCall || conversation?.type !== "GROUP") return [];
+    if (!activeCall || !isGroupConversation) return [];
 
     const callMemberIds = new Set<number>(activeCall.remoteUserIds);
     callMemberIds.add(userId);
@@ -1094,18 +1193,7 @@ function ChatWindowContent({
         name: member.nickname || member.username || "NgÆ°á»i dÃ¹ng",
         avatar: member.avatar,
       }));
-  }, [activeCall, conversation?.type, membersById, userId]);
-
-  const callableMembers = useMemo(
-    () =>
-      Object.values(membersById).filter(
-        (member) =>
-          member.userId !== userId &&
-          (!member.status || member.status === "ACTIVE") &&
-          !member.accountLocked
-      ),
-    [membersById, userId]
-  );
+  }, [activeCall, isGroupConversation, membersById, userId]);
 
   const [callPickerOpen, setCallPickerOpen] = useState(false);
   const [callPickerMode, setCallPickerMode] = useState<"start" | "invite">("start");
@@ -1118,7 +1206,11 @@ function ChatWindowContent({
 
   const openStartCallPicker = useCallback(
     (callType: "audio" | "video") => {
-      if (conversation?.type !== "GROUP") {
+      if (!isGroupConversation) {
+        void startCall(callType);
+        return;
+      }
+      if (callableMembers.length === 0) {
         void startCall(callType);
         return;
       }
@@ -1127,7 +1219,7 @@ function ChatWindowContent({
       setSelectedCallMemberIds(new Set());
       setCallPickerOpen(true);
     },
-    [conversation?.type, startCall]
+    [callableMembers.length, isGroupConversation, startCall]
   );
 
   const openInviteCallPicker = useCallback(() => {
@@ -2177,9 +2269,9 @@ function ChatWindowContent({
             className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white disabled:opacity-40"
             onClick={() => openStartCallPicker("audio")}
             disabled={
-              conversation?.type === "GROUP"
-                ? callableMembers.length === 0
-                : !otherMember || isPartnerAccountLocked
+              isGroupConversation
+                ? false
+                : !directTargetUserId || isPartnerAccountLocked
             }
             title="Gọi thoại"
           >
@@ -2189,9 +2281,9 @@ function ChatWindowContent({
             className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white disabled:opacity-40"
             onClick={() => openStartCallPicker("video")}
             disabled={
-              conversation?.type === "GROUP"
-                ? callableMembers.length === 0
-                : !otherMember || isPartnerAccountLocked
+              isGroupConversation
+                ? false
+                : !directTargetUserId || isPartnerAccountLocked
             }
             title="Gọi video"
           >
@@ -3168,7 +3260,7 @@ function ChatWindowContent({
         canToggleCamera={canToggleCamera}
         canShareScreen={canShareScreen}
         onInviteParticipants={
-          conversation?.type === "GROUP" && hasInviteCallCandidates
+          isGroupConversation && hasInviteCallCandidates
             ? openInviteCallPicker
             : undefined
         }
