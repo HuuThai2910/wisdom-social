@@ -23,6 +23,9 @@ public class NotificationMetadata {
     // Preview image/avatar
     private String imageUrl;
 
+    // Tên người thực hiện hành động (fullname) để hiển thị in đậm đầu thông báo
+    private String actorName;
+
     // Số lượng người tương tác (VD: "Bạn và 15 người khác")
     private Integer count;
 
