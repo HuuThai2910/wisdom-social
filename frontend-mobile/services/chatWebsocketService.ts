@@ -220,7 +220,53 @@ class ChatWebsocketService {
 
     setPresenceIdentity(phone?: string | null): void {
         // Phone duoc gui qua STOMP CONNECT header "login" de backend gan session voi user.
-        this.presenceLoginPhone = normalizePresencePhone(phone);
+        const nextLoginPhone = normalizePresencePhone(phone);
+        if (this.presenceLoginPhone === nextLoginPhone) return;
+
+        const hadActiveConnection = Boolean(this.client?.connected || this.connectPromise);
+        this.presenceLoginPhone = nextLoginPhone;
+
+        // Mobile co nhieu hook co the connect websocket truoc khi AppContext nap xong phone.
+        // Neu da connect ma chua co header login, backend se khong the register presence.
+        // Reconnect nhe va giu subscriptionFactories de cac topic chat/call/presence duoc sync lai.
+        if (hadActiveConnection) {
+            this.reconnectWithCurrentIdentity();
+        }
+    }
+
+    private reconnectWithCurrentIdentity(): void {
+        this.stopPresenceHeartbeat();
+
+        const reconnect = async () => {
+            if (this.connectPromise) {
+                await this.connectPromise.catch(() => undefined);
+            }
+
+            const previousClient = this.client;
+            this.subscriptions.forEach((subscription) => {
+                try {
+                    subscription.unsubscribe();
+                } catch {
+                    // ignore stale subscription handles during reconnect
+                }
+            });
+            this.subscriptions.clear();
+            this.client = null;
+
+            if (previousClient) {
+                await previousClient.deactivate().catch(() => undefined);
+            }
+
+            if (this.presenceLoginPhone) {
+                await this.connect().catch((error) => {
+                    console.log(`${WS_DEBUG_PREFIX} presence reconnect failed`, {
+                        error,
+                    });
+                });
+            }
+        };
+
+        void reconnect();
     }
 
     private getPresenceConnectHeaders(): Record<string, string> | undefined {
