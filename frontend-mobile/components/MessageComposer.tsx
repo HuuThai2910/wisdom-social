@@ -44,6 +44,7 @@ export interface MessageComposerProps {
     onCapturePhotoAndSend: () => void;
     onPickMediaAndSend: () => void;
     onPickDocumentAndSend: () => void;
+    onOpenAI?: () => void;
     loading: boolean;
     uploadProgressLabel: string;
     uploadProgressPercent: number | null;
@@ -99,6 +100,7 @@ export const MessageComposer = React.memo(
         onCapturePhotoAndSend,
         onPickMediaAndSend,
         onPickDocumentAndSend,
+        onOpenAI,
         loading,
         uploadProgressLabel,
         uploadProgressPercent,
@@ -337,6 +339,24 @@ export const MessageComposer = React.memo(
                                                         name="images-outline"
                                                         size={24}
                                                         color={colors.text}
+                                                    />
+                                                </Pressable>
+                                                <Pressable
+                                                    style={
+                                                        styles.composerActionBtn
+                                                    }
+                                                    hitSlop={8}
+                                                    onPress={onOpenAI}
+                                                    disabled={
+                                                        uploading ||
+                                                        sending ||
+                                                        !onOpenAI
+                                                    }
+                                                >
+                                                    <Ionicons
+                                                        name="sparkles-outline"
+                                                        size={24}
+                                                        color="#1D4ED8"
                                                     />
                                                 </Pressable>
                                                 <Pressable

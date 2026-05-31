@@ -6,6 +6,9 @@ import {
   useEffect,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import toast from "react-hot-toast";
 import {
   Send,
   Calendar,
@@ -23,11 +26,13 @@ import {
   Mic,
   Square,
   Paperclip,
-  StickyNote,
+  Sparkles,
+  WandSparkles,
   Film,
   Smile,
   Search,
   UserRound,
+  UserPlus,
 } from "lucide-react";
 import EmojiPicker, {
   Emoji,
@@ -50,14 +55,13 @@ import {
   maskAvatarUrl,
   maskDisplayName,
 } from "../../utils/lockedAccount";
-import { useCall } from "../../hooks/useCall";
+import { useCall, type CallSignalPayload } from "../../hooks/useCall";
 import { useFriendStatus } from "../../hooks/useFriendStatus";
 import { useFriendDataSafe } from "../../contexts/FriendDataContext";
 import IncomingCallModal from "./IncomingCallModal";
 import CallScreen from "./CallScreen";
 import { useChatAI } from "../../features/chat-ai/hooks/useChatAI";
 import AIConsentModal from "../../features/chat-ai/components/AIConsentModal";
-import AIActionPanel from "../../features/chat-ai/components/AIActionPanel";
 import AIResultPanel from "../../features/chat-ai/components/AIResultPanel";
 import type { MessagePreviewDTO } from "../../features/chat-ai/types/chatAI";
 import { usePresenceStatus } from "../../hooks/usePresenceStatus";
@@ -66,6 +70,7 @@ import {
   ConversationSearchProvider,
   useConversationSearch,
 } from "../../contexts/ConversationSearchContext";
+import chatRuntimeStore from "../../stores/chatRuntimeStore";
 
 interface ChatWindowProps {
   conversationId: number;
@@ -78,10 +83,14 @@ interface ChatWindowProps {
   name?: string;
   avatarUrl?: string;
   compositeAvatarUrls?: string[];
+  conversationType?: "DIRECT" | "GROUP";
+  conversationMembers?: ConversationMember[];
+  directPartnerId?: number;
   openPollMessageId?: string | null;
   openPollModalToken?: number;
   onPollModalClose?: () => void;
   searchOpenSignal?: number;
+  onActiveCallChange?: (conversationId: number, active: boolean) => void;
   peerRelationshipInfo?: {
     friendStatus?: string | null;
     mutualGroupsCount?: number | null;
@@ -119,6 +128,13 @@ function isAccessBlockedNotice(value?: string | null): boolean {
 }
 
 const FORWARD_BLOCKED_MEMBER_STATUSES = new Set([
+  "LEFT",
+  "KICKED",
+  "BLOCKED",
+  "GROUP_DISBANDED",
+]);
+const PENDING_INCOMING_CALL_KEY = "pending_incoming_call";
+const CALL_BLOCKED_MEMBER_STATUSES = new Set([
   "LEFT",
   "KICKED",
   "BLOCKED",
@@ -637,12 +653,18 @@ function ChatWindowContent({
   onForbidden,
   name,
   avatarUrl,
+  conversationType,
+  conversationMembers,
+  directPartnerId,
   openPollMessageId = null,
   openPollModalToken = 0,
   onPollModalClose,
   searchOpenSignal = 0,
+  onActiveCallChange,
   peerRelationshipInfo = null,
 }: ChatWindowProps) {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [searchOpen, setSearchOpen] = useState(false);
   const [isAiPanelOpen, setIsAiPanelOpen] = useState(false);
   const [internalOpenPollMessageId, setInternalOpenPollMessageId] = useState<string | null>(null);
@@ -837,10 +859,56 @@ function ChatWindowContent({
     [membersById, userId]
   );
   const otherMemberUserId = Number(otherMember?.userId);
+  const directTargetUserId = useMemo(() => {
+    const fromMember = Number(otherMember?.userId);
+    if (Number.isFinite(fromMember) && fromMember !== userId) return fromMember;
+
+    const fromProp = Number(directPartnerId);
+    if (Number.isFinite(fromProp) && fromProp !== userId) return fromProp;
+
+    const fromConversationMembers = Number(
+      conversationMembers?.find((member) => Number(member.userId) !== userId)
+        ?.userId
+    );
+    if (
+      Number.isFinite(fromConversationMembers) &&
+      fromConversationMembers !== userId
+    ) {
+      return fromConversationMembers;
+    }
+
+    const fromLoadedConversationMembers = Number(
+      conversation?.members?.find((member) => Number(member.userId) !== userId)
+        ?.userId
+    );
+    if (
+      Number.isFinite(fromLoadedConversationMembers) &&
+      fromLoadedConversationMembers !== userId
+    ) {
+      return fromLoadedConversationMembers;
+    }
+
+    const fromConversation = Number(conversation?.directPartnerId);
+    if (Number.isFinite(fromConversation) && fromConversation !== userId) {
+      return fromConversation;
+    }
+
+    return undefined;
+  }, [
+    conversation?.directPartnerId,
+    conversation?.members,
+    conversationMembers,
+    directPartnerId,
+    otherMember?.userId,
+    userId,
+  ]);
+  const isDirectConversation =
+    String(conversationType ?? conversation?.type ?? "").toUpperCase() ===
+    "DIRECT";
   // Hội thoại DIRECT với tài khoản đã bị khóa: dùng cả cờ trên member lẫn
   // directPartnerLocked (DB tươi) để chắc chắn nhận diện kể cả khi cache members cũ.
   const isPartnerAccountLocked =
-    conversation?.type === "DIRECT" &&
+    isDirectConversation &&
     (Boolean(conversation?.directPartnerLocked) ||
       Boolean(otherMember?.accountLocked));
 
@@ -855,12 +923,12 @@ function ChatWindowContent({
         return false;
       if (membersById[Number(targetUserId)]?.accountLocked) return true;
       return (
-        conversation?.type === "DIRECT" &&
+        isDirectConversation &&
         Boolean(conversation?.directPartnerLocked) &&
         Number(targetUserId) !== Number(userId)
       );
     },
-    [membersById, conversation?.type, conversation?.directPartnerLocked, userId],
+    [membersById, isDirectConversation, conversation?.directPartnerLocked, userId],
   );
   const presenceByUserId = usePresenceStatus([otherMemberUserId]);
   const otherMemberPresence = Number.isFinite(otherMemberUserId)
@@ -1006,13 +1074,84 @@ function ChatWindowContent({
     };
   }, [conversation?.type, otherMember?.userId, peerRelationshipInfo]);
 
-  const targetMemberIds = useMemo(
+  const callMemberSource = useMemo(() => {
+    if (conversationMembers?.length) {
+      return conversationMembers
+        .filter((member) => {
+          const status = String(member.status ?? "ACTIVE").toUpperCase();
+          return status === "ACTIVE";
+        })
+        .map((member) => {
+          const realtimeMember = membersById[Number(member.userId)];
+          return realtimeMember
+            ? {
+                ...member,
+                accountLocked: realtimeMember.accountLocked ?? member.accountLocked,
+                role: realtimeMember.role ?? member.role,
+                nickname: realtimeMember.nickname || member.nickname,
+                avatar: realtimeMember.avatar || member.avatar,
+                username: realtimeMember.username || member.username,
+              }
+            : member;
+        });
+    }
+
+    const mergedMembers = new Map<number, ConversationMember>();
+    for (const member of conversation?.members ?? []) {
+      if (Number.isFinite(Number(member.userId))) {
+        mergedMembers.set(Number(member.userId), member);
+      }
+    }
+    for (const member of Object.values(membersById)) {
+      if (Number.isFinite(Number(member.userId))) {
+        mergedMembers.set(Number(member.userId), {
+          ...mergedMembers.get(Number(member.userId)),
+          ...member,
+        });
+      }
+    }
+    return Array.from(mergedMembers.values());
+  }, [conversation?.members, conversationMembers, membersById]);
+
+  const isGroupConversation =
+    String(conversationType ?? conversation?.type ?? "").toUpperCase() === "GROUP" ||
+    callMemberSource.length > 2;
+
+  const callableMembers = useMemo(
     () =>
-      Object.values(membersById)
-        .filter((m) => m.userId !== userId)
-        .map((m) => m.userId),
-    [membersById, userId]
+      callMemberSource.filter((member) => {
+        const status = String(member.status ?? "ACTIVE").toUpperCase();
+        return (
+          member.userId !== userId &&
+          !CALL_BLOCKED_MEMBER_STATUSES.has(status) &&
+          !member.accountLocked
+        );
+      }),
+    [callMemberSource, userId]
   );
+
+  const targetMemberIds = useMemo(
+    () => callableMembers.map((member) => member.userId),
+    [callableMembers]
+  );
+
+  const [pendingIncomingCall, setPendingIncomingCall] =
+    useState<CallSignalPayload | null>(() => {
+      if (typeof sessionStorage === "undefined") return null;
+      const raw = sessionStorage.getItem(PENDING_INCOMING_CALL_KEY);
+      if (!raw) return null;
+      try {
+        const parsed = JSON.parse(raw) as CallSignalPayload;
+        return parsed?.conversationId === conversationId ? parsed : null;
+      } catch {
+        return null;
+      }
+    });
+
+  const consumePendingIncomingCall = useCallback(() => {
+    sessionStorage.removeItem(PENDING_INCOMING_CALL_KEY);
+    setPendingIncomingCall(null);
+  }, []);
 
   const {
     incomingCall,
@@ -1026,22 +1165,44 @@ function ChatWindowContent({
     isScreenSharing,
     canToggleCamera,
     canShareScreen,
+    rejoinableCall,
+    busyCallUserId,
     startCall,
+    rejoinActiveCall,
+    clearBusyCallNotice,
     acceptIncomingCall,
     rejectIncomingCall,
     endCall,
     toggleMic,
     toggleCamera,
     toggleScreenShare,
+    inviteUsersToCall,
+    maxCallParticipants,
   } = useCall({
     conversationId,
     userId,
+    callerName:
+      membersById[userId]?.nickname ||
+      membersById[userId]?.username ||
+      `Người dùng ${userId}`,
+    callerAvatar: membersById[userId]?.avatar,
     targetUserIds: targetMemberIds,
-    targetUserId: otherMember?.userId,
+    targetUserId: directTargetUserId,
     targetName: otherMember?.nickname,
     targetAvatar: otherMember?.avatar,
+    pendingIncomingCall,
+    onPendingIncomingCallConsumed: consumePendingIncomingCall,
     onCallMessageSaved: appendRealtimeMessage,
   });
+
+  useEffect(() => {
+    if (!busyCallUserId) return;
+    const member = membersById[busyCallUserId];
+    const name =
+      member?.nickname || member?.username || `Người dùng ${busyCallUserId}`;
+    toast.error(`${name} đang bận trong cuộc gọi khác`);
+    clearBusyCallNotice();
+  }, [busyCallUserId, clearBusyCallNotice, membersById]);
 
   const {
     consentLoading,
@@ -1057,14 +1218,40 @@ function ChatWindowContent({
     suggestReplies,
   } = useChatAI({ conversationId });
 
-  const callParticipants = useMemo(() => {
-    if (!activeCall || conversation?.type !== "GROUP") return [];
+  useEffect(() => {
+    onActiveCallChange?.(conversationId, Boolean(activeCall));
+  }, [activeCall, conversationId, onActiveCallChange]);
 
-    const callMemberIds = new Set<number>(activeCall.remoteUserIds);
+  useEffect(() => {
+    const callPath = `/messages/${conversationId}/call`;
+    const messagePath = `/messages/${conversationId}`;
 
-    if (!activeCall.isCaller) {
-      callMemberIds.add(userId);
+    if (
+      !activeCall &&
+      !incomingCall &&
+      !pendingIncomingCall &&
+      location.pathname === callPath
+    ) {
+      navigate(messagePath, { replace: true });
     }
+  }, [
+    activeCall,
+    conversationId,
+    incomingCall,
+    location.pathname,
+    navigate,
+    pendingIncomingCall,
+  ]);
+
+  const callParticipants = useMemo(() => {
+    if (!activeCall || !isGroupConversation) return [];
+
+    const callMemberIds = new Set<number>(
+      activeCall.participantUserIds?.length
+        ? activeCall.participantUserIds
+        : activeCall.remoteUserIds
+    );
+    callMemberIds.add(userId);
 
     return Object.values(membersById)
       .filter((member) => callMemberIds.has(member.userId))
@@ -1073,7 +1260,114 @@ function ChatWindowContent({
         name: member.nickname || member.username || "NgÆ°á»i dÃ¹ng",
         avatar: member.avatar,
       }));
-  }, [activeCall, conversation?.type, membersById, userId]);
+  }, [activeCall, isGroupConversation, membersById, userId]);
+
+  const [callPickerOpen, setCallPickerOpen] = useState(false);
+  const [callPickerMode, setCallPickerMode] = useState<"start" | "invite">("start");
+  const [callPickerType, setCallPickerType] = useState<"audio" | "video">("audio");
+  const [selectedCallMemberIds, setSelectedCallMemberIds] = useState<Set<number>>(new Set());
+  const callPickerLimit = Math.max(
+    0,
+    maxCallParticipants - (callPickerMode === "invite" ? 1 + (activeCall?.remoteUserIds.length ?? 0) : 1)
+  );
+  const showAlreadyInCallError = useCallback(() => {
+    toast.error("Bạn đang trong một cuộc gọi khác. Hãy kết thúc cuộc gọi hiện tại trước.");
+  }, []);
+
+  const isStartingAnotherCall = useCallback(() => {
+    if (activeCall) return true;
+    const runtimeCall = chatRuntimeStore.getActiveCall();
+    return Boolean(runtimeCall && runtimeCall.userId === userId);
+  }, [activeCall, userId]);
+
+  const openStartCallPicker = useCallback(
+    (callType: "audio" | "video") => {
+      if (isStartingAnotherCall()) {
+        showAlreadyInCallError();
+        return;
+      }
+
+      if (!isGroupConversation) {
+        void startCall(callType);
+        return;
+      }
+      if (callableMembers.length === 0) {
+        void startCall(callType);
+        return;
+      }
+      setCallPickerMode("start");
+      setCallPickerType(callType);
+      setSelectedCallMemberIds(new Set());
+      setCallPickerOpen(true);
+    },
+    [
+      callableMembers.length,
+      isGroupConversation,
+      isStartingAnotherCall,
+      showAlreadyInCallError,
+      startCall,
+    ]
+  );
+
+  const openInviteCallPicker = useCallback(() => {
+    if (!activeCall) return;
+    setCallPickerMode("invite");
+    setCallPickerType(activeCall.callType);
+    setSelectedCallMemberIds(new Set());
+    setCallPickerOpen(true);
+  }, [activeCall]);
+
+  const toggleCallMember = useCallback(
+    (memberId: number) => {
+      setSelectedCallMemberIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(memberId)) {
+          next.delete(memberId);
+          return next;
+        }
+        if (next.size >= callPickerLimit) return next;
+        next.add(memberId);
+        return next;
+      });
+    },
+    [callPickerLimit]
+  );
+
+  const submitCallPicker = useCallback(async () => {
+    const ids = Array.from(selectedCallMemberIds);
+    if (!ids.length) return;
+    if (callPickerMode === "invite") {
+      await inviteUsersToCall(ids);
+    } else {
+      if (isStartingAnotherCall()) {
+        showAlreadyInCallError();
+        return;
+      }
+      await startCall(callPickerType, ids);
+    }
+    setCallPickerOpen(false);
+    setSelectedCallMemberIds(new Set());
+  }, [
+    callPickerMode,
+    callPickerType,
+    isStartingAnotherCall,
+    inviteUsersToCall,
+    selectedCallMemberIds,
+    showAlreadyInCallError,
+    startCall,
+  ]);
+
+  const callPickerMembers = useMemo(() => {
+    const activeRemoteIds = new Set(activeCall?.remoteUserIds ?? []);
+    return callableMembers.filter((member) =>
+      callPickerMode === "invite" ? !activeRemoteIds.has(member.userId) : true
+    );
+  }, [activeCall?.remoteUserIds, callableMembers, callPickerMode]);
+
+  const hasInviteCallCandidates = useMemo(() => {
+    const activeRemoteIds = new Set(activeCall?.remoteUserIds ?? []);
+    return callableMembers.some((member) => !activeRemoteIds.has(member.userId));
+  }, [activeCall?.remoteUserIds, callableMembers]);
 
   // UI state cho khu vực banner ghim:
   // - false: hiển thị dạng gọn (1 item chính)
@@ -1796,7 +2090,7 @@ function ChatWindowContent({
             onJumpToMessage={requestJumpToMessage}
             onRecall={handleRecall}
             canRecallOwnMessages={canRecallOwnMessages}
-            onRecallCall={(callType) => void startCall(callType)}
+            onRecallCall={(callType) => openStartCallPicker(callType)}
             onDeleteForMe={handleDeleteMessageForMe}
             onReaction={addReaction}
             onOpenRequireApprovalDetails={onToggleInfoPanel}
@@ -2066,16 +2360,35 @@ function ChatWindowContent({
           </button>
           <button
             className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white disabled:opacity-40"
-            onClick={() => void startCall("audio")}
-            disabled={!otherMember || isPartnerAccountLocked}
+            onClick={() => openStartCallPicker("audio")}
+            disabled={
+              isGroupConversation
+                ? false
+                : !directTargetUserId || isPartnerAccountLocked
+            }
             title="Gọi thoại"
           >
             <Phone size={18} />
           </button>
+          {/* {rejoinableCall && !activeCall && (
+            <button
+              className="inline-flex h-9 items-center gap-2 rounded-lg bg-green-600 px-3 text-sm font-semibold text-white transition-colors hover:bg-green-700"
+              onClick={() => void rejoinActiveCall()}
+              title="Tham gia lại cuộc gọi"
+              type="button"
+            >
+              <Phone size={16} />
+              Tham gia lại
+            </button>
+          )} */}
           <button
             className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white disabled:opacity-40"
-            onClick={() => void startCall("video")}
-            disabled={!otherMember || isPartnerAccountLocked}
+            onClick={() => openStartCallPicker("video")}
+            disabled={
+              isGroupConversation
+                ? false
+                : !directTargetUserId || isPartnerAccountLocked
+            }
             title="Gọi video"
           >
             <Video size={18} />
@@ -2368,21 +2681,58 @@ function ChatWindowContent({
         )}
       </div>
 
-      <div className=" bg-white dark:bg-black px-4 pb-0.5 pt-1.5">
-        <AIActionPanel
-          isOpen={isAiPanelOpen}
-          onToggle={() => setIsAiPanelOpen((prev) => !prev)}
-          disabled={uploading || sending}
-          isSummarizing={isSummarizing}
-          isSuggesting={isSuggesting}
-          onSummarize={() => {
-            void summarizeConversation(currentMessagesForAISummary);
-          }}
-          onSuggest={() => {
-            void suggestReplies();
-          }}
-        />
-        {isAiPanelOpen && (
+      {isAiPanelOpen && (
+        <div className="bg-white px-4 pb-0.5 pt-1.5 dark:bg-black">
+          <div className="rounded-md bg-gray-50 px-2 py-1.5 dark:bg-gray-900">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-1.5">
+                <span className="inline-flex h-5 w-5 items-center justify-center rounded-sm bg-blue-100/80 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
+                  <Sparkles size={12} />
+                </span>
+                <p className="text-[10px] font-semibold tracking-wide text-gray-700 dark:text-gray-200">
+                  AI CHAT
+                </p>
+                <span className="hidden truncate text-[10px] text-gray-500 dark:text-gray-400 sm:inline">
+                  Tóm tắt nhanh hoặc gợi ý phản hồi
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAiPanelOpen(false)}
+                className="inline-flex h-6 w-6 items-center justify-center rounded-sm text-gray-500 hover:bg-gray-200 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+                title="Đóng AI"
+              >
+                <X size={13} />
+              </button>
+            </div>
+
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                disabled={uploading || sending || isSummarizing}
+                onClick={() => {
+                  void summarizeConversation(currentMessagesForAISummary);
+                }}
+                className="inline-flex items-center gap-1 rounded-md bg-white px-2.5 py-1 text-[10px] font-medium text-gray-700 transition-colors hover:bg-gray-100 disabled:opacity-60 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
+              >
+                <Sparkles size={12} />
+                {isSummarizing ? "Đang tóm tắt..." : "Tóm tắt"}
+              </button>
+
+              <button
+                type="button"
+                disabled={uploading || sending || isSuggesting}
+                onClick={() => {
+                  void suggestReplies();
+                }}
+                className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-[10px] font-medium text-blue-700 transition-colors hover:bg-blue-100 disabled:opacity-60 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900"
+              >
+                <WandSparkles size={12} />
+                {isSuggesting ? "Đang tạo gợi ý..." : "Gợi ý trả lời"}
+              </button>
+            </div>
+          </div>
+
           <AIResultPanel
             summary={summary}
             suggestions={suggestions}
@@ -2391,8 +2741,8 @@ function ChatWindowContent({
             isSuggesting={isSuggesting}
             onSuggestionClick={handleApplySuggestion}
           />
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Input */}
       <div className=" bg-white px-4 pb-3.5 pt-2.5 dark:border-gray-700/70 dark:bg-black">
@@ -2636,15 +2986,18 @@ function ChatWindowContent({
                     </button>
                     <button
                       type="button"
-                      onClick={() => setPlusMenuOpen(false)}
-                      className="flex items-center gap-3 w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700 opacity-50 cursor-not-allowed"
+                      onClick={() => {
+                        setPlusMenuOpen(false);
+                        setIsAiPanelOpen(true);
+                      }}
+                      className="flex items-center gap-3 w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700"
                     >
-                      <StickyNote
+                      <Sparkles
                         size={20}
-                        className="text-gray-700 dark:text-gray-300 shrink-0"
+                        className="text-blue-600 dark:text-blue-300 shrink-0"
                       />
                       <span className="text-sm text-gray-800 dark:text-gray-100">
-                        Chọn nhãn dán
+                        Sử dụng AI
                       </span>
                     </button>
                     <button
@@ -2913,6 +3266,104 @@ function ChatWindowContent({
         </div>
       )}
 
+      {callPickerOpen && typeof document !== "undefined" && createPortal(
+        <div className="fixed inset-0 z-[2147483647] flex items-center justify-center bg-black/45 px-4">
+          <div className="w-full max-w-md rounded-xl bg-white shadow-2xl dark:bg-gray-900">
+            <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3 dark:border-gray-800">
+              <div className="min-w-0">
+                <h3 className="text-base font-semibold text-gray-900 dark:text-white">
+                  {callPickerMode === "invite"
+                    ? "Mời thêm người"
+                    : "Chọn người để gọi"}
+                </h3>
+                <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  Đã chọn {selectedCallMemberIds.size}/{callPickerLimit}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCallPickerOpen(false)}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+                title="Đóng"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="max-h-[55vh] overflow-y-auto px-2 py-2">
+              {callPickerMembers.length === 0 ? (
+                <div className="px-3 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                  Không còn thành viên phù hợp để gọi.
+                </div>
+              ) : (
+                callPickerMembers.map((member) => {
+                  const checked = selectedCallMemberIds.has(member.userId);
+                  const disabled = !checked && selectedCallMemberIds.size >= callPickerLimit;
+                  return (
+                    <button
+                      key={member.userId}
+                      type="button"
+                      onClick={() => toggleCallMember(member.userId)}
+                      disabled={disabled}
+                      className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors ${
+                        checked
+                          ? "bg-blue-50 dark:bg-blue-950/35"
+                          : "hover:bg-gray-50 dark:hover:bg-gray-800"
+                      } disabled:cursor-not-allowed disabled:opacity-50`}
+                    >
+                      <img
+                        src={member.avatar || "https://cdn-icons-png.flaticon.com/512/149/149071.png"}
+                        alt={member.nickname || member.username || "Thành viên"}
+                        className="h-10 w-10 rounded-full object-cover"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-gray-900 dark:text-white">
+                          {member.nickname || member.username || "Thành viên"}
+                        </p>
+                        {member.username && (
+                          <p className="truncate text-xs text-gray-500 dark:text-gray-400">
+                            @{member.username}
+                          </p>
+                        )}
+                      </div>
+                      <span
+                        className={`inline-flex h-5 w-5 items-center justify-center rounded-full border ${
+                          checked
+                            ? "border-blue-600 bg-blue-600"
+                            : "border-gray-300 dark:border-gray-600"
+                        }`}
+                      >
+                        {checked && <CheckCircle2 size={14} className="text-white" />}
+                      </span>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-gray-100 px-4 py-3 dark:border-gray-800">
+              <button
+                type="button"
+                onClick={() => setCallPickerOpen(false)}
+                className="rounded-lg px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={() => void submitCallPicker()}
+                disabled={selectedCallMemberIds.size === 0}
+                className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {callPickerMode === "invite" ? <UserPlus size={16} /> : callPickerType === "video" ? <Video size={16} /> : <Phone size={16} />}
+                {callPickerMode === "invite" ? "Mời" : "Gọi"}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
       <IncomingCallModal
         open={Boolean(incomingCall)}
         callerName={
@@ -2945,6 +3396,7 @@ function ChatWindowContent({
         status={activeCall?.status || "calling"}
         durationText={callDurationText}
         localStream={localStream}
+        localUserId={userId}
         remoteStream={remoteStream}
         remoteStreams={remoteStreams}
         participants={callParticipants}
@@ -2953,6 +3405,11 @@ function ChatWindowContent({
         isScreenSharing={isScreenSharing}
         canToggleCamera={canToggleCamera}
         canShareScreen={canShareScreen}
+        onInviteParticipants={
+          isGroupConversation && hasInviteCallCandidates
+            ? openInviteCallPicker
+            : undefined
+        }
         onToggleMic={toggleMic}
         onToggleCamera={toggleCamera}
         onToggleScreenShare={() => void toggleScreenShare()}

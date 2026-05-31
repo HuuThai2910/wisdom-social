@@ -1,5 +1,13 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Image, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+    Image,
+    Modal,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    View,
+} from "react-native";
 import Constants from "expo-constants";
 import { colors } from "@/constants";
 
@@ -36,7 +44,10 @@ interface InCallOverlayProps {
     status: CallStatus;
     durationText: string;
     localStreamUrl: string | null;
+    localUserId?: number;
     remoteStreamUrl: string | null;
+    remoteStreamUrls?: { userId: number; url: string }[];
+    participants?: { userId: number; name: string; avatar?: string }[];
     micEnabled: boolean;
     cameraEnabled: boolean;
     speakerEnabled: boolean;
@@ -44,6 +55,7 @@ interface InCallOverlayProps {
     onToggleCamera: () => void;
     onSwitchCamera: () => void;
     onToggleSpeaker: () => void;
+    onInviteParticipants?: () => void;
     onEndCall: () => void;
 }
 
@@ -88,7 +100,10 @@ export default function InCallOverlay({
     status,
     durationText,
     localStreamUrl,
+    localUserId,
     remoteStreamUrl,
+    remoteStreamUrls = [],
+    participants = [],
     micEnabled,
     cameraEnabled,
     speakerEnabled,
@@ -96,11 +111,53 @@ export default function InCallOverlay({
     onToggleCamera,
     onSwitchCamera,
     onToggleSpeaker,
+    onInviteParticipants,
     onEndCall,
 }: InCallOverlayProps) {
     if (!visible) return null;
 
     const isVideo = callType === "video";
+    const participantCount =
+        participants.length ||
+        (remoteStreamUrls.length ? remoteStreamUrls.length + 1 : 1);
+    const showLocalPreview = isVideo && participantCount <= 2;
+    const remoteStreamUrlByUserId = new Map(
+        remoteStreamUrls.map((item) => [item.userId, item.url]),
+    );
+    const videoTiles =
+        participants.length > 0
+            ? participants.map((participant) => {
+                  const isLocal =
+                      localUserId != null && participant.userId === localUserId;
+                  return {
+                      ...participant,
+                      isLocal,
+                      streamUrl: isLocal
+                          ? localStreamUrl
+                          : remoteStreamUrlByUserId.get(participant.userId) ??
+                            null,
+                  };
+              })
+            : [
+                  ...remoteStreamUrls.map((item) => ({
+                      userId: item.userId,
+                      name: `Nguoi dung ${item.userId}`,
+                      avatar: undefined,
+                      isLocal: false,
+                      streamUrl: item.url,
+                  })),
+                  ...(localStreamUrl
+                      ? [
+                            {
+                                userId: localUserId ?? -1,
+                                name: "Ban",
+                                avatar: undefined,
+                                isLocal: true,
+                                streamUrl: localStreamUrl,
+                            },
+                        ]
+                      : []),
+              ];
 
     return (
         <Modal
@@ -111,7 +168,47 @@ export default function InCallOverlay({
             <View style={styles.root}>
                 {isVideo ? (
                     <View style={styles.videoLayer}>
-                        {remoteStreamUrl && RTCViewComponent ? (
+                        {videoTiles.length > 2 ? (
+                            <View style={styles.remoteGrid}>
+                                {videoTiles.map((item) => (
+                                    <View
+                                        key={`${item.isLocal ? "local" : "remote"}-${item.userId}`}
+                                        style={styles.videoTile}
+                                    >
+                                        {item.streamUrl && RTCViewComponent ? (
+                                            <RTCViewComponent
+                                                streamURL={item.streamUrl}
+                                                style={styles.videoTileMedia}
+                                                objectFit="cover"
+                                                mirror={item.isLocal}
+                                            />
+                                        ) : (
+                                            <View style={styles.videoTileFallback}>
+                                                <Image
+                                                    source={{
+                                                        uri:
+                                                            item.avatar ||
+                                                            "https://cdn-icons-png.flaticon.com/512/149/149071.png",
+                                                    }}
+                                                    style={styles.videoTileAvatar}
+                                                />
+                                                <Text style={styles.videoTileFallbackText}>
+                                                    Dang ket noi camera...
+                                                </Text>
+                                            </View>
+                                        )}
+                                        <View style={styles.videoTileNamePill}>
+                                            <Text
+                                                style={styles.videoTileName}
+                                                numberOfLines={1}
+                                            >
+                                                {item.isLocal ? "Ban" : item.name}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                ))}
+                            </View>
+                        ) : remoteStreamUrl && RTCViewComponent ? (
                             <RTCViewComponent
                                 streamURL={remoteStreamUrl}
                                 style={styles.remoteVideo}
@@ -128,7 +225,7 @@ export default function InCallOverlay({
                             </View>
                         )}
 
-                        {localStreamUrl && RTCViewComponent ? (
+                        {showLocalPreview && localStreamUrl && RTCViewComponent ? (
                             <RTCViewComponent
                                 streamURL={localStreamUrl}
                                 style={styles.localVideo}
@@ -157,8 +254,34 @@ export default function InCallOverlay({
                     <Text style={styles.callStatus}>
                         {getStatusText(status)}
                         {status === "accepted" ? ` • ${durationText}` : ""}
+                        {participantCount > 1 ? ` • ${participantCount} nguoi` : ""}
                     </Text>
                 </View>
+
+                {participants.length > 0 ? (
+                    <View style={styles.participantsPanel}>
+                        <Text style={styles.participantsTitle}>
+                            Thanh vien cuoc goi ({participantCount})
+                        </Text>
+                        <ScrollView style={styles.participantsList}>
+                            {participants.map((member) => (
+                                <View key={member.userId} style={styles.participantRow}>
+                                    <Image
+                                        source={{
+                                            uri:
+                                                member.avatar ||
+                                                "https://cdn-icons-png.flaticon.com/512/149/149071.png",
+                                        }}
+                                        style={styles.participantAvatar}
+                                    />
+                                    <Text style={styles.participantName} numberOfLines={1}>
+                                        {member.name}
+                                    </Text>
+                                </View>
+                            ))}
+                        </ScrollView>
+                    </View>
+                ) : null}
 
                 <View style={styles.controlsRow}>
                     <ControlButton
@@ -188,6 +311,13 @@ export default function InCallOverlay({
                         onPress={onToggleSpeaker}
                     />
 
+                    {onInviteParticipants ? (
+                        <ControlButton
+                            icon="person-add"
+                            onPress={onInviteParticipants}
+                        />
+                    ) : null}
+
                     <ControlButton icon="call" danger onPress={onEndCall} />
                 </View>
             </View>
@@ -207,6 +337,62 @@ const styles = StyleSheet.create({
     remoteVideo: {
         width: "100%",
         height: "100%",
+    },
+    remoteGrid: {
+        flex: 1,
+        flexDirection: "row",
+        flexWrap: "wrap",
+        gap: 4,
+        padding: 4,
+    },
+    videoTile: {
+        width: "49%",
+        height: "49%",
+        borderRadius: 10,
+        overflow: "hidden",
+        backgroundColor: "#111827",
+    },
+    videoTileMedia: {
+        width: "100%",
+        height: "100%",
+    },
+    videoTileFallback: {
+        flex: 1,
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
+        backgroundColor: "#111827",
+    },
+    videoTileAvatar: {
+        width: 54,
+        height: 54,
+        borderRadius: 27,
+    },
+    videoTileFallbackText: {
+        color: "#CBD5E1",
+        fontSize: 12,
+    },
+    videoTileNamePill: {
+        position: "absolute",
+        left: 8,
+        right: 8,
+        bottom: 8,
+        borderRadius: 6,
+        backgroundColor: "rgba(0,0,0,0.55)",
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+    },
+    videoTileName: {
+        color: colors.white,
+        fontSize: 12,
+        fontWeight: "600",
+    },
+    remoteGridVideo: {
+        width: "49%",
+        height: "49%",
+        borderRadius: 10,
+        overflow: "hidden",
+        backgroundColor: "#111827",
     },
     remoteVideoFallback: {
         flex: 1,
@@ -256,6 +442,41 @@ const styles = StyleSheet.create({
         marginTop: 8,
         fontSize: 14,
         color: "#CBD5E1",
+    },
+    participantsPanel: {
+        position: "absolute",
+        top: 120,
+        left: 16,
+        right: 16,
+        maxHeight: 170,
+        borderRadius: 14,
+        backgroundColor: "rgba(15, 23, 42, 0.72)",
+        padding: 12,
+    },
+    participantsTitle: {
+        color: "#CBD5E1",
+        fontSize: 12,
+        fontWeight: "700",
+        marginBottom: 8,
+    },
+    participantsList: {
+        maxHeight: 120,
+    },
+    participantRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        paddingVertical: 4,
+    },
+    participantAvatar: {
+        width: 28,
+        height: 28,
+        borderRadius: 14,
+    },
+    participantName: {
+        flex: 1,
+        color: colors.white,
+        fontSize: 13,
     },
     controlsRow: {
         position: "absolute",
