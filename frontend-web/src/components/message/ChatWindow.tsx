@@ -26,7 +26,8 @@ import {
   Mic,
   Square,
   Paperclip,
-  StickyNote,
+  Sparkles,
+  WandSparkles,
   Film,
   Smile,
   Search,
@@ -61,7 +62,6 @@ import IncomingCallModal from "./IncomingCallModal";
 import CallScreen from "./CallScreen";
 import { useChatAI } from "../../features/chat-ai/hooks/useChatAI";
 import AIConsentModal from "../../features/chat-ai/components/AIConsentModal";
-import AIActionPanel from "../../features/chat-ai/components/AIActionPanel";
 import AIResultPanel from "../../features/chat-ai/components/AIResultPanel";
 import type { MessagePreviewDTO } from "../../features/chat-ai/types/chatAI";
 import { usePresenceStatus } from "../../hooks/usePresenceStatus";
@@ -2681,21 +2681,58 @@ function ChatWindowContent({
         )}
       </div>
 
-      <div className=" bg-white dark:bg-black px-4 pb-0.5 pt-1.5">
-        <AIActionPanel
-          isOpen={isAiPanelOpen}
-          onToggle={() => setIsAiPanelOpen((prev) => !prev)}
-          disabled={uploading || sending}
-          isSummarizing={isSummarizing}
-          isSuggesting={isSuggesting}
-          onSummarize={() => {
-            void summarizeConversation(currentMessagesForAISummary);
-          }}
-          onSuggest={() => {
-            void suggestReplies();
-          }}
-        />
-        {isAiPanelOpen && (
+      {isAiPanelOpen && (
+        <div className="bg-white px-4 pb-0.5 pt-1.5 dark:bg-black">
+          <div className="rounded-md bg-gray-50 px-2 py-1.5 dark:bg-gray-900">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-1.5">
+                <span className="inline-flex h-5 w-5 items-center justify-center rounded-sm bg-blue-100/80 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
+                  <Sparkles size={12} />
+                </span>
+                <p className="text-[10px] font-semibold tracking-wide text-gray-700 dark:text-gray-200">
+                  AI CHAT
+                </p>
+                <span className="hidden truncate text-[10px] text-gray-500 dark:text-gray-400 sm:inline">
+                  Tóm tắt nhanh hoặc gợi ý phản hồi
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAiPanelOpen(false)}
+                className="inline-flex h-6 w-6 items-center justify-center rounded-sm text-gray-500 hover:bg-gray-200 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+                title="Đóng AI"
+              >
+                <X size={13} />
+              </button>
+            </div>
+
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                disabled={uploading || sending || isSummarizing}
+                onClick={() => {
+                  void summarizeConversation(currentMessagesForAISummary);
+                }}
+                className="inline-flex items-center gap-1 rounded-md bg-white px-2.5 py-1 text-[10px] font-medium text-gray-700 transition-colors hover:bg-gray-100 disabled:opacity-60 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
+              >
+                <Sparkles size={12} />
+                {isSummarizing ? "Đang tóm tắt..." : "Tóm tắt"}
+              </button>
+
+              <button
+                type="button"
+                disabled={uploading || sending || isSuggesting}
+                onClick={() => {
+                  void suggestReplies();
+                }}
+                className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-[10px] font-medium text-blue-700 transition-colors hover:bg-blue-100 disabled:opacity-60 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900"
+              >
+                <WandSparkles size={12} />
+                {isSuggesting ? "Đang tạo gợi ý..." : "Gợi ý trả lời"}
+              </button>
+            </div>
+          </div>
+
           <AIResultPanel
             summary={summary}
             suggestions={suggestions}
@@ -2704,8 +2741,8 @@ function ChatWindowContent({
             isSuggesting={isSuggesting}
             onSuggestionClick={handleApplySuggestion}
           />
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Input */}
       <div className=" bg-white px-4 pb-3.5 pt-2.5 dark:border-gray-700/70 dark:bg-black">
@@ -2949,15 +2986,18 @@ function ChatWindowContent({
                     </button>
                     <button
                       type="button"
-                      onClick={() => setPlusMenuOpen(false)}
-                      className="flex items-center gap-3 w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700 opacity-50 cursor-not-allowed"
+                      onClick={() => {
+                        setPlusMenuOpen(false);
+                        setIsAiPanelOpen(true);
+                      }}
+                      className="flex items-center gap-3 w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700"
                     >
-                      <StickyNote
+                      <Sparkles
                         size={20}
-                        className="text-gray-700 dark:text-gray-300 shrink-0"
+                        className="text-blue-600 dark:text-blue-300 shrink-0"
                       />
                       <span className="text-sm text-gray-800 dark:text-gray-100">
-                        Chọn nhãn dán
+                        Sử dụng AI
                       </span>
                     </button>
                     <button
