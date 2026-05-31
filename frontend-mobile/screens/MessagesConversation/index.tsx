@@ -104,6 +104,10 @@ import {
     buildAudioWaveBars,
 } from "@/utils/messageUtils";
 import { PinnedBanner } from "@/components/PinnedBanner";
+import AIChatSheet from "@/features/chat-ai/components/AIChatSheet";
+import AIConsentModal from "@/features/chat-ai/components/AIConsentModal";
+import { useChatAI } from "@/features/chat-ai/hooks/useChatAI";
+import type { MessagePreviewDTO } from "@/features/chat-ai/types/chatAI";
 import {
     ConversationSearchProvider,
     useConversationSearch,
@@ -141,6 +145,18 @@ function canForwardToConversation(
 
     if (!currentMember) return true;
     return !FORWARD_BLOCKED_MEMBER_STATUSES.has(String(currentMember.status));
+}
+
+function getMessagePreviewForAI(message: Message): string {
+    if (message.isRecalled) return "";
+    if (message.type === "IMAGE") return "[Hình ảnh]";
+    if (message.type === "VIDEO") return "[Video]";
+    if (message.type === "AUDIO") return "[Tin nhắn thoại]";
+    if (message.type === "FILE") return "[Tệp đính kèm]";
+    if (message.type === "POLL") return "[Bình chọn]";
+    if (message.type === "CALL") return "[Cuộc gọi]";
+    if (message.type.startsWith("SYSTEM_")) return "";
+    return message.content || "";
 }
 
 function getLocalDateStart(dateValue: string): string | null {
@@ -586,6 +602,19 @@ export default function MessagesConversationScreen() {
         conversationId: Number.isFinite(conversationId) ? conversationId : 0,
         onAccessBlocked: handleAccessBlocked,
     });
+    const {
+        consentLoading,
+        consentModalOpen,
+        summary,
+        suggestions,
+        aiError,
+        isSummarizing,
+        isSuggesting,
+        acceptAIConsent,
+        declineAIConsent,
+        summarizeConversation,
+        suggestReplies,
+    } = useChatAI({ conversationId: Number.isFinite(conversationId) ? conversationId : 0 });
 
     const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(
         null,
@@ -599,6 +628,17 @@ export default function MessagesConversationScreen() {
         string | null
     >(null);
     const [searchOpen, setSearchOpen] = useState(false);
+    const [aiSheetOpen, setAiSheetOpen] = useState(false);
+    const openAIChat = useCallback(() => {
+        setSearchOpen(false);
+        setAiSheetOpen(true);
+    }, []);
+
+    useEffect(() => {
+        if (consentModalOpen) {
+            setAiSheetOpen(false);
+        }
+    }, [consentModalOpen]);
 
     useEffect(() => {
         if (openSearch === "1") {
@@ -2000,6 +2040,33 @@ export default function MessagesConversationScreen() {
     );
 
     const hasTypedText = messageText.trim().length > 0;
+    const currentMessagesForAISummary = useMemo<MessagePreviewDTO[]>(() => {
+        return messages.slice(-100).reduce<MessagePreviewDTO[]>((result, message) => {
+            const previewContent = getMessagePreviewForAI(message);
+            if (!previewContent.trim()) return result;
+
+            result.push({
+                senderRole: message.senderId === currentUserId ? "me" : "other",
+                content: previewContent,
+                createdAt: message.createdAt,
+            });
+
+            return result;
+        }, []);
+    }, [currentUserId, messages]);
+
+    const handleApplyAISuggestion = useCallback(
+        (suggestion: string) => {
+            setMessageText(suggestion);
+            setInputSelection({
+                start: suggestion.length,
+                end: suggestion.length,
+            });
+            setAiSheetOpen(false);
+            focusComposerInput(messageInputRef, { delayMs: 80 });
+        },
+        [setMessageText],
+    );
 
     const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
@@ -2486,11 +2553,19 @@ export default function MessagesConversationScreen() {
                                 color={searchOpen ? "#2563EB" : colors.text}
                             />
                         </Pressable>
-                        <Pressable style={styles.headerActionBtn} hitSlop={8}>
+                        <Pressable
+                            style={[
+                                styles.headerActionBtn,
+                                aiSheetOpen && searchStyles.activeHeaderBtn,
+                            ]}
+                            hitSlop={8}
+                            onPress={openAIChat}
+                            onPressIn={openAIChat}
+                        >
                             <Ionicons
                                 name="sparkles-outline"
                                 size={22}
-                                color={colors.text}
+                                color={aiSheetOpen ? "#2563EB" : colors.text}
                             />
                         </Pressable>
                         <Pressable
@@ -2899,6 +2974,7 @@ export default function MessagesConversationScreen() {
                         onCapturePhotoAndSend={onCapturePhotoAndSend}
                         onPickMediaAndSend={onPickMediaAndSend}
                         onPickDocumentAndSend={onPickDocumentAndSend}
+                        onOpenAI={openAIChat}
                         loading={loading}
                         uploadProgressLabel={uploadProgressLabel || ""}
                         uploadProgressPercent={uploadProgressPercent}
@@ -2913,6 +2989,33 @@ export default function MessagesConversationScreen() {
                     />
                 ) : null}
             </KeyboardAvoidingView>
+
+            <AIChatSheet
+                open={aiSheetOpen}
+                disabled={uploading || sending}
+                summary={summary}
+                suggestions={suggestions}
+                error={aiError}
+                isSummarizing={isSummarizing}
+                isSuggesting={isSuggesting}
+                onClose={() => setAiSheetOpen(false)}
+                onSummarize={() => {
+                    void summarizeConversation(currentMessagesForAISummary);
+                }}
+                onSuggest={() => {
+                    void suggestReplies();
+                }}
+                onSuggestionClick={handleApplyAISuggestion}
+            />
+            <AIConsentModal
+                open={consentModalOpen}
+                loading={consentLoading}
+                error={aiError}
+                onAccept={() => {
+                    void acceptAIConsent();
+                }}
+                onDecline={declineAIConsent}
+            />
 
             <Modal
                 visible={Boolean(forwardSourceMessage)}
