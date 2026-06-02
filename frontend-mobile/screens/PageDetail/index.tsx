@@ -115,6 +115,7 @@ export default function PageDetailScreen() {
   const [userRole, setUserRole] = useState<PageRole | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+  const [memberActionLoading, setMemberActionLoading] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   // ── Tabs ───────────────────────────────────────────────────────────────
@@ -660,6 +661,47 @@ export default function PageDetailScreen() {
             setMemberCount(prev => Math.max(0, prev - 1));
           } catch {
             Alert.alert("Lỗi", "Không thể xóa thành viên.");
+          }
+        },
+      },
+    ]);
+  };
+
+  const handlePromoteToAdmin = async (userId: number, name: string) => {
+    Alert.alert("Thăng cấp Admin", `Thăng ${name} lên Admin?`, [
+      { text: "Hủy", style: "cancel" },
+      {
+        text: "Thăng cấp",
+        onPress: async () => {
+          setMemberActionLoading(userId);
+          try {
+            await pageService.authorizeMember(userId, numericPageId, "ADMIN");
+            setMembers(prev => prev.map(m => m.user?.id === userId ? { ...m, role: "ADMIN" } : m));
+          } catch {
+            Alert.alert("Lỗi", "Không thể thăng cấp thành viên.");
+          } finally {
+            setMemberActionLoading(null);
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleDemoteToMember = async (userId: number, name: string) => {
+    Alert.alert("Hạ cấp", `Hạ ${name} xuống Thành viên?`, [
+      { text: "Hủy", style: "cancel" },
+      {
+        text: "Hạ cấp",
+        style: "destructive",
+        onPress: async () => {
+          setMemberActionLoading(userId);
+          try {
+            await pageService.authorizeMember(userId, numericPageId, "USER");
+            setMembers(prev => prev.map(m => m.user?.id === userId ? { ...m, role: "USER" } : m));
+          } catch {
+            Alert.alert("Lỗi", "Không thể hạ cấp thành viên.");
+          } finally {
+            setMemberActionLoading(null);
           }
         },
       },
@@ -1321,15 +1363,17 @@ export default function PageDetailScreen() {
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 }}>
                         <View style={[
                           st.roleBadge,
+                          (m.role as string) === "OWNER" && { backgroundColor: "#EDE9FE" },
                           m.role === "ADMIN" && { backgroundColor: FB_BLUE + "20" },
                           m.role === "MODERATOR" && { backgroundColor: "#DBEAFE" },
                         ]}>
                           <Text style={[
                             st.roleBadgeText,
+                            (m.role as string) === "OWNER" && { color: "#7C3AED" },
                             m.role === "ADMIN" && { color: FB_BLUE },
                             m.role === "MODERATOR" && { color: "#1E40AF" },
                           ]}>
-                            {m.role === "ADMIN" ? "Admin" : m.role === "MODERATOR" ? "Moderator" : "Thành viên"}
+                            {(m.role as string) === "OWNER" ? "Chủ sở hữu" : m.role === "ADMIN" ? "Admin" : m.role === "MODERATOR" ? "Moderator" : "Thành viên"}
                           </Text>
                         </View>
                         {m.user?.id === numericUserId && (
@@ -1337,13 +1381,37 @@ export default function PageDetailScreen() {
                         )}
                       </View>
                     </View>
-                    {(isAdmin || isOwner) && m.user?.id !== numericUserId && (
-                      <TouchableOpacity
-                        onPress={() => handleRemoveMember(m.user?.id ?? 0, m.user?.name || m.user?.username || "thành viên")}
-                        hitSlop={8}
-                      >
-                        <Ionicons name="close-circle-outline" size={22} color={colors.danger} />
-                      </TouchableOpacity>
+                    {isOwner && (m.role as string) !== "OWNER" && m.user?.id !== numericUserId && (
+                      memberActionLoading === m.user?.id ? (
+                        <ActivityIndicator size="small" color={colors.textMuted} />
+                      ) : (
+                        <View style={{ flexDirection: "row", gap: 4 }}>
+                          {m.role === "ADMIN" ? (
+                            <TouchableOpacity
+                              onPress={() => handleDemoteToMember(m.user?.id ?? 0, m.user?.name || m.user?.username || "thành viên")}
+                              hitSlop={8}
+                              style={st.memberActionBtn}
+                            >
+                              <Ionicons name="arrow-down-circle-outline" size={22} color="#F59E0B" />
+                            </TouchableOpacity>
+                          ) : (
+                            <TouchableOpacity
+                              onPress={() => handlePromoteToAdmin(m.user?.id ?? 0, m.user?.name || m.user?.username || "thành viên")}
+                              hitSlop={8}
+                              style={st.memberActionBtn}
+                            >
+                              <Ionicons name="shield-outline" size={22} color={FB_BLUE} />
+                            </TouchableOpacity>
+                          )}
+                          <TouchableOpacity
+                            onPress={() => handleRemoveMember(m.user?.id ?? 0, m.user?.name || m.user?.username || "thành viên")}
+                            hitSlop={8}
+                            style={st.memberActionBtn}
+                          >
+                            <Ionicons name="close-circle-outline" size={22} color={colors.danger} />
+                          </TouchableOpacity>
+                        </View>
+                      )
                     )}
                   </View>
                 ))
@@ -1369,7 +1437,7 @@ export default function PageDetailScreen() {
       <Modal visible={showCreatePost} animationType="slide" transparent onRequestClose={() => setShowCreatePost(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
           <View style={st.overlay}>
-            <View style={[st.sheet, { paddingBottom: insets.bottom + 16 }]}>
+            <View style={[st.sheet, { paddingBottom: insets.bottom + 16, maxHeight: "90%" }]}>
               <View style={st.dragBar} />
               <View style={st.sheetHeader}>
                 <TouchableOpacity onPress={() => setShowCreatePost(false)} hitSlop={12}>
@@ -1746,6 +1814,7 @@ const st = StyleSheet.create({
     backgroundColor: colors.zalo50,
   },
   roleBadgeText: { fontSize: 11, color: FB_BLUE, fontWeight: "600" },
+  memberActionBtn: { padding: 4 },
 
   emptyBlock: { alignItems: "center", paddingVertical: 32 },
   emptyText: { color: colors.textMuted, marginTop: 8, fontSize: 13, textAlign: "center" },
