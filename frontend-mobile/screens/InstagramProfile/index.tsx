@@ -90,7 +90,7 @@ const OTHER_TABS: {
 export default function InstagramProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { userId: paramUserId } = useLocalSearchParams<{ userId?: string }>();
+  const { userId: paramUserId, username: paramUsername } = useLocalSearchParams<{ userId?: string; username?: string }>();
   const { currentUser, posts, savedPostIds, logout } = useAppContext();
 
   const isViewingOther = useMemo(
@@ -118,6 +118,8 @@ export default function InstagramProfileScreen() {
   );
   const [blockedUsers, setBlockedUsers] = useState<any[]>([]);
   const [isLoadingBlocked, setIsLoadingBlocked] = useState(false);
+
+  const isPrivateProfile = isViewingOther && profileUser?.isPrivate === true;
 
   const [infoModalVisible, setInfoModalVisible] = useState(false);
 
@@ -315,6 +317,7 @@ export default function InstagramProfileScreen() {
       ? String(targetId)
       : String(currentUser?.id);
     if (!activeUserId) return;
+    if (isPrivateProfile) { setTabPosts([]); return; }
 
     setTabLoading(true);
     try {
@@ -346,7 +349,7 @@ export default function InstagramProfileScreen() {
     } finally {
       setTabLoading(false);
     }
-  }, [isViewingOther, targetId, currentUser?.id, selectedTab]);
+  }, [isViewingOther, targetId, currentUser?.id, selectedTab, isPrivateProfile]);
 
   useEffect(() => {
     void loadTabContent();
@@ -762,7 +765,9 @@ export default function InstagramProfileScreen() {
               </View>
               <View style={s.profileRightCol}>
                 <Text style={s.profileUsername} numberOfLines={1}>
-                  {u?.username || u?.name || "Người dùng"}
+                  {isPrivateProfile
+                    ? (paramUsername || u?.username || "Người dùng")
+                    : (u?.username || u?.name || "Người dùng")}
                 </Text>
                 <View style={s.statsRow}>
                   <StatItem
@@ -771,7 +776,9 @@ export default function InstagramProfileScreen() {
                   />
                   <StatItem
                     value={
-                      otherFriendsCount !== null
+                      isPrivateProfile
+                        ? String(profileUser?.friendsCount ?? 0)
+                        : otherFriendsCount !== null
                         ? String(otherFriendsCount)
                         : "—"
                     }
@@ -783,16 +790,16 @@ export default function InstagramProfileScreen() {
 
             {/* Info */}
             <View style={s.infoBlock}>
-              {u?.name || u?.fullName ? (
+              {!isPrivateProfile && (u?.name || u?.fullName) ? (
                 <Text style={s.displayName}>{u?.name || u?.fullName}</Text>
               ) : null}
-              {u?.gender && GENDER_LABEL[u.gender] ? (
+              {!isPrivateProfile && u?.gender && GENDER_LABEL[u.gender] ? (
                 <Text style={s.infoMeta}>{GENDER_LABEL[u.gender]}</Text>
               ) : null}
-              {u?.birthday ? (
+              {!isPrivateProfile && u?.birthday ? (
                 <Text style={s.infoMeta}>{u.birthday}</Text>
               ) : null}
-              {u?.bio ? <Text style={s.bio}>{u.bio}</Text> : null}
+              {!isPrivateProfile && u?.bio ? <Text style={s.bio}>{u.bio}</Text> : null}
             </View>
 
             {/* Action buttons */}
@@ -864,10 +871,14 @@ export default function InstagramProfileScreen() {
                     )}
                     <View style={{ flex: 1 }}>
                       <Text style={s.modalName}>
-                        {u?.name || u?.fullName || u?.username || "Người dùng"}
+                        {isPrivateProfile
+                          ? (paramUsername || "Người dùng")
+                          : (u?.name || u?.fullName || u?.username || "Người dùng")}
                       </Text>
-                      {u?.username ? (
-                        <Text style={s.modalSub}>@{u.username}</Text>
+                      {(isPrivateProfile ? paramUsername : u?.username) ? (
+                        <Text style={s.modalSub}>
+                          @{isPrivateProfile ? paramUsername : u?.username}
+                        </Text>
                       ) : null}
                     </View>
                   </View>
@@ -875,46 +886,49 @@ export default function InstagramProfileScreen() {
                   <View style={s.modalDivider} />
 
                   {/* Info rows */}
-                  {u?.username ? (
-                    <InfoModalRow
-                      icon="at"
-                      label="Tên người dùng"
-                      value={`@${u.username}`}
-                    />
-                  ) : null}
-                  {u?.name || u?.fullName ? (
-                    <InfoModalRow
-                      icon="person-outline"
-                      label="Họ và tên"
-                      value={u.name || u.fullName || ""}
-                    />
-                  ) : null}
-                  {u?.birthday ? (
+                  <InfoModalRow
+                    icon="at"
+                    label="Tên người dùng"
+                    value={isPrivateProfile ? "**********" : (u?.username ? `@${u.username}` : "")}
+                  />
+                  <InfoModalRow
+                    icon="person-outline"
+                    label="Họ và tên"
+                    value={isPrivateProfile ? "***********" : (u?.name || u?.fullName || "")}
+                  />
+                  {(isPrivateProfile || u?.birthday) ? (
                     <InfoModalRow
                       icon="calendar-outline"
                       label="Ngày sinh"
-                      value={u.birthday}
+                      value={isPrivateProfile ? "**/***/****" : u!.birthday!}
                     />
                   ) : null}
-                  {u?.gender && GENDER_LABEL[u.gender] ? (
+                  {(isPrivateProfile || (u?.gender && GENDER_LABEL[u.gender])) ? (
                     <InfoModalRow
                       icon="people-outline"
                       label="Giới tính"
-                      value={GENDER_LABEL[u.gender]}
+                      value={isPrivateProfile ? "******" : GENDER_LABEL[u!.gender!]}
                     />
                   ) : null}
-                  {u?.bio ? (
+                  {(isPrivateProfile || u?.bio) ? (
                     <InfoModalRow
                       icon="chatbubble-outline"
                       label="Giới thiệu"
-                      value={u.bio}
+                      value={isPrivateProfile ? "**************" : u!.bio!}
                     />
                   ) : null}
-                  {otherFriendsCount !== null ? (
+                  {(isPrivateProfile || u?.phone) ? (
+                    <InfoModalRow
+                      icon="call-outline"
+                      label="Số điện thoại"
+                      value={isPrivateProfile ? "**********" : u!.phone!}
+                    />
+                  ) : null}
+                  {(typeof (isPrivateProfile ? profileUser?.friendsCount : otherFriendsCount) === "number") ? (
                     <InfoModalRow
                       icon="people"
                       label="Bạn bè"
-                      value={`${otherFriendsCount} người`}
+                      value={`${isPrivateProfile ? (profileUser?.friendsCount ?? 0) : otherFriendsCount} người`}
                     />
                   ) : null}
                 </ScrollView>
@@ -943,7 +957,9 @@ export default function InstagramProfileScreen() {
             </View>
 
             {/* Tab content */}
-            {tabLoading ? (
+            {isPrivateProfile ? (
+              <PrivateAccountLock />
+            ) : tabLoading ? (
               <View style={{ paddingVertical: 32 }}>
                 <ActivityIndicator size="small" color={colors.primary} />
               </View>
@@ -1353,6 +1369,28 @@ export default function InstagramProfileScreen() {
         onClose={closeNoteModal}
         onNoteChange={setNote}
       />
+    </View>
+  );
+}
+
+// ── Private account lock screen ──────────────────────────────────────────────
+function PrivateAccountLock() {
+  return (
+    <View style={{ alignItems: "center", paddingVertical: 64, paddingHorizontal: 40 }}>
+      <View style={{
+        width: 80, height: 80, borderRadius: 40,
+        borderWidth: 2, borderColor: "#000",
+        alignItems: "center", justifyContent: "center",
+        marginBottom: 16,
+      }}>
+        <Ionicons name="lock-closed" size={36} strokeWidth={1.5} color="#000" />
+      </View>
+      <Text style={{ fontSize: 20, fontWeight: "700", color: "#000", marginBottom: 8, textAlign: "center" }}>
+        Tài khoản này ở chế độ riêng tư
+      </Text>
+      <Text style={{ fontSize: 14, color: "#8E8E93", textAlign: "center", lineHeight: 20 }}>
+        Chỉ những người theo dõi mới xem được ảnh và video của họ.
+      </Text>
     </View>
   );
 }

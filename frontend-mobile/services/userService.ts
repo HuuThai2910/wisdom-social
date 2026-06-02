@@ -9,6 +9,7 @@ export type UpdateUserPayload = {
     gender?: "MALE" | "FEMALE" | "HIDDEN";
     website?: string;
     avatarUrl?: string;
+    privacyProfile?: "PUBLIC" | "FRIENDS" | "ONLY_ME";
 };
 
 export type User = {
@@ -26,6 +27,9 @@ export type User = {
     followers?: number;
     following?: number;
     postsCount?: number;
+    privacyProfile?: "PUBLIC" | "FRIENDS" | "ONLY_ME";
+    isPrivate?: boolean;
+    friendsCount?: number;
 };
 
 const mapUser = (raw: Record<string, unknown> | null | undefined): User => {
@@ -86,6 +90,14 @@ const mapUser = (raw: Record<string, unknown> | null | undefined): User => {
                 : typeof raw?.postsCount === "number"
                   ? raw.postsCount
                   : 0,
+        privacyProfile:
+            raw?.privacyProfile === "PUBLIC" ||
+            raw?.privacyProfile === "FRIENDS" ||
+            raw?.privacyProfile === "ONLY_ME"
+                ? raw.privacyProfile
+                : undefined,
+        isPrivate: typeof raw?.isPrivate === "boolean" ? raw.isPrivate : undefined,
+        friendsCount: typeof raw?.friendsCount === "number" ? raw.friendsCount : undefined,
     };
 };
 
@@ -130,6 +142,7 @@ const userService = {
             if (data.gender) payload.gender = data.gender;
             if (data.avatarUrl !== undefined)
                 payload.avatarUrl = data.avatarUrl.trim();
+            if (data.privacyProfile) payload.privacyProfile = data.privacyProfile;
 
             const response = await apiClient.put(`/auth/users/${userId}`, payload);
             const updated = unwrapData<Record<string, unknown>>(response);
@@ -263,6 +276,7 @@ const userService = {
         const data = unwrapData<string>(response) ?? response.data;
         return typeof data === "string" ? data.replace(/^"|"$/g, "").trim() : "";
     },
+
 };
 
 export default userService;

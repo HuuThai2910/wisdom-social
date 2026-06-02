@@ -11,6 +11,7 @@ import {
   Trash2,
   ShieldCheck,
   AlertTriangle,
+
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -63,7 +64,7 @@ export default function SettingsPage() {
         setDeletionRemainingDays(remainingDays);
         setHasPinCode(!!me.hasPinCode);
       } catch (err) {
-        console.error("Failed to load security status:", err);
+        console.error("Failed to load settings:", err);
       }
     })();
     return () => {
@@ -226,7 +227,7 @@ export default function SettingsPage() {
       iconColor: "text-gray-700 dark:text-gray-300",
       iconBg: "bg-gray-100 dark:bg-[#262626]",
       title: "Quyền riêng tư & Bảo mật",
-      description: "Quyền riêng tư tài khoản, tài khoản đã chặn",
+      description: "Tài khoản đã chặn",
       actionLabel: "Quản lý",
       onClick: () => navigate("/blocked-users"),
     },
@@ -480,6 +481,8 @@ export default function SettingsPage() {
         onConfirm={handleRemovePin}
         onClose={closeModal}
       />
+
+
     </div>
   );
 }

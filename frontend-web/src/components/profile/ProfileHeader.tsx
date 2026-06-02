@@ -509,46 +509,42 @@ export default function ProfileHeader({
             <div className="h-px bg-gray-200 dark:bg-[#262626] mx-5" />
 
             <div className="px-5 pb-5 pt-2 max-h-[55vh] overflow-y-auto">
-              {user.username && (
-                <InfoRow
-                  icon={<AtSign size={16} />}
-                  label="Tên người dùng"
-                  value={`@${user.username}`}
-                />
-              )}
-              {displayName && (
-                <InfoRow
-                  icon={<UserIcon size={16} />}
-                  label="Họ và tên"
-                  value={displayName}
-                />
-              )}
-              {user.birthday && (
+              <InfoRow
+                icon={<AtSign size={16} />}
+                label="Tên người dùng"
+                value={user.isPrivate ? "**********" : `@${user.username}`}
+              />
+              <InfoRow
+                icon={<UserIcon size={16} />}
+                label="Họ và tên"
+                value={user.isPrivate ? "***********" : (displayName || "***********")}
+              />
+              {(user.isPrivate || user.birthday) && (
                 <InfoRow
                   icon={<Calendar size={16} />}
                   label="Ngày sinh"
-                  value={user.birthday}
+                  value={user.isPrivate ? "**/***/****" : user.birthday!}
                 />
               )}
-              {genderLabel && (
+              {(user.isPrivate || genderLabel) && (
                 <InfoRow
                   icon={<UsersIcon size={16} />}
                   label="Giới tính"
-                  value={genderLabel}
+                  value={user.isPrivate ? "******" : genderLabel!}
                 />
               )}
-              {user.bio && (
+              {(user.isPrivate || user.bio) && (
                 <InfoRow
                   icon={<MessageSquare size={16} />}
                   label="Giới thiệu"
-                  value={stripHtml(user.bio)}
+                  value={user.isPrivate ? "**************" : stripHtml(user.bio!)}
                 />
               )}
-              {user.phone && (
+              {(user.isPrivate || user.phone) && (
                 <InfoRow
                   icon={<Phone size={16} />}
                   label="Số điện thoại"
-                  value={user.phone}
+                  value={user.isPrivate ? "**********" : user.phone!}
                 />
               )}
               {typeof user.friendsCount === "number" && (

@@ -157,7 +157,7 @@ export default function FriendsListScreen() {
                 onPress={() =>
                     router.push({
                         pathname: "/(tabs)/user-profile",
-                        params: { userId: String(item.id) },
+                        params: { userId: String(item.id), username: item.username },
                     })
                 }
             >

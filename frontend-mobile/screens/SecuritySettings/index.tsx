@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useRef } from "react";
+import React, { useCallback, useEffect, useState, useRef } from "react";
 import {
     View,
     Text,
@@ -26,6 +26,15 @@ import {
     setupPinCode,
     removePinCode,
 } from "@/services/securityService";
+import userService from "@/services/userService";
+
+type ProfilePrivacy = "PUBLIC" | "FRIENDS" | "ONLY_ME";
+
+const PRIVACY_OPTIONS: { value: ProfilePrivacy; label: string; desc: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+    { value: "PUBLIC",   label: "Công khai",     desc: "Tất cả mọi người đều có thể xem hồ sơ",  icon: "globe-outline" },
+    { value: "FRIENDS",  label: "Bạn bè",        desc: "Chỉ bạn bè mới có thể xem hồ sơ",        icon: "people-outline" },
+    { value: "ONLY_ME",  label: "Chỉ mình tôi",  desc: "Hồ sơ hoàn toàn riêng tư",               icon: "lock-closed-outline" },
+];
 
 export default function SecuritySettingsScreen() {
     const router = useRouter();
@@ -35,6 +44,36 @@ export default function SecuritySettingsScreen() {
     const [loadingLogoutAll, setLoadingLogoutAll] = useState(false);
     const [loadingDelete, setLoadingDelete] = useState(false);
     const [loadingCancel, setLoadingCancel] = useState(false);
+
+    // Profile Privacy State
+    const [profilePrivacy, setProfilePrivacy] = useState<ProfilePrivacy>("PUBLIC");
+    const [privacyModalVisible, setPrivacyModalVisible] = useState(false);
+    const [privacyLoading, setPrivacyLoading] = useState(false);
+
+    useEffect(() => {
+        if (!currentUser?.id) return;
+        let cancelled = false;
+        userService.getUserProfile(currentUser.id).then((profile) => {
+            if (!cancelled && profile?.privacyProfile) {
+                setProfilePrivacy(profile.privacyProfile as ProfilePrivacy);
+            }
+        }).catch(() => {});
+        return () => { cancelled = true; };
+    }, [currentUser?.id]);
+
+    const handlePrivacyChange = useCallback(async (next: ProfilePrivacy) => {
+        if (!currentUser?.id) return;
+        setPrivacyLoading(true);
+        try {
+            await userService.updateUser(String(currentUser.id), { privacyProfile: next });
+            setProfilePrivacy(next);
+            setPrivacyModalVisible(false);
+        } catch {
+            Alert.alert("Lỗi", "Không thể cập nhật chế độ hồ sơ. Vui lòng thử lại.");
+        } finally {
+            setPrivacyLoading(false);
+        }
+    }, [currentUser?.id]);
 
     // PIN Setup State
     const [setupPinModalVisible, setSetupPinModalVisible] = useState(false);
@@ -322,6 +361,32 @@ export default function SecuritySettingsScreen() {
                 contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
                 showsVerticalScrollIndicator={false}
             >
+                <Text style={styles.sectionTitle}>Quyền riêng tư</Text>
+                <View style={styles.card}>
+                    <TouchableOpacity
+                        style={styles.menuItem}
+                        onPress={() => setPrivacyModalVisible(true)}
+                        activeOpacity={0.7}
+                    >
+                        <View style={styles.settingInfo}>
+                            <View style={[styles.iconWrap, { backgroundColor: "#EDE9FE" }]}>
+                                <Ionicons
+                                    name={PRIVACY_OPTIONS.find(o => o.value === profilePrivacy)?.icon ?? "globe-outline"}
+                                    size={20}
+                                    color="#7C3AED"
+                                />
+                            </View>
+                            <View>
+                                <Text style={styles.settingLabel}>Chế độ hồ sơ</Text>
+                                <Text style={styles.settingDesc}>
+                                    {PRIVACY_OPTIONS.find(o => o.value === profilePrivacy)?.label ?? "Công khai"}
+                                </Text>
+                            </View>
+                        </View>
+                        <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+                    </TouchableOpacity>
+                </View>
+
                 <Text style={styles.sectionTitle}>Phiên đăng nhập</Text>
                 <View style={styles.card}>
                     <TouchableOpacity
@@ -481,6 +546,61 @@ export default function SecuritySettingsScreen() {
                     )}
                 </View>
             </ScrollView>
+
+            {/* Modal Chế độ hồ sơ */}
+            <Modal
+                visible={privacyModalVisible}
+                transparent
+                animationType="slide"
+                onRequestClose={() => setPrivacyModalVisible(false)}
+            >
+                <Pressable style={styles.modalOverlay} onPress={() => setPrivacyModalVisible(false)}>
+                    <Pressable style={[styles.modalSheet, { alignItems: "flex-start" }]}>
+                        <View style={[styles.modalHandle, { alignSelf: "center" }]} />
+                        <Text style={styles.modalTitle}>Chế độ hồ sơ</Text>
+                        <Text style={[styles.modalDesc, { textAlign: "left", paddingHorizontal: 0, marginBottom: 16 }]}>
+                            Chọn ai có thể xem thông tin hồ sơ của bạn
+                        </Text>
+                        {PRIVACY_OPTIONS.map((opt) => {
+                            const selected = profilePrivacy === opt.value;
+                            return (
+                                <TouchableOpacity
+                                    key={opt.value}
+                                    style={[styles.privacyOption, selected && styles.privacyOptionSelected]}
+                                    onPress={() => handlePrivacyChange(opt.value)}
+                                    disabled={privacyLoading}
+                                    activeOpacity={0.7}
+                                >
+                                    <View style={[styles.iconWrap, selected ? { backgroundColor: "#EDE9FE" } : { backgroundColor: "#F3F4F6" }]}>
+                                        <Ionicons name={opt.icon} size={20} color={selected ? "#7C3AED" : colors.textMuted} />
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={[styles.settingLabel, selected && { color: "#7C3AED" }]}>{opt.label}</Text>
+                                        <Text style={styles.settingDesc}>{opt.desc}</Text>
+                                    </View>
+                                    {selected ? (
+                                        <View style={styles.radioFilled}>
+                                            <View style={styles.radioDot} />
+                                        </View>
+                                    ) : (
+                                        <View style={styles.radioEmpty} />
+                                    )}
+                                </TouchableOpacity>
+                            );
+                        })}
+                        {privacyLoading && (
+                            <ActivityIndicator color="#7C3AED" style={{ marginTop: 8, alignSelf: "center" }} />
+                        )}
+                        <TouchableOpacity
+                            style={[styles.modalCancelBtn, { width: "100%", borderWidth: 1, borderColor: colors.border, borderRadius: 26, marginTop: 8 }]}
+                            onPress={() => setPrivacyModalVisible(false)}
+                            disabled={privacyLoading}
+                        >
+                            <Text style={styles.modalCancelText}>Đóng</Text>
+                        </TouchableOpacity>
+                    </Pressable>
+                </Pressable>
+            </Modal>
 
             {/* Modal Thiết lập mã PIN */}
             <Modal
@@ -981,5 +1101,42 @@ const styles = StyleSheet.create({
         color: colors.textMuted,
         fontSize: 16,
         fontWeight: "600",
+    },
+    privacyOption: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+        width: "100%",
+        paddingVertical: 12,
+        paddingHorizontal: 14,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: colors.border,
+        marginBottom: 8,
+    },
+    privacyOptionSelected: {
+        borderColor: "#7C3AED",
+        backgroundColor: "#F5F3FF",
+    },
+    radioEmpty: {
+        width: 20,
+        height: 20,
+        borderRadius: 10,
+        borderWidth: 2,
+        borderColor: colors.border,
+    },
+    radioFilled: {
+        width: 20,
+        height: 20,
+        borderRadius: 10,
+        backgroundColor: "#7C3AED",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    radioDot: {
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+        backgroundColor: "#fff",
     },
 });

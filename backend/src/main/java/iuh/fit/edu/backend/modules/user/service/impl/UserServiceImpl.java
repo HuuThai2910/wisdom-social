@@ -17,6 +17,8 @@ import iuh.fit.edu.backend.modules.user.repository.BlackListUserRepository;
 import iuh.fit.edu.backend.modules.user.repository.DeviceRepository;
 import iuh.fit.edu.backend.modules.user.repository.FriendRepository;
 import iuh.fit.edu.backend.modules.user.repository.UserRepository;
+import iuh.fit.edu.backend.modules.user.repository.UserSettingRepository;
+import iuh.fit.edu.backend.modules.user.entity.UserSetting;
 import iuh.fit.edu.backend.common.exception.AccountLockedException;
 import iuh.fit.edu.backend.common.exception.RateLimitExceededException;
 import iuh.fit.edu.backend.common.service.security.AccountLockService;
@@ -65,6 +67,7 @@ public class UserServiceImpl implements UserService {
     RateLimitService rateLimitService;
     AccountLockService accountLockService;
     FriendRepository friendRepository;
+    UserSettingRepository userSettingRepository;
 
 
     public UserServiceImpl(BlackListUserRepository blackListUserRepository,
@@ -75,7 +78,8 @@ public class UserServiceImpl implements UserService {
                            ActiveTokenRepository activeTokenRepository,
                            RateLimitService rateLimitService,
                            AccountLockService accountLockService,
-                           FriendRepository friendRepository
+                           FriendRepository friendRepository,
+                           UserSettingRepository userSettingRepository
                            ) {
         this.blackListUserRepository = blackListUserRepository;
         this.blockUserService = blockUserService;
@@ -88,6 +92,7 @@ public class UserServiceImpl implements UserService {
         this.rateLimitService = rateLimitService;
         this.accountLockService = accountLockService;
         this.friendRepository = friendRepository;
+        this.userSettingRepository = userSettingRepository;
     }
 
     /*Đăng kí tài khoản bằng aws cognito
@@ -453,6 +458,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Transactional
     public boolean updateUser(long id, UserRequestUpdate requestUpdate) {
         if(id>0){
            User user=userRepository.findById(id).orElse(null);
@@ -465,6 +471,16 @@ public class UserServiceImpl implements UserService {
                if (requestUpdate.getUsername() != null) user.setUsername(requestUpdate.getUsername());
                user.setUpdatedAt(OffsetDateTime.now());
                userRepository.save(user);
+
+               if (requestUpdate.getPrivacyProfile() != null) {
+                   UserSetting setting = userSettingRepository.findById(user.getId()).orElseGet(() -> {
+                       UserSetting s = new UserSetting();
+                       s.setUser(user);
+                       return s;
+                   });
+                   setting.setPrivacyProfile(requestUpdate.getPrivacyProfile());
+                   userSettingRepository.save(setting);
+               }
 
                Map<String, Object> profileUpdatePayload = new HashMap<>();
                profileUpdatePayload.put("id", user.getId());

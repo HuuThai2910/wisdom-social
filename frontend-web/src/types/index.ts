@@ -30,6 +30,8 @@ export interface User {
     deletionRequestedAt?: string | null;
     deletionScheduledFor?: string | null;
     hasPinCode?: boolean;
+    isPrivate?: boolean;
+    privacyProfile?: "PUBLIC" | "FRIENDS" | "ONLY_ME";
 }
 
 // Post Types
