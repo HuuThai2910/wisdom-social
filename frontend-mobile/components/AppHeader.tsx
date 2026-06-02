@@ -10,17 +10,19 @@ type Action = {
 type Props = {
     title: string;
     leftAction?: Action;
+    leftActions?: Action[];
     rightActions?: Action[];
 };
 
 export default function AppHeader({
     title,
     leftAction,
+    leftActions = [],
     rightActions = [],
 }: Props) {
     return (
         <View style={styles.container}>
-            <View style={styles.side}>
+            <View style={[styles.side, styles.left]}>
                 {leftAction ? (
                     <Pressable
                         onPress={leftAction.onPress}
@@ -34,6 +36,20 @@ export default function AppHeader({
                         />
                     </Pressable>
                 ) : null}
+                {leftActions.map((action, index) => (
+                    <Pressable
+                        key={`${action.icon}-${index}`}
+                        onPress={action.onPress}
+                        hitSlop={8}
+                        style={[styles.iconPressable, (leftAction || index > 0) && { marginLeft: spacing.xs }]}
+                    >
+                        <Ionicons
+                            name={action.icon}
+                            size={22}
+                            color={colors.text}
+                        />
+                    </Pressable>
+                ))}
             </View>
 
             <Text numberOfLines={1} style={styles.title}>
@@ -73,6 +89,11 @@ const styles = StyleSheet.create({
     },
     side: {
         minWidth: 68,
+    },
+    left: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "flex-start",
     },
     title: {
         flex: 1,

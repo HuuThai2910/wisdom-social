@@ -1,9 +1,10 @@
 import { AppHeader, EmptyState, PostCard, StoriesBar } from "@/components";
-import { colors, spacing } from "@/constants";
+import { colors, spacing, typography } from "@/constants";
 import { useAppContext } from "@/context/AppContext";
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
-import { ActivityIndicator, FlatList, RefreshControl, SafeAreaView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, RefreshControl, SafeAreaView, StyleSheet, Text, View, Modal, Pressable, TouchableOpacity } from "react-native";
 
 export default function FeedScreen() {
     const router = useRouter();
@@ -23,6 +24,7 @@ export default function FeedScreen() {
         updatePostPrivacyLocal,
     } = useAppContext();
     const [refreshing, setRefreshing] = useState(false);
+    const [showCreateModal, setShowCreateModal] = useState(false);
 
     const sortedPosts = useMemo(
         () =>
@@ -48,7 +50,10 @@ export default function FeedScreen() {
         <SafeAreaView style={styles.container}>
             <AppHeader
                 title="Wisdom Social"
-                leftAction={{ icon: "flag-outline", onPress: () => router.push("/(tabs)/pages") }}
+                leftActions={[
+                    { icon: "flag-outline", onPress: () => router.push("/(tabs)/pages") },
+                    { icon: "add", onPress: () => setShowCreateModal(true) },
+                ]}
                 rightActions={[
                     { icon: "scan-outline", onPress: () => router.push("/(stack)/qr-scanner") },
                     { icon: "notifications-outline", onPress: () => router.push("/(stack)/notifications") },
@@ -89,6 +94,25 @@ export default function FeedScreen() {
                     />
                 )}
             />
+
+            <Modal transparent visible={showCreateModal} animationType="slide" onRequestClose={() => setShowCreateModal(false)}>
+                <Pressable style={styles.modalBackdrop} onPress={() => setShowCreateModal(false)}>
+                    <Pressable style={styles.menuSheet}>
+                        <View style={styles.sheetHandle} />
+                        <Text style={styles.menuTitle}>Tạo mới</Text>
+
+                        <TouchableOpacity style={styles.menuItem} onPress={() => { setShowCreateModal(false); router.push("/(stack)/create-post"); }}>
+                            <Ionicons name="document-text-outline" size={24} color={colors.primary} />
+                            <Text style={styles.menuText}>Tạo bài viết mới</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity style={styles.menuItem} onPress={() => { setShowCreateModal(false); router.push("/(stack)/create-story"); }}>
+                            <Ionicons name="camera-outline" size={24} color={colors.primary} />
+                            <Text style={styles.menuText}>Tạo tin mới</Text>
+                        </TouchableOpacity>
+                    </Pressable>
+                </Pressable>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -97,4 +121,10 @@ const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.white },
     emptyWrap: { paddingVertical: spacing.xxl },
     loginText: { color: colors.textMuted, textAlign: "center", padding: spacing.xl },
+    modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.35)", justifyContent: "flex-end" },
+    menuSheet: { backgroundColor: colors.white, borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: spacing.lg, paddingBottom: spacing.xxl },
+    sheetHandle: { alignSelf: "center", width: 42, height: 4, borderRadius: 2, backgroundColor: colors.border, marginBottom: spacing.md },
+    menuTitle: { color: colors.text, fontSize: 16, fontWeight: "700", marginBottom: spacing.md, textAlign: "center" },
+    menuItem: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+    menuText: { color: colors.text, fontWeight: "600", fontSize: 15 },
 });
