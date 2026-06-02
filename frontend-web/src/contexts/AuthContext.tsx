@@ -135,7 +135,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const postsRes = await axiosClient.get(`/posts/user/${userId}/count`);
       console.log("📥 Posts count response:", postsRes.data);
       const countValue = postsRes.data?.data ?? postsRes.data;
-      stats.postsCount = typeof countValue === "number" ? countValue : 0;
+      const postsCount =
+        typeof countValue === "number" ? countValue : Number(countValue);
+      stats.postsCount = Number.isFinite(postsCount) ? postsCount : 0;
       console.log("📝 Posts count:", stats.postsCount);
     } catch (e: any) {
       console.error(

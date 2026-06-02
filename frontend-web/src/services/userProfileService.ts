@@ -28,7 +28,8 @@ const fetchUserPostCount = async (userId: string | number): Promise<number> => {
     try {
         const countRes = await axiosClient.get(`/posts/user/${userId}/count`);
         const countData = countRes.data?.data ?? countRes.data;
-        return typeof countData === "number" ? countData : 0;
+        const count = typeof countData === "number" ? countData : Number(countData);
+        return Number.isFinite(count) ? count : 0;
     } catch (error: any) {
         console.warn("⚠️ Failed to fetch post count, fallback to profile/post list data", {
             userId,
@@ -104,7 +105,7 @@ export const fetchUserProfileByUsername = async (
             friendCount: profileData.friendCount || profileData.friendsCount || 0,
             followerCount: profileData.followerCount || profileData.followersCount || 0,
             followingCount: profileData.followingCount || profileData.followingCount || 0,
-            postCount: postCount || profileData.postCount || profileData.postsCount || 0,
+            postCount: postCount ?? profileData.postCount ?? profileData.postsCount ?? 0,
             createdAt: profileData.createdAt,
             updatedAt: profileData.updatedAt,
         };
@@ -159,7 +160,7 @@ export const fetchUserProfileById = async (
             friendCount: profileData.friendCount || profileData.friendsCount || 0,
             followerCount: profileData.followerCount || profileData.followersCount || 0,
             followingCount: profileData.followingCount || profileData.followingCount || 0,
-            postCount: postCount || profileData.postCount || profileData.postsCount || 0,
+            postCount: postCount ?? profileData.postCount ?? profileData.postsCount ?? 0,
             createdAt: profileData.createdAt,
             updatedAt: profileData.updatedAt,
         };

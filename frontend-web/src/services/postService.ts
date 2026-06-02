@@ -969,6 +969,18 @@ export const getUserPostsWithDetails = async (userId: string | number): Promise<
     }
 };
 
+export const getUserPostsCount = async (userId: string | number): Promise<number> => {
+    try {
+        const response = await axiosClient.get(`/posts/user/${userId}/count`);
+        const countData = response.data?.data ?? response.data;
+        const count = typeof countData === "number" ? countData : Number(countData);
+        return Number.isFinite(count) ? count : 0;
+    } catch (error) {
+        console.error("❌ Error fetching user posts count:", error);
+        return 0;
+    }
+};
+
 /**
  * Get user by username
  */

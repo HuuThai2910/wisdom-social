@@ -30,25 +30,47 @@ class FriendWebsocketService {
         "friend-reject",
         "friend-cancel",
     ];
+    private listenersByPhone = new Map<string, Set<(event: FriendEvent) => void>>();
 
     subscribeToUserFriendEvents(
         phone: string,
         onEvent: (event: FriendEvent) => void,
     ): void {
+        const listeners = this.listenersByPhone.get(phone) ?? new Set();
+        listeners.add(onEvent);
+        this.listenersByPhone.set(phone, listeners);
+
+        if (listeners.size > 1) return;
+
         this.EVENT_TYPES.forEach((eventType) => {
             const destination = `/topic/user/${phone}/${eventType}`;
             chatWebsocketService.subscribeToTopic(destination, (body) => {
+                const phoneListeners = this.listenersByPhone.get(phone);
+                if (!phoneListeners?.size) return;
+
                 try {
                     const parsed = JSON.parse(body) as FriendEvent;
-                    onEvent({ ...parsed, eventType });
+                    phoneListeners.forEach((listener) =>
+                        listener({ ...parsed, eventType }),
+                    );
                 } catch {
-                    onEvent({ eventType });
+                    phoneListeners.forEach((listener) => listener({ eventType }));
                 }
             });
         });
     }
 
-    unsubscribeFromUserFriendEvents(phone: string): void {
+    unsubscribeFromUserFriendEvents(
+        phone: string,
+        onEvent?: (event: FriendEvent) => void,
+    ): void {
+        const listeners = this.listenersByPhone.get(phone);
+        if (listeners && onEvent) {
+            listeners.delete(onEvent);
+            if (listeners.size > 0) return;
+        }
+
+        this.listenersByPhone.delete(phone);
         this.EVENT_TYPES.forEach((eventType) => {
             chatWebsocketService.unsubscribeFromTopic(`/topic/user/${phone}/${eventType}`);
         });
