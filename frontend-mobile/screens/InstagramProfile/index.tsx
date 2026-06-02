@@ -271,21 +271,23 @@ export default function InstagramProfileScreen() {
     setOptionsModalVisible(true);
   };
 
-  useEffect(() => {
-    if (isViewingOther) {
-      void loadProfile();
-      void loadFriendStatus();
-      void loadOtherFriendsCount();
-      void loadHighlights();
-    }
-  }, [
-    isViewingOther,
-    loadProfile,
-    loadFriendStatus,
-    loadOtherFriendsCount,
-    loadHighlights,
-    refreshTrigger,
-  ]);
+  useFocusEffect(
+    useCallback(() => {
+      if (isViewingOther) {
+        void loadProfile();
+        void loadFriendStatus();
+        void loadOtherFriendsCount();
+        void loadHighlights();
+      }
+    }, [
+      isViewingOther,
+      loadProfile,
+      loadFriendStatus,
+      loadOtherFriendsCount,
+      loadHighlights,
+      refreshTrigger,
+    ])
+  );
 
   // ── Load own-profile data ─────────────────────────────────────────────────
   useFocusEffect(

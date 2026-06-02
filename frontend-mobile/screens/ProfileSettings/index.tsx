@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useState } from "react";
 import {
     ActivityIndicator,
     Alert,
@@ -11,7 +11,7 @@ import {
     View,
     Switch,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { AppHeader } from "@/components";
 import { colors, spacing } from "@/constants";
@@ -35,22 +35,25 @@ export default function ProfileSettingsScreen() {
     const [privacyLoading, setPrivacyLoading] = useState(false);
     const [loadingInitial, setLoadingInitial] = useState(true);
 
-    useEffect(() => {
-        let cancelled = false;
-        (async () => {
-            try {
-                const profile = await userService.getUserProfile(currentUser?.id ?? "");
-                if (!cancelled && profile?.privacyProfile) {
-                    setProfilePrivacy(profile.privacyProfile as ProfilePrivacy);
+    useFocusEffect(
+        useCallback(() => {
+            let cancelled = false;
+            (async () => {
+                setLoadingInitial(true);
+                try {
+                    const profile = await userService.getUserProfile(currentUser?.id ?? "");
+                    if (!cancelled && profile?.privacyProfile) {
+                        setProfilePrivacy(profile.privacyProfile as ProfilePrivacy);
+                    }
+                } catch {
+                    // default to PUBLIC on error
+                } finally {
+                    if (!cancelled) setLoadingInitial(false);
                 }
-            } catch {
-                // default to PUBLIC on error
-            } finally {
-                if (!cancelled) setLoadingInitial(false);
-            }
-        })();
-        return () => { cancelled = true; };
-    }, [currentUser?.id]);
+            })();
+            return () => { cancelled = true; };
+        }, [currentUser?.id])
+    );
 
     const handlePrivacyChange = useCallback(async (next: ProfilePrivacy) => {
         if (!currentUser?.id) return;
