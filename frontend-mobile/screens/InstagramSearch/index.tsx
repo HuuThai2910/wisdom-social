@@ -121,7 +121,7 @@ export default function InstagramSearchScreen() {
                 <TouchableOpacity
                     style={s.row}
                     activeOpacity={0.55}
-                    onPress={() => router.push({ pathname: "/(tabs)/user-profile", params: { userId: u.id } })}
+                    onPress={() => router.push({ pathname: "/(tabs)/user-profile", params: { userId: u.id, username: u.username } })}
                 >
                     {u.avatarUrl ? (
                         <Image source={{ uri: toImageUrl(u.avatarUrl) }} style={s.avatar} />

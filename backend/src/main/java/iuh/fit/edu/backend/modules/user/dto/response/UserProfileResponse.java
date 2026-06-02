@@ -1,5 +1,7 @@
 package iuh.fit.edu.backend.modules.user.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+import iuh.fit.edu.backend.modules.post.constant.PrivacyType;
 import iuh.fit.edu.backend.modules.user.constant.Gender;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -36,8 +38,13 @@ public class UserProfileResponse {
     private OffsetDateTime updatedAt;
     
     // Dynamic Statistics
-    private Long friendsCount;     
-    private Long followersCount;    
-    private Long followingCount; 
-    private Long postsCount;        
+    private Long friendsCount;
+    private Long followersCount;
+    private Long followingCount;
+    private Long postsCount;
+
+    // Privacy
+    private PrivacyType privacyProfile;
+    @JsonProperty("isPrivate")
+    private boolean isPrivate;
 }

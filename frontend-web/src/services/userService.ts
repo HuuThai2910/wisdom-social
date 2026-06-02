@@ -56,6 +56,7 @@ export interface UserRequestUpdate {
     avatarUrl?: string;
     birthday?: string;
     gender?: string;
+    privacyProfile?: 'PUBLIC' | 'FRIENDS' | 'ONLY_ME';
 }
 
 export interface UserRequestForgotPassword {
@@ -204,6 +205,11 @@ export const userService = {
 
     async getUsersBlockedByMe(userId: string | number): Promise<User[]> {
         const response = await axiosClient.get(`auth/users/blocked/${userId}`);
+        return response.data.data;
+    },
+
+    async getProfileById(id: string | number): Promise<any> {
+        const response = await axiosClient.get(`auth/user/${id}`);
         return response.data.data;
     },
 };

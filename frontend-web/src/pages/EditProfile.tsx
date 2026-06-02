@@ -19,6 +19,14 @@ interface FormErrors {
   gender: string;
 }
 
+type ProfilePrivacy = "PUBLIC" | "FRIENDS" | "ONLY_ME";
+
+const PRIVACY_OPTIONS: { value: ProfilePrivacy; label: string; desc: string }[] = [
+  { value: "PUBLIC",  label: "Công khai",    desc: "Tất cả mọi người" },
+  { value: "FRIENDS", label: "Bạn bè",       desc: "Chỉ bạn bè" },
+  { value: "ONLY_ME", label: "Chỉ mình tôi", desc: "Riêng tư hoàn toàn" },
+];
+
 interface FormState {
   name: string;
   username: string;
@@ -26,6 +34,7 @@ interface FormState {
   birthday: string;
   gender: "MALE" | "FEMALE" | "OTHER";
   avatarUrl: string;
+  privacyProfile: ProfilePrivacy;
 }
 
 export default function EditProfile() {
@@ -40,6 +49,7 @@ export default function EditProfile() {
     birthday: "",
     gender: "OTHER",
     avatarUrl: "",
+    privacyProfile: "PUBLIC",
   });
 
   const [formErrors, setFormErrors] = useState<FormErrors>({
@@ -59,20 +69,29 @@ export default function EditProfile() {
   } | null>(null);
 
   useEffect(() => {
-    if (currentUser) {
+    if (!currentUser) return;
+    userService.getProfileById(currentUser.id).then((profile) => {
       setFormData({
         name: currentUser.fullName ?? currentUser.name ?? "",
         username: currentUser.username ?? "",
         bio: currentUser.bio ?? "",
         birthday: currentUser.birthday ?? "",
-        gender: currentUser.gender?.toUpperCase() as
-          | "MALE"
-          | "FEMALE"
-          | "OTHER",
+        gender: currentUser.gender?.toUpperCase() as "MALE" | "FEMALE" | "OTHER",
         avatarUrl: currentUser.avatarUrl ?? "",
+        privacyProfile: (profile?.privacyProfile as ProfilePrivacy) ?? "PUBLIC",
       });
-      setPreviewAvatar(currentUser.avatarUrl ?? "");
-    }
+    }).catch(() => {
+      setFormData({
+        name: currentUser.fullName ?? currentUser.name ?? "",
+        username: currentUser.username ?? "",
+        bio: currentUser.bio ?? "",
+        birthday: currentUser.birthday ?? "",
+        gender: currentUser.gender?.toUpperCase() as "MALE" | "FEMALE" | "OTHER",
+        avatarUrl: currentUser.avatarUrl ?? "",
+        privacyProfile: "PUBLIC",
+      });
+    });
+    setPreviewAvatar(currentUser.avatarUrl ?? "");
   }, [currentUser]);
 
   const validateField = (field: keyof FormState, value: string) => {
@@ -227,6 +246,7 @@ export default function EditProfile() {
         bio: formData.bio,
         birthday: formData.birthday,
         gender: formData.gender,
+        privacyProfile: formData.privacyProfile,
       };
 
       // Parallelize: upload avatar and update profile simultaneously
@@ -484,6 +504,33 @@ export default function EditProfile() {
             {formErrors.gender && (
               <p className="text-red-500 text-sm mt-1">{formErrors.gender}</p>
             )}
+          </div>
+
+          {/* Profile Privacy */}
+          <div>
+            <label className="block text-sm font-semibold mb-1 dark:text-white">
+              Chế độ hồ sơ
+            </label>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+              Chọn ai có thể xem thông tin hồ sơ của bạn
+            </p>
+            <div className="flex gap-3">
+              {PRIVACY_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setFormData((prev) => ({ ...prev, privacyProfile: opt.value }))}
+                  className={`flex-1 px-3 py-3 border-2 rounded-lg font-semibold transition-colors text-center ${
+                    formData.privacyProfile === opt.value
+                      ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-300"
+                      : "border-gray-300 dark:border-[#262626] bg-white dark:bg-[#121212] text-gray-700 dark:text-gray-300 hover:border-gray-400"
+                  }`}
+                >
+                  <span className="block text-sm">{opt.label}</span>
+                  <span className="block text-xs font-normal opacity-70 mt-0.5">{opt.desc}</span>
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Submit Button */}

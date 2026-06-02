@@ -132,7 +132,7 @@ export default function FriendsTabScreen() {
 
     /* ── Navigate ────────────────────────────────────────────────── */
     const goProfile = (item: FriendUser) =>
-        router.push({ pathname: "/(tabs)/user-profile", params: { userId: String(item.id) } });
+        router.push({ pathname: "/(tabs)/user-profile", params: { userId: String(item.id), username: item.username } });
 
     /* ── Row renderers ───────────────────────────────────────────── */
 

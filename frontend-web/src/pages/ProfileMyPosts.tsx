@@ -1,5 +1,6 @@
 import { useOutletContext } from "react-router-dom";
 import PostGrid from "../components/profile/PostGrid";
+import PrivateAccountLock from "../components/profile/PrivateAccountLock";
 import { useProfileMyPosts } from "../hooks/useProfileHooks";
 import type { User } from "../types";
 
@@ -11,6 +12,10 @@ interface OutletContext {
 export default function ProfileMyPosts() {
   const { user, isOwnProfile } = useOutletContext<OutletContext>();
   const { posts, loading, error } = useProfileMyPosts(user);
+
+  if (!isOwnProfile && user.isPrivate) {
+    return <PrivateAccountLock />;
+  }
 
   if (loading) {
     return (
