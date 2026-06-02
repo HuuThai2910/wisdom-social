@@ -2,6 +2,7 @@ import  { createContext, useContext, useState, useCallback, useEffect } from "re
 import type  {ReactNode} from "react";
 import friendService from "../services/friendService";
 import { useCurrentUser } from "../hooks/useCurrentUser";
+import useBlockNotifications from "../hooks/useBlockNotifications";
 import type { User } from "../types";
 
 interface FriendDataContextType {
@@ -42,6 +43,7 @@ const FriendDataContext = createContext<FriendDataContextType | null>(null);
 
 export function FriendDataProvider({ children }: { children: ReactNode }) {
     const currentUser = useCurrentUser();
+    const blockTrigger = useBlockNotifications();
     
     // Friend requests state
     const [friendRequests, setFriendRequests] = useState<User[]>([]);
@@ -142,6 +144,12 @@ export function FriendDataProvider({ children }: { children: ReactNode }) {
             refreshFriends();
         }
     }, [currentUser?.id, refreshFriendRequests, refreshSentRequests, refreshFriends]);
+
+    useEffect(() => {
+        if (blockTrigger > 0) {
+            triggerRefreshAll();
+        }
+    }, [blockTrigger, triggerRefreshAll]);
 
     // Accept friend request
     const acceptRequest = useCallback(async (userId: number): Promise<boolean> => {

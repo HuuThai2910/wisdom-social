@@ -80,15 +80,23 @@ public class FriendServiceImpl implements FriendService {
             redisTemplate.opsForSet().add(recievedKey, String.valueOf(senderId));
             redisTemplate.opsForValue().set(requestKey,FriendStatus.PENDING.toString(), Duration.ofDays(7));
             
-            //push websocket to receiver
+            FriendEventPayload payload = FriendEventPayload.builder()
+                    .eventType("friend-request")
+                    .senderId(senderId)
+                    .receiverId(receiverId)
+                    .timestamp(OffsetDateTime.now().toString())
+                    .build();
+
+            //push websocket to both users so other logged-in devices sync too
+            if(sender != null && sender.getPhone() != null) {
+                String senderPhone = convertToInternationalFormat(sender.getPhone());
+                messagingTemplate.convertAndSend(
+                        "/topic/user/" + senderPhone + "/friend-request",
+                        payload
+                );
+            }
             if(receiver != null && receiver.getPhone() != null) {
                 String receiverPhone = convertToInternationalFormat(receiver.getPhone());
-                FriendEventPayload payload = FriendEventPayload.builder()
-                        .eventType("friend-request")
-                        .senderId(senderId)
-                        .receiverId(receiverId)
-                        .timestamp(OffsetDateTime.now().toString())
-                        .build();
                 messagingTemplate.convertAndSend(
                         "/topic/user/" + receiverPhone + "/friend-request",
                         payload
@@ -151,17 +159,25 @@ public class FriendServiceImpl implements FriendService {
                 friendRepository.save(existingFriend);
             }
 
-            // 3. Push realtime cho sender
+            FriendEventPayload payload = FriendEventPayload.builder()
+                    .eventType("friend-accept")
+                    .senderId(senderId)
+                    .receiverId(receiverId)
+                    .timestamp(OffsetDateTime.now().toString())
+                    .build();
+
+            // 3. Push realtime cho cả hai phía để đồng bộ nhiều thiết bị
             if(sender != null && sender.getPhone() != null) {
                 String senderPhone = convertToInternationalFormat(sender.getPhone());
-                FriendEventPayload payload = FriendEventPayload.builder()
-                        .eventType("friend-accept")
-                        .senderId(senderId)
-                        .receiverId(receiverId)
-                        .timestamp(OffsetDateTime.now().toString())
-                        .build();
                 messagingTemplate.convertAndSend(
                         "/topic/user/" + senderPhone + "/friend-accept",
+                        payload
+                );
+            }
+            if(receiver != null && receiver.getPhone() != null) {
+                String receiverPhone = convertToInternationalFormat(receiver.getPhone());
+                messagingTemplate.convertAndSend(
+                        "/topic/user/" + receiverPhone + "/friend-accept",
                         payload
                 );
             }
@@ -210,16 +226,25 @@ public class FriendServiceImpl implements FriendService {
                 }
             }
 
-            // Push notification to receiver about cancellation
+            FriendEventPayload payload = FriendEventPayload.builder()
+                    .eventType("friend-cancel")
+                    .senderId(senderId)
+                    .receiverId(receiverId)
+                    .timestamp(OffsetDateTime.now().toString())
+                    .build();
+
+            // Push realtime to both users so other logged-in devices sync too
+            User sender = userService.findUserById(senderId);
             User receiver = userService.findUserById(receiverId);
+            if(sender != null && sender.getPhone() != null) {
+                String senderPhone = convertToInternationalFormat(sender.getPhone());
+                messagingTemplate.convertAndSend(
+                        "/topic/user/" + senderPhone + "/friend-cancel",
+                        payload
+                );
+            }
             if(receiver != null && receiver.getPhone() != null) {
                 String receiverPhone = convertToInternationalFormat(receiver.getPhone());
-                FriendEventPayload payload = FriendEventPayload.builder()
-                        .eventType("friend-cancel")
-                        .senderId(senderId)
-                        .receiverId(receiverId)
-                        .timestamp(OffsetDateTime.now().toString())
-                        .build();
                 messagingTemplate.convertAndSend(
                         "/topic/user/" + receiverPhone + "/friend-cancel",
                         payload
@@ -257,16 +282,24 @@ public class FriendServiceImpl implements FriendService {
                 }
             }
 
+            FriendEventPayload payload = FriendEventPayload.builder()
+                    .eventType("friend-reject")
+                    .senderId(senderId)
+                    .receiverId(receiverId)
+                    .timestamp(OffsetDateTime.now().toString())
+                    .build();
+
             if(senderUser != null && senderUser.getPhone() != null) {
                 String senderPhone = convertToInternationalFormat(senderUser.getPhone());
-                FriendEventPayload payload = FriendEventPayload.builder()
-                        .eventType("friend-reject")
-                        .senderId(senderId)
-                        .receiverId(receiverId)
-                        .timestamp(OffsetDateTime.now().toString())
-                        .build();
                 messagingTemplate.convertAndSend(
                         "/topic/user/" + senderPhone + "/friend-reject",
+                        payload
+                );
+            }
+            if(receiverUser != null && receiverUser.getPhone() != null) {
+                String receiverPhone = convertToInternationalFormat(receiverUser.getPhone());
+                messagingTemplate.convertAndSend(
+                        "/topic/user/" + receiverPhone + "/friend-reject",
                         payload
                 );
             }

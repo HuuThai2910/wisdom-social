@@ -32,7 +32,7 @@ export function useBlockNotifications(): number {
                 BLOCK_EVENT_TYPES.forEach((eventType) => {
                     websocketService.subscribeToTopic(
                         `/topic/user/${phone}/${eventType}`,
-                        () => setRefreshTrigger((n) => n + 1),
+                        handleBlockEvent,
                     );
                 });
             } catch {
@@ -40,11 +40,13 @@ export function useBlockNotifications(): number {
             }
         };
 
+        const handleBlockEvent = () => setRefreshTrigger((n) => n + 1);
+
         void setup();
 
         return () => {
             BLOCK_EVENT_TYPES.forEach((eventType) => {
-                websocketService.unsubscribeFromTopic(`/topic/user/${phone}/${eventType}`);
+                websocketService.unsubscribeFromTopic(`/topic/user/${phone}/${eventType}`, handleBlockEvent);
             });
         };
     }, [currentUser?.phone]);

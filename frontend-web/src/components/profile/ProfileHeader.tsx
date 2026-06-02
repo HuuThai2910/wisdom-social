@@ -338,7 +338,7 @@ export default function ProfileHeader({
             </div>
 
             {/* Action buttons row */}
-            <div className="flex items-center gap-2 mt-1">
+            <div className="flex flex-wrap items-center gap-2 mt-1">
               {isOwnProfile ? (
                 <>
                   <Link
@@ -363,7 +363,7 @@ export default function ProfileHeader({
                 </>
               ) : (
                 <>
-                  <div className="flex-1 min-w-0 [&>button]:w-full [&>button]:h-8.5 [&>button]:rounded-lg [&>button]:text-[14px] [&>button]:whitespace-nowrap [&>div]:w-full [&>div>button]:flex-1 [&>div>button]:h-8.5 [&>div>button]:rounded-lg [&>div>button]:text-[14px] [&>div>button]:whitespace-nowrap">
+                  <div className="min-w-[220px] flex-[1.4_1_220px] [&>button]:w-full [&>button]:h-8.5 [&>button]:rounded-lg [&>button]:text-[14px] [&>button]:whitespace-nowrap [&>div]:w-full [&>div>button]:min-w-0 [&>div>button]:flex-1 [&>div>button]:h-8.5 [&>div>button]:rounded-lg [&>div>button]:text-[14px] [&>div>button]:whitespace-nowrap">
                     <FriendActions
                       targetUserId={user.id}
                       targetUsername={user.username}
@@ -373,7 +373,7 @@ export default function ProfileHeader({
                       onFriendRemoved={handleFriendRemoved}
                     />
                   </div>
-                  <button className="flex-1 inline-flex items-center justify-center gap-1.5 h-8.5 px-3 bg-[#efefef] dark:bg-[#262626] hover:bg-[#dbdbdb] dark:hover:bg-[#363636] border border-[#dbdbdb] dark:border-[#363636] rounded-lg text-[14px] font-semibold dark:text-white transition-colors">
+                  <button className="min-w-[140px] flex-[1_1_140px] inline-flex items-center justify-center gap-1.5 h-8.5 px-3 bg-[#efefef] dark:bg-[#262626] hover:bg-[#dbdbdb] dark:hover:bg-[#363636] border border-[#dbdbdb] dark:border-[#363636] rounded-lg text-[14px] font-semibold dark:text-white transition-colors">
                     <MessageCircle size={14} /> Nhắn tin
                   </button>
                   <button

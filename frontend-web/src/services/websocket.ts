@@ -437,6 +437,10 @@ class WebSocketService {
         string,
         Set<(updatedUser: any) => void>
     > = new Map();
+    private topicListeners: Map<
+        string,
+        Set<(message: any) => void>
+    > = new Map();
 
     private callEventListeners: Map<
         number,
@@ -1520,6 +1524,11 @@ class WebSocketService {
      * @param callback - Hàm được gọi khi nhận message
      */
     subscribeToTopic(destination: string, callback: (message: any) => void) {
+        const listeners =
+            this.topicListeners.get(destination) ?? new Set<(message: any) => void>();
+        listeners.add(callback);
+        this.topicListeners.set(destination, listeners);
+
         if (!this.client?.connected) {
             console.error(
                 "WebSocket not connected, cannot subscribe to topic:",
@@ -1535,9 +1544,8 @@ class WebSocketService {
             return;
         }
 
-        const subscription = this.client.subscribe(
-            destination,
-            (message: IMessage) => {
+        this.registerSubscription(destination, () =>
+            this.client!.subscribe(destination, (message: IMessage) => {
                 try {
                     // Try to parse as JSON, fallback to raw string
                     let parsedMessage;
@@ -1546,17 +1554,17 @@ class WebSocketService {
                     } catch {
                         parsedMessage = message.body;
                     }
-                    callback(parsedMessage);
+                    this.topicListeners
+                        .get(destination)
+                        ?.forEach((listener) => listener(parsedMessage));
                 } catch (error) {
                     console.error(
                         `Error handling message from ${destination}:`,
                         error,
                     );
                 }
-            },
+            }),
         );
-
-        this.subscriptions.set(destination, subscription);
         console.log(`Subscribed to ${destination}`);
     }
 
@@ -1565,13 +1573,18 @@ class WebSocketService {
      *
      * @param destination - Topic destination to unsubscribe from
      */
-    unsubscribeFromTopic(destination: string) {
-        const subscription = this.subscriptions.get(destination);
-        if (subscription) {
-            subscription.unsubscribe();
-            this.subscriptions.delete(destination);
-            console.log(`Unsubscribed from ${destination}`);
+    unsubscribeFromTopic(destination: string, callback?: (message: any) => void) {
+        if (callback) {
+            const listeners = this.topicListeners.get(destination);
+            listeners?.delete(callback);
+            if (listeners && listeners.size > 0) {
+                return;
+            }
         }
+
+        this.topicListeners.delete(destination);
+        this.removeSubscription(destination);
+        console.log(`Unsubscribed from ${destination}`);
     }
 
     /**

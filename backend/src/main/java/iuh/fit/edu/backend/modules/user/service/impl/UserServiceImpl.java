@@ -584,7 +584,7 @@ public class UserServiceImpl implements UserService {
                 return false;
             }
 
-            boolean friendStateChanged = removeFriendshipAndPendingRequests(blocker, blocked);
+            removeFriendshipAndPendingRequests(blocker, blocked);
 
             BlockedUser existing = blockUserService.getBlockUserByBlockerAndBlocked(friendRequest);
             if (existing != null) {
@@ -606,16 +606,6 @@ public class UserServiceImpl implements UserService {
                     .build();
             simpMessagingTemplate.convertAndSend("/topic/user/" + blockerPhone + "/save-block", blockPayload);
             simpMessagingTemplate.convertAndSend("/topic/user/" + blockedPhone + "/save-block", blockPayload);
-            if (friendStateChanged) {
-                FriendEventPayload friendPayload = FriendEventPayload.builder()
-                        .eventType("friend-cancel")
-                        .senderId(friendRequest.getSenderId())
-                        .receiverId(friendRequest.getReceivedId())
-                        .timestamp(OffsetDateTime.now().toString())
-                        .build();
-                simpMessagingTemplate.convertAndSend("/topic/user/" + blockerPhone + "/friend-cancel", friendPayload);
-                simpMessagingTemplate.convertAndSend("/topic/user/" + blockedPhone + "/friend-cancel", friendPayload);
-            }
             return true;
         }
         return false;

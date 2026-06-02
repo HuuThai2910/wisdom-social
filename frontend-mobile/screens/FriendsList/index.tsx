@@ -17,6 +17,7 @@ import { colors } from "@/constants";
 import { useAppContext } from "@/context/AppContext";
 import blockService from "@/services/blockService";
 import friendService, { FriendUser } from "@/services/friendService";
+import { useBlockNotifications } from "@/hooks/useBlockNotifications";
 import { useFriendNotifications } from "@/hooks/useFriendNotifications";
 import { usePresenceStatus } from "@/hooks/usePresenceStatus";
 
@@ -128,10 +129,11 @@ export default function FriendsListScreen() {
     const presenceByUserId = usePresenceStatus(filteredList.map((user) => user.id));
 
     const refreshTrigger = useFriendNotifications();
+    const blockTrigger = useBlockNotifications();
 
     useEffect(() => {
         void loadData();
-    }, [loadData, refreshTrigger]);
+    }, [loadData, refreshTrigger, blockTrigger]);
 
     useFocusEffect(
         useCallback(() => {

@@ -129,32 +129,32 @@ export default function UserProfileScreen() {
     const handleSendRequest = async () => {
         setActionLoading(true);
         await friendService.sendFriendRequest(myId, targetId);
-        setFriendStatus("SENT");
-        void loadFriendsCount();
+        await loadFriendStatus();
+        await loadFriendsCount();
         setActionLoading(false);
     };
 
     const handleCancelRequest = async () => {
         setActionLoading(true);
         await friendService.cancelFriendRequest(myId, targetId);
-        setFriendStatus("NONE");
-        void loadFriendsCount();
+        await loadFriendStatus();
+        await loadFriendsCount();
         setActionLoading(false);
     };
 
     const handleAccept = async () => {
         setActionLoading(true);
         await friendService.acceptFriendRequest(targetId, myId);
-        setFriendStatus("FRIEND");
-        void loadFriendsCount();
+        await loadFriendStatus();
+        await loadFriendsCount();
         setActionLoading(false);
     };
 
     const handleReject = async () => {
         setActionLoading(true);
         await friendService.rejectFriendRequest(targetId, myId);
-        setFriendStatus("NONE");
-        void loadFriendsCount();
+        await loadFriendStatus();
+        await loadFriendsCount();
         setActionLoading(false);
     };
 
@@ -167,8 +167,8 @@ export default function UserProfileScreen() {
                 onPress: async () => {
                     setActionLoading(true);
                     await friendService.cancelFriendRequest(myId, targetId);
-                    setFriendStatus("NONE");
-                    void loadFriendsCount();
+                    await loadFriendStatus();
+                    await loadFriendsCount();
                     setActionLoading(false);
                 },
             },
@@ -182,7 +182,7 @@ export default function UserProfileScreen() {
             {
                 text: friendStatus === "BLOCKED" ? "Bỏ chặn" : "Chặn tài khoản",
                 style: "destructive",
-                onPress: handleBlock,
+                onPress: friendStatus === "BLOCKED" ? handleUnblock : handleBlock,
             },
             { text: "Hủy", style: "cancel" },
         ]);
@@ -197,7 +197,25 @@ export default function UserProfileScreen() {
                 onPress: async () => {
                     setActionLoading(true);
                     await blockService.blockUser(myId, targetId);
-                    setFriendStatus("BLOCKED");
+                    await loadFriendStatus();
+                    await loadFriendsCount();
+                    setActionLoading(false);
+                },
+            },
+        ]);
+    };
+
+    const handleUnblock = () => {
+        Alert.alert("Bỏ chặn", "Bạn có chắc muốn bỏ chặn người này?", [
+            { text: "Hủy", style: "cancel" },
+            {
+                text: "Bỏ chặn",
+                style: "destructive",
+                onPress: async () => {
+                    setActionLoading(true);
+                    await blockService.unblockUser(myId, targetId);
+                    await loadFriendStatus();
+                    await loadFriendsCount();
                     setActionLoading(false);
                 },
             },

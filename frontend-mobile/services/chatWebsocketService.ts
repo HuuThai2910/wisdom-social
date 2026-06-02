@@ -217,6 +217,7 @@ class ChatWebsocketService {
         number,
         Set<(event: { userId: number; online: boolean; lastActiveAt?: string | null }) => void>
     >();
+    private topicListeners = new Map<string, Set<(body: string) => void>>();
 
     setPresenceIdentity(phone?: string | null): void {
         // Phone duoc gui qua STOMP CONNECT header "login" de backend gan session voi user.
@@ -1349,16 +1350,35 @@ class ChatWebsocketService {
         destination: string,
         onMessage: (body: string) => void,
     ): void {
+        const listeners =
+            this.topicListeners.get(destination) ?? new Set<(body: string) => void>();
+        listeners.add(onMessage);
+        this.topicListeners.set(destination, listeners);
+
+        if (this.subscriptions.has(destination)) {
+            return;
+        }
+
         this.registerSubscription(destination, () => {
             const client = this.client;
             if (!client?.connected) throw new Error("WebSocket not connected");
             return client.subscribe(destination, (msg: IMessage) => {
-                onMessage(msg.body);
+                this.topicListeners
+                    .get(destination)
+                    ?.forEach((listener) => listener(msg.body));
             });
         });
     }
 
-    unsubscribeFromTopic(destination: string): void {
+    unsubscribeFromTopic(destination: string, onMessage?: (body: string) => void): void {
+        if (onMessage) {
+            const listeners = this.topicListeners.get(destination);
+            listeners?.delete(onMessage);
+            if (listeners && listeners.size > 0) {
+                return;
+            }
+        }
+        this.topicListeners.delete(destination);
         this.removeSubscription(destination);
     }
 
