@@ -2,6 +2,7 @@ import  { createContext, useContext, useState, useCallback, useEffect } from "re
 import type  {ReactNode} from "react";
 import friendService from "../services/friendService";
 import { useCurrentUser } from "../hooks/useCurrentUser";
+import useBlockNotifications from "../hooks/useBlockNotifications";
 import type { User } from "../types";
 
 interface FriendDataContextType {
@@ -42,6 +43,7 @@ const FriendDataContext = createContext<FriendDataContextType | null>(null);
 
 export function FriendDataProvider({ children }: { children: ReactNode }) {
     const currentUser = useCurrentUser();
+    const blockTrigger = useBlockNotifications();
     
     // Friend requests state
     const [friendRequests, setFriendRequests] = useState<User[]>([]);
@@ -143,6 +145,12 @@ export function FriendDataProvider({ children }: { children: ReactNode }) {
         }
     }, [currentUser?.id, refreshFriendRequests, refreshSentRequests, refreshFriends]);
 
+    useEffect(() => {
+        if (blockTrigger > 0) {
+            triggerRefreshAll();
+        }
+    }, [blockTrigger, triggerRefreshAll]);
+
     // Accept friend request
     const acceptRequest = useCallback(async (userId: number): Promise<boolean> => {
         if (!currentUser?.id) return false;
@@ -156,6 +164,7 @@ export function FriendDataProvider({ children }: { children: ReactNode }) {
             setFriendRequests(prev => prev.filter(u => u.id !== userId));
             // Refresh friends list to show new friend
             refreshFriends();
+            setRefreshTrigger(prev => prev + 1);
             return true;
         } catch (err) {
             console.error("Error accepting request:", err);
@@ -174,6 +183,7 @@ export function FriendDataProvider({ children }: { children: ReactNode }) {
             });
             // Update local state immediately
             setFriendRequests(prev => prev.filter(u => u.id !== userId));
+            setRefreshTrigger(prev => prev + 1);
             return true;
         } catch (err) {
             console.error("Error rejecting request:", err);
@@ -197,6 +207,7 @@ export function FriendDataProvider({ children }: { children: ReactNode }) {
                 senderId: currentUser.id,
                 receivedId: target.id,
             });
+            setRefreshTrigger(prev => prev + 1);
             return true;
         } catch (err) {
             console.error("Error sending friend request:", err);
@@ -222,6 +233,7 @@ export function FriendDataProvider({ children }: { children: ReactNode }) {
                 senderId: currentUser.id,
                 receivedId: userId,
             });
+            setRefreshTrigger(prev => prev + 1);
             return true;
         } catch (err) {
             console.error("Error canceling sent request:", err);
@@ -246,6 +258,7 @@ export function FriendDataProvider({ children }: { children: ReactNode }) {
             });
             // Update local state immediately
             setFriends(prev => prev.filter(u => u.id !== userId));
+            setRefreshTrigger(prev => prev + 1);
             return true;
         } catch (err) {
             console.error("Error unfriending:", err);

@@ -1439,7 +1439,7 @@ export default function PageDetail() {
                         Thêm thành viên
                       </button>
                       <Link
-                        to={`/pages/${pageId}/posts`}
+                        to={`/pages/${pageId}/settings`}
                         className="flex-1 flex items-center justify-center gap-2 py-2 bg-gray-100 dark:bg-[#3a3b3c] text-gray-700 dark:text-gray-200 rounded-lg text-sm font-semibold hover:bg-gray-200 transition-colors"
                       >
                         <FileText size={16} />

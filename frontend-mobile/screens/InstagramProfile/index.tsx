@@ -91,7 +91,7 @@ export default function InstagramProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { userId: paramUserId, username: paramUsername } = useLocalSearchParams<{ userId?: string; username?: string }>();
-  const { currentUser, posts, savedPostIds, logout } = useAppContext();
+  const { currentUser, logout } = useAppContext();
 
   const isViewingOther = useMemo(
     () => !!paramUserId && String(paramUserId) !== String(currentUser?.id),
@@ -128,7 +128,14 @@ export default function InstagramProfileScreen() {
   const [tabPosts, setTabPosts] = useState<any[]>([]);
   const [tabLoading, setTabLoading] = useState(false);
   const [friendsCount, setFriendsCount] = useState(0);
+  const [profilePostsCount, setProfilePostsCount] = useState<number | null>(
+    null
+  );
   const refreshTrigger = useFriendNotifications();
+  const profileFriendTrigger = useFriendNotifications(
+    undefined,
+    isViewingOther ? profileUser?.phone : null,
+  );
   const blockTrigger = useBlockNotifications();
 
   // ── Highlight state ────────────────────────────────────────────────────────
@@ -152,15 +159,6 @@ export default function InstagramProfileScreen() {
 
   const { note, showNoteModal, openNoteModal, closeNoteModal, setNote } =
     useProfileNote(noteUserId);
-
-  const myPosts = useMemo(
-    () => posts.filter((p) => p.userId === currentUser?.id),
-    [posts, currentUser?.id]
-  );
-  const savedPosts = useMemo(
-    () => posts.filter((p) => savedPostIds.includes(p.id)),
-    [posts, savedPostIds]
-  );
 
   const displayPosts = useMemo(() => {
     return tabPosts;
@@ -194,6 +192,19 @@ export default function InstagramProfileScreen() {
       setOtherFriendsCount(list.length);
     } catch {}
   }, [isViewingOther, targetId]);
+
+  const loadPostsCount = useCallback(async () => {
+    const activeUserId = isViewingOther
+      ? String(targetId)
+      : String(currentUser?.id);
+    if (!activeUserId || activeUserId === "undefined" || activeUserId === "NaN") {
+      setProfilePostsCount(null);
+      return;
+    }
+
+    const count = await postApi.getUserPostsCount(activeUserId);
+    setProfilePostsCount(count);
+  }, [isViewingOther, targetId, currentUser?.id]);
 
   const loadHighlights = useCallback(async () => {
     const activeUserId = isViewingOther
@@ -278,6 +289,7 @@ export default function InstagramProfileScreen() {
         void loadFriendStatus();
         void loadOtherFriendsCount();
         void loadHighlights();
+        void loadPostsCount();
       }
     }, [
       isViewingOther,
@@ -285,7 +297,9 @@ export default function InstagramProfileScreen() {
       loadFriendStatus,
       loadOtherFriendsCount,
       loadHighlights,
+      loadPostsCount,
       refreshTrigger,
+      profileFriendTrigger,
     ])
   );
 
@@ -298,8 +312,25 @@ export default function InstagramProfileScreen() {
         .then((list) => setFriendsCount(list.length))
         .catch(() => {});
       void loadHighlights();
-    }, [isViewingOther, currentUser?.id, loadHighlights])
+      void loadPostsCount();
+    }, [
+      isViewingOther,
+      currentUser?.id,
+      loadHighlights,
+      loadPostsCount,
+      loadOtherFriendsCount,
+      refreshTrigger,
+    ])
   );
+
+  useEffect(() => {
+    if (isViewingOther || !currentUser?.id) return;
+
+    friendService
+      .getFriends(Number(currentUser.id))
+      .then((list) => setFriendsCount(list.length))
+      .catch(() => {});
+  }, [isViewingOther, currentUser?.id, refreshTrigger]);
 
   const loadBlockedUsers = useCallback(async () => {
     if (!currentUser?.id) return;
@@ -326,6 +357,7 @@ export default function InstagramProfileScreen() {
       if (selectedTab === "posts") {
         const res = await postApi.getUserPostsWithDetails(activeUserId);
         setTabPosts(res);
+        void loadPostsCount();
       } else if (selectedTab === "saved") {
         if (!isViewingOther) {
           const res = await postApi.getSavedPostsWithDetails(activeUserId);
@@ -351,7 +383,14 @@ export default function InstagramProfileScreen() {
     } finally {
       setTabLoading(false);
     }
-  }, [isViewingOther, targetId, currentUser?.id, selectedTab, isPrivateProfile]);
+  }, [
+    isViewingOther,
+    targetId,
+    currentUser?.id,
+    selectedTab,
+    isPrivateProfile,
+    loadPostsCount,
+  ]);
 
   useEffect(() => {
     void loadTabContent();
@@ -365,25 +404,29 @@ export default function InstagramProfileScreen() {
   const handleSendRequest = async () => {
     setActionLoading(true);
     await friendService.sendFriendRequest(myId, targetId);
-    setFriendStatus("SENT");
+    await loadFriendStatus();
+    await loadOtherFriendsCount();
     setActionLoading(false);
   };
   const handleCancelRequest = async () => {
     setActionLoading(true);
     await friendService.cancelFriendRequest(myId, targetId);
-    setFriendStatus("NONE");
+    await loadFriendStatus();
+    await loadOtherFriendsCount();
     setActionLoading(false);
   };
   const handleAccept = async () => {
     setActionLoading(true);
     await friendService.acceptFriendRequest(targetId, myId);
-    setFriendStatus("FRIEND");
+    await loadFriendStatus();
+    await loadOtherFriendsCount();
     setActionLoading(false);
   };
   const handleReject = async () => {
     setActionLoading(true);
     await friendService.rejectFriendRequest(targetId, myId);
-    setFriendStatus("NONE");
+    await loadFriendStatus();
+    await loadOtherFriendsCount();
     setActionLoading(false);
   };
   const handleUnfriend = () => {
@@ -395,7 +438,8 @@ export default function InstagramProfileScreen() {
         onPress: async () => {
           setActionLoading(true);
           await friendService.cancelFriendRequest(myId, targetId);
-          setFriendStatus("NONE");
+          await loadFriendStatus();
+          await loadOtherFriendsCount();
           setActionLoading(false);
         },
       },
@@ -415,7 +459,8 @@ export default function InstagramProfileScreen() {
           onPress: async () => {
             setActionLoading(true);
             await blockService.blockUser(myId, targetId);
-            setFriendStatus("BLOCKED");
+            await loadFriendStatus();
+            await loadOtherFriendsCount();
             setActionLoading(false);
           },
         },
@@ -431,7 +476,8 @@ export default function InstagramProfileScreen() {
         onPress: async () => {
           setActionLoading(true);
           await blockService.unblockUser(myId, targetId);
-          setFriendStatus("NONE");
+          await loadFriendStatus();
+          await loadOtherFriendsCount();
           setActionLoading(false);
         },
       },
@@ -773,13 +819,15 @@ export default function InstagramProfileScreen() {
                 </Text>
                 <View style={s.statsRow}>
                   <StatItem
-                    value={String(u?.postsCount ?? 0)}
+                    value={String(profilePostsCount ?? 0)}
                     label="Bài viết"
                   />
                   <StatItem
                     value={
                       isPrivateProfile
-                        ? String(profileUser?.friendsCount ?? 0)
+                        ? otherFriendsCount !== null
+                          ? String(otherFriendsCount)
+                          : "—"
                         : otherFriendsCount !== null
                         ? String(otherFriendsCount)
                         : "—"
@@ -926,11 +974,11 @@ export default function InstagramProfileScreen() {
                       value={isPrivateProfile ? "**********" : u!.phone!}
                     />
                   ) : null}
-                  {(typeof (isPrivateProfile ? profileUser?.friendsCount : otherFriendsCount) === "number") ? (
+                  {typeof otherFriendsCount === "number" ? (
                     <InfoModalRow
                       icon="people"
                       label="Bạn bè"
-                      value={`${isPrivateProfile ? (profileUser?.friendsCount ?? 0) : otherFriendsCount} người`}
+                      value={`${otherFriendsCount} người`}
                     />
                   ) : null}
                 </ScrollView>
@@ -1126,12 +1174,9 @@ export default function InstagramProfileScreen() {
 
             {/* Stats */}
             <View style={s.statsRow}>
-              <StatItem value={String(myPosts.length)} label="Bài viết" />
+              <StatItem value={String(profilePostsCount ?? 0)} label="Bài viết" />
               <StatItem value={String(friendsCount)} label="Bạn bè" />
-              <StatItem
-                value={String(currentUser.following ?? 0)}
-                label="Theo dõi"
-              />
+              
             </View>
           </View>
         </View>
@@ -1885,7 +1930,7 @@ const s = StyleSheet.create({
     lineHeight: 15,
   },
   noteBubblePlaceholder: {
-    fontSize: 11,
+    fontSize: 10,
     color: "#8E8E93",
     fontWeight: "500",
   },

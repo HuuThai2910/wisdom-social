@@ -17,6 +17,7 @@ import { useAppContext } from "@/context/AppContext";
 import friendService from "@/services/friendService";
 import blockService from "@/services/blockService";
 import userService from "@/services/userService";
+import * as postApi from "@/services/postService";
 import { useFriendNotifications } from "@/hooks/useFriendNotifications";
 import { usePresenceStatus } from "@/hooks/usePresenceStatus";
 import type { User } from "@/services/userService";
@@ -29,7 +30,7 @@ const toImageUrl = (url?: string): string | undefined => {
     return S3_BASE + url;
 };
 
-type FriendStatus = "NONE" | "SENT" | "RECEIVED" | "FRIEND" | "BLOCKED";
+type FriendStatus = "NONE" | "SENT" | "RECEIVED" | "FRIEND" | "BLOCKED" | "BLOCKED_BY";
 
 export default function UserProfileScreen() {
     const router = useRouter();
@@ -56,6 +57,7 @@ export default function UserProfileScreen() {
 
     const [profileUser, setProfileUser] = useState<User | null>(null);
     const [profileLoading, setProfileLoading] = useState(true);
+    const [postsCount, setPostsCount] = useState<number | null>(null);
     const [showReportModal, setShowReportModal] = useState(false);
 
     const loadProfile = useCallback(async () => {
@@ -92,41 +94,67 @@ export default function UserProfileScreen() {
         }
     }, [targetId, myId]);
 
+    const loadPostsCount = useCallback(async () => {
+        const id = isOwnProfile ? currentUser?.id : userId;
+        if (!id) {
+            setPostsCount(null);
+            return;
+        }
+
+        setPostsCount(await postApi.getUserPostsCount(id));
+    }, [isOwnProfile, currentUser?.id, userId]);
+
     // Auto-refresh on WebSocket friend events
     const refreshTrigger = useFriendNotifications();
+    const targetFriendTrigger = useFriendNotifications(
+        undefined,
+        !isOwnProfile ? profileUser?.phone : null,
+    );
 
     useEffect(() => {
         void loadProfile();
         void loadFriendStatus();
         void loadFriendsCount();
-    }, [loadProfile, loadFriendStatus, loadFriendsCount, refreshTrigger]);
+        void loadPostsCount();
+    }, [
+        loadProfile,
+        loadFriendStatus,
+        loadFriendsCount,
+        loadPostsCount,
+        refreshTrigger,
+        targetFriendTrigger,
+    ]);
 
     // --- Friend action handlers ---
     const handleSendRequest = async () => {
         setActionLoading(true);
         await friendService.sendFriendRequest(myId, targetId);
-        setFriendStatus("SENT");
+        await loadFriendStatus();
+        await loadFriendsCount();
         setActionLoading(false);
     };
 
     const handleCancelRequest = async () => {
         setActionLoading(true);
         await friendService.cancelFriendRequest(myId, targetId);
-        setFriendStatus("NONE");
+        await loadFriendStatus();
+        await loadFriendsCount();
         setActionLoading(false);
     };
 
     const handleAccept = async () => {
         setActionLoading(true);
         await friendService.acceptFriendRequest(targetId, myId);
-        setFriendStatus("FRIEND");
+        await loadFriendStatus();
+        await loadFriendsCount();
         setActionLoading(false);
     };
 
     const handleReject = async () => {
         setActionLoading(true);
         await friendService.rejectFriendRequest(targetId, myId);
-        setFriendStatus("NONE");
+        await loadFriendStatus();
+        await loadFriendsCount();
         setActionLoading(false);
     };
 
@@ -139,7 +167,8 @@ export default function UserProfileScreen() {
                 onPress: async () => {
                     setActionLoading(true);
                     await friendService.cancelFriendRequest(myId, targetId);
-                    setFriendStatus("NONE");
+                    await loadFriendStatus();
+                    await loadFriendsCount();
                     setActionLoading(false);
                 },
             },
@@ -148,15 +177,18 @@ export default function UserProfileScreen() {
 
     // Menu ⋮ : cho phép Báo cáo hoặc Chặn tài khoản
     const handleOpenMenu = () => {
-        Alert.alert(profileUser?.name || profileUser?.username || "Tài khoản", undefined, [
+        const buttons: Parameters<typeof Alert.alert>[2] = [
             { text: "Báo cáo tài khoản", onPress: () => setShowReportModal(true) },
-            {
+        ];
+        if (friendStatus !== "BLOCKED_BY") {
+            buttons.push({
                 text: friendStatus === "BLOCKED" ? "Bỏ chặn" : "Chặn tài khoản",
                 style: "destructive",
-                onPress: handleBlock,
-            },
-            { text: "Hủy", style: "cancel" },
-        ]);
+                onPress: friendStatus === "BLOCKED" ? handleUnblock : handleBlock,
+            });
+        }
+        buttons.push({ text: "Hủy", style: "cancel" });
+        Alert.alert(profileUser?.name || profileUser?.username || "Tài khoản", undefined, buttons);
     };
 
     const handleBlock = () => {
@@ -168,7 +200,25 @@ export default function UserProfileScreen() {
                 onPress: async () => {
                     setActionLoading(true);
                     await blockService.blockUser(myId, targetId);
-                    setFriendStatus("BLOCKED");
+                    await loadFriendStatus();
+                    await loadFriendsCount();
+                    setActionLoading(false);
+                },
+            },
+        ]);
+    };
+
+    const handleUnblock = () => {
+        Alert.alert("Bỏ chặn", "Bạn có chắc muốn bỏ chặn người này?", [
+            { text: "Hủy", style: "cancel" },
+            {
+                text: "Bỏ chặn",
+                style: "destructive",
+                onPress: async () => {
+                    setActionLoading(true);
+                    await blockService.unblockUser(myId, targetId);
+                    await loadFriendStatus();
+                    await loadFriendsCount();
                     setActionLoading(false);
                 },
             },
@@ -287,6 +337,10 @@ export default function UserProfileScreen() {
             );
         }
 
+        if (friendStatus === "BLOCKED_BY") {
+            return null;
+        }
+
         return null;
     };
 
@@ -332,7 +386,9 @@ export default function UserProfileScreen() {
                     {/* Stats */}
                     <View style={styles.statsContainer}>
                         <View style={styles.statItem}>
-                            <Text style={styles.statNumber}>{profileUser?.postsCount ?? "—"}</Text>
+                            <Text style={styles.statNumber}>
+                                {postsCount !== null ? String(postsCount) : "—"}
+                            </Text>
                             <Text style={styles.statLabel}>Bài viết</Text>
                         </View>
                         <TouchableOpacity

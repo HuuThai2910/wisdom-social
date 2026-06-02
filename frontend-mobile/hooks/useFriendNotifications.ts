@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ApiAuthUser } from "@/services/authService";
 import chatWebsocketService from "@/services/chatWebsocketService";
 import friendWebsocketService, { type FriendEvent } from "@/services/friendWebsocketService";
+import { subscribeFriendMutations } from "@/services/friendService";
 import { getUser } from "@/utils/storage";
 
 function toInternationalPhone(phone: string): string {
@@ -20,6 +21,7 @@ function toInternationalPhone(phone: string): string {
  */
 export function useFriendNotifications(
     onEvent?: (event: FriendEvent) => void,
+    phoneOverride?: string | null,
 ): number {
     const [refreshTrigger, setRefreshTrigger] = useState(0);
     const onEventRef = useRef(onEvent);
@@ -27,13 +29,26 @@ export function useFriendNotifications(
 
     useEffect(() => {
         let phone: string | null = null;
+        let handleEvent: ((event: FriendEvent) => void) | null = null;
         let cancelled = false;
+        const unsubscribeLocalMutation =
+            phoneOverride === undefined
+                ? subscribeFriendMutations(() => {
+                      setRefreshTrigger((n) => n + 1);
+                  })
+                : undefined;
 
         const setup = async () => {
-            const storedUser = await getUser<ApiAuthUser>();
-            if (cancelled || !storedUser?.phone) return;
+            if (phoneOverride === null) return;
 
-            phone = toInternationalPhone(storedUser.phone);
+            if (phoneOverride) {
+                phone = toInternationalPhone(phoneOverride);
+            } else {
+                const storedUser = await getUser<ApiAuthUser>();
+                if (!storedUser?.phone) return;
+                phone = toInternationalPhone(storedUser.phone);
+            }
+            if (cancelled || !phone) return;
 
             try {
                 await chatWebsocketService.connect();
@@ -41,22 +56,26 @@ export function useFriendNotifications(
                 // connect() may throw if all candidates fail; subscriptions are
                 // still registered and will be synced on the next reconnect.
             }
+            if (cancelled) return;
 
-            friendWebsocketService.subscribeToUserFriendEvents(phone, (event) => {
+            handleEvent = (event: FriendEvent) => {
                 setRefreshTrigger((n) => n + 1);
                 onEventRef.current?.(event);
-            });
+            };
+
+            friendWebsocketService.subscribeToUserFriendEvents(phone, handleEvent);
         };
 
         void setup();
 
         return () => {
             cancelled = true;
-            if (phone) {
-                friendWebsocketService.unsubscribeFromUserFriendEvents(phone);
+            unsubscribeLocalMutation?.();
+            if (phone && handleEvent) {
+                friendWebsocketService.unsubscribeFromUserFriendEvents(phone, handleEvent);
             }
         };
-    }, []);
+    }, [phoneOverride]);
 
     return refreshTrigger;
 }

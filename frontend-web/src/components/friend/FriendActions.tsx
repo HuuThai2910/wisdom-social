@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { UserPlus, UserMinus, UserCheck, Clock, Loader2, X } from "lucide-react";
 import { useFriendStatus, type FriendshipStatus } from "../../hooks/useFriendStatus";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
@@ -35,6 +35,13 @@ export default function FriendActions({
         cancelRequest,
         unfriend,
     } = useFriendStatus(targetUserId);
+
+    // Notify parent whenever status settles (not just on user action)
+    const onStatusChangeRef = useRef(onStatusChange);
+    useEffect(() => { onStatusChangeRef.current = onStatusChange; });
+    useEffect(() => {
+        if (status !== "loading") onStatusChangeRef.current?.(status);
+    }, [status]);
 
     const [confirmModal, setConfirmModal] = useState<{
         title: string;
@@ -247,6 +254,10 @@ export default function FriendActions({
                 </button>
                 </>
             );
+
+        case "blocked":
+        case "blocked_by":
+            return null;
 
         default:
             return modal ?? null;

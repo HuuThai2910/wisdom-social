@@ -13,12 +13,13 @@ import {
     RefreshControl,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { colors } from "@/constants";
 import { useAppContext } from "@/context/AppContext";
 import blockService from "@/services/blockService";
 import friendService, { FriendUser } from "@/services/friendService";
+import { useBlockNotifications } from "@/hooks/useBlockNotifications";
 import { useFriendNotifications } from "@/hooks/useFriendNotifications";
 import { usePresenceStatus } from "@/hooks/usePresenceStatus";
 import { buildS3Url } from "@/utils/s3";
@@ -75,7 +76,14 @@ export default function FriendsTabScreen() {
     }, [myId, tab]);
 
     const refreshTrigger = useFriendNotifications();
-    useEffect(() => { void loadData(); }, [loadData, refreshTrigger]);
+    const blockTrigger = useBlockNotifications();
+    useEffect(() => { void loadData(); }, [loadData, refreshTrigger, blockTrigger]);
+
+    useFocusEffect(
+        useCallback(() => {
+            void loadData();
+        }, [loadData]),
+    );
 
     const onRefresh = useCallback(async () => {
         setRefreshing(true);
