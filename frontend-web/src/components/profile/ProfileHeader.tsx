@@ -24,6 +24,7 @@ import FriendsModal from "./FriendsModal";
 import { buildS3Url } from "../../utils/s3";
 import BlockUnblockButton from "../friend/BlockUnblockButton";
 import FriendActions from "../friend/FriendActions";
+import type { FriendshipStatus } from "../../hooks/useFriendStatus";
 import friendService from "../../services/friendService";
 import { NOTE_PLACEHOLDERS } from "./note-modal/NoteContentDefault";
 import { getUserPostsCount } from "../../services/postService";
@@ -69,6 +70,7 @@ export default function ProfileHeader({
   onFriendAccepted,
   onFriendRemoved,
 }: ProfileHeaderProps) {
+  const [friendStatus, setFriendStatus] = useState<FriendshipStatus>("loading");
   const [showFriendsModal, setShowFriendsModal] = useState(false);
   const [showInfoModal, setShowInfoModal] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
@@ -371,6 +373,7 @@ export default function ProfileHeader({
                       showText={true}
                       onFriendAccepted={handleFriendAccepted}
                       onFriendRemoved={handleFriendRemoved}
+                      onStatusChange={setFriendStatus}
                     />
                   </div>
                   <button className="min-w-[140px] flex-[1_1_140px] inline-flex items-center justify-center gap-1.5 h-8.5 px-3 bg-[#efefef] dark:bg-[#262626] hover:bg-[#dbdbdb] dark:hover:bg-[#363636] border border-[#dbdbdb] dark:border-[#363636] rounded-lg text-[14px] font-semibold dark:text-white transition-colors">
@@ -390,11 +393,13 @@ export default function ProfileHeader({
                   >
                     <Flag size={16} />
                   </button>
-                  <BlockUnblockButton
-                    userId={user.id}
-                    username={user.username}
-                    iconOnly
-                  />
+                  {friendStatus !== "blocked_by" && (
+                    <BlockUnblockButton
+                      userId={user.id}
+                      username={user.username}
+                      iconOnly
+                    />
+                  )}
                 </>
               )}
             </div>

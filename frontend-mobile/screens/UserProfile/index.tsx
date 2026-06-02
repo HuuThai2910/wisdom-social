@@ -30,7 +30,7 @@ const toImageUrl = (url?: string): string | undefined => {
     return S3_BASE + url;
 };
 
-type FriendStatus = "NONE" | "SENT" | "RECEIVED" | "FRIEND" | "BLOCKED";
+type FriendStatus = "NONE" | "SENT" | "RECEIVED" | "FRIEND" | "BLOCKED" | "BLOCKED_BY";
 
 export default function UserProfileScreen() {
     const router = useRouter();
@@ -177,15 +177,18 @@ export default function UserProfileScreen() {
 
     // Menu ⋮ : cho phép Báo cáo hoặc Chặn tài khoản
     const handleOpenMenu = () => {
-        Alert.alert(profileUser?.name || profileUser?.username || "Tài khoản", undefined, [
+        const buttons: Parameters<typeof Alert.alert>[2] = [
             { text: "Báo cáo tài khoản", onPress: () => setShowReportModal(true) },
-            {
+        ];
+        if (friendStatus !== "BLOCKED_BY") {
+            buttons.push({
                 text: friendStatus === "BLOCKED" ? "Bỏ chặn" : "Chặn tài khoản",
                 style: "destructive",
                 onPress: friendStatus === "BLOCKED" ? handleUnblock : handleBlock,
-            },
-            { text: "Hủy", style: "cancel" },
-        ]);
+            });
+        }
+        buttons.push({ text: "Hủy", style: "cancel" });
+        Alert.alert(profileUser?.name || profileUser?.username || "Tài khoản", undefined, buttons);
     };
 
     const handleBlock = () => {
@@ -332,6 +335,10 @@ export default function UserProfileScreen() {
                     <Text style={styles.friendBtnTextMuted}>Đã chặn</Text>
                 </View>
             );
+        }
+
+        if (friendStatus === "BLOCKED_BY") {
+            return null;
         }
 
         return null;

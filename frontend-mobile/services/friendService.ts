@@ -157,10 +157,11 @@ class FriendService {
         }
     }
 
-    async getFriendStatus(myId: number, targetId: number): Promise<"NONE" | "SENT" | "RECEIVED" | "FRIEND" | "BLOCKED"> {
+    async getFriendStatus(myId: number, targetId: number): Promise<"NONE" | "SENT" | "RECEIVED" | "FRIEND" | "BLOCKED" | "BLOCKED_BY"> {
         try {
-            const [blockedList, myFriends, receivedRequests, sentRequests] = await Promise.all([
+            const [blockedList, targetBlockedList, myFriends, receivedRequests, sentRequests] = await Promise.all([
                 apiClient.get(`/auth/users/blocked/${myId}`).then((r) => toFriendUsers(r.data) ?? []).catch(() => []),
+                apiClient.get(`/auth/users/blocked/${targetId}`).then((r) => toFriendUsers(r.data) ?? []).catch(() => []),
                 apiClient.get(`/friends/${myId}`).then((r) => toFriendUsers(r.data) ?? []).catch(() => []),
                 apiClient.get(`/friends/requests/${myId}`).then((r) => toFriendUsers(r.data) ?? []).catch(() => []),
                 apiClient.get(`/friends/sent-requests/${myId}`).then((r) => toFriendUsers(r.data) ?? []).catch(() => []),
@@ -170,6 +171,7 @@ class FriendService {
                 list.some((u) => Number(u.id) === id);
 
             if (hasId(blockedList, targetId)) return "BLOCKED";
+            if (hasId(targetBlockedList, myId)) return "BLOCKED_BY";
             if (hasId(myFriends, targetId)) return "FRIEND";
             if (hasId(receivedRequests, targetId)) return "RECEIVED";
             if (hasId(sentRequests, targetId)) return "SENT";
