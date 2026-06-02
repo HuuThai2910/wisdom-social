@@ -150,6 +150,7 @@ export function useFriendNotifications(options: UseFriendNotificationsOptions = 
     // Convert to international format (+84...)
     const phoneNumber = convertToInternationalFormat(currentUser.phone);
     console.log(`📱 Setting up friend notifications for phone: ${currentUser.phone} -> ${phoneNumber}`);
+    const handlersByEvent = new Map<FriendEventType, (raw: any) => void>();
 
     const events: FriendEventType[] = [
       "friend-request",
@@ -171,13 +172,16 @@ export function useFriendNotifications(options: UseFriendNotificationsOptions = 
         const destination = `/topic/user/${phoneNumber}/${eventType}`;
         console.log(`📡 Subscribing to: ${destination}`);
 
+        const handler = (raw: any) => {
+          console.log(`📨 Received ${eventType}:`, raw);
+          // Backend sends FriendEventPayload: { eventType, senderId, receiverId, timestamp }
+          handleFriendEvent(eventType, raw);
+        };
+        handlersByEvent.set(eventType, handler);
+
         websocketService.subscribeToTopic(
           destination,
-          (raw: any) => {
-            console.log(`📨 Received ${eventType}:`, raw);
-            // Backend sends FriendEventPayload: { eventType, senderId, receiverId, timestamp }
-            handleFriendEvent(eventType, raw);
-          }
+          handler
         );
       });
 
@@ -210,7 +214,8 @@ export function useFriendNotifications(options: UseFriendNotificationsOptions = 
       console.log(`🔌 Cleaning up friend notification subscriptions...`);
       events.forEach((eventType) => {
         const destination = `/topic/user/${phoneNumber}/${eventType}`;
-        websocketService.unsubscribeFromTopic(destination);
+        const handler = handlersByEvent.get(eventType);
+        websocketService.unsubscribeFromTopic(destination, handler);
       });
       setIsConnected(false);
     };

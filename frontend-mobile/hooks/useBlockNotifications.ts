@@ -26,6 +26,7 @@ export function useBlockNotifications(
     useEffect(() => {
         let phone: string | null = null;
         let cancelled = false;
+        let cleanup: (() => void) | null = null;
 
         const setup = async () => {
             const storedUser = await getUser<ApiAuthUser>();
@@ -39,19 +40,25 @@ export function useBlockNotifications(
                 // subscriptions will sync on next reconnect
             }
 
-            blockWebsocketService.subscribeToUserBlockEvents(phone, (event) => {
+            const handleBlockEvent = (event: BlockEvent) => {
                 setRefreshTrigger((n) => n + 1);
                 onEventRef.current?.(event);
-            });
+            };
+
+            blockWebsocketService.subscribeToUserBlockEvents(phone, handleBlockEvent);
+
+            cleanup = () => {
+                if (phone) {
+                    blockWebsocketService.unsubscribeFromUserBlockEvents(phone, handleBlockEvent);
+                }
+            };
         };
 
         void setup();
 
         return () => {
             cancelled = true;
-            if (phone) {
-                blockWebsocketService.unsubscribeFromUserBlockEvents(phone);
-            }
+            cleanup?.();
         };
     }, []);
 

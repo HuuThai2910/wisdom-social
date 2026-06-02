@@ -31,6 +31,7 @@ class FriendWebsocketService {
         "friend-cancel",
     ];
     private listenersByPhone = new Map<string, Set<(event: FriendEvent) => void>>();
+    private topicHandlersByPhone = new Map<string, Map<FriendEventType, (body: string) => void>>();
 
     subscribeToUserFriendEvents(
         phone: string,
@@ -42,9 +43,12 @@ class FriendWebsocketService {
 
         if (listeners.size > 1) return;
 
+        const topicHandlers = new Map<FriendEventType, (body: string) => void>();
+        this.topicHandlersByPhone.set(phone, topicHandlers);
+
         this.EVENT_TYPES.forEach((eventType) => {
             const destination = `/topic/user/${phone}/${eventType}`;
-            chatWebsocketService.subscribeToTopic(destination, (body) => {
+            const handler = (body: string) => {
                 const phoneListeners = this.listenersByPhone.get(phone);
                 if (!phoneListeners?.size) return;
 
@@ -56,7 +60,9 @@ class FriendWebsocketService {
                 } catch {
                     phoneListeners.forEach((listener) => listener({ eventType }));
                 }
-            });
+            };
+            topicHandlers.set(eventType, handler);
+            chatWebsocketService.subscribeToTopic(destination, handler);
         });
     }
 
@@ -71,9 +77,17 @@ class FriendWebsocketService {
         }
 
         this.listenersByPhone.delete(phone);
+        const topicHandlers = this.topicHandlersByPhone.get(phone);
         this.EVENT_TYPES.forEach((eventType) => {
-            chatWebsocketService.unsubscribeFromTopic(`/topic/user/${phone}/${eventType}`);
+            const destination = `/topic/user/${phone}/${eventType}`;
+            const handler = topicHandlers?.get(eventType);
+            if (handler) {
+                chatWebsocketService.unsubscribeFromTopic(destination, handler);
+            } else {
+                chatWebsocketService.unsubscribeFromTopic(destination);
+            }
         });
+        this.topicHandlersByPhone.delete(phone);
     }
 }
 

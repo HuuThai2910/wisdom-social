@@ -214,7 +214,7 @@ export default function ProfileLayout() {
 
     return () => {
       friendTopics.forEach((topic) =>
-        websocketService.unsubscribeFromTopic(topic)
+        websocketService.unsubscribeFromTopic(topic, handleFriendCountChange)
       );
     };
   }, [user?.id, user?.phone, isOwnProfile]);

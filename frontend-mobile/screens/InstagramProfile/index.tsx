@@ -404,29 +404,29 @@ export default function InstagramProfileScreen() {
   const handleSendRequest = async () => {
     setActionLoading(true);
     await friendService.sendFriendRequest(myId, targetId);
-    setFriendStatus("SENT");
-    void loadOtherFriendsCount();
+    await loadFriendStatus();
+    await loadOtherFriendsCount();
     setActionLoading(false);
   };
   const handleCancelRequest = async () => {
     setActionLoading(true);
     await friendService.cancelFriendRequest(myId, targetId);
-    setFriendStatus("NONE");
-    void loadOtherFriendsCount();
+    await loadFriendStatus();
+    await loadOtherFriendsCount();
     setActionLoading(false);
   };
   const handleAccept = async () => {
     setActionLoading(true);
     await friendService.acceptFriendRequest(targetId, myId);
-    setFriendStatus("FRIEND");
-    void loadOtherFriendsCount();
+    await loadFriendStatus();
+    await loadOtherFriendsCount();
     setActionLoading(false);
   };
   const handleReject = async () => {
     setActionLoading(true);
     await friendService.rejectFriendRequest(targetId, myId);
-    setFriendStatus("NONE");
-    void loadOtherFriendsCount();
+    await loadFriendStatus();
+    await loadOtherFriendsCount();
     setActionLoading(false);
   };
   const handleUnfriend = () => {
@@ -438,8 +438,8 @@ export default function InstagramProfileScreen() {
         onPress: async () => {
           setActionLoading(true);
           await friendService.cancelFriendRequest(myId, targetId);
-          setFriendStatus("NONE");
-          void loadOtherFriendsCount();
+          await loadFriendStatus();
+          await loadOtherFriendsCount();
           setActionLoading(false);
         },
       },
@@ -459,7 +459,8 @@ export default function InstagramProfileScreen() {
           onPress: async () => {
             setActionLoading(true);
             await blockService.blockUser(myId, targetId);
-            setFriendStatus("BLOCKED");
+            await loadFriendStatus();
+            await loadOtherFriendsCount();
             setActionLoading(false);
           },
         },
@@ -475,7 +476,8 @@ export default function InstagramProfileScreen() {
         onPress: async () => {
           setActionLoading(true);
           await blockService.unblockUser(myId, targetId);
-          setFriendStatus("NONE");
+          await loadFriendStatus();
+          await loadOtherFriendsCount();
           setActionLoading(false);
         },
       },

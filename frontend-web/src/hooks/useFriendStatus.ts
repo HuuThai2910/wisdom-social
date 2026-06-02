@@ -1,10 +1,11 @@
 import { useState, useLayoutEffect, useCallback, useEffect, useRef } from "react";
 import friendService from "../services/friendService";
+import blockService from "../services/blockService";
 import { useCurrentUser } from "./useCurrentUser";
 import { useFriendDataOptional } from "./useFriendDataOptional";
 
 
-export type FriendshipStatus = "loading" | "none" | "pending_sent" | "pending_received" | "friends";
+export type FriendshipStatus = "loading" | "none" | "pending_sent" | "pending_received" | "friends" | "blocked" | "blocked_by";
 
 interface UseFriendStatusResult {
     status: FriendshipStatus;
@@ -81,41 +82,54 @@ export function useFriendStatus(targetUserId: number | undefined): UseFriendStat
 
             try {
                 // Load ALL data in parallel
-                const [friends, receivedRequests, sentRequests] = await Promise.all([
+                const [blockedByMe, blockedByTarget, friends, receivedRequests, sentRequests] = await Promise.all([
+                    blockService.getBlockedUsers(currentUser.id),
+                    blockService.getBlockedUsers(targetUserId),
                     friendService.getFriends(currentUser.id),
                     friendService.getFriendRequests(currentUser.id),
                     friendService.getSentRequests(currentUser.id),
                 ]);
-                
+
                 if (cancelled) {
                     return;
                 }
-                
+
                 // Mark this targetUserId as loaded
                 loadedTargetIdRef.current = targetUserId;
-                
+
                 // Determine the new status
                 let newStatus: FriendshipStatus = "none";
                 const targetIdStr = String(targetUserId);
-                
-                // 1. Check if they are friends
-                const isFriend = friends.some((f: any) => String(f.id) === targetIdStr);
-                if (isFriend) {
-                    newStatus = "friends";
+                const myIdStr = String(currentUser.id);
+
+                // 0. Check block status first (takes priority over friend status)
+                const iBlockedThem = blockedByMe.some((u: any) => String(u.id) === targetIdStr);
+                const theyBlockedMe = blockedByTarget.some((u: any) => String(u.id) === myIdStr);
+
+                if (iBlockedThem) {
+                    newStatus = "blocked";
+                } else if (theyBlockedMe) {
+                    newStatus = "blocked_by";
                 } else {
-                    // 2. Check if they sent us a request
-                    const hasReceivedRequest = receivedRequests.some((u: any) => String(u.id) === targetIdStr);
-                    if (hasReceivedRequest) {
-                        newStatus = "pending_received";
+                    // 1. Check if they are friends
+                    const isFriend = friends.some((f: any) => String(f.id) === targetIdStr);
+                    if (isFriend) {
+                        newStatus = "friends";
                     } else {
-                        // 3. Check if WE sent a request to them
-                        const hasSentRequest = sentRequests.some((u: any) => String(u.id) === targetIdStr);
-                        if (hasSentRequest) {
-                            newStatus = "pending_sent";
+                        // 2. Check if they sent us a request
+                        const hasReceivedRequest = receivedRequests.some((u: any) => String(u.id) === targetIdStr);
+                        if (hasReceivedRequest) {
+                            newStatus = "pending_received";
+                        } else {
+                            // 3. Check if WE sent a request to them
+                            const hasSentRequest = sentRequests.some((u: any) => String(u.id) === targetIdStr);
+                            if (hasSentRequest) {
+                                newStatus = "pending_sent";
+                            }
                         }
                     }
                 }
-                
+
                 setStatus(newStatus);
             } catch (err) {
                 console.error("Error checking friendship status:", err);
@@ -168,7 +182,11 @@ export function useFriendStatus(targetUserId: number | undefined): UseFriendStat
         // optimistic actions across the app (widget send/cancel, FriendRequests
         // accept/reject, etc.). If the API truth disagrees, the next
         // refreshTrigger (WebSocket event) re-runs checkStatus to reconcile.
-        setStatus((cur) => (cur === ctxStatus ? cur : ctxStatus));
+        // Exception: never override a block status set by the API check.
+        setStatus((cur) => {
+            if (cur === "blocked" || cur === "blocked_by") return cur;
+            return cur === ctxStatus ? cur : ctxStatus;
+        });
     }, [
         targetUserId,
         currentUser?.id,

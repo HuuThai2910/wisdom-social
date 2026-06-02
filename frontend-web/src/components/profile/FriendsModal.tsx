@@ -6,6 +6,7 @@ import blockService from "../../services/blockService";
 import BlockUnblockButton from "../friend/BlockUnblockButton";
 import { buildS3Url } from "../../utils/s3";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
+import useBlockNotifications from "../../hooks/useBlockNotifications";
 import { usePresenceStatus } from "../../hooks/usePresenceStatus";
 import type { User } from "../../types";
 
@@ -21,6 +22,7 @@ export default function FriendsModal({ userId, onClose, onCountChange }: Friends
     const [blockedUserIds, setBlockedUserIds] = useState<Set<number>>(new Set());
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
+    const blockTrigger = useBlockNotifications();
     const presenceByUserId = usePresenceStatus(friends.map((friend) => friend.id));
 
     const loadData = useCallback(async () => {
@@ -47,7 +49,7 @@ export default function FriendsModal({ userId, onClose, onCountChange }: Friends
 
     useEffect(() => {
         loadData();
-    }, [loadData]);
+    }, [loadData, blockTrigger]);
 
     // Handler to update blocked status locally
     const handleBlockStatusChange = useCallback((targetUserId: number, isBlocked: boolean) => {
@@ -60,7 +62,14 @@ export default function FriendsModal({ userId, onClose, onCountChange }: Friends
             }
             return next;
         });
-    }, []);
+        if (isBlocked) {
+            setFriends((prev) => {
+                const next = prev.filter((friend) => friend.id !== targetUserId);
+                onCountChange?.(next.length);
+                return next;
+            });
+        }
+    }, [onCountChange]);
 
     return (
         <>

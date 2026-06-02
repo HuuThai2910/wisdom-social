@@ -30,7 +30,7 @@ const toImageUrl = (url?: string): string | undefined => {
     return S3_BASE + url;
 };
 
-type FriendStatus = "NONE" | "SENT" | "RECEIVED" | "FRIEND" | "BLOCKED";
+type FriendStatus = "NONE" | "SENT" | "RECEIVED" | "FRIEND" | "BLOCKED" | "BLOCKED_BY";
 
 export default function UserProfileScreen() {
     const router = useRouter();
@@ -129,32 +129,32 @@ export default function UserProfileScreen() {
     const handleSendRequest = async () => {
         setActionLoading(true);
         await friendService.sendFriendRequest(myId, targetId);
-        setFriendStatus("SENT");
-        void loadFriendsCount();
+        await loadFriendStatus();
+        await loadFriendsCount();
         setActionLoading(false);
     };
 
     const handleCancelRequest = async () => {
         setActionLoading(true);
         await friendService.cancelFriendRequest(myId, targetId);
-        setFriendStatus("NONE");
-        void loadFriendsCount();
+        await loadFriendStatus();
+        await loadFriendsCount();
         setActionLoading(false);
     };
 
     const handleAccept = async () => {
         setActionLoading(true);
         await friendService.acceptFriendRequest(targetId, myId);
-        setFriendStatus("FRIEND");
-        void loadFriendsCount();
+        await loadFriendStatus();
+        await loadFriendsCount();
         setActionLoading(false);
     };
 
     const handleReject = async () => {
         setActionLoading(true);
         await friendService.rejectFriendRequest(targetId, myId);
-        setFriendStatus("NONE");
-        void loadFriendsCount();
+        await loadFriendStatus();
+        await loadFriendsCount();
         setActionLoading(false);
     };
 
@@ -167,8 +167,8 @@ export default function UserProfileScreen() {
                 onPress: async () => {
                     setActionLoading(true);
                     await friendService.cancelFriendRequest(myId, targetId);
-                    setFriendStatus("NONE");
-                    void loadFriendsCount();
+                    await loadFriendStatus();
+                    await loadFriendsCount();
                     setActionLoading(false);
                 },
             },
@@ -177,15 +177,18 @@ export default function UserProfileScreen() {
 
     // Menu ⋮ : cho phép Báo cáo hoặc Chặn tài khoản
     const handleOpenMenu = () => {
-        Alert.alert(profileUser?.name || profileUser?.username || "Tài khoản", undefined, [
+        const buttons: Parameters<typeof Alert.alert>[2] = [
             { text: "Báo cáo tài khoản", onPress: () => setShowReportModal(true) },
-            {
+        ];
+        if (friendStatus !== "BLOCKED_BY") {
+            buttons.push({
                 text: friendStatus === "BLOCKED" ? "Bỏ chặn" : "Chặn tài khoản",
                 style: "destructive",
-                onPress: handleBlock,
-            },
-            { text: "Hủy", style: "cancel" },
-        ]);
+                onPress: friendStatus === "BLOCKED" ? handleUnblock : handleBlock,
+            });
+        }
+        buttons.push({ text: "Hủy", style: "cancel" });
+        Alert.alert(profileUser?.name || profileUser?.username || "Tài khoản", undefined, buttons);
     };
 
     const handleBlock = () => {
@@ -197,7 +200,25 @@ export default function UserProfileScreen() {
                 onPress: async () => {
                     setActionLoading(true);
                     await blockService.blockUser(myId, targetId);
-                    setFriendStatus("BLOCKED");
+                    await loadFriendStatus();
+                    await loadFriendsCount();
+                    setActionLoading(false);
+                },
+            },
+        ]);
+    };
+
+    const handleUnblock = () => {
+        Alert.alert("Bỏ chặn", "Bạn có chắc muốn bỏ chặn người này?", [
+            { text: "Hủy", style: "cancel" },
+            {
+                text: "Bỏ chặn",
+                style: "destructive",
+                onPress: async () => {
+                    setActionLoading(true);
+                    await blockService.unblockUser(myId, targetId);
+                    await loadFriendStatus();
+                    await loadFriendsCount();
                     setActionLoading(false);
                 },
             },
@@ -314,6 +335,10 @@ export default function UserProfileScreen() {
                     <Text style={styles.friendBtnTextMuted}>Đã chặn</Text>
                 </View>
             );
+        }
+
+        if (friendStatus === "BLOCKED_BY") {
+            return null;
         }
 
         return null;
