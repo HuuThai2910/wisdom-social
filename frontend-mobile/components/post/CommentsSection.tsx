@@ -398,14 +398,11 @@ export default function CommentsSection({ postId, postAuthorId, onCommentCountCh
                         {submitting ? (
                             <ActivityIndicator size="small" color={colors.primary} />
                         ) : (
-                            <Text
-                                style={[
-                                    styles.postBtnText,
-                                    !inputText.trim() && styles.postBtnDisabled,
-                                ]}
-                            >
-                                Đăng
-                            </Text>
+                            <Ionicons
+                                name="send"
+                                size={18}
+                                color={inputText.trim() ? colors.primary : colors.textMuted}
+                            />
                         )}
                     </TouchableOpacity>
                 </View>

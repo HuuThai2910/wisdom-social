@@ -22,3 +22,4 @@ export { default as UserAvatar } from "./UserAvatar";
 export { ReactionDetailModal } from "./ReactionDetailModal";
 export { default as CommentsSection } from "./post/CommentsSection";
 export { default as NoteModal } from "./NoteModal";
+export { default as CreateOptionModal } from "./CreateOptionModal";

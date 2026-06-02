@@ -1,7 +1,8 @@
 import { Story, StoryGroup, User } from "@/types";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useFocusEffect } from "@react-navigation/native";
 import {
   ActivityIndicator,
   FlatList,
@@ -21,9 +22,10 @@ import UserAvatar from "./UserAvatar";
 type Props = {
   currentUser: User | null;
   onUsersLoaded?: (users: User[]) => void;
+  refreshing?: boolean;
 };
 
-export default function StoriesBar({ currentUser, onUsersLoaded }: Props) {
+export default function StoriesBar({ currentUser, onUsersLoaded, refreshing }: Props) {
   const router = useRouter();
   const [stories, setStories] = useState<Story[]>([]);
   const [loading, setLoading] = useState(true);
@@ -50,6 +52,18 @@ export default function StoriesBar({ currentUser, onUsersLoaded }: Props) {
   useEffect(() => {
     void loadStories();
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadStories();
+    }, [])
+  );
+
+  useEffect(() => {
+    if (refreshing) {
+      void loadStories();
+    }
+  }, [refreshing]);
 
   const groups = useMemo(
     () => groupStoriesByUser(stories, currentUser),

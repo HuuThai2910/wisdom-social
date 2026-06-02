@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Smile, Loader2 } from "lucide-react";
+import { Smile, Loader2, Send } from "lucide-react";
 import { type EmojiClickData, Theme } from "emoji-picker-react";
 import IconModal from "../../icon-modal/IconModal";
 import useMentions from "../../../hooks/useMentions";
@@ -212,9 +212,15 @@ export default function PostCardCommentInput({
         <button
           onClick={handleSubmit}
           disabled={!commentInput.trim() || submittingComment}
-          className="px-3 py-2 text-sm text-blue-500 font-semibold hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="text-blue-500 hover:text-blue-600 disabled:opacity-35 disabled:cursor-not-allowed transition-colors p-2 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-950/30 flex items-center justify-center"
+          title="Gửi bình luận"
+          aria-label="Gửi bình luận"
         >
-          {submittingComment ? "..." : "Post"}
+          {submittingComment ? (
+            <Loader2 className="w-5 h-5 animate-spin" />
+          ) : (
+            <Send size={18} />
+          )}
         </button>
       </div>
     </div>

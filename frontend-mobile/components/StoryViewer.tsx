@@ -539,22 +539,38 @@ export default function StoryViewer({
   useEffect(() => {
     let mounted = true;
     const playMusic = async () => {
-      if (audioRef.current) {
-        await audioRef.current.unloadAsync().catch(() => undefined);
-        audioRef.current = null;
+      try {
+        if (audioRef.current) {
+          await audioRef.current.unloadAsync().catch(() => undefined);
+          audioRef.current = null;
+        }
+        if (!visible || !activeStory?.music?.audioUrl || finished) return;
+
+        // Ensure iOS/Android audio mode is configured for playback (silent mode allowed)
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+          shouldDuckAndroid: true,
+          playThroughEarpieceAndroid: false,
+          staysActiveInBackground: false,
+        }).catch((err) => console.warn("Failed to set audio mode in StoryViewer", err));
+
+        const url =
+          buildS3Url(activeStory.music.audioUrl) || activeStory.music.audioUrl;
+        console.log("Loading story audio:", url);
+
+        const { sound } = await Audio.Sound.createAsync(
+          { uri: url },
+          { isLooping: true, volume: 0.8, shouldPlay: !paused }
+        );
+        if (!mounted) {
+          await sound.unloadAsync().catch(() => undefined);
+          return;
+        }
+        audioRef.current = sound;
+      } catch (error) {
+        console.error("Error loading story audio in StoryViewer:", error);
       }
-      if (!visible || !activeStory?.music?.audioUrl || finished) return;
-      const url =
-        buildS3Url(activeStory.music.audioUrl) || activeStory.music.audioUrl;
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: url },
-        { isLooping: true, volume: 0.8, shouldPlay: !paused }
-      );
-      if (!mounted) {
-        await sound.unloadAsync().catch(() => undefined);
-        return;
-      }
-      audioRef.current = sound;
     };
     void playMusic();
     return () => {
@@ -881,21 +897,8 @@ export default function StoryViewer({
                 })()
               : null}
 
-            {activeStory?.music?.title ? (
-              <View style={styles.musicSticker}>
-                <Text style={styles.musicIcon}>🎵</Text>
-                <View style={styles.musicTextWrap}>
-                  <Text numberOfLines={1} style={styles.musicTitle}>
-                    {activeStory.music.title}
-                  </Text>
-                  <Text numberOfLines={1} style={styles.musicArtist}>
-                    {activeStory.music.artist}
-                  </Text>
-                </View>
-              </View>
-            ) : null}
 
-            {activeStory?.media?.url && cleanText ? (
+            {activeStory?.media?.url && cleanText && (!activeStory.text_layers || activeStory.text_layers.length === 0) ? (
               <View
                 style={[
                   styles.captionOverlay,

@@ -599,9 +599,6 @@ export default function StoryViewerModal({
   const renderTextLayers = (story: any) => {
     if (!story?.text_layers || story.text_layers.length === 0) return null;
 
-    const containerWidth = 420; // Fixed story container width in pixels
-    const containerHeight = (420 * 16) / 9; // Aspect ratio 9:16
-
     const sorted = [...story.text_layers].sort(
       (a: any, b: any) => (a.z_index || 1) - (b.z_index || 1)
     );
@@ -1018,7 +1015,7 @@ export default function StoryViewerModal({
             </div>
 
             {/* Text Overlay for media stories */}
-            {activeStory?.media?.url && cleanText && (
+            {activeStory?.media?.url && cleanText && (!activeStory.text_layers || activeStory.text_layers.length === 0) && (
               <div
                 className={`absolute inset-x-4 bg-black/45 backdrop-blur-sm px-4 py-3 rounded-xl border border-white/10 text-center pointer-events-none z-30 ${
                   isMyStory

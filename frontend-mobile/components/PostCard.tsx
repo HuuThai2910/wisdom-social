@@ -415,7 +415,11 @@ export default function PostCard({
                         {submittingComment ? (
                             <ActivityIndicator size="small" color={colors.primary} />
                         ) : (
-                            <Text style={[styles.postCommentText, !comment.trim() && styles.disabledText]}>Đăng</Text>
+                            <Ionicons
+                                name="send"
+                                size={18}
+                                color={comment.trim() ? colors.primary : colors.textMuted}
+                            />
                         )}
                     </Pressable>
                 </View>
