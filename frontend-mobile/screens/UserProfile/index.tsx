@@ -17,6 +17,7 @@ import { useAppContext } from "@/context/AppContext";
 import friendService from "@/services/friendService";
 import blockService from "@/services/blockService";
 import userService from "@/services/userService";
+import * as postApi from "@/services/postService";
 import { useFriendNotifications } from "@/hooks/useFriendNotifications";
 import { usePresenceStatus } from "@/hooks/usePresenceStatus";
 import type { User } from "@/services/userService";
@@ -56,6 +57,7 @@ export default function UserProfileScreen() {
 
     const [profileUser, setProfileUser] = useState<User | null>(null);
     const [profileLoading, setProfileLoading] = useState(true);
+    const [postsCount, setPostsCount] = useState<number | null>(null);
     const [showReportModal, setShowReportModal] = useState(false);
 
     const loadProfile = useCallback(async () => {
@@ -92,20 +94,43 @@ export default function UserProfileScreen() {
         }
     }, [targetId, myId]);
 
+    const loadPostsCount = useCallback(async () => {
+        const id = isOwnProfile ? currentUser?.id : userId;
+        if (!id) {
+            setPostsCount(null);
+            return;
+        }
+
+        setPostsCount(await postApi.getUserPostsCount(id));
+    }, [isOwnProfile, currentUser?.id, userId]);
+
     // Auto-refresh on WebSocket friend events
     const refreshTrigger = useFriendNotifications();
+    const targetFriendTrigger = useFriendNotifications(
+        undefined,
+        !isOwnProfile ? profileUser?.phone : null,
+    );
 
     useEffect(() => {
         void loadProfile();
         void loadFriendStatus();
         void loadFriendsCount();
-    }, [loadProfile, loadFriendStatus, loadFriendsCount, refreshTrigger]);
+        void loadPostsCount();
+    }, [
+        loadProfile,
+        loadFriendStatus,
+        loadFriendsCount,
+        loadPostsCount,
+        refreshTrigger,
+        targetFriendTrigger,
+    ]);
 
     // --- Friend action handlers ---
     const handleSendRequest = async () => {
         setActionLoading(true);
         await friendService.sendFriendRequest(myId, targetId);
         setFriendStatus("SENT");
+        void loadFriendsCount();
         setActionLoading(false);
     };
 
@@ -113,6 +138,7 @@ export default function UserProfileScreen() {
         setActionLoading(true);
         await friendService.cancelFriendRequest(myId, targetId);
         setFriendStatus("NONE");
+        void loadFriendsCount();
         setActionLoading(false);
     };
 
@@ -120,6 +146,7 @@ export default function UserProfileScreen() {
         setActionLoading(true);
         await friendService.acceptFriendRequest(targetId, myId);
         setFriendStatus("FRIEND");
+        void loadFriendsCount();
         setActionLoading(false);
     };
 
@@ -127,6 +154,7 @@ export default function UserProfileScreen() {
         setActionLoading(true);
         await friendService.rejectFriendRequest(targetId, myId);
         setFriendStatus("NONE");
+        void loadFriendsCount();
         setActionLoading(false);
     };
 
@@ -140,6 +168,7 @@ export default function UserProfileScreen() {
                     setActionLoading(true);
                     await friendService.cancelFriendRequest(myId, targetId);
                     setFriendStatus("NONE");
+                    void loadFriendsCount();
                     setActionLoading(false);
                 },
             },
@@ -332,7 +361,9 @@ export default function UserProfileScreen() {
                     {/* Stats */}
                     <View style={styles.statsContainer}>
                         <View style={styles.statItem}>
-                            <Text style={styles.statNumber}>{profileUser?.postsCount ?? "—"}</Text>
+                            <Text style={styles.statNumber}>
+                                {postsCount !== null ? String(postsCount) : "—"}
+                            </Text>
                             <Text style={styles.statLabel}>Bài viết</Text>
                         </View>
                         <TouchableOpacity

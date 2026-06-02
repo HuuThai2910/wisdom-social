@@ -12,6 +12,23 @@ export type FriendUser = {
     mutualFriendsCount?: number;
 };
 
+type FriendMutationListener = () => void;
+
+const friendMutationListeners = new Set<FriendMutationListener>();
+
+const emitFriendMutation = () => {
+    friendMutationListeners.forEach((listener) => listener());
+};
+
+export const subscribeFriendMutations = (
+    listener: FriendMutationListener,
+): (() => void) => {
+    friendMutationListeners.add(listener);
+    return () => {
+        friendMutationListeners.delete(listener);
+    };
+};
+
 function toFriendUsers(payload: unknown): FriendUser[] | null {
     const candidates = [
         payload,
@@ -92,6 +109,7 @@ class FriendService {
     async sendFriendRequest(senderId: number, receivedId: number): Promise<boolean> {
         try {
             await apiClient.post("/friends/request", { senderId, receivedId });
+            emitFriendMutation();
             return true;
         } catch {
             return false;
@@ -101,6 +119,7 @@ class FriendService {
     async acceptFriendRequest(senderId: number, receivedId: number): Promise<boolean> {
         try {
             await apiClient.post("/friends/accept", { senderId, receivedId });
+            emitFriendMutation();
             return true;
         } catch {
             return false;
@@ -110,6 +129,7 @@ class FriendService {
     async rejectFriendRequest(senderId: number, receivedId: number): Promise<boolean> {
         try {
             await apiClient.post("/friends/reject", { senderId, receivedId });
+            emitFriendMutation();
             return true;
         } catch {
             return false;
@@ -119,6 +139,7 @@ class FriendService {
     async cancelFriendRequest(senderId: number, receivedId: number): Promise<boolean> {
         try {
             await apiClient.post("/friends/cancel", { senderId, receivedId });
+            emitFriendMutation();
             return true;
         } catch {
             return false;

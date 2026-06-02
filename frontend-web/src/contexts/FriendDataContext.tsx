@@ -156,6 +156,7 @@ export function FriendDataProvider({ children }: { children: ReactNode }) {
             setFriendRequests(prev => prev.filter(u => u.id !== userId));
             // Refresh friends list to show new friend
             refreshFriends();
+            setRefreshTrigger(prev => prev + 1);
             return true;
         } catch (err) {
             console.error("Error accepting request:", err);
@@ -174,6 +175,7 @@ export function FriendDataProvider({ children }: { children: ReactNode }) {
             });
             // Update local state immediately
             setFriendRequests(prev => prev.filter(u => u.id !== userId));
+            setRefreshTrigger(prev => prev + 1);
             return true;
         } catch (err) {
             console.error("Error rejecting request:", err);
@@ -197,6 +199,7 @@ export function FriendDataProvider({ children }: { children: ReactNode }) {
                 senderId: currentUser.id,
                 receivedId: target.id,
             });
+            setRefreshTrigger(prev => prev + 1);
             return true;
         } catch (err) {
             console.error("Error sending friend request:", err);
@@ -222,6 +225,7 @@ export function FriendDataProvider({ children }: { children: ReactNode }) {
                 senderId: currentUser.id,
                 receivedId: userId,
             });
+            setRefreshTrigger(prev => prev + 1);
             return true;
         } catch (err) {
             console.error("Error canceling sent request:", err);
@@ -246,6 +250,7 @@ export function FriendDataProvider({ children }: { children: ReactNode }) {
             });
             // Update local state immediately
             setFriends(prev => prev.filter(u => u.id !== userId));
+            setRefreshTrigger(prev => prev + 1);
             return true;
         } catch (err) {
             console.error("Error unfriending:", err);

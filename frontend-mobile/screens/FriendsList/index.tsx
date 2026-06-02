@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
     FlatList,
     StyleSheet,
@@ -10,7 +10,7 @@ import {
     TextInput,
     Alert,
 } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { colors } from "@/constants";
@@ -48,7 +48,7 @@ export default function FriendsListScreen() {
         [numericUserId, currentUser?.id],
     );
 
-    const loadData = async () => {
+    const loadData = useCallback(async () => {
         const actingUserId = numericUserId ?? 0;
 
         setLoading(true);
@@ -67,7 +67,7 @@ export default function FriendsListScreen() {
         } finally {
             setLoading(false);
         }
-    };
+    }, [numericUserId, tab]);
 
     const handleSendRequest = async (targetId: number) => {
         const myId = numericUserId ?? 0;
@@ -131,7 +131,13 @@ export default function FriendsListScreen() {
 
     useEffect(() => {
         void loadData();
-    }, [numericUserId, tab, refreshTrigger]);
+    }, [loadData, refreshTrigger]);
+
+    useFocusEffect(
+        useCallback(() => {
+            void loadData();
+        }, [loadData]),
+    );
 
     const getHeaderTitle = () => {
         switch (tab) {

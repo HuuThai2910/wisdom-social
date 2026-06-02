@@ -24,14 +24,16 @@ import FriendsModal from "./FriendsModal";
 import { buildS3Url } from "../../utils/s3";
 import BlockUnblockButton from "../friend/BlockUnblockButton";
 import FriendActions from "../friend/FriendActions";
+import friendService from "../../services/friendService";
 import { NOTE_PLACEHOLDERS } from "./note-modal/NoteContentDefault";
-import { getUserPostsWithDetails } from "../../services/postService";
+import { getUserPostsCount } from "../../services/postService";
 import { useProfileNote } from "../../hooks/useProfileNote";
 import { useHasActiveStory } from "../../hooks/useHasActiveStory";
 import { fetchUserStories } from "../../services/storyService";
 import StoryViewerModal from "../story/StoryViewerModal";
 import { usePresenceStatus } from "../../hooks/usePresenceStatus";
 import CreateHighlightModal from "./CreateHighlightModal";
+import { useFriendDataSafe } from "../../contexts/FriendDataContext";
 import {
   getUserHighlights,
   type StoryHighlight,
@@ -71,12 +73,16 @@ export default function ProfileHeader({
   const [showInfoModal, setShowInfoModal] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   const [postsCount, setPostsCount] = useState(0);
+  const [profileFriendsCount, setProfileFriendsCount] = useState(
+    user.friendsCount ?? 0
+  );
   const [notePlaceholder] = useState(
     () =>
       NOTE_PLACEHOLDERS[Math.floor(Math.random() * NOTE_PLACEHOLDERS.length)]
   );
   const { note, showNoteModal, openNoteModal, closeNoteModal, setNote } =
     useProfileNote(user?.id);
+  const { refreshTrigger } = useFriendDataSafe();
 
   const profileUserId = Number(user?.id);
   const presenceByUserId = usePresenceStatus([profileUserId]);
@@ -86,10 +92,28 @@ export default function ProfileHeader({
 
   useEffect(() => {
     if (!user?.id) return;
-    getUserPostsWithDetails(user.id)
-      .then((posts) => setPostsCount(posts.length))
+    getUserPostsCount(user.id)
+      .then((count) => setPostsCount(count))
       .catch(() => setPostsCount(0));
   }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    friendService
+      .getFriends(user.id)
+      .then((friends) => setProfileFriendsCount(friends.length))
+      .catch(() => setProfileFriendsCount(user.friendsCount ?? 0));
+  }, [user?.id, user.friendsCount, refreshTrigger]);
+
+  const handleFriendAccepted = useCallback(() => {
+    setProfileFriendsCount((count) => count + 1);
+    onFriendAccepted?.();
+  }, [onFriendAccepted]);
+
+  const handleFriendRemoved = useCallback(() => {
+    setProfileFriendsCount((count) => Math.max(0, count - 1));
+    onFriendRemoved?.();
+  }, [onFriendRemoved]);
 
   // Check if user has an active story
   const {
@@ -102,7 +126,7 @@ export default function ProfileHeader({
   const [isViewerOpen, setIsViewerOpen] = useState(false);
 
   // Highlights state
-  const [highlights, setHighlights] = useState<StoryHighlight[]>([]);
+  const [, setHighlights] = useState<StoryHighlight[]>([]);
   const [showCreateHighlight, setShowCreateHighlight] = useState(false);
   const [viewingHighlight, setViewingHighlight] =
     useState<StoryHighlight | null>(null);
@@ -279,15 +303,11 @@ export default function ProfileHeader({
               <Stat value={postsCount} label="Bài viết" />
               <Stat
                 value={
-                  typeof user.friendsCount === "number"
-                    ? user.friendsCount
-                    : user.friendsCount || 0
+                  profileFriendsCount
                 }
                 label="Bạn bè"
               />
-              {isOwnProfile && (
-                <Stat value={user.followingCount ?? 0} label="Theo dõi" />
-              )}
+              
             </div>
 
             {/* Info block */}
@@ -349,8 +369,8 @@ export default function ProfileHeader({
                       targetUsername={user.username}
                       size="md"
                       showText={true}
-                      onFriendAccepted={onFriendAccepted}
-                      onFriendRemoved={onFriendRemoved}
+                      onFriendAccepted={handleFriendAccepted}
+                      onFriendRemoved={handleFriendRemoved}
                     />
                   </div>
                   <button className="flex-1 inline-flex items-center justify-center gap-1.5 h-8.5 px-3 bg-[#efefef] dark:bg-[#262626] hover:bg-[#dbdbdb] dark:hover:bg-[#363636] border border-[#dbdbdb] dark:border-[#363636] rounded-lg text-[14px] font-semibold dark:text-white transition-colors">
@@ -420,6 +440,7 @@ export default function ProfileHeader({
       {showFriendsModal && (
         <FriendsModal
           userId={user.id}
+          onCountChange={setProfileFriendsCount}
           onClose={() => setShowFriendsModal(false)}
         />
       )}
@@ -547,13 +568,11 @@ export default function ProfileHeader({
                   value={user.isPrivate ? "**********" : user.phone!}
                 />
               )}
-              {typeof user.friendsCount === "number" && (
-                <InfoRow
-                  icon={<UsersIcon size={16} />}
-                  label="Bạn bè"
-                  value={`${user.friendsCount} người`}
-                />
-              )}
+              <InfoRow
+                icon={<UsersIcon size={16} />}
+                label="Bạn bè"
+                value={`${profileFriendsCount} người`}
+              />
             </div>
           </div>
         </div>
