@@ -1,4 +1,5 @@
 import apiClient from "@/api/apiClient";
+import { emitFriendMutation } from "@/services/friendService";
 
 export type BlockedUser = {
     id: number;
@@ -22,6 +23,7 @@ class BlockService {
     async blockUser(blockerId: number, blockedId: number): Promise<boolean> {
         try {
             await apiClient.post("/auth/users/block", { senderId: blockerId, receivedId: blockedId });
+            emitFriendMutation();
             return true;
         } catch {
             return false;
@@ -31,6 +33,7 @@ class BlockService {
     async unblockUser(blockerId: number, blockedId: number): Promise<boolean> {
         try {
             await apiClient.post("/auth/users/cancel-block", { senderId: blockerId, receivedId: blockedId });
+            emitFriendMutation();
             return true;
         } catch {
             return false;

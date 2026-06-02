@@ -338,7 +338,7 @@ export default function ProfileHeader({
             </div>
 
             {/* Action buttons row */}
-            <div className="flex items-center gap-1.5 mt-1">
+            <div className="flex items-center gap-2 mt-1">
               {isOwnProfile ? (
                 <>
                   <Link
@@ -381,21 +381,20 @@ export default function ProfileHeader({
                     className="inline-flex items-center justify-center w-8.5 h-8.5 bg-[#efefef] dark:bg-[#262626] hover:bg-[#dbdbdb] dark:hover:bg-[#363636] border border-[#dbdbdb] dark:border-[#363636] rounded-lg dark:text-white transition-colors"
                     title="Thông tin"
                   >
-                    <Info size={15} />
+                    <Info size={16} />
                   </button>
-                  <div className="[&>button]:w-8.5! [&>button]:h-8.5! [&>button]:p-0! [&>button]:rounded-lg! [&>button>span]:hidden">
-                    <BlockUnblockButton
-                      userId={user.id}
-                      username={user.username}
-                    />
-                  </div>
                   <button
                     onClick={() => setShowReportModal(true)}
-                    className="inline-flex items-center justify-center w-8.5 h-8.5 bg-[#efefef] dark:bg-[#262626] hover:bg-red-50 dark:hover:bg-red-900/30 border border-[#dbdbdb] dark:border-[#363636] text-red-600 dark:text-red-400 rounded-lg transition-colors"
-                    title="Báo cáo tài khoản"
+                    className="inline-flex items-center justify-center w-8.5 h-8.5 bg-[#efefef] dark:bg-[#262626] hover:bg-red-50 dark:hover:bg-red-900/20 border border-[#dbdbdb] dark:border-[#363636] text-red-600 dark:text-red-400 rounded-lg transition-colors"
+                    title="Báo cáo"
                   >
-                    <Flag size={15} />
+                    <Flag size={16} />
                   </button>
+                  <BlockUnblockButton
+                    userId={user.id}
+                    username={user.username}
+                    iconOnly
+                  />
                 </>
               )}
             </div>

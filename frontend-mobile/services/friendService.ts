@@ -16,7 +16,7 @@ type FriendMutationListener = () => void;
 
 const friendMutationListeners = new Set<FriendMutationListener>();
 
-const emitFriendMutation = () => {
+export const emitFriendMutation = () => {
     friendMutationListeners.forEach((listener) => listener());
 };
 
