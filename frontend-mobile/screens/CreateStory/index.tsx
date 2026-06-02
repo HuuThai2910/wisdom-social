@@ -108,7 +108,7 @@ export default function CreateStoryScreen() {
             return;
         }
         const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.All,
+            mediaTypes: ["images", "videos"],
             allowsEditing: false,
             quality: 0.9,
             videoMaxDuration: 60,

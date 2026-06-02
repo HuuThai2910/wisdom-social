@@ -18,6 +18,7 @@ import * as ImagePicker from "expo-image-picker";
 import { colors, spacing } from "@/constants";
 import { Post, PrivacyType } from "@/types";
 import * as postApi from "@/services/postService";
+import { buildS3Url } from "@/utils/s3";
 import type { MusicMetadata } from "@/services/musicService";
 import StoryMusicPickerModal from "@/components/story/StoryMusicPickerModal";
 import FriendSelectorModal from "@/components/post/FriendSelectorModal";
@@ -29,10 +30,24 @@ const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
 const MAX_VIDEO_SIZE = 100 * 1024 * 1024;
 const MAX_VIDEOS = 2;
 
-const privacyOptions: Array<{ value: PrivacyType; label: string; icon: keyof typeof Ionicons.glyphMap }> = [
-    { value: "PUBLIC", label: "Công khai", icon: "earth-outline" },
-    { value: "FRIENDS", label: "Bạn bè", icon: "people-outline" },
-    { value: "ONLY_ME", label: "Chỉ mình tôi", icon: "lock-closed-outline" },
+// Helper to resolve media URL to full URL
+const resolveMediaUrl = (rawUrl: string, userId?: string): string => {
+    if (!rawUrl) return "";
+    if (/^https?:\/\//i.test(rawUrl)) return rawUrl; // Already full URL
+    if (rawUrl.includes("/")) return buildS3Url(rawUrl) || rawUrl; // Has path, try S3
+    if (userId) {
+        // Try posts/{userId}/images/{rawUrl} pattern
+        return buildS3Url(`posts/${userId}/images/${rawUrl}`) || rawUrl;
+    }
+    return buildS3Url(rawUrl) || rawUrl;
+};
+
+const privacyOptions: Array<{ value: PrivacyType; label: string; icon: keyof typeof Ionicons.glyphMap; description: string }> = [
+    { value: "PUBLIC", label: "Công khai", icon: "earth-outline", description: "Mọi người đều có thể xem" },
+    { value: "FRIENDS", label: "Bạn bè", icon: "people-outline", description: "Chỉ bạn bè có thể xem" },
+    { value: "ONLY_ME", label: "Chỉ mình tôi", icon: "lock-closed-outline", description: "Chỉ mình tôi" },
+    { value: "SPECIFIC", label: "Bạn bè cụ thể", icon: "person-outline", description: "Chỉ những bạn được chọn" },
+    { value: "EXCEPT", label: "Bạn bè ngoại trừ", icon: "person-remove-outline", description: "Trừ những bạn được chọn" },
 ];
 
 interface Props {
@@ -58,12 +73,21 @@ export default function EditPostModal({ visible, onClose, post, currentUserId, o
     const [existingMedia, setExistingMedia] = useState<Array<{ url: string; type: string }>>([]);
     const [newMedia, setNewMedia] = useState<ImagePicker.ImagePickerAsset[]>([]);
 
+    // Privacy specific states
+    const [specificViewerIds, setSpecificViewerIds] = useState<string[]>([]);
+    const [excludedUserIds, setExcludedUserIds] = useState<string[]>([]);
+    const [showSpecificViewerSelector, setShowSpecificViewerSelector] = useState(false);
+    const [showExcludedSelector, setShowExcludedSelector] = useState(false);
+
     const [saving, setSaving] = useState(false);
 
     // Sub-modals
     const [showMusicPicker, setShowMusicPicker] = useState(false);
     const [showFriendSelector, setShowFriendSelector] = useState(false);
     const [showLocationSearch, setShowLocationSearch] = useState(false);
+
+    // Get userId for resolving media URLs
+    const userId = post.userId || (post as any).authorId;
 
     // Prefill from post
     useEffect(() => {
@@ -82,9 +106,15 @@ export default function EditPostModal({ visible, onClose, post, currentUserId, o
             imageUrl: post.music.thumbnail || "",
             audioUrl: post.music.audioUrl || "",
         } : null);
-        setExistingMedia((post.media || []).map(m => ({ url: m.url, type: m.type || "image" })));
+
+        // Resolve media URLs using userId
+        const resolvedMedia = (post.media || []).map(m => ({
+            url: resolveMediaUrl(m.url, userId),
+            type: m.type || "image"
+        }));
+        setExistingMedia(resolvedMedia);
         setNewMedia([]);
-    }, [visible, post]);
+    }, [visible, post, userId]);
 
     const totalMedia = existingMedia.length + newMedia.length;
     const videoCount = existingMedia.filter(m => m.type.includes("video")).length + newMedia.filter(a => a.type === "video").length;
@@ -124,7 +154,7 @@ export default function EditPostModal({ visible, onClose, post, currentUserId, o
             return;
         }
         const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.All,
+            mediaTypes: ["images", "videos"],
             allowsMultipleSelection: true,
             quality: 0.9,
         });
@@ -158,6 +188,8 @@ export default function EditPostModal({ visible, onClose, post, currentUserId, o
                 duration: asset.duration,
             });
 
+            // Only send new media files - backend should keep existing media by default
+            // Do NOT send existingImageUrls to avoid duplication
             await postApi.updatePost(currentUserId, post.id, {
                 content: caption,
                 privacy,
@@ -173,8 +205,7 @@ export default function EditPostModal({ visible, onClose, post, currentUserId, o
                     audioUrl: music.audioUrl,
                     duration: music.duration,
                 } : undefined,
-                existingImageUrls: existingMedia.map(m => m.url),
-                mediaFiles: newMedia.map(toUploadFile),
+                mediaFiles: newMedia.length > 0 ? newMedia.map(toUploadFile) : undefined,
             });
 
             Alert.alert("Thành công", "Đã cập nhật bài viết");
@@ -322,14 +353,46 @@ export default function EditPostModal({ visible, onClose, post, currentUserId, o
                         <View style={s.privacyGroup}>
                             {privacyOptions.map(item => {
                                 const active = privacy === item.value;
+                                const showCount = item.value === "SPECIFIC" ? specificViewerIds.length : item.value === "EXCEPT" ? excludedUserIds.length : 0;
                                 return (
-                                    <TouchableOpacity key={item.value} style={[s.privacyBtn, active && s.privacyBtnActive]} onPress={() => setPrivacy(item.value)}>
+                                    <TouchableOpacity
+                                        key={item.value}
+                                        style={[s.privacyBtn, active && s.privacyBtnActive]}
+                                        onPress={() => {
+                                            setPrivacy(item.value);
+                                            if (item.value === "SPECIFIC") setShowSpecificViewerSelector(true);
+                                            else if (item.value === "EXCEPT") setShowExcludedSelector(true);
+                                        }}
+                                    >
                                         <Ionicons name={item.icon} size={16} color={active ? colors.white : colors.textMuted} />
-                                        <Text style={[s.privacyBtnText, active && s.privacyBtnTextActive]}>{item.label}</Text>
+                                        <View style={s.privacyTextContainer}>
+                                            <Text style={[s.privacyBtnText, active && s.privacyBtnTextActive]}>{item.label}</Text>
+                                            <Text style={[s.privacyBtnSubtext, active && s.privacyBtnSubtextActive]}>
+                                                {showCount > 0 ? `${showCount} người` : item.description}
+                                            </Text>
+                                        </View>
+                                        {active && <Ionicons name="checkmark" size={16} color={colors.white} />}
                                     </TouchableOpacity>
                                 );
                             })}
                         </View>
+
+                        {/* Selected info for specific/excluded */}
+                        {(privacy === "SPECIFIC" || privacy === "EXCEPT") && (
+                            <View style={s.selectedInfo}>
+                                <Text style={s.selectedInfoText}>
+                                    {privacy === "SPECIFIC"
+                                        ? `Đã chọn ${specificViewerIds.length} người có thể xem`
+                                        : `Đã chọn ${excludedUserIds.length} người không thể xem`}
+                                </Text>
+                                <TouchableOpacity onPress={() => {
+                                    if (privacy === "SPECIFIC") setShowSpecificViewerSelector(true);
+                                    else setShowExcludedSelector(true);
+                                }}>
+                                    <Text style={s.changeText}>Thay đổi</Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
                     </View>
 
                     <View style={{ height: 40 }} />
@@ -338,6 +401,24 @@ export default function EditPostModal({ visible, onClose, post, currentUserId, o
                 {/* Sub modals */}
                 <StoryMusicPickerModal visible={showMusicPicker} onClose={() => setShowMusicPicker(false)} onSelect={setMusic} />
                 <FriendSelectorModal visible={showFriendSelector} onClose={() => setShowFriendSelector(false)} onDone={setTaggedUserIds} currentUserId={currentUserId} initialSelected={taggedUserIds} />
+                <FriendSelectorModal
+                    visible={showSpecificViewerSelector}
+                    onClose={() => setShowSpecificViewerSelector(false)}
+                    onDone={(selected) => { setSpecificViewerIds(selected); setShowSpecificViewerSelector(false); }}
+                    currentUserId={currentUserId}
+                    initialSelected={specificViewerIds}
+                    title="Chọn người được xem"
+                    description="Chỉ những bạn được chọn mới có thể xem bài viết"
+                />
+                <FriendSelectorModal
+                    visible={showExcludedSelector}
+                    onClose={() => setShowExcludedSelector(false)}
+                    onDone={(selected) => { setExcludedUserIds(selected); setShowExcludedSelector(false); }}
+                    currentUserId={currentUserId}
+                    initialSelected={excludedUserIds}
+                    title="Chọn người bị ẩn"
+                    description="Những bạn được chọn sẽ không thể xem bài viết"
+                />
                 <LocationSearchModal visible={showLocationSearch} onClose={() => setShowLocationSearch(false)} onSelect={setLocation} initialValue={location} />
             </View>
         </Modal>
@@ -375,4 +456,10 @@ const s = StyleSheet.create({
     privacyBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
     privacyBtnText: { fontSize: 13, fontWeight: "600", color: colors.text },
     privacyBtnTextActive: { color: colors.white },
+    privacyTextContainer: { flex: 1, marginRight: 8 },
+    privacyBtnSubtext: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
+    privacyBtnSubtextActive: { color: "rgba(255,255,255,0.8)" },
+    selectedInfo: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8, padding: 12, backgroundColor: colors.surface, borderRadius: 8 },
+    selectedInfoText: { fontSize: 12, color: colors.textMuted },
+    changeText: { fontSize: 12, color: colors.primary, fontWeight: "600" },
 });

@@ -22,9 +22,19 @@ interface Props {
     onDone: (selectedIds: string[]) => void;
     currentUserId: string;
     initialSelected?: string[];
+    title?: string;
+    description?: string;
 }
 
-export default function FriendSelectorModal({ visible, onClose, onDone, currentUserId, initialSelected = [] }: Props) {
+export default function FriendSelectorModal({
+    visible,
+    onClose,
+    onDone,
+    currentUserId,
+    initialSelected = [],
+    title = "Tag bạn bè",
+    description = "Tìm kiếm bạn bè để gắn thẻ"
+}: Props) {
     const [friends, setFriends] = useState<FriendUser[]>([]);
     const [loading, setLoading] = useState(false);
     const [query, setQuery] = useState("");
@@ -71,9 +81,13 @@ export default function FriendSelectorModal({ visible, onClose, onDone, currentU
             <View style={s.container}>
                 <View style={s.header}>
                     <TouchableOpacity onPress={onClose}><Text style={s.cancel}>Hủy</Text></TouchableOpacity>
-                    <Text style={s.title}>Tag bạn bè</Text>
+                    <Text style={s.title}>{title}</Text>
                     <TouchableOpacity onPress={handleDone}><Text style={s.done}>Xong ({selected.size})</Text></TouchableOpacity>
                 </View>
+
+                {description && (
+                    <Text style={s.description}>{description}</Text>
+                )}
 
                 <View style={s.searchBox}>
                     <Ionicons name="search" size={16} color="#8E8E93" />
@@ -128,6 +142,7 @@ const s = StyleSheet.create({
     header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#E5E5EA" },
     cancel: { fontSize: 16, color: "#8E8E93" },
     title: { fontSize: 17, fontWeight: "700" },
+    description: { fontSize: 13, color: "#8E8E93", paddingHorizontal: 16, paddingBottom: 8 },
     done: { fontSize: 16, fontWeight: "600", color: "#0095F6" },
     searchBox: { flexDirection: "row", alignItems: "center", gap: 8, margin: 12, paddingHorizontal: 12, height: 38, borderRadius: 10, backgroundColor: "#F2F2F7" },
     searchInput: { flex: 1, fontSize: 14, color: "#000" },

@@ -34,7 +34,7 @@ export default function StoryMusicPickerModal({
     if (!isOpen) return;
     setLoading(true);
     getAllMusic(0, 30)
-      .then(setTracks)
+      .then((result) => setTracks(result.tracks))
       .finally(() => setLoading(false));
   }, [isOpen]);
 
@@ -57,10 +57,10 @@ export default function StoryMusicPickerModal({
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
       setLoading(true);
-      const results = q.trim()
+      const result = q.trim()
         ? await searchMusicByTitle(q)
         : await getAllMusic(0, 30);
-      setTracks(results);
+      setTracks(result.tracks);
       setLoading(false);
     }, 300);
   }, []);

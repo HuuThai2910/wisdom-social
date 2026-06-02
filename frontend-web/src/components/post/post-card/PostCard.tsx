@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { Music } from "lucide-react";
 import * as postApi from "../../../services/postService";
 import { buildS3Url } from "../../../utils/s3";
 import { useCurrentUser } from "../../../hooks/useCurrentUser";
@@ -515,10 +516,6 @@ export default function PostCard({ post }: PostCardProps) {
         onCopyLink={handleCopyLink}
         onChangePrivacy={handleChangePrivacy}
         taggedUsers={taggedUsers}
-        musicContainerRef={musicContainerRef}
-        musicPlayingUrl={musicPlayingUrl}
-        musicAudioUrl={musicAudioUrl}
-        onToggleMusic={handleToggleMusic}
       />
 
       {displayPost.caption || (displayPost as any).content ? (

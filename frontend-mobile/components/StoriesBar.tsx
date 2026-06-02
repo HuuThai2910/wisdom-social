@@ -25,7 +25,11 @@ type Props = {
   refreshing?: boolean;
 };
 
-export default function StoriesBar({ currentUser, onUsersLoaded, refreshing }: Props) {
+export default function StoriesBar({
+  currentUser,
+  onUsersLoaded,
+  refreshing,
+}: Props) {
   const router = useRouter();
   const [stories, setStories] = useState<Story[]>([]);
   const [loading, setLoading] = useState(true);
@@ -223,7 +227,7 @@ export default function StoriesBar({ currentUser, onUsersLoaded, refreshing }: P
 const styles = StyleSheet.create({
   container: {
     backgroundColor: colors.white,
-    borderBottomWidth: 1,
+    borderBottomWidth: 6,
     borderBottomColor: colors.border,
   },
   content: { paddingHorizontal: spacing.md, paddingVertical: spacing.md },
