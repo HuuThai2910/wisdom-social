@@ -266,6 +266,31 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
     return () => window.removeEventListener("focus", handleFocus);
   }, [viewerId, postId]);
 
+  // ============ EFFECT: Listen to post-update events from other components ============
+  useEffect(() => {
+    const handlePostUpdate = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const { postId: eventPostId, type, reactionType, likesCount, isSaved: newIsSaved } = customEvent.detail;
+      if (eventPostId !== postId) return;
+
+      if (type === "reaction") {
+        setCurrentReaction(reactionType);
+        if (typeof likesCount === "number") {
+          setReactCount(likesCount);
+        }
+      } else if (type === "save") {
+        if (typeof newIsSaved === "boolean") {
+          setIsSaved(newIsSaved);
+        }
+      }
+    };
+
+    window.addEventListener("post-update", handlePostUpdate);
+    return () => {
+      window.removeEventListener("post-update", handlePostUpdate);
+    };
+  }, [postId]);
+
   // ============ HANDLERS: Menu & Privacy ============
   const handleEdit = () => {
     if (!post) return;
@@ -338,16 +363,34 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
         reactionType
       );
 
+      let nextReaction: string | null = null;
+      let nextReactCount = reactCount;
+
       if (!reaction) {
-        setCurrentReaction(null);
-        setReactCount((prev) => Math.max(0, prev - 1));
+        nextReaction = null;
+        nextReactCount = Math.max(0, reactCount - 1);
       } else {
         const wasNewReaction = currentReaction === null;
-        setCurrentReaction(reaction.type);
+        nextReaction = reaction.type;
         if (wasNewReaction) {
-          setReactCount((prev) => prev + 1);
+          nextReactCount = reactCount + 1;
         }
       }
+
+      setCurrentReaction(nextReaction);
+      setReactCount(nextReactCount);
+
+      // Dispatch event to sync other components
+      window.dispatchEvent(
+        new CustomEvent("post-update", {
+          detail: {
+            postId,
+            type: "reaction",
+            reactionType: nextReaction,
+            likesCount: nextReactCount,
+          },
+        })
+      );
     } catch (error) {
       console.error("Error toggling reaction:", error);
     }
@@ -361,7 +404,19 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
 
     try {
       await postApi.togglePostSaved(viewerId, postId);
-      setIsSaved(!isSaved);
+      const nextSaved = !isSaved;
+      setIsSaved(nextSaved);
+
+      // Dispatch event to sync other components
+      window.dispatchEvent(
+        new CustomEvent("post-update", {
+          detail: {
+            postId,
+            type: "save",
+            isSaved: nextSaved,
+          },
+        })
+      );
     } catch (error) {
       console.error("Error toggling save status:", error);
     }

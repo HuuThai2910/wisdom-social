@@ -582,6 +582,15 @@ export default function StoryViewer({
     };
   }, [visible, activeStory?.id, finished]);
 
+  // Also stop audio when modal closes (visible = false)
+  useEffect(() => {
+    if (visible) return;
+    if (audioRef.current) {
+      void audioRef.current.unloadAsync().catch(() => undefined);
+      audioRef.current = null;
+    }
+  }, [visible]);
+
   useEffect(() => {
     if (audioRef.current) {
       void (

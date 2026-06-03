@@ -226,6 +226,32 @@ export default function PostCard({ post }: PostCardProps) {
     }
   }, [post.id]);
 
+  // ============ EFFECT: Listen to post-update events from other components ============
+  useEffect(() => {
+    const handlePostUpdate = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const { postId: eventPostId, type, reactionType, likesCount: newLikesCount, isSaved: newIsSaved } = customEvent.detail;
+      if (eventPostId !== post.id) return;
+
+      if (type === "reaction") {
+        setCurrentReaction(reactionType);
+        setIsLiked(reactionType !== null);
+        if (typeof newLikesCount === "number") {
+          setLikesCount(newLikesCount);
+        }
+      } else if (type === "save") {
+        if (typeof newIsSaved === "boolean") {
+          setIsSaved(newIsSaved);
+        }
+      }
+    };
+
+    window.addEventListener("post-update", handlePostUpdate);
+    return () => {
+      window.removeEventListener("post-update", handlePostUpdate);
+    };
+  }, [post.id]);
+
   useEffect(() => {
     const handleFocus = () => {
       if (!currentUser?.id) return;
@@ -292,17 +318,37 @@ export default function PostCard({ post }: PostCardProps) {
         reactionType
       );
 
+      let nextReaction: string | null = null;
+      let nextLikesCount = likesCount;
+
       if (!reaction) {
-        setCurrentReaction(null);
+        nextReaction = null;
         setIsLiked(false);
-        setLikesCount((prev) => Math.max(0, prev - 1));
+        nextLikesCount = Math.max(0, likesCount - 1);
       } else {
-        if (!currentReaction) {
-          setLikesCount((prev) => prev + 1);
-        }
-        setCurrentReaction(reaction.type);
+        const wasNewReaction = currentReaction === null;
+        nextReaction = reaction.type;
         setIsLiked(true);
+        if (wasNewReaction) {
+          nextLikesCount = likesCount + 1;
+        }
       }
+
+      setCurrentReaction(nextReaction);
+      setLikesCount(nextLikesCount);
+
+      // Dispatch event to sync other components
+      window.dispatchEvent(
+        new CustomEvent("post-update", {
+          detail: {
+            postId: post.id,
+            type: "reaction",
+            reactionType: nextReaction,
+            likesCount: nextLikesCount,
+          },
+        })
+      );
+
       setShowReactions(false);
     } catch (error) {
       console.error("Error reacting to post:", error);
@@ -328,7 +374,19 @@ export default function PostCard({ post }: PostCardProps) {
 
     try {
       await postApi.togglePostSaved(String(currentUser.id), post.id);
-      setIsSaved(!isSaved);
+      const nextSaved = !isSaved;
+      setIsSaved(nextSaved);
+
+      // Dispatch event to sync other components
+      window.dispatchEvent(
+        new CustomEvent("post-update", {
+          detail: {
+            postId: post.id,
+            type: "save",
+            isSaved: nextSaved,
+          },
+        })
+      );
     } catch (error) {
       console.error("Error toggling save status:", error);
     }

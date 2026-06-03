@@ -4,6 +4,7 @@ import {
   PostCard,
   StoriesBar,
   CreateOptionModal,
+  NotificationBell,
 } from "@/components";
 import { colors, spacing } from "@/constants";
 import { useAppContext } from "@/context/AppContext";
@@ -35,6 +36,9 @@ export default function FeedScreen() {
     addComment,
     getUserById,
     refreshPosts,
+    loadMorePosts,
+    hasMorePosts,
+    loadingMorePosts,
     removePost,
     updatePostPrivacyLocal,
   } = useAppContext();
@@ -78,15 +82,8 @@ export default function FeedScreen() {
             icon: "scan-outline",
             onPress: () => router.push("/(stack)/qr-scanner"),
           },
-          {
-            icon: "notifications-outline",
-            onPress: () => router.push("/(stack)/notifications"),
-          },
-          {
-            icon: "heart-outline",
-            onPress: () => router.push("/(stack)/likes"),
-          },
         ]}
+        notificationBell={<NotificationBell />}
       />
 
       <FlatList
@@ -123,6 +120,22 @@ export default function FeedScreen() {
             tintColor={colors.primary}
           />
         }
+        onEndReached={() => {
+          if (hasMorePosts && !loadingMorePosts) {
+            void loadMorePosts();
+          }
+        }}
+        onEndReachedThreshold={0.5}
+        ListFooterComponent={
+          loadingMorePosts ? (
+            <View style={styles.loadingMore}>
+              <ActivityIndicator color={colors.primary} size="small" />
+              <Text style={styles.loadingMoreText}>Đang tải thêm...</Text>
+            </View>
+          ) : !hasMorePosts && posts.length > 0 ? (
+            <Text style={styles.endOfFeed}>Bạn đã xem hết bài viết</Text>
+          ) : null
+        }
         renderItem={({ item }) => (
           <PostCard
             post={item}
@@ -130,7 +143,7 @@ export default function FeedScreen() {
             currentUserId={currentUser?.id}
             liked={likedPostIds.includes(item.id) || item.isLiked}
             saved={savedPostIds.includes(item.id) || item.isSaved}
-            onLike={() => void likePost(item.id)}
+            onLike={(reactionType, isToggleOff) => void likePost(item.id, reactionType, isToggleOff)}
             onSave={() => void savePost(item.id)}
             onAddComment={(content) => void addComment(item.id, content)}
             onDeleted={removePost}
@@ -168,6 +181,23 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     textAlign: "center",
     padding: spacing.xl,
+  },
+  loadingMore: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: spacing.lg,
+    gap: spacing.sm,
+  },
+  loadingMoreText: {
+    color: colors.textMuted,
+    fontSize: 13,
+  },
+  endOfFeed: {
+    color: colors.textMuted,
+    textAlign: "center",
+    paddingVertical: spacing.lg,
+    fontSize: 12,
   },
   modalBackdrop: {
     flex: 1,

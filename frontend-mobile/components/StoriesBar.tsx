@@ -92,6 +92,18 @@ export default function StoriesBar({
           : story
       )
     );
+    // Also update snapshotGroups to keep them in sync for when viewer reopens
+    setSnapshotGroups((prev) => {
+      if (!prev) return prev;
+      return prev.map((group) => ({
+        ...group,
+        stories: group.stories.map((story) =>
+          story.id === storyId
+            ? { ...story, isViewed: true, viewed: true }
+            : story
+        ),
+      }));
+    });
   };
 
   const handleDeleted = (storyId: string) => {

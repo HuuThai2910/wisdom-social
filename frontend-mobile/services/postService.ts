@@ -533,6 +533,16 @@ export const getSavedPostsWithDetails = async (userId: string | number): Promise
     return posts.filter(Boolean);
 };
 
+export const fetchSavedPostIds = async (userId: string | number): Promise<string[]> => {
+    try {
+        const savedResponse = await apiClient.get("/saved-posts/user", { params: { userId } });
+        const savedPostsData = savedResponse.data?.data || [];
+        return savedPostsData.map((item: any) => String(item.targetId));
+    } catch {
+        return [];
+    }
+};
+
 export const getTaggedPostsWithDetails = async (userId: string | number): Promise<any[]> => {
     const response = await apiClient.get(`/posts/tagged/${userId}`);
     const postsData = extractPostsArray(response.data);

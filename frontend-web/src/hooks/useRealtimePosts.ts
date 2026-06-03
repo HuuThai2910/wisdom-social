@@ -6,6 +6,7 @@ export interface PostRealtimeEvent {
     post?: any;
     postId: string;
     authorId: string;
+    actorId?: string;  // Who triggered the activity (reactor/commenter)
     lastActivityAt?: string;
 }
 
@@ -14,7 +15,7 @@ interface UseRealtimePostsProps {
     onPostCreated?: (post: any) => void;
     onPostUpdated?: (post: any) => void;
     onPostDeleted?: (postId: string) => void;
-    onActivityBump?: (postId: string, lastActivityAt: string) => void;
+    onActivityBump?: (postId: string, lastActivityAt: string, actorId?: string) => void;
 }
 
 export function useRealtimePosts({
@@ -41,7 +42,7 @@ export function useRealtimePosts({
                     break;
                 case "BUMP":
                     if (postId && event.lastActivityAt && onActivityBump) {
-                        onActivityBump(postId, event.lastActivityAt);
+                        onActivityBump(postId, event.lastActivityAt, event.actorId);
                     }
                     break;
             }

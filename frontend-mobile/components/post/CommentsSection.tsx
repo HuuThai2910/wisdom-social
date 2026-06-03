@@ -487,8 +487,8 @@ function NormalizedCommentItem({
   const navigateToProfile = (userId?: string) => {
     if (!userId) return;
     router.push({
-      pathname: "/(stack)/profile/[userId]" as any,
-      params: { userId },
+      pathname: "/(tabs)/user-profile" as any,
+      params: { userId: String(userId) },
     });
   };
 

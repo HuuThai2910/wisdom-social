@@ -8,6 +8,7 @@ export { default as LoadingView } from "./LoadingView";
 export { default as Logo } from "./Logo";
 export { default as MessageItem } from "./MessageItem";
 export { default as NotificationItem } from "./NotificationItem";
+export { default as NotificationBell } from "./NotificationBell";
 export { default as PostCard } from "./PostCard";
 export { default as PostGrid } from "./PostGrid";
 export { default as ProfileHeader } from "./ProfileHeader";

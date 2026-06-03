@@ -1,5 +1,6 @@
 import { colors, spacing, typography } from "@/constants";
 import { Ionicons } from "@expo/vector-icons";
+import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 type Action = {
@@ -12,6 +13,7 @@ type Props = {
     leftAction?: Action;
     leftActions?: Action[];
     rightActions?: Action[];
+    notificationBell?: React.ReactNode;
 };
 
 export default function AppHeader({
@@ -19,6 +21,7 @@ export default function AppHeader({
     leftAction,
     leftActions = [],
     rightActions = [],
+    notificationBell,
 }: Props) {
     return (
         <View style={styles.container}>
@@ -57,6 +60,7 @@ export default function AppHeader({
             </Text>
 
             <View style={[styles.side, styles.right]}>
+                {notificationBell}
                 {rightActions.map((action) => (
                     <Pressable
                         key={action.icon}
