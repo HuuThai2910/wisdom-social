@@ -423,14 +423,97 @@ export function useMessagesController() {
             );
         };
 
+        const handleDirectBlockStatusChanged = (event: Event) => {
+            const detail = (event as CustomEvent).detail as {
+                conversationId?: number;
+                blockerId?: number;
+                blockedId?: number;
+                blocked?: boolean;
+            } | null;
+            if (!detail || typeof detail.conversationId !== "number") return;
+
+            setConversations((prev) =>
+                prev.map((conversation) => {
+                    if (conversation.id !== detail.conversationId || conversation.type !== "DIRECT") {
+                        return conversation;
+                    }
+
+                    return {
+                        ...conversation,
+                        directBlockedByMe:
+                            Number(detail.blockerId) === Number(currentUserIdRef.current)
+                                ? Boolean(detail.blocked)
+                                : conversation.directBlockedByMe,
+                        directBlockedMe:
+                            Number(detail.blockedId) === Number(currentUserIdRef.current)
+                                ? Boolean(detail.blocked)
+                                : conversation.directBlockedMe,
+                    };
+                }),
+            );
+        };
+
+        const handleUserBlockStatusChanged = (event: Event) => {
+            const detail = (event as CustomEvent).detail as {
+                blockerId?: number;
+                blockedId?: number;
+                blocked?: boolean;
+            } | null;
+            if (!detail) return;
+
+            setConversations((prev) =>
+                prev.map((conversation) => {
+                    if (conversation.type !== "DIRECT") return conversation;
+                    const partnerId = Number(conversation.directPartnerId);
+                    if (!Number.isFinite(partnerId)) return conversation;
+
+                    const currentUserId = Number(currentUserIdRef.current);
+                    const affectsThisConversation =
+                        (Number(detail.blockerId) === currentUserId &&
+                            Number(detail.blockedId) === partnerId) ||
+                        (Number(detail.blockerId) === partnerId &&
+                            Number(detail.blockedId) === currentUserId);
+                    if (!affectsThisConversation) return conversation;
+
+                    return {
+                        ...conversation,
+                        directBlockedByMe:
+                            Number(detail.blockerId) === currentUserId
+                                ? Boolean(detail.blocked)
+                                : conversation.directBlockedByMe,
+                        directBlockedMe:
+                            Number(detail.blockedId) === currentUserId
+                                ? Boolean(detail.blocked)
+                                : conversation.directBlockedMe,
+                    };
+                }),
+            );
+        };
+
         window.addEventListener(
             "conversation-member-lock-changed",
             handleMemberLockChanged,
+        );
+        window.addEventListener(
+            "conversation-direct-block-status-changed",
+            handleDirectBlockStatusChanged,
+        );
+        window.addEventListener(
+            "user-block-status-changed",
+            handleUserBlockStatusChanged,
         );
         return () => {
             window.removeEventListener(
                 "conversation-member-lock-changed",
                 handleMemberLockChanged,
+            );
+            window.removeEventListener(
+                "conversation-direct-block-status-changed",
+                handleDirectBlockStatusChanged,
+            );
+            window.removeEventListener(
+                "user-block-status-changed",
+                handleUserBlockStatusChanged,
             );
         };
     }, []);

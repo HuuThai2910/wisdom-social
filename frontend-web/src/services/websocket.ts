@@ -74,6 +74,7 @@ export type DomainEventType =
     | "UPIN_MESSAGE"
     | "MEMBER_UPDATED"
     | "MEMBER_ACCOUNT_LOCK_CHANGED"
+    | "DIRECT_BLOCK_STATUS_CHANGED"
     | "NEW_JOIN_REQUEST"
     | "JOIN_REQUEST_PROCESSED";
 
@@ -121,6 +122,14 @@ export interface MemberAccountLockChangedEvent {
     conversationId: number;
     userId: number;
     accountLocked: boolean;
+}
+
+export interface DirectBlockStatusChangedEvent {
+    domainEventType: "DIRECT_BLOCK_STATUS_CHANGED";
+    conversationId: number;
+    blockerId: number;
+    blockedId: number;
+    blocked: boolean;
 }
 
 /**
@@ -947,6 +956,7 @@ class WebSocketService {
         conversationId: number,
         onMemberUpdated: (event: MemberUpdatedEvent) => void,
         onAccountLockChanged?: (event: MemberAccountLockChangedEvent) => void,
+        onDirectBlockStatusChanged?: (event: DirectBlockStatusChangedEvent) => void,
     ) {
         if (!this.client?.connected) {
             console.error(
@@ -971,7 +981,8 @@ class WebSocketService {
                 try {
                     const event = JSON.parse(message.body) as
                         | MemberUpdatedEvent
-                        | MemberAccountLockChangedEvent;
+                        | MemberAccountLockChangedEvent
+                        | DirectBlockStatusChangedEvent;
                     // Phân loại theo domainEventType. Mặc định (client cũ/không có
                     // field) coi như MEMBER_UPDATED để giữ tương thích ngược.
                     if (
@@ -979,6 +990,12 @@ class WebSocketService {
                     ) {
                         onAccountLockChanged?.(
                             event as MemberAccountLockChangedEvent,
+                        );
+                    } else if (
+                        event.domainEventType === "DIRECT_BLOCK_STATUS_CHANGED"
+                    ) {
+                        onDirectBlockStatusChanged?.(
+                            event as DirectBlockStatusChangedEvent,
                         );
                     } else {
                         onMemberUpdated(event as MemberUpdatedEvent);
@@ -1087,7 +1104,8 @@ class WebSocketService {
                         | NewJoinRequestEvent
                         | JoinRequestProcessedEvent
                         | BlockedMembersUpdatedEvent
-                        | MemberAccountLockChangedEvent;
+                        | MemberAccountLockChangedEvent
+                        | DirectBlockStatusChangedEvent;
 
                     // Khóa/mở khóa tài khoản của 1 thành viên -> cập nhật SIDEBAR
                     // (mask/bỏ mask tên + avatar) qua window event, không cần F5.
@@ -1101,6 +1119,22 @@ class WebSocketService {
                             new CustomEvent(
                                 "conversation-member-lock-changed",
                                 { detail: lockPayload },
+                            ),
+                        );
+                        return;
+                    }
+
+                    const directBlockPayload =
+                        payload as DirectBlockStatusChangedEvent;
+                    if (
+                        directBlockPayload.domainEventType ===
+                            "DIRECT_BLOCK_STATUS_CHANGED" &&
+                        typeof directBlockPayload.conversationId === "number"
+                    ) {
+                        window.dispatchEvent(
+                            new CustomEvent(
+                                "conversation-direct-block-status-changed",
+                                { detail: directBlockPayload },
                             ),
                         );
                         return;

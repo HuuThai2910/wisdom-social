@@ -94,6 +94,17 @@ public class ConversationEventPublisher {
     }
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void handleDirectBlockStatusChanged(DirectBlockStatusChangedEvent event) {
+        log.info("Publishing direct block status update to redis pub/sub for {} members", event.getRecipientUserIds());
+        RedisEnvelope envelope = new RedisEnvelope(
+                event.getRecipientUserIds(),
+                event.getDomainEventType(),
+                event
+        );
+        redisTemplate.convertAndSend(RedisPubSubConfig.CHAT_CHANNEL, envelope);
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void handleMemberAdded(MemberAddedEvent event){
         log.info("Publishing add member to redis pub/sub for {} member", event.getMemberIds());
         RedisEnvelope envelope = new RedisEnvelope(

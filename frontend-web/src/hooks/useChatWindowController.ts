@@ -21,6 +21,7 @@ import {
     type OutboxMessage,
 } from "../services/messageOutbox";
 import websocketService, {
+    type DirectBlockStatusChangedEvent,
     type MemberAccountLockChangedEvent,
     type MemberUpdatedEvent,
     type MessageSeenEvent,
@@ -457,6 +458,15 @@ export function useChatWindowController(args: {
             return "Chỉ Trưởng/Phó nhóm mới được gửi tin nhắn";
         }
 
+        if (conversation?.type === "DIRECT") {
+            if (conversation.directBlockedByMe) {
+                return "Bạn đã chặn người này.";
+            }
+            if (conversation.directBlockedMe) {
+                return "Bạn không thể nhắn tin với người này.";
+            }
+        }
+
         const notice = forcedReadOnlyNotice || localReadOnlyNotice;
         console.log("[DEBUG_READD] readOnlyNotice evaluated:", {
             forcedReadOnlyNotice,
@@ -464,7 +474,15 @@ export function useChatWindowController(args: {
             result: notice,
         });
         return notice;
-    }, [forcedReadOnlyNotice, localReadOnlyNotice, conversation?.isMessageRestricted, currentUserMember?.role]);
+    }, [
+        forcedReadOnlyNotice,
+        localReadOnlyNotice,
+        conversation?.isMessageRestricted,
+        conversation?.type,
+        conversation?.directBlockedByMe,
+        conversation?.directBlockedMe,
+        currentUserMember?.role,
+    ]);
 
     const prevForcedNoticeRef = useRef<string | null | undefined>(
         forcedReadOnlyNotice,
@@ -2242,6 +2260,69 @@ const list = Array.isArray(cursorData?.data)
         };
     }, [catchUpActiveConversationMessages, userId]);
 
+    useEffect(() => {
+        const handleUserBlockStatusChanged = (event: Event) => {
+            const detail = (event as CustomEvent).detail as {
+                blockerId?: number;
+                blockedId?: number;
+                blocked?: boolean;
+            } | null;
+            if (!detail) return;
+
+            setConversation((previousConversation) => {
+                if (!previousConversation || previousConversation.type !== "DIRECT") {
+                    return previousConversation;
+                }
+
+                const partnerId = Number(
+                    previousConversation.directPartnerId ??
+                        previousConversation.members?.find(
+                            (member) => Number(member.userId) !== Number(userId),
+                        )?.userId,
+                );
+                if (!Number.isFinite(partnerId)) return previousConversation;
+
+                const currentUserId = Number(userId);
+                const affectsThisConversation =
+                    (Number(detail.blockerId) === currentUserId &&
+                        Number(detail.blockedId) === partnerId) ||
+                    (Number(detail.blockerId) === partnerId &&
+                        Number(detail.blockedId) === currentUserId);
+                if (!affectsThisConversation) return previousConversation;
+
+                const nextConversation = {
+                    ...previousConversation,
+                    directBlockedByMe:
+                        Number(detail.blockerId) === currentUserId
+                            ? Boolean(detail.blocked)
+                            : previousConversation.directBlockedByMe,
+                    directBlockedMe:
+                        Number(detail.blockedId) === currentUserId
+                            ? Boolean(detail.blocked)
+                            : previousConversation.directBlockedMe,
+                };
+                chatRuntimeStore.setConversation(conversationId, nextConversation);
+                return nextConversation;
+            });
+
+            if (!detail.blocked) {
+                setReadOnlyNotice(null);
+                setError(null);
+            }
+        };
+
+        window.addEventListener(
+            "user-block-status-changed",
+            handleUserBlockStatusChanged,
+        );
+        return () => {
+            window.removeEventListener(
+                "user-block-status-changed",
+                handleUserBlockStatusChanged,
+            );
+        };
+    }, [conversationId, userId]);
+
     /**
      * handleMessageSeen - Xử lý khi nhận được event "Người khác đã xem"
      *
@@ -2759,6 +2840,36 @@ const list = Array.isArray(cursorData?.data)
             }
         };
 
+        const handleDirectBlockStatusChanged = (
+            event: DirectBlockStatusChangedEvent,
+        ) => {
+            if (Number(event.conversationId) !== Number(conversationId)) return;
+
+            setConversation((previousConversation) => {
+                if (!previousConversation || previousConversation.type !== "DIRECT") {
+                    return previousConversation;
+                }
+
+                const nextConversation = {
+                    ...previousConversation,
+                    directBlockedByMe:
+                        Number(event.blockerId) === Number(userId)
+                            ? event.blocked
+                            : previousConversation.directBlockedByMe,
+                    directBlockedMe:
+                        Number(event.blockedId) === Number(userId)
+                            ? event.blocked
+                            : previousConversation.directBlockedMe,
+                };
+                chatRuntimeStore.setConversation(conversationId, nextConversation);
+                return nextConversation;
+            });
+            if (!event.blocked) {
+                setReadOnlyNotice(null);
+                setError(null);
+            }
+        };
+
         const handlePinUpdated = (event: PinUpdatedEvent) => {
             if (Number(event.conversationId) !== Number(conversationId)) return;
 
@@ -2793,6 +2904,7 @@ const list = Array.isArray(cursorData?.data)
                     conversationId,
                     handleMemberUpdated,
                     handleMemberAccountLockChanged,
+                    handleDirectBlockStatusChanged,
                 );
                 websocketService.subscribeToConversationPins(
                     conversationId,

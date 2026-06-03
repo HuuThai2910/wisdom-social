@@ -49,6 +49,7 @@ import chatService, {
   type ConversationSidebar,
   type Message,
 } from "../../services/chatService";
+import blockService from "../../services/blockService";
 import { buildConversationDisplayInfo } from "../../utils/conversationDisplayInfo";
 import {
   LOCKED_ACCOUNT_AVATAR_URL,
@@ -911,6 +912,34 @@ function ChatWindowContent({
     isDirectConversation &&
     (Boolean(conversation?.directPartnerLocked) ||
       Boolean(otherMember?.accountLocked));
+  const isDirectBlockedByMe =
+    isDirectConversation && Boolean(conversation?.directBlockedByMe);
+  const isDirectBlockedMe =
+    isDirectConversation && Boolean(conversation?.directBlockedMe);
+  const isDirectChatBlocked = isDirectBlockedByMe || isDirectBlockedMe;
+
+  const handleUnblockDirectPartner = useCallback(async () => {
+    if (!directTargetUserId || !userId) return;
+    try {
+      await blockService.unblockUser(Number(userId), Number(directTargetUserId));
+      toast.success("Đã bỏ chặn");
+      chatRuntimeStore.setConversation(conversationId, {
+        ...(conversation as ConversationSidebar),
+        directBlockedByMe: false,
+      });
+      window.dispatchEvent(
+        new CustomEvent("user-block-status-changed", {
+          detail: {
+            blockerId: Number(userId),
+            blockedId: Number(directTargetUserId),
+            blocked: false,
+          },
+        }),
+      );
+    } catch {
+      toast.error("Không thể bỏ chặn");
+    }
+  }, [conversation, conversationId, directTargetUserId, userId]);
 
   // Helper dùng chung: 1 user có đang bị khóa tài khoản không.
   // - Ưu tiên cờ trên member (membersById).
@@ -2364,7 +2393,7 @@ function ChatWindowContent({
             disabled={
               isGroupConversation
                 ? false
-                : !directTargetUserId || isPartnerAccountLocked
+                : !directTargetUserId || isPartnerAccountLocked || isDirectChatBlocked
             }
             title="Gọi thoại"
           >
@@ -2387,7 +2416,7 @@ function ChatWindowContent({
             disabled={
               isGroupConversation
                 ? false
-                : !directTargetUserId || isPartnerAccountLocked
+                : !directTargetUserId || isPartnerAccountLocked || isDirectChatBlocked
             }
             title="Gọi video"
           >
@@ -2764,9 +2793,9 @@ function ChatWindowContent({
           onChange={onFileChange}
         />
 
-        {isConversationReadOnly || isPartnerAccountLocked ? (
+        {isConversationReadOnly || isPartnerAccountLocked || isDirectChatBlocked ? (
           /* Restriction notice — replaces composer entirely */
-          <div className="flex items-center justify-center gap-2 rounded-full bg-gray-100 px-4 py-2.5 dark:bg-gray-800/60">
+          <div className="flex flex-wrap items-center justify-center gap-2 rounded-full bg-gray-100 px-4 py-2.5 dark:bg-gray-800/60">
             <svg
               xmlns="http://www.w3.org/2000/svg"
               viewBox="0 0 24 24"
@@ -2785,13 +2814,34 @@ function ChatWindowContent({
               <span className="text-sm font-semibold text-gray-600 dark:text-gray-300">
                 Tài khoản đã bị khóa
               </span>
+            ) : isDirectBlockedByMe ? (
+              <>
+                <span className="text-sm font-semibold text-gray-600 dark:text-gray-300">
+                  Bạn đã chặn người này.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void handleUnblockDirectPartner()}
+                  className="rounded-full bg-gray-900 px-3 py-1 text-xs font-semibold text-white transition-colors hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-gray-300"
+                >
+                  Bỏ chặn
+                </button>
+              </>
+            ) : isDirectBlockedMe ? (
+              <span className="text-sm font-semibold text-gray-600 dark:text-gray-300">
+                Bạn không thể nhắn tin với người này.
+              </span>
             ) : (
               <span className="text-sm text-gray-500 dark:text-gray-400">
-                Chỉ{" "}
-                <span className="font-semibold text-gray-700 dark:text-gray-200">
-                  trưởng/phó nhóm
-                </span>{" "}
-                mới được gửi tin nhắn
+                {readOnlyNotice || (
+                  <>
+                    Chỉ{" "}
+                    <span className="font-semibold text-gray-700 dark:text-gray-200">
+                      trưởng/phó nhóm
+                    </span>{" "}
+                    mới được gửi tin nhắn
+                  </>
+                )}
               </span>
             )}
           </div>

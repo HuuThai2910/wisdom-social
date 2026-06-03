@@ -185,6 +185,8 @@ export interface ConversationSidebar {
     directPartnerId?: number;
     // Với hội thoại DIRECT: đối phương có đang bị khóa tài khoản không.
     directPartnerLocked?: boolean;
+    directBlockedByMe?: boolean;
+    directBlockedMe?: boolean;
     updatedAt: string;
     lastMessage?: LastMessage;
     unreadCount?: number;
@@ -413,6 +415,14 @@ export interface MemberAccountLockChangedEvent {
     conversationId: number;
     userId: number;
     accountLocked: boolean;
+}
+
+export interface DirectBlockStatusChangedEvent {
+    domainEventType: "DIRECT_BLOCK_STATUS_CHANGED";
+    conversationId: number;
+    blockerId: number;
+    blockedId: number;
+    blocked: boolean;
 }
 
 export interface ConversationUpdatedEvent {

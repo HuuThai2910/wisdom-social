@@ -15,6 +15,7 @@ import { useFriendNotifications } from "@/hooks/useFriendNotifications";
 import { useGroupManagement } from "@/hooks/useGroupManagement";
 import { usePresenceStatus } from "@/hooks/usePresenceStatus";
 import chatService from "@/services/chatService";
+import blockService from "@/services/blockService";
 import friendService from "@/services/friendService";
 import type { FriendEvent } from "@/services/friendWebsocketService";
 import type {
@@ -1007,6 +1008,19 @@ export default function MessagesConversationScreen() {
             members: Object.values(membersById),
         });
     }, [conversation, currentUserId, membersById]);
+    const isDirectBlockedByMe =
+        conversation?.type === "DIRECT" && Boolean(conversation.directBlockedByMe);
+    const isDirectBlockedMe =
+        conversation?.type === "DIRECT" && Boolean(conversation.directBlockedMe);
+    const isDirectChatBlocked = isDirectBlockedByMe || isDirectBlockedMe;
+    const handleUnblockDirectPartner = useCallback(async () => {
+        if (!currentUserId || !directTargetUserId) return;
+        try {
+            await blockService.unblockUser(currentUserId, directTargetUserId);
+        } catch {
+            Alert.alert("Thong bao", "Khong the bo chan");
+        }
+    }, [currentUserId, directTargetUserId]);
     const callMemberSource = useMemo(() => {
         const mergedMembers = new Map<number, ConversationMember>();
         for (const member of conversation?.members ?? []) {
@@ -1241,6 +1255,11 @@ export default function MessagesConversationScreen() {
                 return;
             }
 
+            if (!isGroupConversation && isDirectChatBlocked) {
+                Alert.alert("Khong the goi", "Ban khong the goi nguoi nay.");
+                return;
+            }
+
             if (!isGroupConversation && !directTargetUserId) {
                 Alert.alert(
                     "Khong the goi",
@@ -1254,6 +1273,7 @@ export default function MessagesConversationScreen() {
         [
             callableMembers.length,
             directTargetUserId,
+            isDirectChatBlocked,
             isStartingAnotherCall,
             isCallSupported,
             isGroupConversation,
@@ -2396,7 +2416,10 @@ export default function MessagesConversationScreen() {
 
     // Chỉ hiện màn hình lỗi (error view) khi bị mất quyền truy cập hoàn toàn.
     // Nếu chỉ bị chặn gửi tin nhắn (readOnlyNotice chứa "Chỉ trưởng/phó nhóm") thì vẫn cho xem hội thoại.
-    const isAccessBlocked = readOnlyNotice && (
+    const isDirectBlockReadOnly =
+        readOnlyNotice === "Bạn đã chặn người này." ||
+        readOnlyNotice === "Bạn không thể nhắn tin với người này.";
+    const isAccessBlocked = readOnlyNotice && !isDirectBlockReadOnly && (
         readOnlyNotice.includes("chặn") ||
         readOnlyNotice.includes("xóa") || 
         readOnlyNotice.includes("rời") || 
@@ -2983,6 +3006,14 @@ export default function MessagesConversationScreen() {
                             conversationDisplayInfo?.locked
                                 ? LOCKED_ACCOUNT_NAME
                                 : readOnlyNotice
+                        }
+                        readOnlyActionLabel={
+                            isDirectBlockedByMe ? "Bỏ chặn" : null
+                        }
+                        onReadOnlyAction={
+                            isDirectBlockedByMe
+                                ? () => void handleUnblockDirectPartner()
+                                : undefined
                         }
                         error={error}
                         onPickEmoji={onPickEmoji}

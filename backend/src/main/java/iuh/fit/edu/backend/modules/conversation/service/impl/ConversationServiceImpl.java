@@ -28,6 +28,7 @@ import iuh.fit.edu.backend.modules.conversation.repository.ConversationMemberRep
 import iuh.fit.edu.backend.modules.conversation.repository.ConversationRepository;
 import iuh.fit.edu.backend.modules.conversation.service.GroupJoinRequestService;
 import iuh.fit.edu.backend.modules.user.repository.UserRepository;
+import iuh.fit.edu.backend.modules.user.repository.BlockUserRepository;
 import iuh.fit.edu.backend.modules.conversation.service.ConversationMemberCacheService;
 import iuh.fit.edu.backend.modules.conversation.service.ConversationMemberService;
 import iuh.fit.edu.backend.modules.conversation.service.ConversationService;
@@ -70,6 +71,7 @@ public class ConversationServiceImpl implements ConversationService {
     private final GroupJoinRequestService groupJoinRequestService;
     private final MediaUrlBuilder mediaUrlBuilder;
     private final FriendRepository friendRepository;
+    private final BlockUserRepository blockUserRepository;
 
 
     @Override
@@ -77,6 +79,7 @@ public class ConversationServiceImpl implements ConversationService {
         List<ConversationMember> members = conversationMemberRepository.findActiveSidebarByUserId(userId);
         if(members.isEmpty()) return Collections.emptyList();
         List<ConversationSidebarResponse> conversationResponses = this.conversationMapper.toListSidebarFromMembers(members);
+        applyDirectBlockStatus(conversationResponses, userId);
         log.info("List conversation by user {}:  {} ", userId, conversationResponses);
         return conversationResponses;
     }
@@ -113,12 +116,57 @@ public class ConversationServiceImpl implements ConversationService {
 
         Conversation conversation = conversationMember.getConversation();
         ConversationResponse response = conversationMapper.toConversationResponse(conversation, userId);
+        applyDirectBlockStatus(response, userId);
         if (conversationMember.getRole() == MemberRole.OWNER || conversationMember.getRole() == MemberRole.DEPUTY) {
             List<JoinRequestResponse> pending = groupJoinRequestService.getPendingRequests(conversationId, userId);
             response.setPendingRequests(pending);
         }
         log.info("Conversation: {}", response);
         return response;
+    }
+
+    private void applyDirectBlockStatus(List<ConversationSidebarResponse> responses, Long userId) {
+        if (responses == null || responses.isEmpty() || userId == null) return;
+
+        Set<Long> partnerIds = responses.stream()
+                .filter(response -> response.getType() == ConversationType.DIRECT)
+                .map(ConversationSidebarResponse::getDirectPartnerId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (partnerIds.isEmpty()) return;
+
+        Set<Long> blockedByMeIds = blockUserRepository
+                .findByBlocker_IdAndBlocked_IdIn(userId, partnerIds)
+                .stream()
+                .map(blockedUser -> blockedUser.getBlocked().getId())
+                .collect(Collectors.toSet());
+        Set<Long> blockedMeIds = blockUserRepository
+                .findByBlocked_IdAndBlocker_IdIn(userId, partnerIds)
+                .stream()
+                .map(blockedUser -> blockedUser.getBlocker().getId())
+                .collect(Collectors.toSet());
+
+        responses.forEach(response -> {
+            Long partnerId = response.getDirectPartnerId();
+            if (partnerId == null) return;
+            response.setDirectBlockedByMe(blockedByMeIds.contains(partnerId));
+            response.setDirectBlockedMe(blockedMeIds.contains(partnerId));
+        });
+    }
+
+    private void applyDirectBlockStatus(ConversationResponse response, Long userId) {
+        if (response == null || userId == null || response.getType() != ConversationType.DIRECT) return;
+        Long partnerId = response.getMembers() == null ? null : response.getMembers()
+                .stream()
+                .map(ConversationMemberResponse::getUserId)
+                .filter(Objects::nonNull)
+                .filter(memberUserId -> !memberUserId.equals(userId))
+                .findFirst()
+                .orElse(null);
+        if (partnerId == null) return;
+
+        response.setDirectBlockedByMe(blockUserRepository.existsByBlocker_IdAndBlocked_Id(userId, partnerId));
+        response.setDirectBlockedMe(blockUserRepository.existsByBlocker_IdAndBlocked_Id(partnerId, userId));
     }
 
     @Transactional(rollbackFor = Exception.class)
