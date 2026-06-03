@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python build_pptx.py)",
+      "Bash(python -c \"from pptx import Presentation; p=Presentation\\(r'Wisdom_Social_Presentation.pptx'\\); print\\('Slides:', len\\(p.slides._sldIdLst\\)\\); print\\('Size OK'\\)\")",
+      "Bash(xargs grep -l -i \"login\\\\|cognito\\\\|auth\")"
+    ]
+  }
+}

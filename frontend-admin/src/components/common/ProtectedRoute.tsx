@@ -3,7 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import type { ReactNode } from 'react';
 
 export default function ProtectedRoute({ children }: { children: ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, isAdmin, loading } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -14,7 +14,8 @@ export default function ProtectedRoute({ children }: { children: ReactNode }) {
     );
   }
 
-  if (!user) {
+  if (!user || !isAdmin) {
+    // Chưa đăng nhập hoặc tài khoản không thuộc nhóm ADMIN -> không cho vào trang quản trị.
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
