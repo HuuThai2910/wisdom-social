@@ -439,26 +439,24 @@ footer(s, N, CYAN)
 N += 1
 s = new_slide(); deco_dots(s)
 page_header(s, "1.1  Tổng quan", "Wisdom Social là gì?", INDIGO)
-txt(s, Inches(0.85), Inches(1.82), Inches(11.6), Inches(1.1),
-    "Hệ thống mạng xã hội đa nền tảng, vận dụng kiến trúc phần mềm phân tầng, cơ sở dữ liệu lai, lập trình "
-    "realtime và tối ưu hiệu năng. Tham khảo Instagram & Zalo, chọn lọc các chức năng phù hợp người dùng Việt: "
-    "Story, Reels, Newsfeed, Chat cá nhân/nhóm, Page, Notification.",
-    size=14.5, color=LIGHT, line_spacing=1.18)
+txt(s, Inches(0.85), Inches(1.85), Inches(11.6), Inches(0.5),
+    "MXH đa nền tảng  ·  tham khảo Instagram & Zalo", size=16, color=INK2, bold=True)
+# feature pills
+fpills = ["📸 Story", "🎬 Reels", "📰 Newsfeed", "💬 Chat", "📄 Page", "🔔 Notification"]
+px = Inches(0.85)
+for fp in fpills:
+    w = Inches(1.78)
+    chip(s, px, Inches(2.42), w, fp, DARK2, tcolor=BLUE, size=11.5)
+    px = Emu(int(px)+int(w)+int(Inches(0.12)))
 cards = [
-    ("🖥️", "Backend", "Spring Boot 3.5 trên Java 21 — vừa là REST API Server vừa là WebSocket Server phục vụ các chức năng realtime.", INDIGO, VIOLET),
-    ("🌐", "Frontend Web", "SPA bằng React 19, Vite 7, TailwindCSS 4 & Ant Design 5 — tối ưu cho trình duyệt máy tính & máy tính bảng.", BLUE, CYAN),
-    ("📱", "Frontend Mobile", "Ứng dụng di động React Native 0.81 + Expo SDK 54 — hỗ trợ đồng thời Android và iOS.", TEAL, GREEN),
+    ("🖥️", "Backend", "Spring Boot 3.5 · Java 21\nREST API + WebSocket", INDIGO, VIOLET),
+    ("🌐", "Web", "React 19 · Vite 7\nTailwind · Ant Design", BLUE, CYAN),
+    ("📱", "Mobile", "React Native · Expo 54\nAndroid + iOS", TEAL, GREEN),
 ]
 x0 = Inches(0.85); cw = Inches(3.85); ch = Inches(2.55); gx = Inches(0.33)
 for i, (ic, t, b, c1, c2) in enumerate(cards):
     x = Emu(int(x0) + i*(int(cw)+int(gx)))
-    icon_card(s, x, Inches(3.1), cw, ch, ic, t, b, c1, c2, tsize=17, bsize=12.5)
-# bottom strip
-strip = rect(s, Inches(0.85), Inches(5.95), Inches(11.6), Inches(0.85), DARK2); _set_round(strip, 0.12)
-txt(s, Inches(1.05), Inches(6.0), Inches(11.3), Inches(0.4), "💡  Ý nghĩa tên gọi", size=12.5, color=CYAN, bold=True, font=FONT_B)
-txt(s, Inches(1.05), Inches(6.38), Inches(11.3), Inches(0.4),
-    "“Wisdom Social” — không gian mạng xã hội tích cực để chia sẻ kiến thức, kinh nghiệm, khoảnh khắc đời sống và kết nối qua nội dung mang giá trị cộng đồng.",
-    size=11.5, color=LIGHTGRAY, anchor=MSO_ANCHOR.MIDDLE)
+    icon_card(s, x, Inches(3.35), cw, ch, ic, t, b, c1, c2, tsize=19, bsize=14.5)
 footer(s, N, INDIGO)
 
 # ============================================================================
@@ -468,10 +466,10 @@ N += 1
 s = new_slide(); deco_dots(s)
 page_header(s, "1.2  Mục tiêu đề tài", "Bốn nhóm mục tiêu nghiên cứu", TEAL)
 objs = [
-    ("☁️", "1.2.1  Cloud Computing", "Nghiên cứu & vận dụng các nền tảng điện toán đám mây hiện đại để xây hệ thống mở rộng, bảo mật, tối ưu tài nguyên (Cloud-Based Architecture).", INDIGO, VIOLET),
-    ("🗄️", "1.2.2  Kiến trúc dữ liệu", "Triển khai Polyglot Persistence (Hybrid Database), tối ưu truy vấn (Compound Index), nhiều chiến lược cache; chung 1 backend cho Web & Mobile.", BLUE, CYAN),
-    ("⚡", "1.2.3  Realtime & Thuật toán", "Giao tiếp thời gian thực độ trễ thấp cho chat, notification, cuộc gọi; tối ưu lưu trữ - truy xuất - đồng bộ dữ liệu.", ROSE, PINK),
-    ("🎨", "1.2.4  Trải nghiệm người dùng", "Giao diện hiện đại, trực quan, hoàn toàn tiếng Việt; hỗ trợ Dark Mode trên cả Web và Mobile.", AMBER, ORANGE),
+    ("☁️", "1.2.1  Cloud Computing", "Vận dụng nền tảng đám mây\nMở rộng · Bảo mật · Tối ưu tài nguyên", INDIGO, VIOLET),
+    ("🗄️", "1.2.2  Kiến trúc dữ liệu", "Hybrid Database · Compound Index\nCache đa tầng · 1 backend dùng chung", BLUE, CYAN),
+    ("⚡", "1.2.3  Realtime & Thuật toán", "Độ trễ thấp · đồng bộ dữ liệu\nChat · Notification · Cuộc gọi", ROSE, PINK),
+    ("🎨", "1.2.4  Trải nghiệm người dùng", "Giao diện tiếng Việt · trực quan\nDark Mode (Web & Mobile)", AMBER, ORANGE),
 ]
 x0 = Inches(0.85); y0 = Inches(1.95); cw = Inches(5.7); ch = Inches(2.2); gx = Inches(0.2); gy = Inches(0.22)
 for i, (ic, t, b, c1, c2) in enumerate(objs):
@@ -487,17 +485,16 @@ N += 1
 s = new_slide(); deco_dots(s)
 page_header(s, "1.2.1  Cloud Computing", "Hệ sinh thái dịch vụ đám mây", SKY)
 txt(s, Inches(0.85), Inches(1.78), Inches(11.6), Inches(0.5),
-    "Thiết kế Cloud-Based Architecture — tận dụng dịch vụ chuyên biệt từ nhiều nhà cung cấp để tối ưu từng thành phần.",
-    size=13, color=LIGHT)
+    "Cloud-Based Architecture  ·  mỗi dịch vụ tối ưu một thành phần", size=14, color=INK2, bold=True)
 cloud = [
-    ("🔐", "AWS Cognito", "Quản lý danh tính tập trung: đăng ký, OTP qua SĐT, đăng nhập, phiên & cấp JWT.", INDIGO, VIOLET),
-    ("🪣", "AWS S3", "Lưu media (ảnh, video, story, reels, avatar) qua Pre-signed URL — client upload trực tiếp.", ORANGE, AMBER),
-    ("🖥️", "AWS EC2", "Máy chủ ảo (IaaS) chạy backend Spring Boot — chủ động cấu hình môi trường & tài nguyên.", BLUE, SKY),
-    ("📦", "AWS ECR", "Kho Docker Image tập trung — quản lý phiên bản, nền tảng cho DevOps / CI-CD.", PURPLE, VIOLET),
-    ("🗄️", "TiBi Cloud DB", "MariaDB dạng DBaaS — dữ liệu quan hệ (user, bạn bè, hội thoại, page).", TEAL, GREEN),
-    ("🍃", "MongoDB Atlas", "MongoDB trên cloud — bài viết, tin nhắn, bình luận, story, thông báo.", GREEN, TEAL),
-    ("▲", "Vercel", "Deploy & CDN toàn cầu cho React — auto build từ GitHub, giảm độ trễ tải UI.", DARK, GRAY),
-    ("🤖", "OpenRouter", "AI Gateway chuẩn OpenAPI — kết nối GPT, Claude, Gemini, DeepSeek, Mistral.", ROSE, PINK),
+    ("🔐", "AWS Cognito", "Đăng ký · OTP · Đăng nhập · JWT", INDIGO, VIOLET),
+    ("🪣", "AWS S3", "Lưu media · Pre-signed URL", ORANGE, AMBER),
+    ("🖥️", "AWS EC2", "Máy chủ ảo (IaaS) · Spring Boot", BLUE, SKY),
+    ("📦", "AWS ECR", "Kho Docker Image · CI/CD", PURPLE, VIOLET),
+    ("🗄️", "TiBi Cloud DB", "MariaDB (DBaaS) · dữ liệu quan hệ", TEAL, GREEN),
+    ("🍃", "MongoDB Atlas", "MongoDB cloud · nội dung MXH", GREEN, TEAL),
+    ("▲", "Vercel", "Deploy + CDN · auto build", DARK, GRAY),
+    ("🤖", "OpenRouter", "AI Gateway · đa mô hình", ROSE, PINK),
 ]
 x0 = Inches(0.85); y0 = Inches(2.35); cw = Inches(2.85); ch = Inches(1.95); gx = Inches(0.13); gy = Inches(0.18)
 for i, (ic, t, b, c1, c2) in enumerate(cloud):
@@ -516,16 +513,15 @@ footer(s, N, SKY)
 N += 1
 s = new_slide(); deco_dots(s)
 page_header(s, "Cloud Service Models", "Tiếp cận đa mô hình dịch vụ Cloud", BLUE)
-txt(s, Inches(0.85), Inches(1.8), Inches(11.6), Inches(0.6),
-    "Việc kết hợp nhiều nền tảng giúp nhóm tiếp cận thực tế nhiều mô hình dịch vụ điện toán đám mây khác nhau:",
-    size=14, color=LIGHT)
+txt(s, Inches(0.85), Inches(1.8), Inches(11.6), Inches(0.5),
+    "6 mô hình dịch vụ cloud trong cùng một hệ thống", size=14, color=INK2, bold=True)
 models = [
-    ("IaaS", "Infrastructure as a Service", "AWS EC2 — máy chủ ảo chạy backend", INDIGO, VIOLET),
-    ("PaaS", "Platform as a Service", "Vercel — build & deploy frontend tự động", BLUE, CYAN),
-    ("DBaaS", "Database as a Service", "TiBi Cloud (MariaDB) · MongoDB Atlas", TEAL, GREEN),
-    ("Registry", "Container Registry Service", "AWS ECR — kho Docker Image tập trung", AMBER, ORANGE),
-    ("AIaaS", "AI as a Service", "OpenRouter — AI Gateway đa mô hình", ROSE, PINK),
-    ("Auth", "Identity & Auth Service", "AWS Cognito — xác thực & quản lý người dùng", PURPLE, VIOLET),
+    ("IaaS", "Infrastructure as a Service", "AWS EC2 · máy chủ ảo", INDIGO, VIOLET),
+    ("PaaS", "Platform as a Service", "Vercel · deploy frontend", BLUE, CYAN),
+    ("DBaaS", "Database as a Service", "TiBi Cloud · MongoDB Atlas", TEAL, GREEN),
+    ("Registry", "Container Registry", "AWS ECR · Docker Image", AMBER, ORANGE),
+    ("AIaaS", "AI as a Service", "OpenRouter · AI Gateway", ROSE, PINK),
+    ("Auth", "Identity & Auth", "AWS Cognito · xác thực", PURPLE, VIOLET),
 ]
 x0 = Inches(0.85); y0 = Inches(2.55); cw = Inches(3.78); ch = Inches(1.85); gx = Inches(0.28); gy = Inches(0.22)
 for i, (tag, full, desc, c1, c2) in enumerate(models):
@@ -597,10 +593,10 @@ N += 1
 s = new_slide(); deco_dots(s)
 page_header(s, "Backend", "Tầng Backend — Spring Boot", INDIGO)
 cards = [
-    ("⚙️", "Framework", "Java 21, Spring Boot 3.5.6\nSpring Web (REST), Spring WebFlux (WebClient reactive cho AI), Spring WebSocket (STOMP).", INDIGO, VIOLET),
-    ("🗄️", "Persistence", "Spring Data JPA → MariaDB (định danh, hội thoại).\nSpring Data MongoDB → nội dung MXH (post, comment, message...).", BLUE, CYAN),
-    ("🔐", "Security", "Spring Security stateless, xác thực JWT do Cognito phát hành, secure cookies & luồng refresh token.", TEAL, GREEN),
-    ("📡", "Realtime & Event", "STOMP broker, tầng Event publish sự kiện hội thoại/tin nhắn/thành viên qua Redis Pub/Sub.", ROSE, PINK),
+    ("⚙️", "Framework", "Java 21 · Spring Boot 3.5\nWeb · WebFlux · WebSocket", INDIGO, VIOLET),
+    ("🗄️", "Persistence", "JPA → MariaDB\nMongoDB → nội dung MXH", BLUE, CYAN),
+    ("🔐", "Security", "Spring Security stateless\nJWT · cookies · refresh", TEAL, GREEN),
+    ("📡", "Realtime & Event", "STOMP broker · Event layer\nRedis Pub/Sub", ROSE, PINK),
 ]
 x0 = Inches(0.85); y0 = Inches(1.95); cw = Inches(5.7); ch = Inches(2.2); gx = Inches(0.2); gy = Inches(0.22)
 for i, (ic, t, b, c1, c2) in enumerate(cards):
@@ -619,26 +615,26 @@ page_header(s, "Frontend", "Web & Mobile Clients", CYAN)
 wb = rect(s, Inches(0.85), Inches(1.95), Inches(5.7), Inches(4.7), CARDBG); _set_round(wb, 0.05)
 strip = grad_rect(s, Inches(0.85), Inches(1.95), Inches(5.7), Inches(0.7), BLUE, CYAN, 0); _set_round(strip, 0.1)
 txt(s, Inches(0.85), Inches(1.95), Inches(5.7), Inches(0.7), "🌐  Web Client", size=19, color=WHITE, bold=True, align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE, font=FONT_B)
-bullets(s, Inches(1.1), Inches(2.95), Inches(5.25), Inches(3.5), [
-    "React 19 + Vite 7 + TypeScript",
-    "Tailwind CSS 4 & Ant Design cho UI",
-    "Redux Toolkit + React Router",
-    "STOMP/SockJS realtime qua singleton WebSocket",
-    "Xác thực bằng cookie trình duyệt",
-    "Vite proxy: /api & /ws → backend:8080",
-], size=14, bcolor=CYAN, gap=11)
+bullets(s, Inches(1.1), Inches(3.05), Inches(5.25), Inches(3.4), [
+    "React 19 · Vite 7 · TypeScript",
+    "Tailwind CSS · Ant Design",
+    "Redux Toolkit · React Router",
+    "Realtime STOMP / SockJS",
+    "Xác thực qua cookie",
+    "Vite proxy → backend:8080",
+], size=15, bcolor=CYAN, gap=14)
 # Mobile column
 mb = rect(s, Inches(6.75), Inches(1.95), Inches(5.7), Inches(4.7), CARDBG); _set_round(mb, 0.05)
 strip2 = grad_rect(s, Inches(6.75), Inches(1.95), Inches(5.7), Inches(0.7), TEAL, GREEN, 0); _set_round(strip2, 0.1)
 txt(s, Inches(6.75), Inches(1.95), Inches(5.7), Inches(0.7), "📱  Mobile Client", size=19, color=WHITE, bold=True, align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE, font=FONT_B)
-bullets(s, Inches(7.0), Inches(2.95), Inches(5.25), Inches(3.5), [
-    "Expo 54 + React Native 0.81 + Expo Router",
-    "Expo Secure Store lưu token an toàn",
-    "Expo Camera: quét QR & chụp ảnh",
-    "Đồng bộ chat realtime qua WebSocket",
-    "Axios client tự refresh token",
-    "Tự phát hiện backend qua LAN host (Expo)",
-], size=14, bcolor=GREEN, gap=11)
+bullets(s, Inches(7.0), Inches(3.05), Inches(5.25), Inches(3.4), [
+    "Expo 54 · React Native · Router",
+    "Secure Store lưu token",
+    "Camera: quét QR · chụp ảnh",
+    "Đồng bộ chat realtime",
+    "Axios tự refresh token",
+    "Tự dò backend qua LAN",
+], size=15, bcolor=GREEN, gap=14)
 footer(s, N, CYAN)
 
 # ============================================================================
@@ -708,8 +704,7 @@ N += 1
 s = new_slide(); deco_dots(s)
 page_header(s, "1.2.2  Hybrid Database", "Polyglot Persistence — 3 loại CSDL", AMBER)
 txt(s, Inches(0.85), Inches(1.72), Inches(11.6), Inches(0.5),
-    "Kết hợp nhiều loại CSDL để khai thác tối đa ưu điểm riêng của từng công nghệ.",
-    size=13, color=LIGHT)
+    "Mỗi loại CSDL cho đúng một loại dữ liệu", size=14, color=INK2, bold=True)
 cols = [
     ("🗄️", "MariaDB", "Relational · ACID", ["Người dùng & định danh", "Bạn bè, hội thoại, thành viên nhóm", "Trang cộng đồng (Pages)", "Dữ liệu cần toàn vẹn giao dịch"], "☁️ TiBi Cloud (DBaaS)", AMBER, ORANGE),
     ("🍃", "MongoDB", "Document · NoSQL", ["Bài viết (posts) & media", "Tin nhắn, bình luận, story", "Thông báo (notifications)", "Dữ liệu phi cấu trúc, khối lượng lớn"], "☁️ MongoDB Atlas", GREEN, TEAL),
@@ -734,12 +729,12 @@ N += 1
 s = new_slide(); deco_dots(s)
 page_header(s, "1.2.3  Performance", "Chiến lược tối ưu hiệu năng", GREEN)
 cards = [
-    ("🪟", "Sliding Window Cache", "Cache cửa sổ trượt cho lịch sử tin nhắn — tăng tốc tải, giảm truy vấn trực tiếp tới DB.", INDIGO, VIOLET),
-    ("⏱️", "Time-Cut Pagination", "Phân trang theo mốc thời gian — xử lý tốt khi người dùng xóa lịch sử hội thoại, hạn chế truy vấn dư thừa.", BLUE, CYAN),
-    ("🧭", "Compound Index", "Chỉ mục kết hợp trên MongoDB cho truy vấn newsfeed — tăng tốc tải các danh sách lớn.", TEAL, GREEN),
-    ("👤", "Member & User Cache", "Cache thông tin thành viên và người dùng — giảm tải truy vấn lặp lại nhiều lần.", AMBER, ORANGE),
-    ("🚫", "Chống N+1 Query", "Tối ưu truy vấn, loại bỏ vấn đề N+1 — giảm số lần round-trip tới cơ sở dữ liệu.", ROSE, PINK),
-    ("↔️", "Horizontal Scaling", "Kiến trúc hỗ trợ mở rộng theo chiều ngang — sẵn sàng phục vụ nhiều người dùng đồng thời.", PURPLE, VIOLET),
+    ("🪟", "Sliding Window Cache", "Cache lịch sử tin nhắn · ít query DB", INDIGO, VIOLET),
+    ("⏱️", "Time-Cut Pagination", "Phân trang theo thời gian · xử lý xóa lịch sử", BLUE, CYAN),
+    ("🧭", "Compound Index", "Index kết hợp · tăng tốc newsfeed", TEAL, GREEN),
+    ("👤", "Member & User Cache", "Cache user/thành viên · giảm query lặp", AMBER, ORANGE),
+    ("🚫", "Chống N+1 Query", "Loại bỏ N+1 · ít round-trip DB", ROSE, PINK),
+    ("↔️", "Horizontal Scaling", "Mở rộng chiều ngang · nhiều user", PURPLE, VIOLET),
 ]
 x0 = Inches(0.85); y0 = Inches(1.95); cw = Inches(3.78); ch = Inches(2.15); gx = Inches(0.28); gy = Inches(0.2)
 for i, (ic, t, b, c1, c2) in enumerate(cards):
@@ -781,10 +776,10 @@ N += 1
 s = new_slide(); deco_dots(s)
 page_header(s, "Authentication", "Xác thực & Quản lý phiên", ROSE)
 cards = [
-    ("☁️", "AWS Cognito", "Đăng ký, đăng nhập, xác nhận, đặt lại mật khẩu, refresh token và đăng xuất do Cognito quản lý.", INDIGO, VIOLET),
-    ("🍪", "Token / Cookie", "Web dùng cookie trình duyệt; mobile dùng Expo Secure Store. JWT xác thực mỗi request.", BLUE, CYAN),
-    ("📲", "QR Login", "Ghép phiên đăng nhập web với xác nhận trên thiết bị di động qua mã QR.", TEAL, GREEN),
-    ("🔄", "Token Refresh", "Axios client tự động làm mới access token khi hết hạn, duy trì phiên liền mạch.", AMBER, ORANGE),
+    ("☁️", "AWS Cognito", "Đăng ký · Đăng nhập · Reset · Logout", INDIGO, VIOLET),
+    ("🍪", "Token / Cookie", "Cookie (web) · Secure Store (mobile)\nJWT mỗi request", BLUE, CYAN),
+    ("📲", "QR Login", "Ghép phiên web ↔ xác nhận mobile", TEAL, GREEN),
+    ("🔄", "Token Refresh", "Tự làm mới token · phiên liền mạch", AMBER, ORANGE),
 ]
 x0 = Inches(0.85); y0 = Inches(1.95); cw = Inches(5.7); ch = Inches(2.2); gx = Inches(0.2); gy = Inches(0.22)
 for i, (ic, t, b, c1, c2) in enumerate(cards):
@@ -819,9 +814,9 @@ for i, (num, t, d, c1, c2) in enumerate(steps):
 note = rect(s, Inches(0.85), Inches(4.9), Inches(11.6), Inches(1.4), CARDBG); _set_round(note, 0.06)
 txt(s, Inches(1.1), Inches(5.05), Inches(11.2), Inches(0.4), "💡  Phía client (web & mobile)", size=14, color=GREEN, bold=True, font=FONT_B)
 bullets(s, Inches(1.1), Inches(5.5), Inches(11.1), Inches(0.8), [
-    "Validate SĐT (10–11 số) & mật khẩu (6–50 ký tự) trước khi gọi API; hiển thị SuccessModal cho trạng thái loading/success/error.",
-    "Sau xác nhận thành công → điều hướng tới màn hình đăng nhập / verify-otp.",
-], size=12, bcolor=GREEN, gap=6)
+    "Validate SĐT & mật khẩu trước khi gọi API  ·  SuccessModal: loading / success / error",
+    "Xác nhận xong → điều hướng đăng nhập",
+], size=13, bcolor=GREEN, gap=8)
 footer(s, N, GREEN)
 
 # ============================================================================
@@ -860,7 +855,7 @@ arrow(s, Inches(7.0), Inches(5.0), Inches(6.25), Inches(5.0), AMBER, 2.5)
 txt(s, Inches(6.0), Inches(2.95), Inches(1.4), Inches(0.4), "QR", size=11, color=AMBER, bold=True, align=PP_ALIGN.CENTER)
 txt(s, Inches(6.0), Inches(5.15), Inches(1.4), Inches(0.4), "confirm", size=10, color=AMBER, bold=True, align=PP_ALIGN.CENTER)
 note = rect(s, Inches(0.85), Inches(6.1), Inches(11.55), Inches(0.62), DARK2); _set_round(note, 0.2)
-txt(s, Inches(1.05), Inches(6.08), Inches(11.3), Inches(0.66), "🔐  Kết quả: phiên web được cấp access token sau khi mobile xác nhận — không cần nhập lại mật khẩu trên web.", size=12, color=LIGHT, anchor=MSO_ANCHOR.MIDDLE)
+txt(s, Inches(1.05), Inches(6.08), Inches(11.3), Inches(0.66), "🔐  Web nhận access token sau khi mobile xác nhận — không cần nhập lại mật khẩu.", size=12.5, color=INK2, anchor=MSO_ANCHOR.MIDDLE, bold=True)
 footer(s, N, CYAN)
 
 # ============================================================================
@@ -870,10 +865,10 @@ N += 1
 s = new_slide(); deco_dots(s)
 page_header(s, "Module · Feed", "Bảng tin mạng xã hội", BLUE)
 cards = [
-    ("📝", "Bài viết", "Tạo, sửa, xóa, xem bài viết; feed theo hồ sơ người dùng.", INDIGO, VIOLET),
-    ("📤", "Upload Media", "Tải media qua luồng presigned URL (POST /posts/upload-url).", BLUE, CYAN),
-    ("💬", "Tương tác", "Bình luận, trả lời lồng nhau, cảm xúc (reactions), bài đã lưu.", TEAL, GREEN),
-    ("🏷️", "Tagged & Saved", "Bài được gắn thẻ và bộ sưu tập bài đã lưu của người dùng.", AMBER, ORANGE),
+    ("📝", "Bài viết", "Tạo · Sửa · Xóa · Xem feed", INDIGO, VIOLET),
+    ("📤", "Upload Media", "Presigned URL · upload trực tiếp", BLUE, CYAN),
+    ("💬", "Tương tác", "Bình luận · Reply · Reaction", TEAL, GREEN),
+    ("🏷️", "Tagged & Saved", "Gắn thẻ · Bài đã lưu", AMBER, ORANGE),
 ]
 x0 = Inches(0.85); y0 = Inches(1.95); cw = Inches(5.7); ch = Inches(2.15); gx = Inches(0.2); gy = Inches(0.2)
 for i, (ic, t, b, c1, c2) in enumerate(cards):
@@ -899,23 +894,23 @@ page_header(s, "Module · Stories", "Stories & Trải nghiệm hồ sơ", PINK)
 left = rect(s, Inches(0.85), Inches(1.95), Inches(5.7), Inches(4.55), CARDBG); _set_round(left, 0.05)
 strip = grad_rect(s, Inches(0.85), Inches(1.95), Inches(5.7), Inches(0.72), PINK, ROSE, 0); _set_round(strip, 0.1)
 txt(s, Inches(0.85), Inches(1.95), Inches(5.7), Inches(0.72), "📸  Stories", size=18, color=WHITE, bold=True, align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE, font=FONT_B)
-bullets(s, Inches(1.1), Inches(2.95), Inches(5.25), Inches(3.4), [
-    "Tạo story & lấy feed story",
-    "Danh sách người xem story",
-    "Reaction trên story",
-    "Highlights (lưu nổi bật)",
+bullets(s, Inches(1.1), Inches(3.1), Inches(5.25), Inches(3.3), [
+    "Tạo story · Feed story",
+    "Người xem story",
+    "Reaction story",
+    "Highlights",
     "Xóa story",
-], size=14, bcolor=PINK, gap=12)
+], size=15.5, bcolor=PINK, gap=16)
 right = rect(s, Inches(6.75), Inches(1.95), Inches(5.7), Inches(4.55), CARDBG); _set_round(right, 0.05)
 strip2 = grad_rect(s, Inches(6.75), Inches(1.95), Inches(5.7), Inches(0.72), INDIGO, VIOLET, 0); _set_round(strip2, 0.1)
 txt(s, Inches(6.75), Inches(1.95), Inches(5.7), Inches(0.72), "👤  Hồ sơ", size=18, color=WHITE, bold=True, align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE, font=FONT_B)
-bullets(s, Inches(7.0), Inches(2.95), Inches(5.25), Inches(3.4), [
-    "Trang hồ sơ: bài viết, bài đã lưu, bài gắn thẻ",
-    "Danh sách người bị chặn",
-    "Chỉnh sửa thông tin tài khoản",
-    "Quyền riêng tư hồ sơ (Profile privacy)",
-    "Hiển thị ngày sinh & giới tính",
-], size=14, bcolor=VIOLET, gap=12)
+bullets(s, Inches(7.0), Inches(3.1), Inches(5.25), Inches(3.3), [
+    "Hồ sơ: bài viết · đã lưu · gắn thẻ",
+    "Người bị chặn",
+    "Sửa thông tin tài khoản",
+    "Quyền riêng tư hồ sơ",
+    "Ngày sinh · giới tính",
+], size=15.5, bcolor=VIOLET, gap=16)
 footer(s, N, PINK)
 
 # ============================================================================
@@ -928,24 +923,24 @@ page_header(s, "Module · Social Graph", "Bạn bè · Chặn · Trang (Pages)",
 left = rect(s, Inches(0.85), Inches(1.95), Inches(5.7), Inches(4.55), CARDBG); _set_round(left, 0.05)
 strip = grad_rect(s, Inches(0.85), Inches(1.95), Inches(5.7), Inches(0.72), SKY, CYAN, 0); _set_round(strip, 0.1)
 txt(s, Inches(0.85), Inches(1.95), Inches(5.7), Inches(0.72), "👥  Bạn bè & Chặn", size=18, color=WHITE, bold=True, align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE, font=FONT_B)
-bullets(s, Inches(1.1), Inches(2.95), Inches(5.25), Inches(3.4), [
-    "Gửi, chấp nhận, từ chối, hủy lời mời kết bạn",
-    "Danh sách bạn bè & lời mời đến/đi",
-    "Chặn / bỏ chặn người dùng",
-    "Đếm số bạn bè realtime trên hồ sơ",
-    "Luồng chặn người dùng trong chat (read-only)",
-], size=13.5, bcolor=CYAN, gap=11)
+bullets(s, Inches(1.1), Inches(3.1), Inches(5.25), Inches(3.3), [
+    "Gửi · Chấp nhận · Từ chối lời mời",
+    "Danh sách bạn · lời mời",
+    "Chặn / Bỏ chặn",
+    "Đếm bạn bè realtime",
+    "Chặn trong chat (read-only)",
+], size=15.5, bcolor=CYAN, gap=16)
 # Pages
 right = rect(s, Inches(6.75), Inches(1.95), Inches(5.7), Inches(4.55), CARDBG); _set_round(right, 0.05)
 strip2 = grad_rect(s, Inches(6.75), Inches(1.95), Inches(5.7), Inches(0.72), PURPLE, VIOLET, 0); _set_round(strip2, 0.1)
 txt(s, Inches(6.75), Inches(1.95), Inches(5.7), Inches(0.72), "📄  Trang (Pages)", size=18, color=WHITE, bold=True, align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE, font=FONT_B)
-bullets(s, Inches(7.0), Inches(2.95), Inches(5.25), Inches(3.4), [
-    "Tạo, cập nhật, xóa, thích, theo dõi trang",
-    "Bài viết trang & duyệt/từ chối bài",
-    "Thêm/xóa thành viên, phân quyền vai trò",
-    "Yêu cầu tham gia & duyệt yêu cầu",
-    "Quản lý yêu cầu đang chờ (pending)",
-], size=13.5, bcolor=VIOLET, gap=11)
+bullets(s, Inches(7.0), Inches(3.1), Inches(5.25), Inches(3.3), [
+    "Tạo · Sửa · Thích · Theo dõi",
+    "Bài viết · duyệt/từ chối",
+    "Thành viên · phân quyền",
+    "Yêu cầu tham gia · duyệt",
+    "Quản lý pending",
+], size=15.5, bcolor=VIOLET, gap=16)
 footer(s, N, TEAL)
 
 # ============================================================================
@@ -955,10 +950,10 @@ N += 1
 s = new_slide(); deco_dots(s)
 page_header(s, "Module · Chat", "Nhắn tin Realtime — Tổng quan", ROSE)
 feats = [
-    ("💬", "Hội thoại", "1-1 & nhóm; tạo nhóm, phân trang tin nhắn.", INDIGO, VIOLET),
-    ("✉️", "Tin nhắn", "Gửi, thu hồi (recall), xóa-cho-tôi, đã đọc.", BLUE, CYAN),
-    ("📌", "Pin & Typing", "Ghim tin nhắn, chỉ báo đang nhập, seen.", ROSE, PINK),
-    ("👤", "Quản lý nhóm", "Biệt danh, vai trò, rời/kick/giải tán nhóm.", TEAL, GREEN),
+    ("💬", "Hội thoại", "1-1 & nhóm · phân trang", INDIGO, VIOLET),
+    ("✉️", "Tin nhắn", "Gửi · Thu hồi · Xóa · Đã đọc", BLUE, CYAN),
+    ("📌", "Pin & Typing", "Ghim · Typing · Seen", ROSE, PINK),
+    ("👤", "Quản lý nhóm", "Biệt danh · vai trò · kick/rời", TEAL, GREEN),
 ]
 x0 = Inches(0.85); y0 = Inches(1.95); cw = Inches(5.7); ch = Inches(1.85); gx = Inches(0.2); gy = Inches(0.2)
 for i, (ic, t, b, c1, c2) in enumerate(feats):
@@ -1001,7 +996,7 @@ for e in ev:
     w = Inches(1.82)
     chip(s, x, Inches(5.6), w, e, DARK2, tcolor=CYAN, size=11)
     x = Emu(int(x)+int(w)+int(Inches(0.1)))
-txt(s, Inches(1.1), Inches(6.12), Inches(11.2), Inches(0.35), "Client publish typing qua /app/chat/{id}/typing — server fan-out tới /topic/conversation/{id}.", size=11.5, color=LIGHTGRAY)
+txt(s, Inches(1.1), Inches(6.12), Inches(11.2), Inches(0.35), "Typing:  client → /app/chat/{id}/typing  →  fan-out /topic/conversation/{id}", size=11.5, color=MUTED)
 footer(s, N, PINK)
 
 # ============================================================================
@@ -1044,8 +1039,7 @@ N += 1
 s = new_slide(); deco_dots(s)
 page_header(s, "Module · Calls", "Tín hiệu gọi Audio/Video", ORANGE)
 txt(s, Inches(0.85), Inches(1.8), Inches(11.6), Inches(0.5),
-    "WebSocket signaling cho các sự kiện cuộc gọi — backend đóng vai trò trung gian trao đổi tín hiệu.",
-    size=14, color=LIGHT)
+    "WebSocket signaling  ·  backend làm trung gian trao đổi tín hiệu", size=14, color=INK2, bold=True)
 steps = [
     ("📞", "Call", "Bên gọi khởi tạo cuộc gọi tới đối phương", INDIGO, VIOLET),
     ("✅", "Answer", "Bên nhận chấp nhận cuộc gọi", BLUE, CYAN),
@@ -1063,9 +1057,9 @@ for i,(ic,t,d,c1,c2) in enumerate(steps):
 note = rect(s, Inches(0.85), Inches(4.95), Inches(11.6), Inches(1.45), CARDBG); _set_round(note, 0.06)
 txt(s, Inches(1.1), Inches(5.1), Inches(11.2), Inches(0.4), "📡  Kênh tín hiệu", size=14, color=ORANGE, bold=True, font=FONT_B)
 bullets(s, Inches(1.1), Inches(5.55), Inches(11.1), Inches(0.8), [
-    "Client gửi payload qua  /app/call.signal  (Client → Server).",
-    "Server phát sự kiện gọi đến & trạng thái qua  /topic/user/{userId}/calls  (Server → Client).",
-], size=12, bcolor=ORANGE, gap=6)
+    "Client → /app/call.signal",
+    "Server → /topic/user/{id}/calls",
+], size=13, bcolor=ORANGE, gap=8)
 footer(s, N, ORANGE)
 
 # ============================================================================
@@ -1075,10 +1069,10 @@ N += 1
 s = new_slide(); deco_dots(s)
 page_header(s, "Module · AI", "Trợ lý AI trong hội thoại", VIOLET)
 cards = [
-    ("🛡️", "Consent Gate", "Người dùng phải đồng ý dùng AI trước khi backend xử lý hội thoại qua provider.  POST /api/users/me/confirm-ai", INDIGO, VIOLET),
-    ("📝", "Tóm tắt hội thoại", "Tự động tóm tắt nội dung cuộc trò chuyện dài.  POST /api/ai/summarize", BLUE, CYAN),
-    ("💡", "Gợi ý nội dung", "Đề xuất câu trả lời thông minh theo ngữ cảnh & gợi ý nội dung.  POST /api/ai/suggestions", TEAL, GREEN),
-    ("🔌", "OpenRouter Gateway", "Chuẩn tương thích OpenAI API qua Spring WebClient — đổi/mở rộng model không ảnh hưởng backend.", AMBER, ORANGE),
+    ("🛡️", "Consent Gate", "Phải đồng ý trước khi dùng AI\nPOST /confirm-ai", INDIGO, VIOLET),
+    ("📝", "Tóm tắt hội thoại", "Tóm tắt cuộc trò chuyện dài\nPOST /ai/summarize", BLUE, CYAN),
+    ("💡", "Gợi ý nội dung", "Gợi ý trả lời theo ngữ cảnh\nPOST /ai/suggestions", TEAL, GREEN),
+    ("🔌", "OpenRouter Gateway", "Chuẩn OpenAI API\nĐổi model không sửa backend", AMBER, ORANGE),
 ]
 x0 = Inches(0.85); y0 = Inches(1.9); cw = Inches(5.7); ch = Inches(2.0); gx = Inches(0.2); gy = Inches(0.2)
 for i, (ic, t, b, c1, c2) in enumerate(cards):
@@ -1119,8 +1113,8 @@ for i,(num,t,d,c1,c2) in enumerate(steps):
 warn = rect(s, Inches(0.95), Inches(5.0), Inches(11.4), Inches(1.3), CARDBG); _set_round(warn, 0.06)
 txt(s, Inches(1.2), Inches(5.15), Inches(11.0), Inches(0.4), "⚠️  Ranh giới đồng thuận (Consent Boundary)", size=14, color=AMBER, bold=True, font=FONT_B)
 txt(s, Inches(1.2), Inches(5.6), Inches(11.0), Inches(0.6),
-    "Nếu người dùng CHƯA đồng ý → backend từ chối xử lý qua AI provider. Đây là rào chắn bảo vệ quyền riêng tư dữ liệu hội thoại.",
-    size=12.5, color=LIGHT, line_spacing=1.1)
+    "Chưa đồng ý → backend từ chối gọi AI  ·  bảo vệ quyền riêng tư hội thoại.",
+    size=13, color=INK2, line_spacing=1.1)
 footer(s, N, TEAL)
 
 # ============================================================================
@@ -1129,9 +1123,8 @@ footer(s, N, TEAL)
 N += 1
 s = new_slide(); deco_dots(s)
 page_header(s, "Infrastructure", "Redis Pub/Sub & Tầng Event", ROSE)
-txt(s, Inches(0.85), Inches(1.8), Inches(11.6), Inches(0.6),
-    "Tầng Event phát hành sự kiện hội thoại / tin nhắn / thành viên; Redis hỗ trợ hạ tầng chat & fan-out.",
-    size=14, color=LIGHT)
+txt(s, Inches(0.85), Inches(1.8), Inches(11.6), Inches(0.5),
+    "Event layer phát sự kiện  ·  Redis fan-out đa instance", size=14, color=INK2, bold=True)
 # diagram
 flow_box(s, Inches(0.85), Inches(2.7), Inches(3.0), Inches(1.2), "Service Layer", "Sinh domain event", INDIGO, VIOLET, "⚙️")
 flow_box(s, Inches(5.15), Inches(2.7), Inches(3.0), Inches(1.2), "Event Publisher", "Đẩy sự kiện", BLUE, CYAN, "📤")
@@ -1145,9 +1138,9 @@ arrow(s, Inches(9.45), Inches(5.05), Inches(10.8), Inches(5.05), PINK, 2.0)
 # benefits
 note = rect(s, Inches(0.85), Inches(5.8), Inches(11.6), Inches(0.95), CARDBG); _set_round(note, 0.08)
 bullets(s, Inches(1.1), Inches(5.92), Inches(11.1), Inches(0.8), [
-    "Tách rời người gửi và người nhận sự kiện (decoupling).",
-    "Hỗ trợ presence, đếm realtime, đồng bộ trạng thái giữa nhiều phiên/thiết bị.",
-], size=12, bcolor=ROSE, gap=5)
+    "Decoupling người gửi ↔ người nhận",
+    "Presence · đếm realtime · đồng bộ đa thiết bị",
+], size=12.5, bcolor=ROSE, gap=6)
 footer(s, N, ROSE)
 
 # ============================================================================
@@ -1217,12 +1210,12 @@ N += 1
 s = new_slide(); deco_dots(s)
 page_header(s, "Security", "Mô hình bảo mật", ROSE)
 cards = [
-    ("🔑", "Stateless JWT", "Spring Security xác thực JWT do Cognito phát hành cho mỗi request, không lưu phiên server.", INDIGO, VIOLET),
-    ("🍪", "Lưu token an toàn", "Web: secure cookies. Mobile: Expo Secure Store. Tự refresh token khi hết hạn.", BLUE, CYAN),
-    ("🛡️", "AI Consent Boundary", "Bắt buộc người dùng đồng ý trước khi dữ liệu hội thoại được xử lý qua AI provider.", TEAL, GREEN),
-    ("🚧", "CORS & Proxy", "Cấu hình CORS; web proxy /api & /ws qua Vite; tách credentials theo client.", AMBER, ORANGE),
-    ("🔒", "Quyền riêng tư", "Profile privacy, chặn người dùng, hội thoại read-only khi bị chặn.", ROSE, PINK),
-    ("📵", "Phân quyền Pages", "Vai trò thành viên trang, duyệt bài & yêu cầu tham gia có kiểm soát.", PURPLE, VIOLET),
+    ("🔑", "Stateless JWT", "JWT mỗi request · không lưu phiên", INDIGO, VIOLET),
+    ("🍪", "Lưu token an toàn", "Cookie (web) · Secure Store (mobile)", BLUE, CYAN),
+    ("🛡️", "AI Consent Boundary", "Đồng ý trước khi xử lý AI", TEAL, GREEN),
+    ("🚧", "CORS & Proxy", "CORS · Vite proxy · tách credentials", AMBER, ORANGE),
+    ("🔒", "Quyền riêng tư", "Privacy · chặn · read-only", ROSE, PINK),
+    ("📵", "Phân quyền Pages", "Vai trò · duyệt bài kiểm soát", PURPLE, VIOLET),
 ]
 x0 = Inches(0.85); y0 = Inches(1.95); cw = Inches(3.78); ch = Inches(2.15); gx = Inches(0.28); gy = Inches(0.2)
 for i, (ic, t, b, c1, c2) in enumerate(cards):
@@ -1297,12 +1290,12 @@ N += 1
 s = new_slide(); deco_dots(s)
 page_header(s, "Roadmap", "Hướng phát triển tương lai", AMBER)
 items = [
-    ("📜", "OpenAPI / Swagger", "Sinh tài liệu API tự động từ Spring controllers.", INDIGO, VIOLET),
-    ("🔐", "Quản lý secrets", "Đưa secrets ra khỏi config & cung cấp .env.example.", BLUE, CYAN),
-    ("🐳", "Docker Compose đầy đủ", "Profiles cho MariaDB, MongoDB, Redis & backend.", TEAL, GREEN),
-    ("⚙️", "CI/CD", "Workflow test backend, lint frontend, build TypeScript.", ROSE, PINK),
-    ("🧪", "Integration tests", "Auth, QR login, conversation events, AI consent.", PURPLE, VIOLET),
-    ("🔔", "Push Notifications", "Thông báo đẩy cho chat, kết bạn, cuộc gọi, story.", AMBER, ORANGE),
+    ("📜", "OpenAPI / Swagger", "Tài liệu API tự động", INDIGO, VIOLET),
+    ("🔐", "Quản lý secrets", "Tách secrets · .env.example", BLUE, CYAN),
+    ("🐳", "Docker Compose", "Đầy đủ các service", TEAL, GREEN),
+    ("⚙️", "CI/CD", "Test · Lint · Build tự động", ROSE, PINK),
+    ("🧪", "Integration tests", "Auth · QR · events · AI", PURPLE, VIOLET),
+    ("🔔", "Push Notifications", "Thông báo đẩy cho mobile", AMBER, ORANGE),
 ]
 x0 = Inches(0.85); y0 = Inches(1.95); cw = Inches(3.78); ch = Inches(2.15); gx = Inches(0.28); gy = Inches(0.2)
 for i, (ic, t, b, c1, c2) in enumerate(items):
