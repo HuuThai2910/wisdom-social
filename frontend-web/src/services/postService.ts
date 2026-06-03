@@ -222,6 +222,40 @@ export const fetchUserById = async (userId: string | number): Promise<UserData> 
 };
 
 /**
+ * Fetch post author display identity without applying profile privacy masking.
+ * This mirrors story author summaries and is only for post surfaces.
+ */
+export const fetchPostAuthorById = async (userId: string | number): Promise<UserData> => {
+    console.log(`📥 Fetching post author: ${userId}`);
+    let response;
+    try {
+        response = await axiosClient.get(`/posts/authors/${userId}/summary`);
+        console.log("✅ Post author response:", response.data);
+    } catch (error: any) {
+        if (error?.response?.status !== 403) {
+            throw error;
+        }
+
+        console.warn("Post author summary forbidden, falling back to profile endpoint:", userId);
+        response = await axiosClient.get(`/auth/user/${userId}`);
+        console.log("✅ User fallback response:", response.data);
+    }
+
+    if (!response.data.data) {
+        throw new Error("No post author data in response");
+    }
+
+    const userData = response.data.data;
+    return {
+        ...userData,
+        avatarUrl:
+            buildS3Url(userData.avatarUrl) ||
+            userData.avatarUrl ||
+            "https://i.pravatar.cc/150?img=5",
+    };
+};
+
+/**
  * Fetch multiple users by IDs
  */
 export const fetchUsersByIds = async (userIds: string[]): Promise<UserData[]> => {
@@ -706,8 +740,7 @@ export const getSavedPostsWithDetails = async (userId: string | number): Promise
                 const postResponse = await axiosClient.get(`/posts/${savedPost.targetId}`);
                 const post = postResponse.data.data;
 
-                const authorResponse = await axiosClient.get(`/auth/user/${post.authorId}`);
-                const authorData = authorResponse.data.data;
+                const authorData = post.authorSummary || await fetchPostAuthorById(post.authorId);
 
                 const images = transformMediaToS3Urls(post.media, post.authorId);
                 const imageUrl = images && images.length > 0 ? images[0] : null;
@@ -769,8 +802,7 @@ export const getTaggedPostsWithDetails = async (userId: string | number): Promis
         // Fetch author data for each post
         const transformedPostsPromises = postsData.map(async (post: any) => {
             try {
-                const authorResponse = await axiosClient.get(`/auth/user/${post.authorId}`);
-                const authorData = authorResponse.data.data;
+                const authorData = post.authorSummary || await fetchPostAuthorById(post.authorId);
 
                 const rawMedia = post.media || post.mediaList || [];
                 const images = transformMediaToS3Urls(rawMedia, post.authorId);
@@ -875,8 +907,7 @@ export const getSharedPostsWithDetails = async (userId: string | number): Promis
                 if (!post) return null;
 
                 // Fetch author data for the original post
-                const authorResponse = await axiosClient.get(`/auth/user/${post.authorId}`);
-                const authorData = authorResponse.data.data;
+                const authorData = post.authorSummary || await fetchPostAuthorById(post.authorId);
 
                 const rawMedia = post.media || post.mediaList || [];
                 const images = transformMediaToS3Urls(rawMedia, post.authorId);

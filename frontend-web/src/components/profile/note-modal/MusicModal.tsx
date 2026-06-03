@@ -84,11 +84,13 @@ function MusicItem({
   onSelect,
 }: MusicItemProps) {
   const imageSrc = resolveMusicMediaUrl(music.imageUrl);
+  const fallbackImage =
+    "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=128&h=128&fit=crop";
 
   return (
     <div className="flex items-center gap-3 py-3 border-b border-gray-100 last:border-0">
       <img
-        src={imageSrc}
+        src={imageSrc || fallbackImage}
         alt={music.title}
         className="w-14 h-14 rounded-lg object-cover shrink-0"
       />
@@ -149,6 +151,9 @@ export default function MusicSelector({
   const [musicList, setMusicList] = useState<MusicMetadata[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [page, setPage] = useState(0);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [playingProgress, setPlayingProgress] = useState(0);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
@@ -169,8 +174,10 @@ export default function MusicSelector({
   useEffect(() => {
     const loadInitialMusic = async () => {
       setLoading(true);
-      const data = await getAllMusic(0, 20);
-      setMusicList(data);
+      const result = await getAllMusic(0, 20);
+      setMusicList(result.tracks);
+      setHasMore(result.hasMore);
+      setPage(1);
       setLoading(false);
     };
     loadInitialMusic();
@@ -183,10 +190,13 @@ export default function MusicSelector({
 
     debounceRef.current = setTimeout(async () => {
       setLoading(true);
-      const data = searchQuery.trim()
-        ? await searchMusicByTitle(searchQuery)
+      setPage(0);
+      const result = searchQuery.trim()
+        ? await searchMusicByTitle(searchQuery, 0, 20)
         : await getAllMusic(0, 20);
-      setMusicList(data);
+      setMusicList(result.tracks);
+      setHasMore(result.hasMore);
+      setPage(1);
       setLoading(false);
     }, 300);
 
@@ -196,6 +206,24 @@ export default function MusicSelector({
       }
     };
   }, [searchQuery]);
+
+  const loadMore = async () => {
+    if (loading || loadingMore || !hasMore) return;
+
+    setLoadingMore(true);
+    const result = searchQuery.trim()
+      ? await searchMusicByTitle(searchQuery, page, 20)
+      : await getAllMusic(page, 20);
+
+    setMusicList((prev) => {
+      const seen = new Set(prev.map((item) => item.id));
+      const next = result.tracks.filter((item) => !seen.has(item.id));
+      return [...prev, ...next];
+    });
+    setHasMore(result.hasMore);
+    setPage((prev) => prev + 1);
+    setLoadingMore(false);
+  };
 
   // Toggle audio preview
   const togglePreview = (music: MusicMetadata) => {
@@ -304,6 +332,16 @@ export default function MusicSelector({
                   }}
                 />
               ))}
+              {hasMore && (
+                <button
+                  type="button"
+                  onClick={loadMore}
+                  disabled={loadingMore}
+                  className="w-full my-3 rounded-full border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {loadingMore ? "Đang tải..." : "Tải thêm nhạc"}
+                </button>
+              )}
             </div>
           )}
           <div className="h-3" />

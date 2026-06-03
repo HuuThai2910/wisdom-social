@@ -2,7 +2,7 @@ import { useParams } from "react-router-dom";
 import { useEffect, useState } from "react";
 import PostCard from "../components/post/post-card/PostCard";
 import axiosClient from "../api/axiosClient";
-import { transformMediaToS3Urls } from "../services/postService";
+import { fetchPostAuthorById, transformMediaToS3Urls } from "../services/postService";
 import { buildS3Url } from "../utils/s3";
 
 interface PostData {
@@ -15,6 +15,7 @@ interface PostData {
   createdAt: string;
   allowComments?: boolean;
   allowShares?: boolean;
+  authorSummary?: any;
 }
 
 export default function Post() {
@@ -31,10 +32,7 @@ export default function Post() {
         const postData: PostData = response.data.data;
 
         // Fetch user data for the post author
-        const userResponse = await axiosClient.get(
-          `/auth/user/${postData.authorId}`
-        );
-        const userData = userResponse.data.data;
+        const userData = postData.authorSummary || await fetchPostAuthorById(postData.authorId);
 
         // Transform to PostCard format
         const transformedPost = {

@@ -18,10 +18,13 @@ const MAX_IMAGE_SIZE = 10 * 1024 * 1024;  // 10MB
 const MAX_VIDEO_SIZE = 100 * 1024 * 1024; // 100MB
 const MAX_VIDEOS = 2;
 
-const privacyOptions: Array<{ value: PrivacyType; label: string; icon: keyof typeof Ionicons.glyphMap }> = [
-    { value: "PUBLIC", label: "Công khai", icon: "earth-outline" },
-    { value: "FRIENDS", label: "Bạn bè", icon: "people-outline" },
-    { value: "ONLY_ME", label: "Chỉ mình tôi", icon: "lock-closed-outline" },
+// Full privacy options matching web
+const privacyOptions: Array<{ value: PrivacyType; label: string; icon: keyof typeof Ionicons.glyphMap; description: string }> = [
+    { value: "PUBLIC", label: "Công khai", icon: "earth-outline", description: "Mọi người đều có thể xem" },
+    { value: "FRIENDS", label: "Bạn bè", icon: "people-outline", description: "Chỉ bạn bè có thể xem" },
+    { value: "ONLY_ME", label: "Chỉ mình tôi", icon: "lock-closed-outline", description: "Chỉ mình tôi" },
+    { value: "SPECIFIC", label: "Bạn bè cụ thể", icon: "person-outline", description: "Chỉ những bạn được chọn" },
+    { value: "EXCEPT", label: "Bạn bè ngoại trừ", icon: "person-remove-outline", description: "Trừ những bạn được chọn" },
 ];
 
 const toUploadFile = (asset: ImagePicker.ImagePickerAsset) => {
@@ -62,8 +65,16 @@ export default function CreatePostScreen() {
     // Location search
     const [showLocationSearch, setShowLocationSearch] = useState(false);
 
+    // Specific viewers (for SPECIFIC privacy)
+    const [specificViewerIds, setSpecificViewerIds] = useState<string[]>([]);
+    const [showSpecificViewerSelector, setShowSpecificViewerSelector] = useState(false);
+
+    // Excluded users (for EXCEPT privacy)
+    const [excludedUserIds, setExcludedUserIds] = useState<string[]>([]);
+    const [showExcludedSelector, setShowExcludedSelector] = useState(false);
+
     const canPost = useMemo(
-        () => Boolean(caption.trim() || imageUrl.trim() || selectedMedia.length > 0) && !isPosting,
+        () => Boolean(caption.trim() || selectedMedia.length > 0 || imageUrl.trim()) && !isPosting,
         [caption, imageUrl, selectedMedia.length, isPosting],
     );
 
@@ -82,7 +93,7 @@ export default function CreatePostScreen() {
         }
 
         const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.All,
+            mediaTypes: ["images", "videos"],
             allowsMultipleSelection: true,
             quality: 0.9,
             videoMaxDuration: 180,
@@ -131,6 +142,10 @@ export default function CreatePostScreen() {
     const handlePost = async () => {
         if (!canPost) return;
         setIsPosting(true);
+
+        // Build tagged user IDs based on privacy
+        const allTaggedIds = [...taggedUserIds];
+
         const result = await createPostWithOptions({
             caption,
             imageUrl: imageUrl.trim() || undefined,
@@ -139,7 +154,7 @@ export default function CreatePostScreen() {
             allowComments,
             allowShares,
             location: location.trim() || undefined,
-            taggedUserIds: taggedUserIds.length > 0 ? taggedUserIds : undefined,
+            taggedUserIds: allTaggedIds.length > 0 ? allTaggedIds : undefined,
             music: music ? {
                 trackId: music.id,
                 title: music.title,
@@ -286,14 +301,55 @@ export default function CreatePostScreen() {
                     <View style={styles.visibilityOptions}>
                         {privacyOptions.map(item => {
                             const active = privacy === item.value;
+                            const showCount = item.value === "SPECIFIC" ? specificViewerIds.length : item.value === "EXCEPT" ? excludedUserIds.length : 0;
                             return (
-                                <TouchableOpacity key={item.value} style={[styles.visibilityBtn, active && styles.visibilityBtnActive]} onPress={() => setPrivacy(item.value)} disabled={isPosting}>
+                                <TouchableOpacity
+                                    key={item.value}
+                                    style={[styles.visibilityBtn, active && styles.visibilityBtnActive]}
+                                    onPress={() => {
+                                        setPrivacy(item.value);
+                                        // Open modals for specific privacy options
+                                        if (item.value === "SPECIFIC") {
+                                            setShowSpecificViewerSelector(true);
+                                        } else if (item.value === "EXCEPT") {
+                                            setShowExcludedSelector(true);
+                                        }
+                                    }}
+                                    disabled={isPosting}
+                                >
                                     <Ionicons name={item.icon} size={16} color={active ? colors.white : colors.textMuted} />
-                                    <Text style={[styles.visibilityBtnText, active && styles.visibilityBtnTextActive]}>{item.label}</Text>
+                                    <View style={styles.visibilityTextContainer}>
+                                        <Text style={[styles.visibilityBtnText, active && styles.visibilityBtnTextActive]}>
+                                            {item.label}
+                                        </Text>
+                                        <Text style={[styles.visibilityBtnSubtext, active && styles.visibilityBtnSubtextActive]}>
+                                            {showCount > 0 ? `${showCount} người` : item.description}
+                                        </Text>
+                                    </View>
+                                    {active && <Ionicons name="checkmark" size={16} color={colors.white} />}
                                 </TouchableOpacity>
                             );
                         })}
                     </View>
+
+                    {/* Show selected viewers/excluded info */}
+                    {(privacy === "SPECIFIC" || privacy === "EXCEPT") && (
+                        <View style={styles.selectedInfo}>
+                            <Text style={styles.selectedInfoText}>
+                                {privacy === "SPECIFIC"
+                                    ? `Đã chọn ${specificViewerIds.length} người có thể xem`
+                                    : `Đã chọn ${excludedUserIds.length} người không thể xem`}
+                            </Text>
+                            <TouchableOpacity
+                                onPress={() => {
+                                    if (privacy === "SPECIFIC") setShowSpecificViewerSelector(true);
+                                    else setShowExcludedSelector(true);
+                                }}
+                            >
+                                <Text style={styles.changeText}>Thay đổi</Text>
+                            </TouchableOpacity>
+                        </View>
+                    )}
                 </View>
 
                 <View style={{ height: spacing.xxl }} />
@@ -311,6 +367,30 @@ export default function CreatePostScreen() {
                 onDone={setTaggedUserIds}
                 currentUserId={String(currentUser?.id || "")}
                 initialSelected={taggedUserIds}
+            />
+            <FriendSelectorModal
+                visible={showSpecificViewerSelector}
+                onClose={() => setShowSpecificViewerSelector(false)}
+                onDone={(selected) => {
+                    setSpecificViewerIds(selected);
+                    setShowSpecificViewerSelector(false);
+                }}
+                currentUserId={String(currentUser?.id || "")}
+                initialSelected={specificViewerIds}
+                title="Chọn người được xem"
+                description="Chỉ những bạn được chọn mới có thể xem bài viết"
+            />
+            <FriendSelectorModal
+                visible={showExcludedSelector}
+                onClose={() => setShowExcludedSelector(false)}
+                onDone={(selected) => {
+                    setExcludedUserIds(selected);
+                    setShowExcludedSelector(false);
+                }}
+                currentUserId={String(currentUser?.id || "")}
+                initialSelected={excludedUserIds}
+                title="Chọn người bị ẩn"
+                description="Những bạn được chọn sẽ không thể xem bài viết"
             />
             <LocationSearchModal
                 visible={showLocationSearch}
@@ -355,4 +435,10 @@ const styles = StyleSheet.create({
     visibilityBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
     visibilityBtnText: { fontSize: 13, fontWeight: "600", color: colors.text },
     visibilityBtnTextActive: { color: colors.white },
+    visibilityTextContainer: { flex: 1, marginRight: 8 },
+    visibilityBtnSubtext: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
+    visibilityBtnSubtextActive: { color: "rgba(255,255,255,0.8)" },
+    selectedInfo: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8, padding: 12, backgroundColor: colors.surface, borderRadius: 8 },
+    selectedInfoText: { fontSize: 12, color: colors.textMuted },
+    changeText: { fontSize: 12, color: colors.primary, fontWeight: "600" },
 });

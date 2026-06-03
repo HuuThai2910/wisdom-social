@@ -18,7 +18,8 @@ public class PostEvent implements Serializable {
     private String action; // CREATE, UPDATE, DELETE
     private Post post;
     private String postId;
-    private String authorId;
+    private String authorId;      // Post author
+    private String actorId;       // Who triggered the activity (reactor/commenter)
     private Instant lastActivityAt;
     @Builder.Default
     private DomainEventType domainEventType = DomainEventType.POST;
@@ -29,12 +30,14 @@ public class PostEvent implements Serializable {
             @JsonProperty("post") Post post,
             @JsonProperty("postId") String postId,
             @JsonProperty("authorId") String authorId,
+            @JsonProperty("actorId") String actorId,
             @JsonProperty("lastActivityAt") Instant lastActivityAt,
             @JsonProperty("domainEventType") DomainEventType domainEventType) {
         this.action = action;
         this.post = post;
         this.postId = postId;
         this.authorId = authorId;
+        this.actorId = actorId;
         this.lastActivityAt = lastActivityAt;
         this.domainEventType = domainEventType != null ? domainEventType : DomainEventType.POST;
     }

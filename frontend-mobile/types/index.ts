@@ -185,6 +185,7 @@ export type Post = {
     allowShares?: boolean;
     taggedUserIds?: string[];
     music?: PostMusic;
+    authorSummary?: User;
     location?:
     | string
     | {

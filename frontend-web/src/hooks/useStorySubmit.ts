@@ -25,8 +25,6 @@ interface SubmitParams {
     musicManager: StoryMusicManager;
     selectedMedia: File | null;
     privacy: string;
-    allowReplies: boolean;
-    allowSharing: boolean;
     selectedBgIndex: number;
     muteOriginal?: boolean;
 }

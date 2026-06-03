@@ -1,5 +1,5 @@
 import axiosClient from "../api/axiosClient";
-import { transformMediaToS3Urls } from "./postService";
+import { fetchPostAuthorById, transformMediaToS3Urls } from "./postService";
 import { buildS3Url } from "../utils/s3";
 import type { Post } from "../types";
 
@@ -21,6 +21,7 @@ interface FeedPostData {
     lastActivityAt?: string;
     rankingTime?: string;
     taggedUserIds?: string[];
+    authorSummary?: any;
 }
 
 export interface FeedCursor {
@@ -139,14 +140,14 @@ export const fetchHomeFeedPosts = async (
     // );
 
     const authorIds = Array.from(
-        new Set(allPosts.map((post) => post.authorId).filter(Boolean))
+        new Set(allPosts.filter((post) => !post.authorSummary).map((post) => post.authorId).filter(Boolean))
     );
 
     const authorEntries = await Promise.all(
         authorIds.map(async (authorId) => {
             try {
-                const userResponse = await axiosClient.get(`/auth/user/${authorId}`);
-                return [authorId, userResponse.data.data] as const;
+                const authorData = await fetchPostAuthorById(authorId);
+                return [authorId, authorData] as const;
             } catch (userErr: any) {
                 console.error("Error fetching author", authorId, userErr?.message);
                 return [authorId, null] as const;
@@ -158,7 +159,7 @@ export const fetchHomeFeedPosts = async (
 
     const posts = allPosts
         .map((post) => {
-            const userData = authorMap.get(post.authorId);
+            const userData = post.authorSummary || authorMap.get(post.authorId);
             if (!userData) {
                 return null;
             }

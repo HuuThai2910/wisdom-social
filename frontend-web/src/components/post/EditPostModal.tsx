@@ -31,7 +31,6 @@ import {
   playAudioPreview, 
   stopAudioPreview, 
   subscribeToPlayback, 
-  resolveMusicMediaUrl,
   type MusicMetadata 
 } from "../../services/musicService";
 
@@ -397,7 +396,6 @@ export default function EditPostModal({
 
   const handleEmojiClick = (emoji: string) => {
     setEditContent((prev) => prev + emoji);
-    setShowEmojiPicker(false);
   };
 
   return (
@@ -692,14 +690,8 @@ export default function EditPostModal({
                 }}
                 onSelectMusic={(music) => {
                   setSelectedMusic(music);
-                  const audioUrl = resolveMusicMediaUrl(music.audioUrl);
-                  if (audioUrl) {
-                    stopAudioPreview();
-                    playAudioPreview(audioUrl, {
-                      onEnded: () => setPlayingUrl(null),
-                    });
-                    setPlayingUrl(audioUrl);
-                  }
+                  stopAudioPreview();
+                  setPlayingUrl(null);
                 }}
               />
             </div>

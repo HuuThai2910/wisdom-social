@@ -20,6 +20,7 @@ export default function PostDetailScreen() {
         getUserById,
         removePost,
         updatePostPrivacyLocal,
+        upsertPosts,
     } = useAppContext();
     const [remotePost, setRemotePost] = useState<Post | null>(null);
     const [loading, setLoading] = useState(false);
@@ -36,7 +37,10 @@ export default function PostDetailScreen() {
             setError(null);
             try {
                 const fetched = await fetchPostWithAuthor(postId);
-                if (mounted) setRemotePost(fetched);
+                if (mounted) {
+                    setRemotePost(fetched);
+                    upsertPosts([fetched]);
+                }
             } catch (err: any) {
                 if (mounted) setError(err?.response?.data?.message || "Không thể tải bài viết");
             } finally {
@@ -47,7 +51,7 @@ export default function PostDetailScreen() {
         return () => {
             mounted = false;
         };
-    }, [localPost, postId]);
+    }, [localPost, postId, upsertPosts]);
 
     const postHeader = post ? (
         <PostCard
@@ -56,7 +60,7 @@ export default function PostDetailScreen() {
             currentUserId={currentUser?.id}
             liked={likedPostIds.includes(post.id) || post.isLiked}
             saved={savedPostIds.includes(post.id) || post.isSaved}
-            onLike={() => void likePost(post.id)}
+            onLike={(reactionType, isToggleOff) => void likePost(post.id, reactionType, isToggleOff)}
             onSave={() => void savePost(post.id)}
             hideCommentInput={true}
             onDeleted={(id) => {
