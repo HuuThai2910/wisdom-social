@@ -680,6 +680,7 @@ function ChatWindowContent({
     useState<ChatUserSearchResult | null>(null);
   const [friendRequestSending, setFriendRequestSending] = useState(false);
   const [friendRequestSent, setFriendRequestSent] = useState(false);
+  const [forceStrangerAfterBlock, setForceStrangerAfterBlock] = useState(false);
   const effectiveRelationshipInfo =
     peerRelationshipInfo ?? loadedRelationshipInfo;
   const relationshipText = useMemo(() => {
@@ -927,6 +928,22 @@ function ChatWindowContent({
         ...(conversation as ConversationSidebar),
         directBlockedByMe: false,
       });
+      setForceStrangerAfterBlock(true);
+      setLoadedRelationshipInfo((previous) =>
+        previous
+          ? { ...previous, friendStatus: "STRANGER" }
+          : directTargetUserId
+            ? {
+                userId: Number(directTargetUserId),
+                name:
+                  otherMember?.nickname ||
+                  otherMember?.username ||
+                  "",
+                friendStatus: "STRANGER",
+                mutualGroupsCount: 0,
+              }
+            : previous,
+      );
       window.dispatchEvent(
         new CustomEvent("user-block-status-changed", {
           detail: {
@@ -939,7 +956,102 @@ function ChatWindowContent({
     } catch {
       toast.error("Không thể bỏ chặn");
     }
-  }, [conversation, conversationId, directTargetUserId, userId]);
+  }, [
+    conversation,
+    conversationId,
+    directTargetUserId,
+    otherMember?.nickname,
+    otherMember?.username,
+    userId,
+  ]);
+
+  useEffect(() => {
+    const handleBlockStatusChanged = (event: Event) => {
+      if (!userId || !directTargetUserId) return;
+      const detail = (event as CustomEvent<{
+        blockerId?: number | null;
+        blockedId?: number | null;
+      }>).detail;
+      const blockerId = Number(detail?.blockerId);
+      const blockedId = Number(detail?.blockedId);
+      const matchesDirectPartner =
+        (blockerId === Number(userId) &&
+          blockedId === Number(directTargetUserId)) ||
+        (blockerId === Number(directTargetUserId) &&
+          blockedId === Number(userId));
+      if (!matchesDirectPartner) return;
+
+      setForceStrangerAfterBlock(true);
+      setLoadedRelationshipInfo((previous) =>
+        previous
+          ? { ...previous, friendStatus: "STRANGER" }
+          : {
+              userId: Number(directTargetUserId),
+              name: otherMember?.nickname || otherMember?.username || "",
+              friendStatus: "STRANGER",
+              mutualGroupsCount: 0,
+            },
+      );
+    };
+
+    window.addEventListener("user-block-status-changed", handleBlockStatusChanged);
+    return () =>
+      window.removeEventListener(
+        "user-block-status-changed",
+        handleBlockStatusChanged,
+      );
+  }, [
+    directTargetUserId,
+    otherMember?.nickname,
+    otherMember?.username,
+    userId,
+  ]);
+
+  useEffect(() => {
+    const handleFriendStatusChanged = (event: Event) => {
+      if (!userId || !directTargetUserId) return;
+      const detail = (event as CustomEvent<{
+        event?: string;
+        senderId?: number | null;
+        receiverId?: number | null;
+      }>).detail;
+      if (detail?.event !== "friend-accept") return;
+
+      const senderId = Number(detail.senderId);
+      const receiverId = Number(detail.receiverId);
+      const matchesDirectPartner =
+        (senderId === Number(userId) &&
+          receiverId === Number(directTargetUserId)) ||
+        (senderId === Number(directTargetUserId) &&
+          receiverId === Number(userId));
+      if (!matchesDirectPartner) return;
+
+      setForceStrangerAfterBlock(false);
+      setFriendRequestSent(false);
+      setLoadedRelationshipInfo((previous) =>
+        previous
+          ? { ...previous, friendStatus: "FRIEND" }
+          : {
+              userId: Number(directTargetUserId),
+              name: otherMember?.nickname || otherMember?.username || "",
+              friendStatus: "FRIEND",
+              mutualGroupsCount: 0,
+            },
+      );
+    };
+
+    window.addEventListener("friend-status-changed", handleFriendStatusChanged);
+    return () =>
+      window.removeEventListener(
+        "friend-status-changed",
+        handleFriendStatusChanged,
+      );
+  }, [
+    directTargetUserId,
+    otherMember?.nickname,
+    otherMember?.username,
+    userId,
+  ]);
 
   // Helper dùng chung: 1 user có đang bị khóa tài khoản không.
   // - Ưu tiên cờ trên member (membersById).
@@ -963,19 +1075,20 @@ function ChatWindowContent({
   const otherMemberPresence = Number.isFinite(otherMemberUserId)
     ? presenceByUserId[otherMemberUserId]
     : undefined;
-  const otherMemberOnline = Boolean(
+  const otherMemberPresenceOnline = Boolean(
     conversation?.type === "DIRECT" &&
+      !isDirectChatBlocked &&
       Number.isFinite(otherMemberUserId) &&
       otherMemberPresence?.online
   );
   const [presenceNow, setPresenceNow] = useState(() => Date.now());
   useEffect(() => {
-    if (otherMemberOnline || !otherMemberPresence?.lastActiveAt) return;
+    if (otherMemberPresenceOnline || !otherMemberPresence?.lastActiveAt) return;
 
     // Offline text tự nhảy phút/giờ ở client, không cần backend bắn event mỗi phút.
     const timer = window.setInterval(() => setPresenceNow(Date.now()), 60000);
     return () => window.clearInterval(timer);
-  }, [otherMemberOnline, otherMemberPresence?.lastActiveAt]);
+  }, [otherMemberPresenceOnline, otherMemberPresence?.lastActiveAt]);
   const otherMemberLastActiveText = formatLastActiveText(
     otherMemberPresence?.lastActiveAt,
     presenceNow
@@ -1013,7 +1126,13 @@ function ChatWindowContent({
       ),
     [contextFriendRequests, otherMember?.userId]
   );
-  const isFriend = friendshipStatus === "friends" || isFriendInContext;
+  const isFriend =
+    !isDirectChatBlocked &&
+    !forceStrangerAfterBlock &&
+    (friendshipStatus === "friends" ||
+      isFriendInContext ||
+      effectiveRelationshipInfo?.friendStatus === "FRIEND");
+  const otherMemberOnline = Boolean(isFriend && otherMemberPresenceOnline);
   const isPendingReceived =
     friendshipStatus === "pending_received" || isReceivedRequestInContext;
   const isPendingSent =
@@ -1034,18 +1153,27 @@ function ChatWindowContent({
   }, [effectiveRelationshipInfo, isFriend, relationshipText]);
   const headerStatusText =
     conversation?.type === "DIRECT"
-      ? otherMemberOnline
+      ? isDirectChatBlocked
+        ? "Người lạ"
+        : forceStrangerAfterBlock
+        ? "Người lạ"
+        : !isFriend
+        ? resolvedRelationshipText || relationshipText || "Người lạ"
+        : otherMemberOnline
         ? "Đang hoạt động"
         : otherMemberLastActiveText || resolvedRelationshipText || "Không hoạt động"
       : null;
   const canShowFriendBanner =
+    !isDirectChatBlocked &&
     Boolean(effectiveRelationshipInfo) &&
     !isFriend &&
-    effectiveRelationshipInfo?.friendStatus !== "FRIEND";
+    (forceStrangerAfterBlock ||
+      effectiveRelationshipInfo?.friendStatus !== "FRIEND");
 
   useEffect(() => {
     setFriendRequestSent(false);
     setFriendRequestSending(false);
+    setForceStrangerAfterBlock(false);
   }, [otherMember?.userId]);
 
   useEffect(() => {
@@ -1068,6 +1196,7 @@ function ChatWindowContent({
       } else {
         const ok = await sendFriendRequest();
         if (!ok) throw new Error("send failed");
+        setForceStrangerAfterBlock(false);
         setFriendRequestSent(true);
       }
     } catch {
@@ -1100,6 +1229,7 @@ function ChatWindowContent({
     try {
       const ok = await acceptFriendRequest();
       if (!ok) throw new Error("accept failed");
+      setForceStrangerAfterBlock(false);
       setFriendRequestSent(false);
       setLoadedRelationshipInfo((previous) =>
         previous

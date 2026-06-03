@@ -22,6 +22,7 @@ import type {
     ChatUserSearchResult,
     ConversationMember,
     ConversationSidebar,
+    DirectBlockStatusChangedEvent,
     LocalUploadFile,
     Message,
 } from "@/types/chat";
@@ -45,6 +46,7 @@ import {
     ActivityIndicator,
     BackHandler,
     Dimensions,
+    DeviceEventEmitter,
     Easing,
     FlatList,
     type GestureResponderEvent,
@@ -542,6 +544,7 @@ export default function MessagesConversationScreen() {
     const [friendRequestSending, setFriendRequestSending] = useState(false);
     const [friendRequestSent, setFriendRequestSent] = useState(false);
     const [friendRequestReceived, setFriendRequestReceived] = useState(false);
+    const [forceStrangerAfterBlock, setForceStrangerAfterBlock] = useState(false);
     const routeRelationshipInfo = useMemo(() => {
         if (!peerFriendStatus) return null;
         return {
@@ -846,12 +849,23 @@ export default function MessagesConversationScreen() {
         currentUserId,
         otherUser?.userId,
     ]);
+    const isDirectConversation = conversation?.type === "DIRECT";
+    const isDirectBlockedByMe =
+        isDirectConversation && Boolean(conversation?.directBlockedByMe);
+    const isDirectBlockedMe =
+        isDirectConversation && Boolean(conversation?.directBlockedMe);
+    const isDirectChatBlocked = isDirectBlockedByMe || isDirectBlockedMe;
+    const resolvedPeerRelationshipText = isDirectChatBlocked || forceStrangerAfterBlock
+        ? "Nguoi la"
+        : peerRelationshipText;
     const presenceByUserId = usePresenceStatus([otherUserId]);
     const otherUserPresence = Number.isFinite(otherUserId)
         ? presenceByUserId[otherUserId]
         : undefined;
     const otherUserOnline = Boolean(
         conversation?.type === "DIRECT" &&
+            !isDirectChatBlocked &&
+            !forceStrangerAfterBlock &&
             Number.isFinite(otherUserId) &&
             otherUserPresence?.online,
     );
@@ -869,9 +883,13 @@ export default function MessagesConversationScreen() {
     );
     const headerStatusText =
         conversation?.type === "DIRECT"
-            ? otherUserOnline
+            ? isDirectChatBlocked
+                ? "Nguoi la"
+                : forceStrangerAfterBlock
+                ? "Nguoi la"
+                : otherUserOnline
                 ? "Đang hoạt động"
-                : otherUserLastActiveText || peerRelationshipText || "Không hoạt động"
+                : otherUserLastActiveText || resolvedPeerRelationshipText || "Không hoạt động"
             : null;
 
     useFriendNotifications(
@@ -894,6 +912,7 @@ export default function MessagesConversationScreen() {
                         receiverId === currentUserId
                     ) {
                         setFriendRequestSent(false);
+                        setForceStrangerAfterBlock(false);
                         setFriendRequestReceived(true);
                         setLoadedRelationshipInfo((previous) =>
                             previous
@@ -915,6 +934,7 @@ export default function MessagesConversationScreen() {
                 if (event.eventType === "friend-accept") {
                     setFriendRequestSent(false);
                     setFriendRequestReceived(false);
+                    setForceStrangerAfterBlock(false);
                     setLoadedRelationshipInfo((previous) =>
                         previous
                             ? { ...previous, friendStatus: "FRIEND" }
@@ -952,6 +972,7 @@ export default function MessagesConversationScreen() {
         setFriendRequestSent(false);
         setFriendRequestReceived(false);
         setFriendRequestSending(false);
+        setForceStrangerAfterBlock(false);
     }, [otherUser?.userId]);
 
     const handleSendFriendRequest = useCallback(async () => {
@@ -972,6 +993,7 @@ export default function MessagesConversationScreen() {
             setFriendRequestSending(false);
 
             if (ok) {
+                setForceStrangerAfterBlock(false);
                 setFriendRequestReceived(false);
                 setFriendRequestSent(false);
                 setLoadedRelationshipInfo((previous) =>
@@ -1010,6 +1032,7 @@ export default function MessagesConversationScreen() {
 
         if (ok) {
             if (!friendRequestSent) {
+                setForceStrangerAfterBlock(false);
                 setFriendRequestSent(true);
             }
             return;
@@ -1069,19 +1092,69 @@ export default function MessagesConversationScreen() {
             members: Object.values(membersById),
         });
     }, [conversation, currentUserId, membersById]);
-    const isDirectBlockedByMe =
-        conversation?.type === "DIRECT" && Boolean(conversation.directBlockedByMe);
-    const isDirectBlockedMe =
-        conversation?.type === "DIRECT" && Boolean(conversation.directBlockedMe);
-    const isDirectChatBlocked = isDirectBlockedByMe || isDirectBlockedMe;
+    const applyDirectStrangerState = useCallback(() => {
+        if (!directTargetUserId) return;
+        setForceStrangerAfterBlock(true);
+        setLoadedRelationshipInfo((previous) =>
+            previous
+                ? { ...previous, friendStatus: "STRANGER" }
+                : {
+                      userId: Number(directTargetUserId),
+                      name:
+                          otherUser?.nickname ||
+                          otherUser?.username ||
+                          "",
+                      friendStatus: "STRANGER",
+                      mutualGroupsCount: 0,
+                  },
+        );
+    }, [directTargetUserId, otherUser?.nickname, otherUser?.username]);
+
     const handleUnblockDirectPartner = useCallback(async () => {
         if (!currentUserId || !directTargetUserId) return;
         try {
             await blockService.unblockUser(currentUserId, directTargetUserId);
+            applyDirectStrangerState();
         } catch {
             Alert.alert("Thong bao", "Khong the bo chan");
         }
-    }, [currentUserId, directTargetUserId]);
+    }, [
+        applyDirectStrangerState,
+        currentUserId,
+        directTargetUserId,
+    ]);
+
+    useEffect(() => {
+        const subscription = DeviceEventEmitter.addListener(
+            "conversation-direct-block-status-changed",
+            (event: DirectBlockStatusChangedEvent) => {
+                if (!currentUserId || !directTargetUserId) return;
+                if (Number(event.conversationId) !== Number(conversationId)) {
+                    return;
+                }
+
+                const blockerId = Number(event.blockerId);
+                const blockedId = Number(event.blockedId);
+                const matchesCurrentDirect =
+                    (blockerId === Number(currentUserId) &&
+                        blockedId === Number(directTargetUserId)) ||
+                    (blockerId === Number(directTargetUserId) &&
+                        blockedId === Number(currentUserId));
+
+                if (matchesCurrentDirect) {
+                    applyDirectStrangerState();
+                }
+            },
+        );
+
+        return () => subscription.remove();
+    }, [
+        applyDirectStrangerState,
+        conversationId,
+        currentUserId,
+        directTargetUserId,
+    ]);
+
     const callMemberSource = useMemo(() => {
         const mergedMembers = new Map<number, ConversationMember>();
         for (const member of conversation?.members ?? []) {
@@ -2714,8 +2787,10 @@ export default function MessagesConversationScreen() {
                     />
                 ) : null}
 
-                {effectiveRelationshipInfo &&
-                effectiveRelationshipInfo.friendStatus !== "FRIEND" ? (
+                {!isDirectChatBlocked &&
+                (forceStrangerAfterBlock ||
+                    (effectiveRelationshipInfo &&
+                        effectiveRelationshipInfo.friendStatus !== "FRIEND")) ? (
                     <View style={styles.friendRequestBanner}>
                         <View style={styles.friendRequestTextWrap}>
                             <Ionicons
