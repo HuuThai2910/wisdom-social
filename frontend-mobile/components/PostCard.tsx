@@ -21,6 +21,7 @@ import {
 } from "react-native";
 import UserAvatar from "./UserAvatar";
 import * as postApi from "@/services/postService";
+import { emitReactionEvent, subscribeReactionEvents, GlobalReactionEvent } from "@/services/reactionEventService";
 import EditPostModal from "@/components/post/EditPostModal";
 import { useRouter } from "expo-router";
 import useRealtimePostStats from "@/hooks/useRealtimePostStats";
@@ -36,11 +37,9 @@ const REACTIONS = [
   { type: "ANGRY", emoji: "😡" },
 ];
 
-// Helper to get emoji by type
 const getReactionEmoji = (type: string | null): string | null => {
   if (!type) return null;
-  const reaction = REACTIONS.find((r) => r.type === type);
-  return reaction?.emoji || null;
+  return REACTIONS.find((r) => r.type === type)?.emoji || null;
 };
 
 const privacyLabels: Record<string, string> = {
@@ -70,8 +69,8 @@ type Props = {
 export default function PostCard({
   post,
   author,
-  liked,
-  saved,
+  liked = false,
+  saved = false,
   currentUserId,
   onLike,
   onSave,
@@ -89,60 +88,111 @@ export default function PostCard({
   );
   const [comment, setComment] = useState("");
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [isLiked, setIsLiked] = useState(Boolean(liked || post.isLiked));
-  const [isSaved, setIsSaved] = useState(Boolean(saved || post.isSaved));
+  const [showMenu, setShowMenu] = useState(false);
+  const [showReactions, setShowReactions] = useState(false);
+  const [submittingComment, setSubmittingComment] = useState(false);
+  const [menuBusy, setMenuBusy] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+
+  // currentReaction: local state to track user's specific reaction type
+  // This is fetched from API and updated on user actions
   const [currentReaction, setCurrentReaction] = useState<string | null>(null);
-  const [likesCountInternal, setLikesCountInternal] = useState(post.likes || 0);
-
-  // Sync isSaved state when saved prop changes (e.g., from parent or context update)
-  useEffect(() => {
-    setIsSaved(Boolean(saved || post.isSaved));
-  }, [saved, post.isSaved]);
-
-  // Sync isLiked + currentReaction when liked prop changes from global state
-  useEffect(() => {
-    const newIsLiked = Boolean(liked || post.isLiked);
-    setIsLiked(newIsLiked);
-    if (!newIsLiked) {
-      // Global state says not liked → clear local reaction
-      setCurrentReaction(null);
-    } else {
-      // Global state says liked → ensure currentReaction is set
-      setCurrentReaction((prev) => prev ?? "LIKE");
-    }
-  }, [liked, post.isLiked]);
+  // Track if reaction type was fetched from API (to avoid overriding with default "LIKE")
+  const [reactionFetchedFromApi, setReactionFetchedFromApi] = useState(false);
 
   const { commentsCount, setCommentsCount } =
     useRealtimePostStats({
       postId: post.id,
-      initialLikes: likesCountInternal,
+      initialLikes: post.likes || 0,
       initialComments: post.commentsCount ?? post.comments?.length ?? 0,
     });
 
-  // Local likes count state - used for display
-  const likesCount = likesCountInternal;
-
-  // Subscribe to realtime reaction updates to sync with PostModal
-  const handleReactionUpdate = useCallback((event: ReactionRealtimeEvent) => {
-    // Skip own actions (already handled optimistically)
-    if (event.userId === currentUserId) return;
-    // Only handle POST reactions, not COMMENT reactions
-    if (event.targetType !== "POST" || event.targetId !== post.id) return;
-    setLikesCountInternal((prev) =>
-      event.action === "REACT" ? prev + 1 : Math.max(0, prev - 1)
-    );
+  // Fetch user's current reaction type from API when component mounts or post changes
+  useEffect(() => {
+    let cancelled = false;
+    const fetchReactionType = async () => {
+      if (!currentUserId) return;
+      console.log(`[PostCard] Fetching reaction for post ${post.id}`);
+      try {
+        const reaction = await postApi.fetchUserReaction(currentUserId, post.id);
+        console.log(`[PostCard] Reaction fetched:`, reaction);
+        if (!cancelled) {
+          if (reaction?.type) {
+            setCurrentReaction(reaction.type);
+            setReactionFetchedFromApi(true);
+          } else {
+            // No reaction found, ensure state is cleared
+            setCurrentReaction(null);
+            setReactionFetchedFromApi(true);
+          }
+        }
+      } catch (err) {
+        console.error(`[PostCard] Error fetching reaction:`, err);
+        if (!cancelled) {
+          setReactionFetchedFromApi(true);
+        }
+      }
+    };
+    void fetchReactionType();
+    return () => { cancelled = true; };
   }, [currentUserId, post.id]);
+
+  // Sync currentReaction when liked prop changes from global state OR when API returns reaction type
+  useEffect(() => {
+    // If API returned a reaction type (reactionFetchedFromApi=true), keep it
+    // regardless of liked prop (API is source of truth)
+    if (reactionFetchedFromApi && currentReaction) {
+      // API returned a specific reaction - this is correct, don't touch it
+      return;
+    }
+    // Only set default "LIKE" if liked=true AND API hasn't fetched yet AND no currentReaction
+    if (liked && !currentReaction && !reactionFetchedFromApi) {
+      setCurrentReaction("LIKE");
+    }
+    // If API confirmed no reaction (fetched but null), clear currentReaction
+    if (reactionFetchedFromApi && !currentReaction && !liked) {
+      // API confirmed no reaction exists
+    }
+  }, [liked, currentReaction, reactionFetchedFromApi]);
+
+  // Likes count: starts with post.likes, updated by realtime events
+  const [realtimeLikesCount, setRealtimeLikesCount] = useState<number | null>(null);
+
+  // Subscribe to realtime reaction updates
+  const handleReactionUpdate = useCallback((event: ReactionRealtimeEvent) => {
+    if (event.userId === currentUserId) return;
+    if (event.targetType !== "POST" || event.targetId !== post.id) return;
+    setRealtimeLikesCount(prev =>
+      event.action === "REACT" ? (prev ?? post.likes ?? 0) + 1 : Math.max(0, (prev ?? post.likes ?? 0) - 1)
+    );
+  }, [currentUserId, post.id, post.likes]);
 
   useRealtimeReactions({
     postId: post.id,
     enabled: Boolean(currentUserId),
     onReactionUpdate: handleReactionUpdate,
   });
-  const [showMenu, setShowMenu] = useState(false);
-  const [showReactions, setShowReactions] = useState(false);
-  const [submittingComment, setSubmittingComment] = useState(false);
-  const [menuBusy, setMenuBusy] = useState(false);
-  const [showEditModal, setShowEditModal] = useState(false);
+
+  // Subscribe to global reaction events for cross-component sync
+  useEffect(() => {
+    console.log(`[PostCard] Subscribing to reaction events for post ${post.id}, user ${currentUserId}`);
+    const unsubscribe = subscribeReactionEvents((event: GlobalReactionEvent) => {
+      console.log(`[PostCard] Received global reaction event:`, event);
+      if (event.postId !== post.id) return;
+      if (event.userId !== currentUserId) return;
+
+      console.log(`[PostCard] Updating currentReaction for post ${post.id}: ${event.isToggleOff ? 'null' : event.reactionType}`);
+      if (event.isToggleOff) {
+        setCurrentReaction(null);
+      } else {
+        setCurrentReaction(event.reactionType);
+      }
+    });
+    return unsubscribe;
+  }, [post.id, currentUserId]);
+
+  // Display count: use realtime count if available, otherwise use post.likes
+  const likesCount = realtimeLikesCount ?? post.likes ?? 0;
 
   // Music autoplay
   const {
@@ -190,50 +240,46 @@ export default function PostCard({
     "Unknown";
   const username = resolvedAuthor?.username || "unknown";
 
-  // Sync counts from global post state
-  useEffect(() => {
-    setLikesCountInternal(post.likes || 0);
-    setCommentsCount(post.commentsCount ?? post.comments?.length ?? 0);
-  }, [post.comments?.length, post.commentsCount, post.likes]);
+  const handleReaction = useCallback(async (reactionType: string) => {
+    if (!currentUserId) {
+      Alert.alert("Thông báo", "Vui lòng đăng nhập để bày tỏ cảm xúc");
+      return;
+    }
 
-  useEffect(() => {
-    let cancelled = false;
-    const fetchReactionData = async () => {
-      if (!currentUserId) return;
+    // Toggle off if same reaction type
+    const isToggleOff = currentReaction === reactionType;
+
+    if (onLike) {
+      console.log(`[PostCard] Emitting reaction event for post ${post.id}`);
+      onLike(reactionType, isToggleOff);
+      // Emit global event so all PostCard instances sync
+      emitReactionEvent({
+        action: isToggleOff ? "UNREACT" : "REACT",
+        postId: post.id,
+        reactionType,
+        userId: currentUserId,
+        isToggleOff,
+        likesCount: isToggleOff ? Math.max(0, (realtimeLikesCount ?? post.likes ?? 0) - 1) : ((realtimeLikesCount ?? post.likes ?? 0) + 1),
+      });
+    } else {
+      // Fallback: direct API call
       try {
-        const [reaction, count] = await Promise.all([
-          postApi.fetchUserReaction(currentUserId, post.id),
-          postApi.fetchPostReactionsCount(post.id),
-        ]);
-        if (cancelled) return;
-
-        // Always use server count (most accurate)
-        setLikesCountInternal(count);
-
-        // For currentReaction: only apply if API result is consistent
-        // with global liked state, to prevent stale API data from
-        // overriding correct optimistic/global state updates.
-        const isGloballyLiked = Boolean(liked || post.isLiked);
-        if (reaction?.type && isGloballyLiked) {
-          // Both API and global agree user liked → use API's specific type
-          setCurrentReaction(reaction.type);
-        } else if (!reaction?.type && !isGloballyLiked) {
-          // Both agree user didn't like → clear
-          setCurrentReaction(null);
-        }
-        // If they disagree → stale API data, don't touch currentReaction.
-        // Sync effect already set the correct value from global state.
-
-        // Don't set isLiked or isSaved here — sync effects are
-        // the single source of truth for these (driven by AppContext).
+        await postApi.togglePostReaction(currentUserId, post.id, reactionType);
       } catch {
-        // Giữ trạng thái local nếu API lỗi, tương tự web fallback im lặng.
+        Alert.alert("Lỗi", "Không thể cập nhật cảm xúc");
       }
-    };
+    }
 
-    void fetchReactionData();
-    return () => { cancelled = true; };
-  }, [currentUserId, post.id]);
+    // Optimistically update local state
+    if (isToggleOff) {
+      setCurrentReaction(null);
+      setRealtimeLikesCount(prev => prev !== null ? Math.max(0, prev - 1) : null);
+    } else {
+      setCurrentReaction(reactionType);
+      setRealtimeLikesCount(prev => prev !== null ? prev + 1 : null);
+    }
+    setShowReactions(false);
+  }, [currentUserId, post.id, currentReaction, onLike]);
 
   const submitComment = async () => {
     const content = comment.trim();
@@ -250,7 +296,7 @@ export default function PostCard({
       setSubmittingComment(true);
       try {
         await postApi.submitComment(currentUserId, post.id, content);
-        setCommentsCount((prev) => prev + 1);
+        setCommentsCount(prev => prev + 1);
         setComment("");
       } catch (error: any) {
         Alert.alert(
@@ -263,58 +309,15 @@ export default function PostCard({
     }
   };
 
-  const handleReaction = async (reactionType: string) => {
-    if (!currentUserId) {
-      Alert.alert("Thông báo", "Vui lòng đăng nhập để bày tỏ cảm xúc");
-      return;
-    }
-
-    const isToggleOff = currentReaction === reactionType;
-
-    // Optimistic UI updates
-    if (isToggleOff) {
-      setCurrentReaction(null);
-      setIsLiked(false);
-      setLikesCountInternal((prev) => Math.max(0, prev - 1));
-    } else {
-      if (!currentReaction) setLikesCountInternal((prev) => prev + 1);
-      setCurrentReaction(reactionType);
-      setIsLiked(true);
-    }
-    setShowReactions(false);
-
-    if (onLike) {
-      onLike(reactionType, isToggleOff);
-    } else {
-      try {
-        await postApi.togglePostReaction(currentUserId, post.id, reactionType);
-      } catch {
-        // revert local state on error
-        if (isToggleOff) {
-          setCurrentReaction(reactionType);
-          setIsLiked(true);
-          setLikesCountInternal((prev) => prev + 1);
-        } else {
-          setCurrentReaction(null);
-          setIsLiked(false);
-          setLikesCountInternal((prev) => Math.max(0, prev - 1));
-        }
-        Alert.alert("Lỗi", "Không thể cập nhật cảm xúc");
-      }
-    }
-  };
-
   const handleSave = async () => {
     if (!currentUserId) {
       Alert.alert("Thông báo", "Vui lòng đăng nhập để lưu bài viết");
       return;
     }
-    if (onSave) {
-      onSave();
-    } else {
+    if (onSave) onSave();
+    else {
       try {
         await postApi.togglePostSaved(currentUserId, post.id);
-        setIsSaved((prev) => !prev);
       } catch {
         Alert.alert("Lỗi", "Không thể lưu bài viết");
       }
@@ -577,7 +580,6 @@ export default function PostCard({
           {/* Reaction Button - shows emoji if reacted, heart if not */}
           <Pressable
             onPress={() => {
-              // Tap to toggle OFF if already reacted, else show picker
               if (currentReaction) {
                 handleReaction(currentReaction);
               } else {
@@ -621,7 +623,7 @@ export default function PostCard({
 
         <Pressable onPress={handleSave} hitSlop={8}>
           <Ionicons
-            name={isSaved ? "bookmark" : "bookmark-outline"}
+            name={saved ? "bookmark" : "bookmark-outline"}
             size={24}
             color={colors.text}
           />
