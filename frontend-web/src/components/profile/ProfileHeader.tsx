@@ -24,14 +24,17 @@ import FriendsModal from "./FriendsModal";
 import { buildS3Url } from "../../utils/s3";
 import BlockUnblockButton from "../friend/BlockUnblockButton";
 import FriendActions from "../friend/FriendActions";
+import type { FriendshipStatus } from "../../hooks/useFriendStatus";
+import friendService from "../../services/friendService";
 import { NOTE_PLACEHOLDERS } from "./note-modal/NoteContentDefault";
-import { getUserPostsWithDetails } from "../../services/postService";
+import { getUserPostsCount } from "../../services/postService";
 import { useProfileNote } from "../../hooks/useProfileNote";
 import { useHasActiveStory } from "../../hooks/useHasActiveStory";
 import { fetchUserStories } from "../../services/storyService";
 import StoryViewerModal from "../story/StoryViewerModal";
 import { usePresenceStatus } from "../../hooks/usePresenceStatus";
 import CreateHighlightModal from "./CreateHighlightModal";
+import { useFriendDataSafe } from "../../contexts/FriendDataContext";
 import {
   getUserHighlights,
   type StoryHighlight,
@@ -67,16 +70,21 @@ export default function ProfileHeader({
   onFriendAccepted,
   onFriendRemoved,
 }: ProfileHeaderProps) {
+  const [friendStatus, setFriendStatus] = useState<FriendshipStatus>("loading");
   const [showFriendsModal, setShowFriendsModal] = useState(false);
   const [showInfoModal, setShowInfoModal] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   const [postsCount, setPostsCount] = useState(0);
+  const [profileFriendsCount, setProfileFriendsCount] = useState(
+    user.friendsCount ?? 0
+  );
   const [notePlaceholder] = useState(
     () =>
       NOTE_PLACEHOLDERS[Math.floor(Math.random() * NOTE_PLACEHOLDERS.length)]
   );
   const { note, showNoteModal, openNoteModal, closeNoteModal, setNote } =
     useProfileNote(user?.id);
+  const { refreshTrigger } = useFriendDataSafe();
 
   const profileUserId = Number(user?.id);
   const presenceByUserId = usePresenceStatus([profileUserId]);
@@ -86,10 +94,28 @@ export default function ProfileHeader({
 
   useEffect(() => {
     if (!user?.id) return;
-    getUserPostsWithDetails(user.id)
-      .then((posts) => setPostsCount(posts.length))
+    getUserPostsCount(user.id)
+      .then((count) => setPostsCount(count))
       .catch(() => setPostsCount(0));
   }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    friendService
+      .getFriends(user.id)
+      .then((friends) => setProfileFriendsCount(friends.length))
+      .catch(() => setProfileFriendsCount(user.friendsCount ?? 0));
+  }, [user?.id, user.friendsCount, refreshTrigger]);
+
+  const handleFriendAccepted = useCallback(() => {
+    setProfileFriendsCount((count) => count + 1);
+    onFriendAccepted?.();
+  }, [onFriendAccepted]);
+
+  const handleFriendRemoved = useCallback(() => {
+    setProfileFriendsCount((count) => Math.max(0, count - 1));
+    onFriendRemoved?.();
+  }, [onFriendRemoved]);
 
   // Check if user has an active story
   const {
@@ -102,7 +128,7 @@ export default function ProfileHeader({
   const [isViewerOpen, setIsViewerOpen] = useState(false);
 
   // Highlights state
-  const [highlights, setHighlights] = useState<StoryHighlight[]>([]);
+  const [, setHighlights] = useState<StoryHighlight[]>([]);
   const [showCreateHighlight, setShowCreateHighlight] = useState(false);
   const [viewingHighlight, setViewingHighlight] =
     useState<StoryHighlight | null>(null);
@@ -279,15 +305,11 @@ export default function ProfileHeader({
               <Stat value={postsCount} label="Bài viết" />
               <Stat
                 value={
-                  typeof user.friendsCount === "number"
-                    ? user.friendsCount
-                    : user.friendsCount || 0
+                  profileFriendsCount
                 }
                 label="Bạn bè"
               />
-              {isOwnProfile && (
-                <Stat value={user.followingCount ?? 0} label="Theo dõi" />
-              )}
+              
             </div>
 
             {/* Info block */}
@@ -318,7 +340,7 @@ export default function ProfileHeader({
             </div>
 
             {/* Action buttons row */}
-            <div className="flex items-center gap-1.5 mt-1">
+            <div className="flex flex-wrap items-center gap-2 mt-1">
               {isOwnProfile ? (
                 <>
                   <Link
@@ -343,17 +365,18 @@ export default function ProfileHeader({
                 </>
               ) : (
                 <>
-                  <div className="flex-1 min-w-0 [&>button]:w-full [&>button]:h-8.5 [&>button]:rounded-lg [&>button]:text-[14px] [&>button]:whitespace-nowrap [&>div]:w-full [&>div>button]:flex-1 [&>div>button]:h-8.5 [&>div>button]:rounded-lg [&>div>button]:text-[14px] [&>div>button]:whitespace-nowrap">
+                  <div className="min-w-[220px] flex-[1.4_1_220px] [&>button]:w-full [&>button]:h-8.5 [&>button]:rounded-lg [&>button]:text-[14px] [&>button]:whitespace-nowrap [&>div]:w-full [&>div>button]:min-w-0 [&>div>button]:flex-1 [&>div>button]:h-8.5 [&>div>button]:rounded-lg [&>div>button]:text-[14px] [&>div>button]:whitespace-nowrap">
                     <FriendActions
                       targetUserId={user.id}
                       targetUsername={user.username}
                       size="md"
                       showText={true}
-                      onFriendAccepted={onFriendAccepted}
-                      onFriendRemoved={onFriendRemoved}
+                      onFriendAccepted={handleFriendAccepted}
+                      onFriendRemoved={handleFriendRemoved}
+                      onStatusChange={setFriendStatus}
                     />
                   </div>
-                  <button className="flex-1 inline-flex items-center justify-center gap-1.5 h-8.5 px-3 bg-[#efefef] dark:bg-[#262626] hover:bg-[#dbdbdb] dark:hover:bg-[#363636] border border-[#dbdbdb] dark:border-[#363636] rounded-lg text-[14px] font-semibold dark:text-white transition-colors">
+                  <button className="min-w-[140px] flex-[1_1_140px] inline-flex items-center justify-center gap-1.5 h-8.5 px-3 bg-[#efefef] dark:bg-[#262626] hover:bg-[#dbdbdb] dark:hover:bg-[#363636] border border-[#dbdbdb] dark:border-[#363636] rounded-lg text-[14px] font-semibold dark:text-white transition-colors">
                     <MessageCircle size={14} /> Nhắn tin
                   </button>
                   <button
@@ -361,21 +384,22 @@ export default function ProfileHeader({
                     className="inline-flex items-center justify-center w-8.5 h-8.5 bg-[#efefef] dark:bg-[#262626] hover:bg-[#dbdbdb] dark:hover:bg-[#363636] border border-[#dbdbdb] dark:border-[#363636] rounded-lg dark:text-white transition-colors"
                     title="Thông tin"
                   >
-                    <Info size={15} />
+                    <Info size={16} />
                   </button>
-                  <div className="[&>button]:w-8.5! [&>button]:h-8.5! [&>button]:p-0! [&>button]:rounded-lg! [&>button>span]:hidden">
+                  <button
+                    onClick={() => setShowReportModal(true)}
+                    className="inline-flex items-center justify-center w-8.5 h-8.5 bg-[#efefef] dark:bg-[#262626] hover:bg-red-50 dark:hover:bg-red-900/20 border border-[#dbdbdb] dark:border-[#363636] text-red-600 dark:text-red-400 rounded-lg transition-colors"
+                    title="Báo cáo"
+                  >
+                    <Flag size={16} />
+                  </button>
+                  {friendStatus !== "blocked_by" && (
                     <BlockUnblockButton
                       userId={user.id}
                       username={user.username}
+                      iconOnly
                     />
-                  </div>
-                  <button
-                    onClick={() => setShowReportModal(true)}
-                    className="inline-flex items-center justify-center w-8.5 h-8.5 bg-[#efefef] dark:bg-[#262626] hover:bg-red-50 dark:hover:bg-red-900/30 border border-[#dbdbdb] dark:border-[#363636] text-red-600 dark:text-red-400 rounded-lg transition-colors"
-                    title="Báo cáo tài khoản"
-                  >
-                    <Flag size={15} />
-                  </button>
+                  )}
                 </>
               )}
             </div>
@@ -420,6 +444,7 @@ export default function ProfileHeader({
       {showFriendsModal && (
         <FriendsModal
           userId={user.id}
+          onCountChange={setProfileFriendsCount}
           onClose={() => setShowFriendsModal(false)}
         />
       )}
@@ -509,55 +534,49 @@ export default function ProfileHeader({
             <div className="h-px bg-gray-200 dark:bg-[#262626] mx-5" />
 
             <div className="px-5 pb-5 pt-2 max-h-[55vh] overflow-y-auto">
-              {user.username && (
-                <InfoRow
-                  icon={<AtSign size={16} />}
-                  label="Tên người dùng"
-                  value={`@${user.username}`}
-                />
-              )}
-              {displayName && (
-                <InfoRow
-                  icon={<UserIcon size={16} />}
-                  label="Họ và tên"
-                  value={displayName}
-                />
-              )}
-              {user.birthday && (
+              <InfoRow
+                icon={<AtSign size={16} />}
+                label="Tên người dùng"
+                value={user.isPrivate ? "**********" : `@${user.username}`}
+              />
+              <InfoRow
+                icon={<UserIcon size={16} />}
+                label="Họ và tên"
+                value={user.isPrivate ? "***********" : (displayName || "***********")}
+              />
+              {(user.isPrivate || user.birthday) && (
                 <InfoRow
                   icon={<Calendar size={16} />}
                   label="Ngày sinh"
-                  value={user.birthday}
+                  value={user.isPrivate ? "**/***/****" : user.birthday!}
                 />
               )}
-              {genderLabel && (
+              {(user.isPrivate || genderLabel) && (
                 <InfoRow
                   icon={<UsersIcon size={16} />}
                   label="Giới tính"
-                  value={genderLabel}
+                  value={user.isPrivate ? "******" : genderLabel!}
                 />
               )}
-              {user.bio && (
+              {(user.isPrivate || user.bio) && (
                 <InfoRow
                   icon={<MessageSquare size={16} />}
                   label="Giới thiệu"
-                  value={stripHtml(user.bio)}
+                  value={user.isPrivate ? "**************" : stripHtml(user.bio!)}
                 />
               )}
-              {user.phone && (
+              {(user.isPrivate || user.phone) && (
                 <InfoRow
                   icon={<Phone size={16} />}
                   label="Số điện thoại"
-                  value={user.phone}
+                  value={user.isPrivate ? "**********" : user.phone!}
                 />
               )}
-              {typeof user.friendsCount === "number" && (
-                <InfoRow
-                  icon={<UsersIcon size={16} />}
-                  label="Bạn bè"
-                  value={`${user.friendsCount} người`}
-                />
-              )}
+              <InfoRow
+                icon={<UsersIcon size={16} />}
+                label="Bạn bè"
+                value={`${profileFriendsCount} người`}
+              />
             </div>
           </div>
         </div>

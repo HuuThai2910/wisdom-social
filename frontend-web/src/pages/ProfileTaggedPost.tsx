@@ -1,6 +1,7 @@
 import { useOutletContext } from "react-router-dom";
 import { UserSquare2 } from "lucide-react";
 import PostGrid from "../components/profile/PostGrid";
+import PrivateAccountLock from "../components/profile/PrivateAccountLock";
 import { useProfileTaggedPosts } from "../hooks/useProfileHooks";
 import type { User } from "../types";
 
@@ -10,8 +11,12 @@ interface OutletContext {
 }
 
 export default function ProfileTaggedPost() {
-  const { user } = useOutletContext<OutletContext>();
+  const { user, isOwnProfile } = useOutletContext<OutletContext>();
   const { posts, loading, error } = useProfileTaggedPosts(user);
+
+  if (!isOwnProfile && user.isPrivate) {
+    return <PrivateAccountLock />;
+  }
 
   if (loading) {
     return (

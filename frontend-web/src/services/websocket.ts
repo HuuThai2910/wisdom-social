@@ -74,6 +74,7 @@ export type DomainEventType =
     | "UPIN_MESSAGE"
     | "MEMBER_UPDATED"
     | "MEMBER_ACCOUNT_LOCK_CHANGED"
+    | "DIRECT_BLOCK_STATUS_CHANGED"
     | "NEW_JOIN_REQUEST"
     | "JOIN_REQUEST_PROCESSED";
 
@@ -121,6 +122,14 @@ export interface MemberAccountLockChangedEvent {
     conversationId: number;
     userId: number;
     accountLocked: boolean;
+}
+
+export interface DirectBlockStatusChangedEvent {
+    domainEventType: "DIRECT_BLOCK_STATUS_CHANGED";
+    conversationId: number;
+    blockerId: number;
+    blockedId: number;
+    blocked: boolean;
 }
 
 /**
@@ -436,6 +445,10 @@ class WebSocketService {
     private profileUpdateListeners: Map<
         string,
         Set<(updatedUser: any) => void>
+    > = new Map();
+    private topicListeners: Map<
+        string,
+        Set<(message: any) => void>
     > = new Map();
 
     private callEventListeners: Map<
@@ -943,6 +956,7 @@ class WebSocketService {
         conversationId: number,
         onMemberUpdated: (event: MemberUpdatedEvent) => void,
         onAccountLockChanged?: (event: MemberAccountLockChangedEvent) => void,
+        onDirectBlockStatusChanged?: (event: DirectBlockStatusChangedEvent) => void,
     ) {
         if (!this.client?.connected) {
             console.error(
@@ -967,7 +981,8 @@ class WebSocketService {
                 try {
                     const event = JSON.parse(message.body) as
                         | MemberUpdatedEvent
-                        | MemberAccountLockChangedEvent;
+                        | MemberAccountLockChangedEvent
+                        | DirectBlockStatusChangedEvent;
                     // Phân loại theo domainEventType. Mặc định (client cũ/không có
                     // field) coi như MEMBER_UPDATED để giữ tương thích ngược.
                     if (
@@ -975,6 +990,12 @@ class WebSocketService {
                     ) {
                         onAccountLockChanged?.(
                             event as MemberAccountLockChangedEvent,
+                        );
+                    } else if (
+                        event.domainEventType === "DIRECT_BLOCK_STATUS_CHANGED"
+                    ) {
+                        onDirectBlockStatusChanged?.(
+                            event as DirectBlockStatusChangedEvent,
                         );
                     } else {
                         onMemberUpdated(event as MemberUpdatedEvent);
@@ -1083,7 +1104,8 @@ class WebSocketService {
                         | NewJoinRequestEvent
                         | JoinRequestProcessedEvent
                         | BlockedMembersUpdatedEvent
-                        | MemberAccountLockChangedEvent;
+                        | MemberAccountLockChangedEvent
+                        | DirectBlockStatusChangedEvent;
 
                     // Khóa/mở khóa tài khoản của 1 thành viên -> cập nhật SIDEBAR
                     // (mask/bỏ mask tên + avatar) qua window event, không cần F5.
@@ -1097,6 +1119,22 @@ class WebSocketService {
                             new CustomEvent(
                                 "conversation-member-lock-changed",
                                 { detail: lockPayload },
+                            ),
+                        );
+                        return;
+                    }
+
+                    const directBlockPayload =
+                        payload as DirectBlockStatusChangedEvent;
+                    if (
+                        directBlockPayload.domainEventType ===
+                            "DIRECT_BLOCK_STATUS_CHANGED" &&
+                        typeof directBlockPayload.conversationId === "number"
+                    ) {
+                        window.dispatchEvent(
+                            new CustomEvent(
+                                "conversation-direct-block-status-changed",
+                                { detail: directBlockPayload },
                             ),
                         );
                         return;
@@ -1520,6 +1558,11 @@ class WebSocketService {
      * @param callback - Hàm được gọi khi nhận message
      */
     subscribeToTopic(destination: string, callback: (message: any) => void) {
+        const listeners =
+            this.topicListeners.get(destination) ?? new Set<(message: any) => void>();
+        listeners.add(callback);
+        this.topicListeners.set(destination, listeners);
+
         if (!this.client?.connected) {
             console.error(
                 "WebSocket not connected, cannot subscribe to topic:",
@@ -1535,9 +1578,8 @@ class WebSocketService {
             return;
         }
 
-        const subscription = this.client.subscribe(
-            destination,
-            (message: IMessage) => {
+        this.registerSubscription(destination, () =>
+            this.client!.subscribe(destination, (message: IMessage) => {
                 try {
                     // Try to parse as JSON, fallback to raw string
                     let parsedMessage;
@@ -1546,17 +1588,17 @@ class WebSocketService {
                     } catch {
                         parsedMessage = message.body;
                     }
-                    callback(parsedMessage);
+                    this.topicListeners
+                        .get(destination)
+                        ?.forEach((listener) => listener(parsedMessage));
                 } catch (error) {
                     console.error(
                         `Error handling message from ${destination}:`,
                         error,
                     );
                 }
-            },
+            }),
         );
-
-        this.subscriptions.set(destination, subscription);
         console.log(`Subscribed to ${destination}`);
     }
 
@@ -1565,13 +1607,18 @@ class WebSocketService {
      *
      * @param destination - Topic destination to unsubscribe from
      */
-    unsubscribeFromTopic(destination: string) {
-        const subscription = this.subscriptions.get(destination);
-        if (subscription) {
-            subscription.unsubscribe();
-            this.subscriptions.delete(destination);
-            console.log(`Unsubscribed from ${destination}`);
+    unsubscribeFromTopic(destination: string, callback?: (message: any) => void) {
+        if (callback) {
+            const listeners = this.topicListeners.get(destination);
+            listeners?.delete(callback);
+            if (listeners && listeners.size > 0) {
+                return;
+            }
         }
+
+        this.topicListeners.delete(destination);
+        this.removeSubscription(destination);
+        console.log(`Unsubscribed from ${destination}`);
     }
 
     /**

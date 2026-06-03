@@ -1,5 +1,6 @@
 package iuh.fit.edu.backend.modules.user.dto.request;
 
+import iuh.fit.edu.backend.modules.post.constant.PrivacyType;
 import iuh.fit.edu.backend.modules.user.constant.Gender;
 import lombok.Data;
 
@@ -12,4 +13,5 @@ public class UserRequestUpdate {
     private String bio;
     private String username;
     private String birthday;
+    private PrivacyType privacyProfile;
 }

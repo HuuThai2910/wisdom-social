@@ -572,6 +572,17 @@ export const getUserPostsWithDetails = async (userId: string | number, page = 0,
     }
 };
 
+export const getUserPostsCount = async (userId: string | number): Promise<number> => {
+    try {
+        const response = await apiClient.get(`/posts/user/${userId}/count`);
+        const countData = response.data?.data ?? response.data;
+        const count = typeof countData === "number" ? countData : Number(countData);
+        return Number.isFinite(count) ? count : 0;
+    } catch {
+        return 0;
+    }
+};
+
 export async function fakeCreatePost(post: Post): Promise<Post> {
     return post;
 }

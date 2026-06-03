@@ -26,6 +26,14 @@ import {
 } from "@/utils/validators";
 import userService from "@/services/userService";
 
+type ProfilePrivacy = "PUBLIC" | "FRIENDS" | "ONLY_ME";
+
+const PRIVACY_OPTIONS: { value: ProfilePrivacy; label: string; desc: string }[] = [
+  { value: "PUBLIC",   label: "Công khai",    desc: "Tất cả mọi người" },
+  { value: "FRIENDS",  label: "Bạn bè",       desc: "Chỉ bạn bè" },
+  { value: "ONLY_ME",  label: "Chỉ mình tôi", desc: "Riêng tư" },
+];
+
 type FormState = {
   name: string;
   username: string;
@@ -34,6 +42,7 @@ type FormState = {
   gender: "MALE" | "FEMALE" | "HIDDEN";
   website: string;
   avatarUrl: string;
+  privacyProfile: ProfilePrivacy;
 };
 
 type FormErrors = {
@@ -56,6 +65,7 @@ export default function InstagramProfileEditScreen() {
     gender: "HIDDEN",
     website: "",
     avatarUrl: "",
+    privacyProfile: "PUBLIC",
   });
 
   const [formErrors, setFormErrors] = useState<FormErrors>({
@@ -74,22 +84,29 @@ export default function InstagramProfileEditScreen() {
   } | null>(null);
 
   useEffect(() => {
-    if (currentUser) {
-      setFormData({
-        name: currentUser.fullName ?? "",
-        username: currentUser.username ?? "",
-        bio: currentUser.bio ?? "",
-        birthday: currentUser.birthday ?? "",
-        gender:
-          (currentUser.gender as "MALE" | "FEMALE" | "HIDDEN") || "HIDDEN",
-        website: currentUser.website ?? "",
-        avatarUrl: currentUser.avatarUrl ?? "",
-      });
-      // Build S3 URL for old avatar
-      setPreviewAvatar(
-        currentUser.avatarUrl ? (buildS3Url(currentUser.avatarUrl) ?? "") : "",
-      );
-    }
+    if (!currentUser) return;
+    setFormData((prev) => ({
+      ...prev,
+      name: currentUser.fullName ?? "",
+      username: currentUser.username ?? "",
+      bio: currentUser.bio ?? "",
+      birthday: currentUser.birthday ?? "",
+      gender: (currentUser.gender as "MALE" | "FEMALE" | "HIDDEN") || "HIDDEN",
+      website: currentUser.website ?? "",
+      avatarUrl: currentUser.avatarUrl ?? "",
+    }));
+    setPreviewAvatar(
+      currentUser.avatarUrl ? (buildS3Url(currentUser.avatarUrl) ?? "") : "",
+    );
+    // Fetch privacyProfile separately since /auth/me doesn't return it
+    userService.getUserProfile(currentUser.id).then((profile) => {
+      if (profile?.privacyProfile) {
+        setFormData((prev) => ({
+          ...prev,
+          privacyProfile: profile.privacyProfile as ProfilePrivacy,
+        }));
+      }
+    }).catch(() => {});
   }, [currentUser]);
 
   const validateField = (field: keyof FormState, value: string) => {
@@ -245,6 +262,7 @@ export default function InstagramProfileEditScreen() {
         birthday: formData.birthday,
         gender: formData.gender,
         website: formData.website,
+        privacyProfile: formData.privacyProfile,
       };
 
       // Check if avatar was changed (local URI vs S3 URL)
@@ -474,6 +492,42 @@ export default function InstagramProfileEditScreen() {
             )}
           </View>
 
+          {/* Privacy Profile */}
+          <View style={styles.formGroup}>
+            <Text style={styles.label}>Chế độ hồ sơ</Text>
+            <View style={styles.privacyButtons}>
+              {PRIVACY_OPTIONS.map((opt) => (
+                <Pressable
+                  key={opt.value}
+                  style={[
+                    styles.privacyButton,
+                    formData.privacyProfile === opt.value && styles.privacyButtonActive,
+                  ]}
+                  onPress={() =>
+                    setFormData((prev) => ({ ...prev, privacyProfile: opt.value }))
+                  }
+                >
+                  <Text
+                    style={[
+                      styles.privacyButtonLabel,
+                      formData.privacyProfile === opt.value && styles.privacyButtonLabelActive,
+                    ]}
+                  >
+                    {opt.label}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.privacyButtonDesc,
+                      formData.privacyProfile === opt.value && styles.privacyButtonDescActive,
+                    ]}
+                  >
+                    {opt.desc}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+
           {/* Submit Button */}
           <Pressable
             style={[
@@ -643,6 +697,42 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
   },
   genderButtonTextActive: {
+    color: colors.primary,
+  },
+  privacyButtons: {
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  privacyButton: {
+    flex: 1,
+    borderWidth: 2,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.sm,
+    alignItems: "center",
+    backgroundColor: colors.white,
+    gap: 2,
+  },
+  privacyButtonActive: {
+    borderColor: colors.primary,
+    backgroundColor: `${colors.primary}15`,
+  },
+  privacyButtonLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.textMuted,
+    textAlign: "center",
+  },
+  privacyButtonLabelActive: {
+    color: colors.primary,
+  },
+  privacyButtonDesc: {
+    fontSize: 11,
+    color: colors.textMuted,
+    textAlign: "center",
+  },
+  privacyButtonDescActive: {
     color: colors.primary,
   },
   submitButton: {

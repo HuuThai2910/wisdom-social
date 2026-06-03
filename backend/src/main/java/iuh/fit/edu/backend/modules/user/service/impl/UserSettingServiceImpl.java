@@ -52,21 +52,23 @@ public class UserSettingServiceImpl implements UserSettingService {
         User userCurrent = userService.getCurrentUser();
         UserSetting userSetting = userSettingRepository.findById(user.getId()).orElse(null);
 
-        // Check privacy settings
-        boolean isPublic = userSetting == null || PrivacyType.PUBLIC.equals(userSetting.getPrivacyProfile());
-        boolean isFriendsOnly = userSetting != null && PrivacyType.FRIENDS.equals(userSetting.getPrivacyProfile());
-        boolean isPrivate = userSetting != null && PrivacyType.ONLY_ME.equals(userSetting.getPrivacyProfile());
+        // Owner always sees their own full profile
+        boolean isOwner = userCurrent != null && userCurrent.getId().equals(user.getId());
 
-        // Apply privacy rules
-        if (isPrivate) {
-            return buildHiddenProfile(user);
-        }
-        
-        if (isFriendsOnly && userCurrent != null) {
-            List<User> friends = friendService.getFriendsOfUser(id);
-            boolean isFriend = friends.stream().anyMatch(f -> f.getId().equals(userCurrent.getId()));
-            if (!isFriend) {
+        if (!isOwner) {
+            boolean isFriendsOnly = userSetting != null && PrivacyType.FRIENDS.equals(userSetting.getPrivacyProfile());
+            boolean isPrivate = userSetting != null && PrivacyType.ONLY_ME.equals(userSetting.getPrivacyProfile());
+
+            if (isPrivate) {
                 return buildHiddenProfile(user);
+            }
+
+            if (isFriendsOnly) {
+                boolean isFriend = userCurrent != null && friendService.getFriendsOfUser(id)
+                        .stream().anyMatch(f -> f.getId().equals(userCurrent.getId()));
+                if (!isFriend) {
+                    return buildHiddenProfile(user);
+                }
             }
         }
 
@@ -75,6 +77,10 @@ public class UserSettingServiceImpl implements UserSettingService {
         long followerCount = followRepository.countByFollowing(user);
         long followingCount = followRepository.countByFollower(user);
         long postCount = postRepository.countByAuthorId(user.getId());
+
+        PrivacyType privacy = userSetting != null && userSetting.getPrivacyProfile() != null
+                ? userSetting.getPrivacyProfile()
+                : PrivacyType.PUBLIC;
 
         // Build and return response with stats
         return UserProfileResponse.builder()
@@ -92,25 +98,29 @@ public class UserSettingServiceImpl implements UserSettingService {
                 .followersCount(followerCount)
                 .followingCount(followingCount)
                 .postsCount(postCount)
+                .privacyProfile(privacy)
                 .build();
     }
 
     private UserProfileResponse buildHiddenProfile(User user) {
+        long friendCount = friendRepository.findFriendsByUser(user).size();
         return UserProfileResponse.builder()
                 .id(user.getId())
                 .phone("*****")
                 .name("*****")
                 .username("*****")
-                .avatarUrl(null)
+                .avatarUrl(user.getAvatarUrl())
                 .birthday("*****")
                 .bio("*****")
                 .gender(Gender.OTHER)
                 .createdAt(user.getCreatedAt())
                 .updatedAt(user.getUpdatedAt())
-                .friendsCount(0L)
+                .friendsCount(friendCount)
                 .followersCount(0L)
                 .followingCount(0L)
                 .postsCount(0L)
+                .privacyProfile(PrivacyType.PUBLIC)
+                .isPrivate(true)
                 .build();
     }
 }

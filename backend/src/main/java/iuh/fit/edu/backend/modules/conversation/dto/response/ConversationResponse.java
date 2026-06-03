@@ -29,6 +29,8 @@ public class ConversationResponse {
     // Với hội thoại DIRECT: đối phương có đang bị khóa tài khoản không (User.locked).
     // Mặc định false -> backward-compatible với client cũ.
     private boolean directPartnerLocked;
+    private boolean directBlockedByMe;
+    private boolean directBlockedMe;
     private Instant updatedAt;
     private int unreadCount;
     private LastMessageResponse lastMessage;

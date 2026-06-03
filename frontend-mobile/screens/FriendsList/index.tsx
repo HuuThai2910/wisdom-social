@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
     FlatList,
     StyleSheet,
@@ -10,13 +10,14 @@ import {
     TextInput,
     Alert,
 } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { colors } from "@/constants";
 import { useAppContext } from "@/context/AppContext";
 import blockService from "@/services/blockService";
 import friendService, { FriendUser } from "@/services/friendService";
+import { useBlockNotifications } from "@/hooks/useBlockNotifications";
 import { useFriendNotifications } from "@/hooks/useFriendNotifications";
 import { usePresenceStatus } from "@/hooks/usePresenceStatus";
 
@@ -48,7 +49,7 @@ export default function FriendsListScreen() {
         [numericUserId, currentUser?.id],
     );
 
-    const loadData = async () => {
+    const loadData = useCallback(async () => {
         const actingUserId = numericUserId ?? 0;
 
         setLoading(true);
@@ -67,7 +68,7 @@ export default function FriendsListScreen() {
         } finally {
             setLoading(false);
         }
-    };
+    }, [numericUserId, tab]);
 
     const handleSendRequest = async (targetId: number) => {
         const myId = numericUserId ?? 0;
@@ -128,10 +129,17 @@ export default function FriendsListScreen() {
     const presenceByUserId = usePresenceStatus(filteredList.map((user) => user.id));
 
     const refreshTrigger = useFriendNotifications();
+    const blockTrigger = useBlockNotifications();
 
     useEffect(() => {
         void loadData();
-    }, [numericUserId, tab, refreshTrigger]);
+    }, [loadData, refreshTrigger, blockTrigger]);
+
+    useFocusEffect(
+        useCallback(() => {
+            void loadData();
+        }, [loadData]),
+    );
 
     const getHeaderTitle = () => {
         switch (tab) {
@@ -157,7 +165,7 @@ export default function FriendsListScreen() {
                 onPress={() =>
                     router.push({
                         pathname: "/(tabs)/user-profile",
-                        params: { userId: String(item.id) },
+                        params: { userId: String(item.id), username: item.username },
                     })
                 }
             >

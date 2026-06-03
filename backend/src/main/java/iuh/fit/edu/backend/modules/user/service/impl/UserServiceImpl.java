@@ -17,6 +17,12 @@ import iuh.fit.edu.backend.modules.user.repository.BlackListUserRepository;
 import iuh.fit.edu.backend.modules.user.repository.DeviceRepository;
 import iuh.fit.edu.backend.modules.user.repository.FriendRepository;
 import iuh.fit.edu.backend.modules.user.repository.UserRepository;
+import iuh.fit.edu.backend.modules.user.repository.UserSettingRepository;
+import iuh.fit.edu.backend.modules.conversation.entity.Conversation;
+import iuh.fit.edu.backend.modules.conversation.event.payload.DirectBlockStatusChangedEvent;
+import iuh.fit.edu.backend.modules.conversation.repository.ConversationRepository;
+import iuh.fit.edu.backend.modules.conversation.service.DirectConversationService;
+import iuh.fit.edu.backend.modules.user.entity.UserSetting;
 import iuh.fit.edu.backend.common.exception.AccountLockedException;
 import iuh.fit.edu.backend.common.exception.RateLimitExceededException;
 import iuh.fit.edu.backend.common.service.security.AccountLockService;
@@ -25,8 +31,10 @@ import iuh.fit.edu.backend.modules.user.service.BlockUserService;
 import iuh.fit.edu.backend.modules.user.service.UserService;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -65,6 +73,11 @@ public class UserServiceImpl implements UserService {
     RateLimitService rateLimitService;
     AccountLockService accountLockService;
     FriendRepository friendRepository;
+    UserSettingRepository userSettingRepository;
+    StringRedisTemplate redisTemplate;
+    ConversationRepository conversationRepository;
+    DirectConversationService directConversationService;
+    ApplicationEventPublisher eventPublisher;
 
 
     public UserServiceImpl(BlackListUserRepository blackListUserRepository,
@@ -73,10 +86,15 @@ public class UserServiceImpl implements UserService {
                            SimpMessagingTemplate simpMessagingTemplate,
                            DeviceRepository deviceRepository,
                            ActiveTokenRepository activeTokenRepository,
-                           RateLimitService rateLimitService,
-                           AccountLockService accountLockService,
-                           FriendRepository friendRepository
-                           ) {
+                            RateLimitService rateLimitService,
+                            AccountLockService accountLockService,
+                            FriendRepository friendRepository,
+                            UserSettingRepository userSettingRepository,
+                            StringRedisTemplate redisTemplate,
+                            ConversationRepository conversationRepository,
+                            DirectConversationService directConversationService,
+                            ApplicationEventPublisher eventPublisher
+                            ) {
         this.blackListUserRepository = blackListUserRepository;
         this.blockUserService = blockUserService;
         this.cognitoClient = cognitoClient;
@@ -88,6 +106,11 @@ public class UserServiceImpl implements UserService {
         this.rateLimitService = rateLimitService;
         this.accountLockService = accountLockService;
         this.friendRepository = friendRepository;
+        this.userSettingRepository = userSettingRepository;
+        this.redisTemplate = redisTemplate;
+        this.conversationRepository = conversationRepository;
+        this.directConversationService = directConversationService;
+        this.eventPublisher = eventPublisher;
     }
 
     /*Đăng kí tài khoản bằng aws cognito
@@ -453,6 +476,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Transactional
     public boolean updateUser(long id, UserRequestUpdate requestUpdate) {
         if(id>0){
            User user=userRepository.findById(id).orElse(null);
@@ -465,6 +489,16 @@ public class UserServiceImpl implements UserService {
                if (requestUpdate.getUsername() != null) user.setUsername(requestUpdate.getUsername());
                user.setUpdatedAt(OffsetDateTime.now());
                userRepository.save(user);
+
+               if (requestUpdate.getPrivacyProfile() != null) {
+                   UserSetting setting = userSettingRepository.findById(user.getId()).orElseGet(() -> {
+                       UserSetting s = new UserSetting();
+                       s.setUser(user);
+                       return s;
+                   });
+                   setting.setPrivacyProfile(requestUpdate.getPrivacyProfile());
+                   userSettingRepository.save(setting);
+               }
 
                Map<String, Object> profileUpdatePayload = new HashMap<>();
                profileUpdatePayload.put("id", user.getId());
@@ -555,10 +589,22 @@ public class UserServiceImpl implements UserService {
 
 
     @Override
+    @Transactional
     public boolean saveBlockUser(FriendRequest friendRequest) {
         if(friendRequest!=null){
             User blocker = findUserById(friendRequest.getSenderId());
             User blocked = findUserById(friendRequest.getReceivedId());
+            if (blocker == null || blocked == null || blocker.getId().equals(blocked.getId())) {
+                return false;
+            }
+
+            removeFriendshipAndPendingRequests(blocker, blocked);
+
+            BlockedUser existing = blockUserService.getBlockUserByBlockerAndBlocked(friendRequest);
+            if (existing != null) {
+                return true;
+            }
+
             BlockedUser blockedUser= BlockedUser.builder()
                     .blocker(blocker)
                     .blocked(blocked)
@@ -574,17 +620,22 @@ public class UserServiceImpl implements UserService {
                     .build();
             simpMessagingTemplate.convertAndSend("/topic/user/" + blockerPhone + "/save-block", blockPayload);
             simpMessagingTemplate.convertAndSend("/topic/user/" + blockedPhone + "/save-block", blockPayload);
+            publishDirectBlockStatusChanged(blocker.getId(), blocked.getId(), true);
             return true;
         }
         return false;
     }
 
     @Override
+    @Transactional
     public boolean cancelBlockUser(FriendRequest friendRequest) {
         if(friendRequest!=null){
             User blocker = findUserById(friendRequest.getSenderId());
             User blocked = findUserById(friendRequest.getReceivedId());
             BlockedUser blockedUser=blockUserService.getBlockUserByBlockerAndBlocked(friendRequest);
+            if (blocker == null || blocked == null || blockedUser == null) {
+                return false;
+            }
             blockUserService.cancelBlockUser(blockedUser);
             String blockerPhone = convertToInternationalFormat(blocker.getPhone());
             String blockedPhone = convertToInternationalFormat(blocked.getPhone());
@@ -596,14 +647,90 @@ public class UserServiceImpl implements UserService {
                     .build();
             simpMessagingTemplate.convertAndSend("/topic/user/" + blockerPhone + "/cancel-block", cancelPayload);
             simpMessagingTemplate.convertAndSend("/topic/user/" + blockedPhone + "/cancel-block", cancelPayload);
+            publishDirectBlockStatusChanged(blocker.getId(), blocked.getId(), false);
             return true;
         }
         return false;
     }
 
+    private void publishDirectBlockStatusChanged(Long blockerId, Long blockedId, boolean blocked) {
+        if (blockerId == null || blockedId == null) return;
+
+        String directKey = directConversationService.buildDirectKey(blockerId, blockedId);
+        Conversation conversation = conversationRepository.findByDirectKey(directKey)
+                .orElseGet(() -> conversationRepository.findDirectConversationsByMemberIds(blockerId, blockedId)
+                        .stream()
+                        .findFirst()
+                        .orElse(null));
+        if (conversation == null) return;
+
+        eventPublisher.publishEvent(new DirectBlockStatusChangedEvent(
+                conversation.getId(),
+                blockerId,
+                blockedId,
+                blocked,
+                Set.of(blockerId, blockedId)
+        ));
+    }
+
     @Override
     public List<User> searchUserByUsername(String keyword) {
-        return userRepository.findUsersByUsernameContaining(keyword);
+        User currentUser = getCurrentUser();
+        List<User> users = userRepository.findUsersByUsernameContaining(keyword);
+        if (currentUser == null) {
+            return users;
+        }
+
+        Set<Long> hiddenUserIds = new HashSet<>();
+        blockUserService.getBlockUser(currentUser).forEach(
+                blocked -> hiddenUserIds.add(blocked.getBlocked().getId())
+        );
+        blockUserService.getBlockedByUser(currentUser).forEach(
+                blocked -> hiddenUserIds.add(blocked.getBlocker().getId())
+        );
+
+        return users.stream()
+                .filter(user -> !hiddenUserIds.contains(user.getId()))
+                .collect(Collectors.toList());
+    }
+
+    private boolean removeFriendshipAndPendingRequests(User userA, User userB) {
+        boolean changed = false;
+        Friend friend = friendRepository.findFriendByUserAndFriend(userA, userB);
+        if (friend == null) {
+            friend = friendRepository.findFriendByUserAndFriend(userB, userA);
+        }
+        if (friend != null) {
+            friendRepository.deleteById(friend.getId());
+            changed = true;
+        }
+
+        Long userAId = userA.getId();
+        Long userBId = userB.getId();
+        changed = removeRedisFriendRequest(userAId, userBId) || changed;
+        changed = removeRedisFriendRequest(userBId, userAId) || changed;
+        return changed;
+    }
+
+    private boolean removeRedisFriendRequest(Long senderId, Long receiverId) {
+        Long removedSent = redisTemplate.opsForSet().remove(buildSentRequestKey(senderId), String.valueOf(receiverId));
+        Long removedReceived = redisTemplate.opsForSet().remove(buildReceivedRequestKey(receiverId), String.valueOf(senderId));
+        Boolean deletedRequest = redisTemplate.delete(buildRequestKey(senderId, receiverId));
+        return (removedSent != null && removedSent > 0)
+                || (removedReceived != null && removedReceived > 0)
+                || Boolean.TRUE.equals(deletedRequest);
+    }
+
+    private String buildSentRequestKey(long userId) {
+        return "friend:sent:" + userId;
+    }
+
+    private String buildReceivedRequestKey(long userId) {
+        return "friend:received:" + userId;
+    }
+
+    private String buildRequestKey(long senderId, long receiverId) {
+        return "friend:request:" + senderId + ":" + receiverId;
     }
 
 

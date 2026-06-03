@@ -4,6 +4,7 @@ import toast from "react-hot-toast";
 import blockService from "../../services/blockService";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import ConfirmModal from "../common/ConfirmModal";
+import { useFriendDataSafe } from "../../contexts/FriendDataContext";
 
 interface BlockUnblockButtonProps {
     userId: number;
@@ -12,6 +13,7 @@ interface BlockUnblockButtonProps {
     initialIsBlocked?: boolean;
     // If true, skip the initial API check (use when parent already loaded the status)
     skipInitialCheck?: boolean;
+    iconOnly?: boolean;
     // Callback when block status changes
     onBlockStatusChange?: (userId: number, isBlocked: boolean) => void;
 }
@@ -21,6 +23,7 @@ export default function BlockUnblockButton({
     username,
     initialIsBlocked,
     skipInitialCheck = false,
+    iconOnly = false,
     onBlockStatusChange,
 }: BlockUnblockButtonProps) {
     const currentUser = useCurrentUser();
@@ -28,6 +31,7 @@ export default function BlockUnblockButton({
     const [loading, setLoading] = useState(false);
     const [checking, setChecking] = useState(!skipInitialCheck);
     const [showConfirm, setShowConfirm] = useState(false);
+    const { triggerRefreshAll } = useFriendDataSafe();
 
     const checkBlockStatus = useCallback(async () => {
         // Skip if parent already provided the status
@@ -83,11 +87,13 @@ export default function BlockUnblockButton({
                 await blockService.unblockUser(currentUser.id, userId);
                 setIsBlocked(false);
                 onBlockStatusChange?.(userId, false);
+                triggerRefreshAll();
                 toast.success(`Đã bỏ chặn ${username}`);
             } else {
                 await blockService.blockUser(currentUser.id, userId);
                 setIsBlocked(true);
                 onBlockStatusChange?.(userId, true);
+                triggerRefreshAll();
                 toast.success(`Đã chặn ${username}`);
             }
         } catch (error: any) {
@@ -96,16 +102,18 @@ export default function BlockUnblockButton({
         } finally {
             setLoading(false);
         }
-    }, [currentUser, isBlocked, userId, username, onBlockStatusChange]);
+    }, [currentUser, isBlocked, userId, username, onBlockStatusChange, triggerRefreshAll]);
 
-    // Render a real <button> as placeholder so parent CSS that targets `button`
-    // (e.g. ProfileHeader's `[&>button]:!w-[34px]`) keeps the size consistent.
     if (!currentUser || checking) {
         return (
             <button
                 type="button"
                 disabled
-                className="px-4 py-[7px] rounded-lg bg-gray-200 dark:bg-[#363636] flex items-center justify-center"
+                className={
+                    iconOnly
+                        ? "inline-flex h-8.5 w-8.5 items-center justify-center rounded-lg bg-[#efefef] text-gray-500 dark:bg-[#262626] dark:text-gray-300"
+                        : "px-4 py-[7px] rounded-lg bg-gray-200 dark:bg-[#363636] flex items-center justify-center"
+                }
             >
                 <Loader2 className="animate-spin" size={16} />
             </button>
@@ -127,18 +135,27 @@ export default function BlockUnblockButton({
         <button
             onClick={handleBlockUnblock}
             disabled={loading}
-            className={`px-4 py-[7px] rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center justify-center gap-2 ${
-                isBlocked
-                    ? "bg-gray-500 hover:bg-gray-600 text-white"
-                    : "bg-red-500 hover:bg-red-600 text-white"
-            }`}
+            title={isBlocked ? "Bỏ chặn" : "Chặn"}
+            className={
+                iconOnly
+                    ? `inline-flex h-8.5 w-8.5 items-center justify-center rounded-lg border border-[#dbdbdb] transition-colors disabled:cursor-not-allowed disabled:opacity-50 dark:border-[#363636] ${
+                          isBlocked
+                              ? "bg-[#efefef] text-gray-700 hover:bg-[#dbdbdb] dark:bg-[#262626] dark:text-gray-200 dark:hover:bg-[#363636]"
+                              : "bg-[#efefef] text-red-600 hover:bg-red-50 dark:bg-[#262626] dark:text-red-400 dark:hover:bg-red-900/20"
+                      }`
+                    : `px-4 py-[7px] rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center justify-center gap-2 ${
+                          isBlocked
+                              ? "bg-gray-500 hover:bg-gray-600 text-white"
+                              : "bg-red-500 hover:bg-red-600 text-white"
+                      }`
+            }
         >
             {loading ? (
                 <Loader2 className="animate-spin" size={16} />
             ) : (
                 <Ban size={16} />
             )}
-            <span>{isBlocked ? "Unblock" : "Block"}</span>
+            {!iconOnly && <span>{isBlocked ? "Bỏ chặn" : "Chặn"}</span>}
         </button>
         </>
     );

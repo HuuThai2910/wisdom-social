@@ -91,7 +91,7 @@ export default function ZaloTopBar() {
     if (item.type === "user") {
       router.push({
         pathname: "/(tabs)/user-profile",
-        params: { userId: item.id },
+        params: { userId: item.id, username: item.username },
       });
     } else {
       router.push({

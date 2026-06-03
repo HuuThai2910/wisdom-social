@@ -50,6 +50,8 @@ export interface MessageComposerProps {
     uploadProgressPercent: number | null;
     uploadFailedFileNames: string[];
     readOnlyNotice?: string | null;
+    readOnlyActionLabel?: string | null;
+    onReadOnlyAction?: () => void;
     error: string | null;
     onPickEmoji: (emoji: string) => void;
 }
@@ -106,6 +108,8 @@ export const MessageComposer = React.memo(
         uploadProgressPercent,
         uploadFailedFileNames,
         readOnlyNotice,
+        readOnlyActionLabel,
+        onReadOnlyAction,
         error,
         onPickEmoji,
     }: MessageComposerProps) => {
@@ -156,6 +160,16 @@ export const MessageComposer = React.memo(
                             <Text style={styles.restrictedNoticeText}>
                                 {readOnlyNotice}
                             </Text>
+                            {readOnlyActionLabel && onReadOnlyAction ? (
+                                <Pressable
+                                    onPress={onReadOnlyAction}
+                                    style={styles.restrictedNoticeButton}
+                                >
+                                    <Text style={styles.restrictedNoticeButtonText}>
+                                        {readOnlyActionLabel}
+                                    </Text>
+                                </Pressable>
+                            ) : null}
                         </View>
                     ) : (
                         <View style={styles.composerBar}>
@@ -1409,10 +1423,22 @@ const styles = StyleSheet.create({
         paddingVertical: 10,
         paddingHorizontal: 16,
         gap: 8,
+        flexWrap: "wrap",
     },
     restrictedNoticeText: {
         fontSize: 14,
         color: colors.textMuted,
         fontWeight: "500",
+    },
+    restrictedNoticeButton: {
+        borderRadius: 999,
+        backgroundColor: colors.text,
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+    },
+    restrictedNoticeButtonText: {
+        color: "white",
+        fontSize: 12,
+        fontWeight: "700",
     },
 });

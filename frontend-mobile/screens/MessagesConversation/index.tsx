@@ -15,12 +15,14 @@ import { useFriendNotifications } from "@/hooks/useFriendNotifications";
 import { useGroupManagement } from "@/hooks/useGroupManagement";
 import { usePresenceStatus } from "@/hooks/usePresenceStatus";
 import chatService from "@/services/chatService";
+import blockService from "@/services/blockService";
 import friendService from "@/services/friendService";
 import type { FriendEvent } from "@/services/friendWebsocketService";
 import type {
     ChatUserSearchResult,
     ConversationMember,
     ConversationSidebar,
+    DirectBlockStatusChangedEvent,
     LocalUploadFile,
     Message,
 } from "@/types/chat";
@@ -44,6 +46,7 @@ import {
     ActivityIndicator,
     BackHandler,
     Dimensions,
+    DeviceEventEmitter,
     Easing,
     FlatList,
     type GestureResponderEvent,
@@ -540,6 +543,8 @@ export default function MessagesConversationScreen() {
         useState<ChatUserSearchResult | null>(null);
     const [friendRequestSending, setFriendRequestSending] = useState(false);
     const [friendRequestSent, setFriendRequestSent] = useState(false);
+    const [friendRequestReceived, setFriendRequestReceived] = useState(false);
+    const [forceStrangerAfterBlock, setForceStrangerAfterBlock] = useState(false);
     const routeRelationshipInfo = useMemo(() => {
         if (!peerFriendStatus) return null;
         return {
@@ -844,12 +849,23 @@ export default function MessagesConversationScreen() {
         currentUserId,
         otherUser?.userId,
     ]);
+    const isDirectConversation = conversation?.type === "DIRECT";
+    const isDirectBlockedByMe =
+        isDirectConversation && Boolean(conversation?.directBlockedByMe);
+    const isDirectBlockedMe =
+        isDirectConversation && Boolean(conversation?.directBlockedMe);
+    const isDirectChatBlocked = isDirectBlockedByMe || isDirectBlockedMe;
+    const resolvedPeerRelationshipText = isDirectChatBlocked || forceStrangerAfterBlock
+        ? "Nguoi la"
+        : peerRelationshipText;
     const presenceByUserId = usePresenceStatus([otherUserId]);
     const otherUserPresence = Number.isFinite(otherUserId)
         ? presenceByUserId[otherUserId]
         : undefined;
     const otherUserOnline = Boolean(
         conversation?.type === "DIRECT" &&
+            !isDirectChatBlocked &&
+            !forceStrangerAfterBlock &&
             Number.isFinite(otherUserId) &&
             otherUserPresence?.online,
     );
@@ -867,9 +883,13 @@ export default function MessagesConversationScreen() {
     );
     const headerStatusText =
         conversation?.type === "DIRECT"
-            ? otherUserOnline
+            ? isDirectChatBlocked
+                ? "Nguoi la"
+                : forceStrangerAfterBlock
+                ? "Nguoi la"
+                : otherUserOnline
                 ? "Đang hoạt động"
-                : otherUserLastActiveText || peerRelationshipText || "Không hoạt động"
+                : otherUserLastActiveText || resolvedPeerRelationshipText || "Không hoạt động"
             : null;
 
     useFriendNotifications(
@@ -886,8 +906,35 @@ export default function MessagesConversationScreen() {
 
                 if (!matchesCurrentConversation) return;
 
+                if (event.eventType === "friend-request") {
+                    if (
+                        senderId === Number(otherUser.userId) &&
+                        receiverId === currentUserId
+                    ) {
+                        setFriendRequestSent(false);
+                        setForceStrangerAfterBlock(false);
+                        setFriendRequestReceived(true);
+                        setLoadedRelationshipInfo((previous) =>
+                            previous
+                                ? { ...previous, friendStatus: "STRANGER" }
+                                : {
+                                      userId: Number(otherUser.userId),
+                                      name:
+                                          otherUser.nickname ||
+                                          otherUser.username ||
+                                          "",
+                                      friendStatus: "STRANGER",
+                                      mutualGroupsCount: 0,
+                                  },
+                        );
+                    }
+                    return;
+                }
+
                 if (event.eventType === "friend-accept") {
                     setFriendRequestSent(false);
+                    setFriendRequestReceived(false);
+                    setForceStrangerAfterBlock(false);
                     setLoadedRelationshipInfo((previous) =>
                         previous
                             ? { ...previous, friendStatus: "FRIEND" }
@@ -909,6 +956,7 @@ export default function MessagesConversationScreen() {
                     event.eventType === "friend-cancel"
                 ) {
                     setFriendRequestSent(false);
+                    setFriendRequestReceived(false);
                     setLoadedRelationshipInfo((previous) =>
                         previous
                             ? { ...previous, friendStatus: "STRANGER" }
@@ -922,7 +970,9 @@ export default function MessagesConversationScreen() {
 
     useEffect(() => {
         setFriendRequestSent(false);
+        setFriendRequestReceived(false);
         setFriendRequestSending(false);
+        setForceStrangerAfterBlock(false);
     }, [otherUser?.userId]);
 
     const handleSendFriendRequest = useCallback(async () => {
@@ -935,6 +985,37 @@ export default function MessagesConversationScreen() {
         }
 
         setFriendRequestSending(true);
+        if (friendRequestReceived) {
+            const ok = await friendService.acceptFriendRequest(
+                otherUser.userId,
+                currentUserId,
+            );
+            setFriendRequestSending(false);
+
+            if (ok) {
+                setForceStrangerAfterBlock(false);
+                setFriendRequestReceived(false);
+                setFriendRequestSent(false);
+                setLoadedRelationshipInfo((previous) =>
+                    previous
+                        ? { ...previous, friendStatus: "FRIEND" }
+                        : {
+                              userId: Number(otherUser.userId),
+                              name:
+                                  otherUser.nickname ||
+                                  otherUser.username ||
+                                  "",
+                              friendStatus: "FRIEND",
+                              mutualGroupsCount: 0,
+                          },
+                );
+                return;
+            }
+
+            Alert.alert("Thong bao", "Khong the chap nhan loi moi ket ban");
+            return;
+        }
+
         if (friendRequestSent) {
             setFriendRequestSent(false);
         }
@@ -951,6 +1032,7 @@ export default function MessagesConversationScreen() {
 
         if (ok) {
             if (!friendRequestSent) {
+                setForceStrangerAfterBlock(false);
                 setFriendRequestSent(true);
             }
             return;
@@ -969,8 +1051,11 @@ export default function MessagesConversationScreen() {
     }, [
         currentUserId,
         friendRequestSending,
+        friendRequestReceived,
         friendRequestSent,
+        otherUser?.nickname,
         otherUser?.userId,
+        otherUser?.username,
     ]);
 
     useEffect(() => {
@@ -1007,6 +1092,69 @@ export default function MessagesConversationScreen() {
             members: Object.values(membersById),
         });
     }, [conversation, currentUserId, membersById]);
+    const applyDirectStrangerState = useCallback(() => {
+        if (!directTargetUserId) return;
+        setForceStrangerAfterBlock(true);
+        setLoadedRelationshipInfo((previous) =>
+            previous
+                ? { ...previous, friendStatus: "STRANGER" }
+                : {
+                      userId: Number(directTargetUserId),
+                      name:
+                          otherUser?.nickname ||
+                          otherUser?.username ||
+                          "",
+                      friendStatus: "STRANGER",
+                      mutualGroupsCount: 0,
+                  },
+        );
+    }, [directTargetUserId, otherUser?.nickname, otherUser?.username]);
+
+    const handleUnblockDirectPartner = useCallback(async () => {
+        if (!currentUserId || !directTargetUserId) return;
+        try {
+            await blockService.unblockUser(currentUserId, directTargetUserId);
+            applyDirectStrangerState();
+        } catch {
+            Alert.alert("Thong bao", "Khong the bo chan");
+        }
+    }, [
+        applyDirectStrangerState,
+        currentUserId,
+        directTargetUserId,
+    ]);
+
+    useEffect(() => {
+        const subscription = DeviceEventEmitter.addListener(
+            "conversation-direct-block-status-changed",
+            (event: DirectBlockStatusChangedEvent) => {
+                if (!currentUserId || !directTargetUserId) return;
+                if (Number(event.conversationId) !== Number(conversationId)) {
+                    return;
+                }
+
+                const blockerId = Number(event.blockerId);
+                const blockedId = Number(event.blockedId);
+                const matchesCurrentDirect =
+                    (blockerId === Number(currentUserId) &&
+                        blockedId === Number(directTargetUserId)) ||
+                    (blockerId === Number(directTargetUserId) &&
+                        blockedId === Number(currentUserId));
+
+                if (matchesCurrentDirect) {
+                    applyDirectStrangerState();
+                }
+            },
+        );
+
+        return () => subscription.remove();
+    }, [
+        applyDirectStrangerState,
+        conversationId,
+        currentUserId,
+        directTargetUserId,
+    ]);
+
     const callMemberSource = useMemo(() => {
         const mergedMembers = new Map<number, ConversationMember>();
         for (const member of conversation?.members ?? []) {
@@ -1241,6 +1389,11 @@ export default function MessagesConversationScreen() {
                 return;
             }
 
+            if (!isGroupConversation && isDirectChatBlocked) {
+                Alert.alert("Khong the goi", "Ban khong the goi nguoi nay.");
+                return;
+            }
+
             if (!isGroupConversation && !directTargetUserId) {
                 Alert.alert(
                     "Khong the goi",
@@ -1254,6 +1407,7 @@ export default function MessagesConversationScreen() {
         [
             callableMembers.length,
             directTargetUserId,
+            isDirectChatBlocked,
             isStartingAnotherCall,
             isCallSupported,
             isGroupConversation,
@@ -2396,7 +2550,10 @@ export default function MessagesConversationScreen() {
 
     // Chỉ hiện màn hình lỗi (error view) khi bị mất quyền truy cập hoàn toàn.
     // Nếu chỉ bị chặn gửi tin nhắn (readOnlyNotice chứa "Chỉ trưởng/phó nhóm") thì vẫn cho xem hội thoại.
-    const isAccessBlocked = readOnlyNotice && (
+    const isDirectBlockReadOnly =
+        readOnlyNotice === "Bạn đã chặn người này." ||
+        readOnlyNotice === "Bạn không thể nhắn tin với người này.";
+    const isAccessBlocked = readOnlyNotice && !isDirectBlockReadOnly && (
         readOnlyNotice.includes("chặn") ||
         readOnlyNotice.includes("xóa") || 
         readOnlyNotice.includes("rời") || 
@@ -2630,8 +2787,10 @@ export default function MessagesConversationScreen() {
                     />
                 ) : null}
 
-                {effectiveRelationshipInfo &&
-                effectiveRelationshipInfo.friendStatus !== "FRIEND" ? (
+                {!isDirectChatBlocked &&
+                (forceStrangerAfterBlock ||
+                    (effectiveRelationshipInfo &&
+                        effectiveRelationshipInfo.friendStatus !== "FRIEND")) ? (
                     <View style={styles.friendRequestBanner}>
                         <View style={styles.friendRequestTextWrap}>
                             <Ionicons
@@ -2643,7 +2802,9 @@ export default function MessagesConversationScreen() {
                                 style={styles.friendRequestText}
                                 numberOfLines={1}
                             >
-                                Gui yeu cau ket ban toi nguoi nay
+                                {friendRequestReceived
+                                    ? "Nguoi nay da gui loi moi ket ban cho ban"
+                                    : "Gui yeu cau ket ban toi nguoi nay"}
                             </Text>
                         </View>
                         <Pressable
@@ -2656,7 +2817,11 @@ export default function MessagesConversationScreen() {
                             onPress={() => void handleSendFriendRequest()}
                         >
                             <Text style={styles.friendRequestButtonText}>
-                                {friendRequestSent
+                                {friendRequestReceived
+                                    ? friendRequestSending
+                                        ? "Dang chap nhan..."
+                                        : "Chap nhan yeu cau"
+                                    : friendRequestSent
                                     ? friendRequestSending
                                         ? "Dang huy..."
                                         : "Huy yeu cau"
@@ -2983,6 +3148,14 @@ export default function MessagesConversationScreen() {
                             conversationDisplayInfo?.locked
                                 ? LOCKED_ACCOUNT_NAME
                                 : readOnlyNotice
+                        }
+                        readOnlyActionLabel={
+                            isDirectBlockedByMe ? "Bỏ chặn" : null
+                        }
+                        onReadOnlyAction={
+                            isDirectBlockedByMe
+                                ? () => void handleUnblockDirectPartner()
+                                : undefined
                         }
                         error={error}
                         onPickEmoji={onPickEmoji}

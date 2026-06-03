@@ -38,6 +38,7 @@ import { useGroupManagement } from "../hooks/useGroupManagement";
 import { useMessagesController } from "../hooks/useMessagesController";
 import { useSidebarLayout } from "../hooks/useSidebarLayout";
 import { useAuth } from "../contexts/AuthContext";
+import { useFriendDataSafe } from "../contexts/FriendDataContext";
 import chatService, {
     type ChatUserSearchResult,
     type ConversationSidebar,
@@ -124,6 +125,7 @@ export default function Messages() {
     const INFO_PANEL_WIDTH = 352;
     const { sidebarWidth } = useSidebarLayout();
     const { currentUser } = useAuth();
+    const { friends: contextFriends } = useFriendDataSafe();
     const {
         searchQuery,
         setSearchQuery,
@@ -238,6 +240,98 @@ export default function Messages() {
         [currentUserId, filteredConversations],
     );
     const presenceByUserId = usePresenceStatus(directPartnerIds);
+    const [forcedStrangerUserIds, setForcedStrangerUserIds] = useState<Set<number>>(
+        () => new Set(),
+    );
+    const friendIdSet = useMemo(
+        () =>
+            new Set(
+                contextFriends
+                    .map((friend: any) => Number(friend.id))
+                    .filter((id) => Number.isFinite(id)),
+            ),
+        [contextFriends],
+    );
+    useEffect(() => {
+        const handleBlockStatusChanged = (event: Event) => {
+            const detail = (event as CustomEvent<{
+                blockerId?: number | null;
+                blockedId?: number | null;
+            }>).detail;
+            const blockerId = Number(detail?.blockerId);
+            const blockedId = Number(detail?.blockedId);
+            const myId = Number(currentUserId);
+            if (!Number.isFinite(myId)) return;
+
+            const otherId =
+                blockerId === myId
+                    ? blockedId
+                    : blockedId === myId
+                      ? blockerId
+                      : NaN;
+            if (!Number.isFinite(otherId)) return;
+
+            setForcedStrangerUserIds((prev) => {
+                if (prev.has(otherId)) return prev;
+                const next = new Set(prev);
+                next.add(otherId);
+                return next;
+            });
+        };
+
+        window.addEventListener(
+            "user-block-status-changed",
+            handleBlockStatusChanged,
+        );
+        return () => {
+            window.removeEventListener(
+                "user-block-status-changed",
+                handleBlockStatusChanged,
+            );
+        };
+    }, [currentUserId]);
+
+    useEffect(() => {
+        const handleFriendStatusChanged = (event: Event) => {
+            const detail = (event as CustomEvent<{
+                event?: string;
+                senderId?: number | null;
+                receiverId?: number | null;
+            }>).detail;
+            if (detail?.event !== "friend-accept") return;
+
+            const senderId = Number(detail.senderId);
+            const receiverId = Number(detail.receiverId);
+            const myId = Number(currentUserId);
+            if (!Number.isFinite(myId)) return;
+
+            const otherId =
+                senderId === myId
+                    ? receiverId
+                    : receiverId === myId
+                      ? senderId
+                      : NaN;
+            if (!Number.isFinite(otherId)) return;
+
+            setForcedStrangerUserIds((prev) => {
+                if (!prev.has(otherId)) return prev;
+                const next = new Set(prev);
+                next.delete(otherId);
+                return next;
+            });
+        };
+
+        window.addEventListener(
+            "friend-status-changed",
+            handleFriendStatusChanged,
+        );
+        return () => {
+            window.removeEventListener(
+                "friend-status-changed",
+                handleFriendStatusChanged,
+            );
+        };
+    }, [currentUserId]);
     const isGroupConversation = selectedConversation?.type === "GROUP";
     const phoneSearchDigits = useMemo(
         () => searchQuery.replace(/\D/g, ""),
@@ -1605,8 +1699,33 @@ export default function Messages() {
                                           )?.userId
                                         : undefined,
                                 );
+                                const directPartnerMember =
+                                    conv.type === "DIRECT"
+                                        ? conv.members?.find(
+                                            (member) =>
+                                              Number(member.userId) ===
+                                              Number(directPartnerId),
+                                          )
+                                        : undefined;
+                                const isDirectPartnerUnavailable =
+                                    conv.type === "DIRECT" &&
+                                    (Boolean(conv.directPartnerLocked) ||
+                                        Boolean(
+                                            directPartnerMember?.accountLocked,
+                                        ) ||
+                                        Boolean(conv.directBlockedByMe) ||
+                                        Boolean(conv.directBlockedMe));
+                                const isDirectPartnerFriend =
+                                    conv.type === "DIRECT" &&
+                                    Number.isFinite(directPartnerId) &&
+                                    friendIdSet.has(Number(directPartnerId)) &&
+                                    !forcedStrangerUserIds.has(
+                                        Number(directPartnerId),
+                                    );
                                 const isDirectPartnerOnline = Boolean(
                                     Number.isFinite(directPartnerId) &&
+                                        isDirectPartnerFriend &&
+                                        !isDirectPartnerUnavailable &&
                                         presenceByUserId[directPartnerId]?.online,
                                 );
 

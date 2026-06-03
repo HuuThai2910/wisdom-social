@@ -6,20 +6,23 @@ import blockService from "../../services/blockService";
 import BlockUnblockButton from "../friend/BlockUnblockButton";
 import { buildS3Url } from "../../utils/s3";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
+import useBlockNotifications from "../../hooks/useBlockNotifications";
 import { usePresenceStatus } from "../../hooks/usePresenceStatus";
 import type { User } from "../../types";
 
 interface FriendsModalProps {
     userId: number;
     onClose: () => void;
+    onCountChange?: (count: number) => void;
 }
 
-export default function FriendsModal({ userId, onClose }: FriendsModalProps) {
+export default function FriendsModal({ userId, onClose, onCountChange }: FriendsModalProps) {
     const currentUser = useCurrentUser();
     const [friends, setFriends] = useState<User[]>([]);
     const [blockedUserIds, setBlockedUserIds] = useState<Set<number>>(new Set());
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
+    const blockTrigger = useBlockNotifications();
     const presenceByUserId = usePresenceStatus(friends.map((friend) => friend.id));
 
     const loadData = useCallback(async () => {
@@ -34,6 +37,7 @@ export default function FriendsModal({ userId, onClose }: FriendsModalProps) {
                 blockService.getBlockedUsers(currentUser.id),
             ]);
             setFriends(friendsList);
+            onCountChange?.(friendsList.length);
             setBlockedUserIds(new Set(blockedUsers.map(u => u.id)));
         } catch (err: any) {
             console.error("Error loading data:", err);
@@ -41,11 +45,11 @@ export default function FriendsModal({ userId, onClose }: FriendsModalProps) {
         } finally {
             setLoading(false);
         }
-    }, [userId, currentUser?.id]);
+    }, [userId, currentUser?.id, onCountChange]);
 
     useEffect(() => {
         loadData();
-    }, [loadData]);
+    }, [loadData, blockTrigger]);
 
     // Handler to update blocked status locally
     const handleBlockStatusChange = useCallback((targetUserId: number, isBlocked: boolean) => {
@@ -58,7 +62,14 @@ export default function FriendsModal({ userId, onClose }: FriendsModalProps) {
             }
             return next;
         });
-    }, []);
+        if (isBlocked) {
+            setFriends((prev) => {
+                const next = prev.filter((friend) => friend.id !== targetUserId);
+                onCountChange?.(next.length);
+                return next;
+            });
+        }
+    }, [onCountChange]);
 
     return (
         <>

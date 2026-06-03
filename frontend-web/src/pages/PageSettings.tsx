@@ -481,7 +481,7 @@ export default function PageSettings() {
                                 </div>
 
                                 {/* Actions */}
-                                {member.role !== "OWNER" && isOwner && (
+                                {member.role !== "OWNER" && isOwner && Number(member.user?.id) !== Number(currentUser?.id) && (
                                     <div className="flex items-center gap-2">
                                         {actionLoading === member.user?.id ? (
                                             <Loader2 className="animate-spin text-gray-400" size={20} />

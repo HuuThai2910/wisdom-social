@@ -62,51 +62,62 @@ export default function ProfileLayout() {
 
         const users = await userService.searchUserByUsername(username);
         if (users && users.length > 0) {
-          let userData = users[0];
+          const rawUser = users[0];
+          const currentUser = await getCurrentUser();
+          const isOwn = currentUser && currentUser.username === rawUser.username;
 
-          // Load additional counts
+          // Fetch privacy-aware profile data
+          let profile: any = null;
           try {
-            const [friends] = await Promise.all([
-              friendService.getFriends(userData.id),
-            ]);
-            userData = {
-              ...userData,
-              friendsCount: friends?.length || 0,
-            };
+            profile = await userService.getProfileById(rawUser.id);
           } catch (err) {
-            console.error("Error loading counts:", err);
+            console.error("Error loading profile:", err);
           }
 
-          // Check if this is the current user's profile
-          const currentUser = await getCurrentUser();
-          if (currentUser && currentUser.username === userData.username) {
-            setIsOwnProfile(true);
-            setUser(userData as any);
-          } else if (currentUser) {
-            // Check if this user has blocked the current user
+          // If blocked, show error
+          if (!isOwn && profile) {
             try {
-              const blockedByThis = await blockService.getBlockedUsers(
-                userData.id
-              );
+              const blockedByThis = await blockService.getBlockedUsers(rawUser.id);
               const isBlockedByThisUser = blockedByThis.some(
-                (u: User) => u.id === currentUser.id
+                (u: User) => u.id === currentUser?.id
               );
-
               if (isBlockedByThisUser) {
                 setIsBlocked(true);
-                setError(
-                  `Bạn không thể xem hồ sơ này vì người dùng đã chặn bạn.`
-                );
-              } else {
-                setUser(userData as any);
-                setIsOwnProfile(false);
+                setError("Bạn không thể xem hồ sơ này vì người dùng đã chặn bạn.");
+                return;
               }
-            } catch (err) {
-              setUser(userData as any);
-              setIsOwnProfile(false);
-            }
+            } catch (_) {}
+          }
+
+          const isProfilePrivate = profile?.isPrivate === true;
+
+          // Merge privacy-aware data with raw user.
+          // For private profiles, sensitive fields are hidden entirely — keep username for URL routing.
+          const merged = profile
+            ? {
+                ...rawUser,
+                name: isProfilePrivate ? "" : profile.name,
+                fullName: isProfilePrivate ? "" : profile.name,
+                username: rawUser.username,
+                avatarUrl: profile.avatarUrl || rawUser.avatarUrl,
+                bio: isProfilePrivate ? "" : (profile.bio !== "*****" ? profile.bio : ""),
+                birthday: isProfilePrivate ? "" : (profile.birthday !== "*****" ? profile.birthday : ""),
+                gender: isProfilePrivate ? undefined : profile.gender,
+                phone: isProfilePrivate ? "" : (profile.phone !== "*****" ? profile.phone : ""),
+                friendsCount: profile.friendsCount ?? 0,
+                followersCount: profile.followersCount ?? 0,
+                followingCount: profile.followingCount ?? 0,
+                postsCount: profile.postsCount ?? 0,
+                isPrivate: isProfilePrivate,
+                privacyProfile: profile.privacyProfile,
+              }
+            : rawUser;
+
+          if (isOwn) {
+            setIsOwnProfile(true);
+            setUser(merged as any);
           } else {
-            setUser(userData as any);
+            setUser(merged as any);
             setIsOwnProfile(false);
           }
         }
@@ -203,7 +214,7 @@ export default function ProfileLayout() {
 
     return () => {
       friendTopics.forEach((topic) =>
-        websocketService.unsubscribeFromTopic(topic)
+        websocketService.unsubscribeFromTopic(topic, handleFriendCountChange)
       );
     };
   }, [user?.id, user?.phone, isOwnProfile]);
@@ -259,6 +270,7 @@ export default function ProfileLayout() {
       </div>
     );
   }
+
 
   if (!user) {
     return (
