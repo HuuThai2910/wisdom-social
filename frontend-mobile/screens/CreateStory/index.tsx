@@ -2,12 +2,13 @@ import StoryMusicPickerModal from "@/components/story/StoryMusicPickerModal";
 import { useAppContext } from "@/context/AppContext";
 import type { MusicMetadata } from "@/services/musicService";
 import { createStory, uploadStoryMediaAndGetFormat } from "@/services/storyService";
+import { playAudioPreview, stopAudioPreview } from "@/services/musicService";
 import { PrivacyType, TextLayer, TextLayerStyle, MusicSticker, MusicStickerStyle } from "@/types";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { useMemo, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import {
     Alert,
     Image,
@@ -80,7 +81,7 @@ export default function CreateStoryScreen() {
     const [textEditModalVisible, setTextEditModalVisible] = useState(false);
     const [editingTextId, setEditingTextId] = useState<string | null>(null);
     const [editingTextValue, setEditingTextValue] = useState("");
-    const lastTapRef = useRef<{ id: string; time: number } | null>(null);
+    const lastTapRef = useRef<{ id: string; time: number; baseSize?: number } | null>(null);
 
     // Ref to manage drag interaction coordinates
     const dragStartRef = useRef<{
@@ -91,6 +92,22 @@ export default function CreateStoryScreen() {
         type: "text" | "music" | "background";
         id?: string;
     } | null>(null);
+
+    // Play music when sticker added, stop when component unmounts or sticker removed
+    useEffect(() => {
+        if (musicSticker?.meta?.audio_url) {
+            let audioPath = musicSticker.meta.audio_url;
+            if (!audioPath.startsWith("http")) {
+                audioPath = buildS3Url(musicSticker.meta.audio_url) || "";
+            }
+            if (audioPath) {
+                playAudioPreview(audioPath).catch(() => {});
+            }
+        }
+        return () => {
+            stopAudioPreview().catch(() => {});
+        };
+    }, [musicSticker?.meta?.audio_url]);
 
     const isVideo = media?.type === "video";
     const canSubmit = useMemo(
@@ -323,16 +340,11 @@ export default function CreateStoryScreen() {
                 </TouchableOpacity>
             </View>
 
-            <ScrollView 
+            <ScrollView
                 scrollEnabled={scrollEnabled}
-                contentContainerStyle={styles.content} 
+                contentContainerStyle={styles.content}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
-                onTouchStart={() => {
-                    // Deselect when clicking outside the canvas items
-                    setSelectedTextId(null);
-                    setMusicStickerSelected(false);
-                }}
             >
                 {/* Drag-and-drop interactive preview frame */}
                 <View 
@@ -412,6 +424,7 @@ export default function CreateStoryScreen() {
                     {/* Draggable Text Layers */}
                     {textLayers.map((layer) => {
                         const isSelected = selectedTextId === layer.id;
+
                         return (
                             <View
                                 key={layer.id}
@@ -772,12 +785,16 @@ export default function CreateStoryScreen() {
                             title: music.title,
                             artist: music.artist,
                             cover_url: music.imageUrl || "",
+                            audio_url: music.audioUrl || "",
                         },
                         z_index: 10,
                     };
                     setMusicSticker(newSticker);
                     setMusicStickerSelected(true);
                     setSelectedTextId(null);
+                    // Stop any preview audio from modal when selecting
+                    stopAudioPreview();
+                    // Note: Music will play when story is viewed in StoryViewer, not here
                 }}
             />
 
@@ -888,7 +905,7 @@ const styles = StyleSheet.create({
         position: "absolute",
         transform: [{ translateX: -90 }, { translateY: -20 }],
         width: 180,
-        alignItems: "center",
+        alignItems: "stretch",
         justifyContent: "center",
         padding: 4,
         borderRadius: 6,
@@ -896,6 +913,7 @@ const styles = StyleSheet.create({
     textLayerText: {
         color: "#FFF",
         fontWeight: "bold",
+        textAlignVertical: "center",
     },
     textShadow: {
         textShadowColor: "rgba(0,0,0,0.85)",

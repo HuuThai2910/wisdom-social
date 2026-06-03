@@ -129,10 +129,9 @@ export default function StoryMusicPickerModal({ visible, onClose, onSelect }: Pr
     };
 
     const handleSelect = async (track: MusicMetadata) => {
-        await stopAudioPreview();
+        // Keep audio playing when adding to story
         setPlayingId(null);
         onSelect(track);
-        onClose();
     };
 
     const handleClose = useCallback<ModalRequestClose>(() => {

@@ -89,6 +89,7 @@ export default function FeedScreen() {
       <FlatList
         data={sortedPosts}
         keyExtractor={(item) => item.id}
+        extraData={{ likedPostIds, savedPostIds }}
         ListHeaderComponent={
           <StoriesBar
             currentUser={currentUser}
@@ -138,6 +139,7 @@ export default function FeedScreen() {
         }
         renderItem={({ item }) => (
           <PostCard
+            key={`${item.id}-${likedPostIds.includes(item.id)}-${savedPostIds.includes(item.id)}`}
             post={item}
             author={item.user || getUserById(item.userId)}
             currentUserId={currentUser?.id}

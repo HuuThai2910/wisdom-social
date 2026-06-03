@@ -3,6 +3,7 @@ import {
   createPost,
   fetchHomeFeedPosts,
   fetchPostAuthorById,
+  fetchPostById,
   fetchUserById,
   normalizePost,
   togglePostReaction,
@@ -25,7 +26,6 @@ import {
 import {
   mockConversations,
   mockIgtvVideos,
-  mockLikedPostIds,
   mockMessages,
   mockPosts,
   mockSavedPostIds,
@@ -250,7 +250,7 @@ export function AppProvider({ children }: PropsWithChildren) {
   const [posts, setPosts] = useState<Post[]>(mockPosts);
   const [stories] = useState<Story[]>(mockStories);
   const [savedPostIds, setSavedPostIds] = useState<string[]>(mockSavedPostIds);
-  const [likedPostIds, setLikedPostIds] = useState<string[]>(mockLikedPostIds);
+  const [likedPostIds, setLikedPostIds] = useState<string[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [conversations, setConversations] =
     useState<Conversation[]>(mockConversations);
@@ -768,9 +768,12 @@ export function AppProvider({ children }: PropsWithChildren) {
     reactionType: string = "LIKE",
     isToggleOff?: boolean
   ) => {
+    console.log("[AppContext likePost] Called:", { postId, reactionType, isToggleOff, currentUserId: currentUser?.id });
     if (!currentUser) return;
     const wasLiked = likedPostIds.includes(postId);
     const actualToggleOff = isToggleOff !== undefined ? isToggleOff : wasLiked;
+
+    console.log("[AppContext likePost] Toggle logic:", { wasLiked, actualToggleOff });
 
     setLikedPostIds((prev) =>
       actualToggleOff
@@ -797,7 +800,17 @@ export function AppProvider({ children }: PropsWithChildren) {
 
     try {
       await togglePostReaction(currentUser.id, postId, reactionType);
+      // Fetch fresh post data to sync accurate likes/reactions from DB
+      const freshPost = await fetchPostById(postId);
+      const author = freshPost.authorSummary || await fetchPostAuthorById(freshPost.authorId);
+      const normalizedPost = normalizePost(freshPost, author);
+      setPosts((prev) =>
+        prev.map((post) =>
+          post.id === postId ? normalizedPost : post
+        )
+      );
     } catch {
+      // Revert both likedPostIds AND post.isLiked on error
       setLikedPostIds((prev) =>
         !actualToggleOff
           ? prev.filter((id) => id !== postId)

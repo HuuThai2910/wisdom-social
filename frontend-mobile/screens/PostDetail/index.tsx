@@ -25,9 +25,16 @@ export default function PostDetailScreen() {
     const [remotePost, setRemotePost] = useState<Post | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    // Force re-render when likedPostIds changes
+    const [, setTick] = useState(0);
 
     const localPost = posts.find((item) => item.id === postId);
     const post = localPost || remotePost;
+
+    // Re-render when likedPostIds or savedPostIds change so PostCard gets updated liked/saved props
+    useEffect(() => {
+        setTick(t => t + 1);
+    }, [(likedPostIds || []).join(','), (savedPostIds || []).join(',')]);
 
     useEffect(() => {
         let mounted = true;
@@ -55,6 +62,7 @@ export default function PostDetailScreen() {
 
     const postHeader = post ? (
         <PostCard
+            key={`${post.id}-${likedPostIds.includes(post.id)}-${savedPostIds.includes(post.id)}`}
             post={post}
             author={post.user || getUserById(post.userId)}
             currentUserId={currentUser?.id}
