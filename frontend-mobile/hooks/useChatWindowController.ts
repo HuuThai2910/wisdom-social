@@ -14,6 +14,9 @@ import {
     type OutboxMessage,
 } from "@/services/messageOutbox";
 import chatWebsocketService from "@/services/chatWebsocketService";
+import blockService from "@/services/blockService";
+import blockWebsocketService from "@/services/blockWebsocketService";
+import { DeviceEventEmitter } from "react-native";
 import type {
     BulkPresignedRequest,
     Conversation,
@@ -740,6 +743,8 @@ export function useChatWindowController(args: {
         string[]
     >([]);
     const [readOnlyNotice, setReadOnlyNotice] = useState<string | null>(null);
+    const [hasBlockedPartner, setHasBlockedPartner] = useState(false);
+    const [directPartnerIdForBlock, setDirectPartnerIdForBlock] = useState<number | null>(null);
     const [error, setError] = useState<string | null>(null);
     const currentUserMember = membersById[currentUserId];
     const isRestrictedMember =
@@ -1088,6 +1093,39 @@ if (token !== loadTokenRef.current) return;
                 setHasMoreNewer(Boolean(cursorData?.hasMoreNewer));
                 setIsHistoricalMode(false);
                 setOlderCursor(cursorData?.nextCursor ?? null);
+
+                // Kiểm tra trạng thái chặn cho hội thoại trực tiếp (cả 2 chiều)
+                const partnerId = convResponse.data.directPartnerId;
+                if (convResponse.data.type === "DIRECT" && partnerId != null) {
+                    setDirectPartnerIdForBlock(Number(partnerId));
+                    try {
+                        const [myBlockedList, partnerBlockedList] = await Promise.all([
+                            blockService.getBlockedUsers(currentUserId),
+                            blockService.getBlockedUsers(Number(partnerId)),
+                        ]);
+                        if (token !== loadTokenRef.current) return;
+                        const iHaveBlockedPartner = myBlockedList.some(
+                            (u) => Number(u.id) === Number(partnerId),
+                        );
+                        const partnerHasBlockedMe = partnerBlockedList.some(
+                            (u) => Number(u.id) === Number(currentUserId),
+                        );
+                        if (iHaveBlockedPartner) {
+                            setHasBlockedPartner(true);
+                            setReadOnlyNotice("Bạn đã chặn người này. Bỏ chặn để nhắn tin.");
+                        } else if (partnerHasBlockedMe) {
+                            setHasBlockedPartner(false);
+                            setReadOnlyNotice("Bạn không thể nhắn tin với người này.");
+                        } else {
+                            setHasBlockedPartner(false);
+                        }
+                    } catch {
+                        // Block check không quan trọng, bỏ qua lỗi
+                    }
+                } else {
+                    setDirectPartnerIdForBlock(null);
+                    setHasBlockedPartner(false);
+                }
 
                 const lastMessage = normalizedMessages.at(-1);
                 if (lastMessage && isScreenFocusedRef.current) {
@@ -3017,6 +3055,85 @@ if (token !== loadTokenRef.current) return;
         });
     }, [loadInitialData]);
 
+    // Realtime: theo dõi block/unblock với đối phương trong hội thoại trực tiếp
+    useEffect(() => {
+        if (conversation?.type !== "DIRECT" || !directPartnerIdForBlock) return;
+        const phone = currentUser?.phone;
+        if (!phone) return;
+
+        // Backend gửi event tới CẢ 2 phone: blocker và blocked
+        const handleBlockEvent = (event: { eventType: string; blockedId?: number; blockerId?: number }) => {
+            if (event.eventType === "save-block") {
+                if (Number(event.blockedId) === directPartnerIdForBlock) {
+                    // Current user vừa chặn đối phương
+                    setHasBlockedPartner(true);
+                    setReadOnlyNotice("Bạn đã chặn người này. Bỏ chặn để nhắn tin.");
+                } else if (
+                    Number(event.blockerId) === directPartnerIdForBlock &&
+                    Number(event.blockedId) === currentUserId
+                ) {
+                    // Đối phương vừa chặn current user
+                    setHasBlockedPartner(false);
+                    setReadOnlyNotice("Bạn không thể nhắn tin với người này.");
+                }
+            } else if (event.eventType === "cancel-block") {
+                if (Number(event.blockedId) === directPartnerIdForBlock) {
+                    // Current user vừa bỏ chặn đối phương
+                    setHasBlockedPartner(false);
+                    setReadOnlyNotice(null);
+                } else if (
+                    Number(event.blockerId) === directPartnerIdForBlock &&
+                    Number(event.blockedId) === currentUserId
+                ) {
+                    // Đối phương vừa bỏ chặn current user
+                    setReadOnlyNotice((prev) =>
+                        prev === "Bạn không thể nhắn tin với người này." ? null : prev,
+                    );
+                }
+            }
+        };
+
+        blockWebsocketService.subscribeToUserBlockEvents(phone, handleBlockEvent);
+        return () => {
+            blockWebsocketService.unsubscribeFromUserBlockEvents(phone, handleBlockEvent);
+        };
+    }, [conversation?.type, directPartnerIdForBlock, currentUser?.phone]);
+
+    // Realtime: admin chặn/bỏ chặn thành viên trong nhóm
+    useEffect(() => {
+        if (!conversationId) return;
+
+        const subscription = DeviceEventEmitter.addListener(
+            "conversation-blocked-members-updated",
+            (event: { conversationId: number; targetUserId: number; blocked: boolean }) => {
+                if (
+                    Number(event.conversationId) === conversationId &&
+                    Number(event.targetUserId) === Number(currentUserId)
+                ) {
+                    if (event.blocked) {
+                        setReadOnlyNotice("Bạn đã bị chặn trong nhóm này. Bạn không thể gửi tin nhắn.");
+                    } else {
+                        setReadOnlyNotice((prev) =>
+                            prev === "Bạn đã bị chặn trong nhóm này. Bạn không thể gửi tin nhắn."
+                                ? null
+                                : prev,
+                        );
+                    }
+                }
+            },
+        );
+        return () => subscription.remove();
+    }, [conversationId, currentUserId]);
+
+    const handleUnblockPartner = useCallback(async () => {
+        if (!directPartnerIdForBlock) return;
+        const success = await blockService.unblockUser(currentUserId, directPartnerIdForBlock);
+        if (success) {
+            setHasBlockedPartner(false);
+            setReadOnlyNotice(null);
+        }
+    }, [currentUserId, directPartnerIdForBlock]);
+
     return {
         currentUserId,
         messageText,
@@ -3040,6 +3157,8 @@ if (token !== loadTokenRef.current) return;
         uploadFileProgressMap,
         uploadFailedFileNames,
         readOnlyNotice,
+        hasBlockedPartner,
+        handleUnblockPartner,
         error,
         jumpToast,
         handleSend,

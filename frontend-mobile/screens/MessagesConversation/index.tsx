@@ -582,6 +582,8 @@ export default function MessagesConversationScreen() {
         uploadProgressLabel,
         uploadFailedFileNames,
         readOnlyNotice,
+        hasBlockedPartner,
+        handleUnblockPartner,
         error,
         jumpToast,
         handleSend,
@@ -2984,6 +2986,8 @@ export default function MessagesConversationScreen() {
                                 ? LOCKED_ACCOUNT_NAME
                                 : readOnlyNotice
                         }
+                        hasBlockedPartner={!conversationDisplayInfo?.locked && hasBlockedPartner}
+                        onUnblockPartner={() => { void handleUnblockPartner(); }}
                         error={error}
                         onPickEmoji={onPickEmoji}
                     />

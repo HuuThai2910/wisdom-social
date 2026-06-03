@@ -758,6 +758,8 @@ function ChatWindowContent({
     sendTypingSignal,
     userId,
     readOnlyNotice,
+    hasBlockedPartner,
+    handleUnblockPartner,
   } = useChatWindowController({ conversationId, onMarkAsRead, forcedReadOnlyNotice, onForbidden });
 
   const headerDisplayName = displayName || name || "Conversation";
@@ -2785,13 +2787,30 @@ function ChatWindowContent({
               <span className="text-sm font-semibold text-gray-600 dark:text-gray-300">
                 Tài khoản đã bị khóa
               </span>
+            ) : hasBlockedPartner ? (
+              <>
+                <span className="text-sm text-gray-500 dark:text-gray-400">
+                  Bạn đã chặn người này.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void handleUnblockPartner()}
+                  className="text-sm font-semibold text-blue-500 hover:text-blue-600 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
+                >
+                  Bỏ chặn
+                </button>
+              </>
             ) : (
               <span className="text-sm text-gray-500 dark:text-gray-400">
-                Chỉ{" "}
-                <span className="font-semibold text-gray-700 dark:text-gray-200">
-                  trưởng/phó nhóm
-                </span>{" "}
-                mới được gửi tin nhắn
+                {readOnlyNotice || (
+                  <>
+                    Chỉ{" "}
+                    <span className="font-semibold text-gray-700 dark:text-gray-200">
+                      trưởng/phó nhóm
+                    </span>{" "}
+                    mới được gửi tin nhắn
+                  </>
+                )}
               </span>
             )}
           </div>

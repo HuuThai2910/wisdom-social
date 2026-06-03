@@ -50,6 +50,8 @@ export interface MessageComposerProps {
     uploadProgressPercent: number | null;
     uploadFailedFileNames: string[];
     readOnlyNotice?: string | null;
+    hasBlockedPartner?: boolean;
+    onUnblockPartner?: () => void;
     error: string | null;
     onPickEmoji: (emoji: string) => void;
 }
@@ -106,6 +108,8 @@ export const MessageComposer = React.memo(
         uploadProgressPercent,
         uploadFailedFileNames,
         readOnlyNotice,
+        hasBlockedPartner,
+        onUnblockPartner,
         error,
         onPickEmoji,
     }: MessageComposerProps) => {
@@ -153,9 +157,20 @@ export const MessageComposer = React.memo(
                                 size={16}
                                 color={colors.textMuted}
                             />
-                            <Text style={styles.restrictedNoticeText}>
-                                {readOnlyNotice}
-                            </Text>
+                            {hasBlockedPartner ? (
+                                <View style={styles.restrictedNoticeRow}>
+                                    <Text style={styles.restrictedNoticeText}>
+                                        Bạn đã chặn người này.
+                                    </Text>
+                                    <Pressable onPress={onUnblockPartner} hitSlop={8}>
+                                        <Text style={styles.unblockText}>Bỏ chặn</Text>
+                                    </Pressable>
+                                </View>
+                            ) : (
+                                <Text style={styles.restrictedNoticeText}>
+                                    {readOnlyNotice}
+                                </Text>
+                            )}
                         </View>
                     ) : (
                         <View style={styles.composerBar}>
@@ -1414,5 +1429,15 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: colors.textMuted,
         fontWeight: "500",
+    },
+    restrictedNoticeRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+    },
+    unblockText: {
+        fontSize: 14,
+        color: "#3B82F6",
+        fontWeight: "600",
     },
 });
