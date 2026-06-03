@@ -30,16 +30,15 @@ import {
   playAudioPreview,
   stopAudioPreview,
   subscribeToPlayback,
-  resolveMusicMediaUrl,
   type MusicMetadata,
 } from "../services/musicService";
 
 type PrivacyType =
   | "PUBLIC"
   | "FRIENDS"
-  | "PRIVATE"
+  | "ONLY_ME"
   | "SPECIFIC"
-  | "FRIENDS_EXCEPT";
+  | "EXCEPT";
 
 export default function CreatePost() {
   const navigate = useNavigate();
@@ -280,7 +279,6 @@ export default function CreatePost() {
 
   const handleEmojiClick = (emoji: string) => {
     setCaption((prev) => prev + emoji);
-    setShowEmojiPicker(false);
   };
 
   const handlePost = async () => {
@@ -305,7 +303,7 @@ export default function CreatePost() {
         specificViewerUsernames:
           effectivePrivacy === "SPECIFIC" ? specificViewers : [],
         excludedUsernames:
-          effectivePrivacy === "FRIENDS_EXCEPT" ? excludedUsers : [],
+          effectivePrivacy === "EXCEPT" ? excludedUsers : [],
         allowComments: allowComments,
         allowShares: allowShares,
         music: selectedMusic
@@ -598,14 +596,8 @@ export default function CreatePost() {
                       }}
                       onSelectMusic={(music) => {
                         setSelectedMusic(music);
-                        const audioUrl = resolveMusicMediaUrl(music.audioUrl);
-                        if (audioUrl) {
-                          stopAudioPreview();
-                          playAudioPreview(audioUrl, {
-                            onEnded: () => setPlayingUrl(null),
-                          });
-                          setPlayingUrl(audioUrl);
-                        }
+                        stopAudioPreview();
+                        setPlayingUrl(null);
                       }}
                     />
                   </div>
@@ -801,6 +793,29 @@ export default function CreatePost() {
                         {caption.length}/2200
                       </span>
                     </div>
+                  </div>
+
+                  {/* Music */}
+                  <div className="mb-4 rounded-xl border border-gray-200 dark:border-[#363636] bg-gray-50/70 dark:bg-[#1a1a1a] p-3">
+                    <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
+                      <Music size={16} className="text-[#3b5998]" />
+                      <span>Âm thanh</span>
+                    </div>
+                    <NoteMusicPicker
+                      selectedMusic={selectedMusic}
+                      playingUrl={playingUrl}
+                      onTogglePreview={togglePreview}
+                      onClearSelection={() => {
+                        setSelectedMusic(null);
+                        stopAudioPreview();
+                        setPlayingUrl(null);
+                      }}
+                      onSelectMusic={(music) => {
+                        setSelectedMusic(music);
+                        stopAudioPreview();
+                        setPlayingUrl(null);
+                      }}
+                    />
                   </div>
 
                   {/* Options List */}
@@ -1005,7 +1020,7 @@ export default function CreatePost() {
                         <div className="space-y-2 pt-1 pl-4 border-l-2 border-gray-100 dark:border-[#363636] ml-2">
                           <button
                             onClick={() => {
-                              setPrivacy("PRIVATE");
+                              setPrivacy("ONLY_ME");
                               setShowPrivacyMenu(false);
                             }}
                             className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 py-1.5 hover:text-[#3b5998]"
@@ -1023,7 +1038,7 @@ export default function CreatePost() {
                           </button>
                           <button
                             onClick={() => {
-                              setPrivacy("FRIENDS_EXCEPT");
+                              setPrivacy("EXCEPT");
                               setShowExcludedModal(true);
                             }}
                             className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 py-1.5 hover:text-[#3b5998]"

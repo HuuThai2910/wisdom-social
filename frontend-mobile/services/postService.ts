@@ -57,6 +57,7 @@ export type ApiPostData = {
     taggedUserIds?: string[];
     music?: Post["music"];
     location?: Post["location"];
+    authorSummary?: User;
 };
 
 export type CommentData = {
@@ -267,6 +268,19 @@ export const fetchUserById = async (userId: string | number): Promise<User> => {
     return normalizeUser(userData);
 };
 
+export const fetchPostAuthorById = async (userId: string | number): Promise<User> => {
+    try {
+        const response = await apiClient.get(`/posts/authors/${userId}/summary`);
+        const userData = response.data?.data ?? response.data;
+        return normalizeUser(userData);
+    } catch (error: any) {
+        if (error?.response?.status !== 403) {
+            throw error;
+        }
+        return fetchUserById(userId);
+    }
+};
+
 export const fetchCurrentViewerId = async (): Promise<string> => {
     const response = await apiClient.get("/auth/me");
     const meData = response.data?.data ?? response.data;
@@ -282,7 +296,7 @@ export const fetchPostById = async (postId: string): Promise<ApiPostData> => {
 
 export const fetchPostWithAuthor = async (postId: string): Promise<Post> => {
     const post = await fetchPostById(postId);
-    const author = await fetchUserById(post.authorId);
+    const author = post.authorSummary || await fetchPostAuthorById(post.authorId);
     return normalizePost(post, author);
 };
 
@@ -301,12 +315,14 @@ export const fetchHomeFeedPosts = async (
 
     const allPosts = extractPostsArray(feedResponse.data);
     const meta = extractFeedSliceMeta(feedResponse.data);
-    const authorIds = Array.from(new Set(allPosts.map((post) => post.authorId).filter(Boolean)));
+    const authorIds = Array.from(
+        new Set(allPosts.filter((post) => !post.authorSummary).map((post) => post.authorId).filter(Boolean))
+    );
 
     const authorEntries = await Promise.all(
         authorIds.map(async (authorId) => {
             try {
-                const user = await fetchUserById(authorId);
+                const user = await fetchPostAuthorById(authorId);
                 return [String(authorId), user] as const;
             } catch {
                 return [String(authorId), null] as const;
@@ -317,7 +333,7 @@ export const fetchHomeFeedPosts = async (
     const authorMap = new Map<string, User | null>(authorEntries);
     const posts = allPosts
         .map((post) => {
-            const userData = authorMap.get(String(post.authorId));
+            const userData = post.authorSummary || authorMap.get(String(post.authorId));
             if (!userData) return null;
             return normalizePost(post, userData);
         })
@@ -487,7 +503,7 @@ const transformProfilePost = async (post: any, fallbackUserId?: string | number)
     const authorId = post.authorId || String(fallbackUserId || "");
     let authorData: User | undefined;
     try {
-        authorData = await fetchUserById(authorId);
+        authorData = post.authorSummary || await fetchPostAuthorById(authorId);
     } catch {
         authorData = undefined;
     }
@@ -531,6 +547,16 @@ export const getSavedPostsWithDetails = async (userId: string | number): Promise
         }),
     );
     return posts.filter(Boolean);
+};
+
+export const fetchSavedPostIds = async (userId: string | number): Promise<string[]> => {
+    try {
+        const savedResponse = await apiClient.get("/saved-posts/user", { params: { userId } });
+        const savedPostsData = savedResponse.data?.data || [];
+        return savedPostsData.map((item: any) => String(item.targetId));
+    } catch {
+        return [];
+    }
 };
 
 export const getTaggedPostsWithDetails = async (userId: string | number): Promise<any[]> => {

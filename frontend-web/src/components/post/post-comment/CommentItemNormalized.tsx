@@ -421,16 +421,20 @@ export default function CommentItemNormalized({
   return (
     <div id={`comment-${commentId}`} className={level > 0 ? "ml-10" : ""}>
       <div className="flex gap-3 px-4">
-        <img
-          src={commentUser.avatarUrl || "https://i.pravatar.cc/150?img=5"}
-          alt={commentUser.username}
-          className="w-8 h-8 rounded-full shrink-0 object-cover"
-        />
+        <Link to={`/profile/${commentUser.username}`}>
+          <img
+            src={commentUser.avatarUrl || "https://i.pravatar.cc/150?img=5"}
+            alt={commentUser.username}
+            className="w-8 h-8 rounded-full shrink-0 object-cover"
+          />
+        </Link>
         <div className="flex-1">
           <div className="bg-gray-100 dark:bg-gray-800 rounded-2xl px-3 py-2">
-            <p className="font-semibold text-sm dark:text-white">
-              {commentUser.username}
-            </p>
+            <Link to={`/profile/${commentUser.username}`}>
+              <p className="font-semibold text-sm dark:text-white hover:underline">
+                {commentUser.username}
+              </p>
+            </Link>
             <p className="text-sm dark:text-white">
               {renderCommentContent(comment.content, comment.mentions)}
             </p>

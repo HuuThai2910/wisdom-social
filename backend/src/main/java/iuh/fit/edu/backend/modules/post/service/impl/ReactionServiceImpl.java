@@ -208,6 +208,7 @@ public class ReactionServiceImpl implements ReactionService {
 
                 PostEvent bumpEvent = PostEvent.builder()
                         .action("BUMP")
+                        .actorId(userId)          // Who performed the reaction
                         .postId(postId)
                         .lastActivityAt(lastActivityAt)
                         .authorId(post.getAuthorId())

@@ -26,12 +26,14 @@ export interface PostData {
     allowComments?: boolean;
     allowShares?: boolean;
     music?: NoteMusic;
+    authorSummary?: UserData;
 }
 
 export interface UserData {
     id: number;
     username: string;
     name: string;
+    fullName?: string;
     avatarUrl: string;
 }
 

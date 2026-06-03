@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Volume2, VolumeX } from "lucide-react";
 import type { Post } from "../../../types";
 import * as postApi from "../../../services/postService";
 
@@ -19,8 +19,11 @@ interface PostCardMediaProps {
   onPrevImage: (e: React.MouseEvent) => void;
   onNextImage: (e: React.MouseEvent) => void;
   onSelectImage: (index: number, e: React.MouseEvent) => void;
+  onToggleMusic?: (e: React.MouseEvent) => void;
   containerRef: React.RefObject<HTMLDivElement | null>;
   videoRef: React.RefObject<HTMLVideoElement | null>;
+  hasMusic?: boolean;
+  isMusicPlaying?: boolean;
 }
 
 export default function PostCardMedia({
@@ -34,8 +37,11 @@ export default function PostCardMedia({
   onPrevImage,
   onNextImage,
   onSelectImage,
+  onToggleMusic,
   containerRef,
   videoRef,
+  hasMusic = false,
+  isMusicPlaying = false,
 }: PostCardMediaProps) {
   if (totalImages <= 0) {
     return null;
@@ -89,6 +95,18 @@ export default function PostCardMedia({
             className="w-full h-full object-contain cursor-pointer"
           />
         </Link>
+      )}
+
+      {hasMusic && onToggleMusic && (
+        <button
+          type="button"
+          onClick={onToggleMusic}
+          className="absolute bottom-3 right-3 z-20 flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white shadow-sm transition-colors hover:bg-black/75 focus:outline-none focus:ring-2 focus:ring-white/80"
+          aria-label={isMusicPlaying ? "Tắt nhạc" : "Phát nhạc"}
+          title={isMusicPlaying ? "Tắt nhạc" : "Phát nhạc"}
+        >
+          {isMusicPlaying ? <Volume2 size={18} /> : <VolumeX size={18} />}
+        </button>
       )}
 
       {totalImages > 1 && (

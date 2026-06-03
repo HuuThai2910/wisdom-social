@@ -15,6 +15,7 @@ import java.util.Optional;
 @Repository
 public interface ReactionRepository extends MongoRepository<Reaction, String> {
     List<Reaction> findByTargetTypeAndTargetId(TargetType targetType, String targetId);
+    List<Reaction> findByUserIdAndTargetType(String userId, TargetType targetType);
     Optional<Reaction> findByUserIdAndTargetTypeAndTargetId(String userId, TargetType targetType, String targetId);
 }
 

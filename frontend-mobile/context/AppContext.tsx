@@ -1,11 +1,13 @@
 import {
   createPost,
   fetchHomeFeedPosts,
+  fetchPostAuthorById,
   fetchUserById,
   normalizePost,
   togglePostReaction,
   togglePostSaved,
   submitComment,
+  fetchSavedPostIds,
 } from "@/services/postService";
 import { UploadableMediaFile } from "@/utils/s3";
 import {
@@ -63,6 +65,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -154,9 +157,12 @@ type AppContextValue = {
   ) => Promise<void>;
   toggleAllNotifications: () => Promise<void>;
   refreshPosts: () => Promise<void>;
-  likePost: (postId: string) => Promise<void>;
+  loadMorePosts: () => Promise<void>;
+  hasMorePosts: boolean;
+  loadingMorePosts: boolean;
+  likePost: (postId: string, reactionType?: string, isToggleOff?: boolean) => Promise<void>;
   savePost: (postId: string) => Promise<void>;
-  addComment: (postId: string, content: string) => Promise<void>;
+  addComment: (postId: string, content: string, skipApiCall?: boolean) => Promise<void>;
   addPost: (caption: string, imageUrl: string) => Promise<AuthResult>;
   createPostWithOptions: (payload: AddPostPayload) => Promise<AuthResult>;
   removePost: (postId: string) => void;
@@ -168,7 +174,11 @@ type AppContextValue = {
   getUserById: (id: string) => User | undefined;
   getMessagesByConversation: (conversationId: string) => Message[];
   upsertUsers: (incomingUsers: User[]) => void;
+  upsertPosts: (incomingPosts: Post[]) => void;
   searchUsersAndPosts: (query: string) => { users: User[]; posts: Post[] };
+  // Notification unread count
+  unreadCount: number;
+  clearUnreadCount: () => void;
 };
 
 const defaultNotificationSettings: NotificationSettings = {
@@ -252,6 +262,10 @@ export function AppProvider({ children }: PropsWithChildren) {
   const [deletionRemainingDays, setDeletionRemainingDays] = useState<
     number | undefined
   >(undefined);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [hasMorePosts, setHasMorePosts] = useState(true);
+  const [loadingMorePosts, setLoadingMorePosts] = useState(false);
+  const nextCursorRef = useRef<string | null>(null);
 
   const currentUser = useMemo(
     () => users.find((user) => user.id === currentUserId) ?? null,
@@ -286,6 +300,19 @@ export function AppProvider({ children }: PropsWithChildren) {
     });
   }, []);
 
+  const upsertPosts = useCallback((incomingPosts: Post[]) => {
+    setPosts((prev) => {
+      const map = new Map(prev.map((post) => [post.id, post]));
+      incomingPosts.forEach((post) => {
+        map.set(post.id, {
+          ...map.get(post.id),
+          ...post,
+        });
+      });
+      return Array.from(map.values());
+    });
+  }, []);
+
   const syncCurrentUserFromServer = useCallback(async () => {
     const latestUser = await getCurrentUser();
     if (!latestUser) return;
@@ -302,20 +329,64 @@ export function AppProvider({ children }: PropsWithChildren) {
 
   const refreshPosts = useCallback(async () => {
     if (!currentUserId) return;
-    const result = await fetchHomeFeedPosts(200);
-    setPosts(result.posts);
-    upsertUsers(
-      result.posts.map((post) => post.user).filter(Boolean) as User[]
-    );
-    const likedIds = result.posts
-      .filter((post) => post.isLiked)
-      .map((post) => post.id);
-    const savedIds = result.posts
-      .filter((post) => post.isSaved)
-      .map((post) => post.id);
-    if (likedIds.length) setLikedPostIds(likedIds);
-    if (savedIds.length) setSavedPostIds(savedIds);
+    try {
+      const [result, savedIds] = await Promise.all([
+        fetchHomeFeedPosts(200),
+        fetchSavedPostIds(currentUserId),
+      ]);
+      setPosts(result.posts);
+      upsertUsers(
+        result.posts.map((post) => post.user).filter(Boolean) as User[]
+      );
+      const likedIds = result.posts
+        .filter((post) => post.isLiked)
+        .map((post) => post.id);
+      setLikedPostIds(likedIds);
+      setSavedPostIds(savedIds);
+      // Reset pagination cursor
+      nextCursorRef.current = result.nextCursorLastActivityAt;
+      setHasMorePosts(result.hasNext);
+    } catch (err) {
+      console.error("Error refreshing feed or saved posts:", err);
+    }
   }, [currentUserId, upsertUsers]);
+
+  const loadMorePosts = useCallback(async () => {
+    if (!currentUserId || loadingMorePosts || !hasMorePosts || !nextCursorRef.current) return;
+
+    setLoadingMorePosts(true);
+    try {
+      const result = await fetchHomeFeedPosts(200, {
+        lastActivityAt: nextCursorRef.current || undefined,
+      });
+
+      if (result.posts.length === 0) {
+        setHasMorePosts(false);
+        return;
+      }
+
+      // Append posts without duplicates
+      setPosts((prev) => {
+        const existingIds = new Set(prev.map((p) => p.id));
+        const newPosts = result.posts.filter((p) => !existingIds.has(p.id));
+        if (newPosts.length === 0) return prev;
+        return [...prev, ...newPosts];
+      });
+
+      // Upsert users from new posts
+      upsertUsers(
+        result.posts.map((post) => post.user).filter(Boolean) as User[]
+      );
+
+      // Update cursor
+      nextCursorRef.current = result.nextCursorLastActivityAt;
+      setHasMorePosts(result.hasNext);
+    } catch (err) {
+      console.error("Error loading more posts:", err);
+    } finally {
+      setLoadingMorePosts(false);
+    }
+  }, [currentUserId, loadingMorePosts, hasMorePosts, upsertUsers]);
 
   useEffect(() => {
     const bootstrapSettings = async () => {
@@ -337,6 +408,9 @@ export function AppProvider({ children }: PropsWithChildren) {
         if (storedUser) {
           upsertMappedUser(mapApiUserToAppUser(storedUser));
           void syncCurrentUserFromServer();
+          void fetchSavedPostIds(String(storedUser.id)).then((ids) => {
+            setSavedPostIds(ids);
+          });
         }
       } finally {
         setBootstrapLoading(false);
@@ -380,7 +454,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     onPostCreated: async (post) => {
       console.log("🔥 Mobile WS: NEW_POST received", post);
       try {
-        const authorData = await fetchUserById(post.authorId);
+        const authorData = post.authorSummary || await fetchPostAuthorById(post.authorId);
         const normalized = normalizePost(post, authorData);
         setPosts((prev) => {
           if (prev.some((p) => p.id === normalized.id)) return prev;
@@ -405,21 +479,13 @@ export function AppProvider({ children }: PropsWithChildren) {
       setLikedPostIds((prev) => prev.filter((id) => id !== postId));
       setSavedPostIds((prev) => prev.filter((id) => id !== postId));
     },
-    onActivityBump: (postId, lastActivityAt) => {
-      console.log("🔥 Mobile WS: BUMP received", postId, lastActivityAt);
+    onActivityBump: (postId, lastActivityAt, actorId) => {
+      console.log("🔥 Mobile WS: BUMP received", postId, lastActivityAt, "actor:", actorId);
+
       setPosts((prev) => {
-        const existing = prev.find((p) => p.id === postId);
-        if (!existing) return prev;
-
-        if (currentUser && existing.userId === currentUser.id) {
-          console.log("⏭️ Skipping BUMP for current user's post:", postId);
-          return prev;
-        }
-
-        const tempRankingTime = new Date().toISOString();
         return prev.map((p) =>
           p.id === postId
-            ? { ...p, lastActivityAt, rankingTime: tempRankingTime }
+            ? { ...p, lastActivityAt }
             : p
         );
       });
@@ -434,11 +500,14 @@ export function AppProvider({ children }: PropsWithChildren) {
     const setupNotifications = async () => {
       const initialNotifications = await fetchNotificationsApi(0, 50);
       if (!cancelled) {
-        setNotifications(
-          initialNotifications.map((item) =>
-            normalizeNotification(item as AppNotification)
-          )
-        );
+        // Deduplicate by ID before storing
+        const uniqueMap = new Map<string, AppNotification>();
+        initialNotifications.forEach(n => uniqueMap.set(n.id, normalizeNotification(n as AppNotification)));
+        const normalized = Array.from(uniqueMap.values());
+        setNotifications(normalized);
+        // Calculate initial unread count
+        const initialUnread = normalized.filter(n => !n.isRead && !n.read).length;
+        setUnreadCount(initialUnread);
       }
 
       try {
@@ -458,6 +527,10 @@ export function AppProvider({ children }: PropsWithChildren) {
             if (prev.some((item) => item.id === notification.id)) return prev;
             return [notification, ...prev].slice(0, 50);
           });
+          // Update unread count if notification is unread
+          if (!notification.isRead && !notification.read) {
+            setUnreadCount((prev) => prev + 1);
+          }
         } catch {
           // no-op
         }
@@ -554,6 +627,12 @@ export function AppProvider({ children }: PropsWithChildren) {
     const apiResult = await loginWithPhone({ phone: phone.trim(), password });
     if (apiResult.success && apiResult.user) {
       upsertMappedUser(mapApiUserToAppUser(apiResult.user));
+      try {
+        const ids = await fetchSavedPostIds(String(apiResult.user.id));
+        setSavedPostIds(ids);
+      } catch (err) {
+        console.error("Error syncing saved post IDs during login:", err);
+      }
       // Surface deletion status
       if (apiResult.deletionPending) {
         setDeletionPending(true);
@@ -666,36 +745,59 @@ export function AppProvider({ children }: PropsWithChildren) {
     await persistSettings(themeMode, updated);
   };
 
-  const likePost = async (postId: string) => {
+  const likePost = async (
+    postId: string,
+    reactionType: string = "LIKE",
+    isToggleOff?: boolean
+  ) => {
     if (!currentUser) return;
     const wasLiked = likedPostIds.includes(postId);
+    const actualToggleOff = isToggleOff !== undefined ? isToggleOff : wasLiked;
+
     setLikedPostIds((prev) =>
-      wasLiked ? prev.filter((id) => id !== postId) : [postId, ...prev]
+      actualToggleOff
+        ? prev.filter((id) => id !== postId)
+        : prev.includes(postId)
+        ? prev
+        : [postId, ...prev]
     );
     setPosts((prev) =>
       prev.map((post) =>
         post.id === postId
           ? {
               ...post,
-              likes: wasLiked ? Math.max(0, post.likes - 1) : post.likes + 1,
-              isLiked: !wasLiked,
+              likes: actualToggleOff
+                ? Math.max(0, post.likes - 1)
+                : post.isLiked
+                ? post.likes
+                : post.likes + 1,
+              isLiked: !actualToggleOff,
             }
           : post
       )
     );
+
     try {
-      await togglePostReaction(currentUser.id, postId, "LIKE");
+      await togglePostReaction(currentUser.id, postId, reactionType);
     } catch {
       setLikedPostIds((prev) =>
-        !wasLiked ? prev.filter((id) => id !== postId) : [postId, ...prev]
+        !actualToggleOff
+          ? prev.filter((id) => id !== postId)
+          : prev.includes(postId)
+          ? prev
+          : [postId, ...prev]
       );
       setPosts((prev) =>
         prev.map((post) =>
           post.id === postId
             ? {
                 ...post,
-                likes: wasLiked ? post.likes + 1 : Math.max(0, post.likes - 1),
-                isLiked: wasLiked,
+                likes: !actualToggleOff
+                  ? Math.max(0, post.likes - 1)
+                  : post.isLiked
+                  ? post.likes
+                  : post.likes + 1,
+                isLiked: actualToggleOff,
               }
             : post
         )
@@ -728,7 +830,11 @@ export function AppProvider({ children }: PropsWithChildren) {
     }
   };
 
-  const addComment = async (postId: string, content: string) => {
+  const addComment = async (
+    postId: string,
+    content: string,
+    skipApiCall?: boolean
+  ) => {
     if (!currentUser || !content.trim()) return;
     const trimmed = content.trim();
     const localComment = {
@@ -751,10 +857,26 @@ export function AppProvider({ children }: PropsWithChildren) {
           : post
       )
     );
+
+    if (skipApiCall) return;
+
     try {
       await submitComment(currentUser.id, postId, trimmed);
     } catch {
-      // PostCard đã gọi API trước trong luồng chính; fallback local giữ trải nghiệm không đổi.
+      setPosts((prev) =>
+        prev.map((post) =>
+          post.id === postId
+            ? {
+                ...post,
+                comments: post.comments.filter((c) => c.id !== localComment.id),
+                commentsCount: Math.max(
+                  0,
+                  (post.commentsCount ?? post.comments.length) - 1
+                ),
+              }
+            : post
+        )
+      );
     }
   };
 
@@ -863,7 +985,12 @@ export function AppProvider({ children }: PropsWithChildren) {
     setNotifications((prev) =>
       prev.map((item) => ({ ...item, read: true, isRead: true }))
     );
+    setUnreadCount(0);
     void markAllNotificationsAsReadApi();
+  };
+
+  const clearUnreadCount = () => {
+    setUnreadCount(0);
   };
 
   const searchUsersAndPosts = (query: string) => {
@@ -922,6 +1049,9 @@ export function AppProvider({ children }: PropsWithChildren) {
       updateNotificationSetting,
       toggleAllNotifications,
       refreshPosts,
+      loadMorePosts,
+      hasMorePosts,
+      loadingMorePosts,
       likePost,
       savePost,
       addComment,
@@ -934,7 +1064,10 @@ export function AppProvider({ children }: PropsWithChildren) {
       markNotificationsRead,
       getUserById,
       upsertUsers,
+      upsertPosts,
       searchUsersAndPosts,
+      unreadCount,
+      clearUnreadCount,
     }),
     [
       users,
@@ -956,8 +1089,13 @@ export function AppProvider({ children }: PropsWithChildren) {
       deletionRemainingDays,
       clearDeletionPending,
       refreshPosts,
+      loadMorePosts,
+      hasMorePosts,
+      loadingMorePosts,
       getUserById,
       syncCurrentUserFromServer,
+      unreadCount,
+      upsertPosts,
     ]
   );
 
