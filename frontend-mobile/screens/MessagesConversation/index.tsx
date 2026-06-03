@@ -541,6 +541,7 @@ export default function MessagesConversationScreen() {
         useState<ChatUserSearchResult | null>(null);
     const [friendRequestSending, setFriendRequestSending] = useState(false);
     const [friendRequestSent, setFriendRequestSent] = useState(false);
+    const [friendRequestReceived, setFriendRequestReceived] = useState(false);
     const routeRelationshipInfo = useMemo(() => {
         if (!peerFriendStatus) return null;
         return {
@@ -887,8 +888,33 @@ export default function MessagesConversationScreen() {
 
                 if (!matchesCurrentConversation) return;
 
+                if (event.eventType === "friend-request") {
+                    if (
+                        senderId === Number(otherUser.userId) &&
+                        receiverId === currentUserId
+                    ) {
+                        setFriendRequestSent(false);
+                        setFriendRequestReceived(true);
+                        setLoadedRelationshipInfo((previous) =>
+                            previous
+                                ? { ...previous, friendStatus: "STRANGER" }
+                                : {
+                                      userId: Number(otherUser.userId),
+                                      name:
+                                          otherUser.nickname ||
+                                          otherUser.username ||
+                                          "",
+                                      friendStatus: "STRANGER",
+                                      mutualGroupsCount: 0,
+                                  },
+                        );
+                    }
+                    return;
+                }
+
                 if (event.eventType === "friend-accept") {
                     setFriendRequestSent(false);
+                    setFriendRequestReceived(false);
                     setLoadedRelationshipInfo((previous) =>
                         previous
                             ? { ...previous, friendStatus: "FRIEND" }
@@ -910,6 +936,7 @@ export default function MessagesConversationScreen() {
                     event.eventType === "friend-cancel"
                 ) {
                     setFriendRequestSent(false);
+                    setFriendRequestReceived(false);
                     setLoadedRelationshipInfo((previous) =>
                         previous
                             ? { ...previous, friendStatus: "STRANGER" }
@@ -923,6 +950,7 @@ export default function MessagesConversationScreen() {
 
     useEffect(() => {
         setFriendRequestSent(false);
+        setFriendRequestReceived(false);
         setFriendRequestSending(false);
     }, [otherUser?.userId]);
 
@@ -936,6 +964,36 @@ export default function MessagesConversationScreen() {
         }
 
         setFriendRequestSending(true);
+        if (friendRequestReceived) {
+            const ok = await friendService.acceptFriendRequest(
+                otherUser.userId,
+                currentUserId,
+            );
+            setFriendRequestSending(false);
+
+            if (ok) {
+                setFriendRequestReceived(false);
+                setFriendRequestSent(false);
+                setLoadedRelationshipInfo((previous) =>
+                    previous
+                        ? { ...previous, friendStatus: "FRIEND" }
+                        : {
+                              userId: Number(otherUser.userId),
+                              name:
+                                  otherUser.nickname ||
+                                  otherUser.username ||
+                                  "",
+                              friendStatus: "FRIEND",
+                              mutualGroupsCount: 0,
+                          },
+                );
+                return;
+            }
+
+            Alert.alert("Thong bao", "Khong the chap nhan loi moi ket ban");
+            return;
+        }
+
         if (friendRequestSent) {
             setFriendRequestSent(false);
         }
@@ -970,8 +1028,11 @@ export default function MessagesConversationScreen() {
     }, [
         currentUserId,
         friendRequestSending,
+        friendRequestReceived,
         friendRequestSent,
+        otherUser?.nickname,
         otherUser?.userId,
+        otherUser?.username,
     ]);
 
     useEffect(() => {
@@ -2666,7 +2727,9 @@ export default function MessagesConversationScreen() {
                                 style={styles.friendRequestText}
                                 numberOfLines={1}
                             >
-                                Gui yeu cau ket ban toi nguoi nay
+                                {friendRequestReceived
+                                    ? "Nguoi nay da gui loi moi ket ban cho ban"
+                                    : "Gui yeu cau ket ban toi nguoi nay"}
                             </Text>
                         </View>
                         <Pressable
@@ -2679,7 +2742,11 @@ export default function MessagesConversationScreen() {
                             onPress={() => void handleSendFriendRequest()}
                         >
                             <Text style={styles.friendRequestButtonText}>
-                                {friendRequestSent
+                                {friendRequestReceived
+                                    ? friendRequestSending
+                                        ? "Dang chap nhan..."
+                                        : "Chap nhan yeu cau"
+                                    : friendRequestSent
                                     ? friendRequestSending
                                         ? "Dang huy..."
                                         : "Huy yeu cau"

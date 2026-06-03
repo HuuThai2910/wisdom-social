@@ -984,10 +984,14 @@ function ChatWindowContent({
     status: friendshipStatus,
     loading: friendActionLoading,
     sendRequest: sendFriendRequest,
+    acceptRequest: acceptFriendRequest,
     cancelRequest: cancelFriendRequest,
   } = useFriendStatus(otherMember?.userId);
-  const { friends: contextFriends, sentRequests: contextSentRequests } =
-    useFriendDataSafe();
+  const {
+    friends: contextFriends,
+    sentRequests: contextSentRequests,
+    friendRequests: contextFriendRequests,
+  } = useFriendDataSafe();
   const isFriendInContext = useMemo(
     () =>
       contextFriends.some(
@@ -1002,7 +1006,16 @@ function ChatWindowContent({
       ),
     [contextSentRequests, otherMember?.userId]
   );
+  const isReceivedRequestInContext = useMemo(
+    () =>
+      contextFriendRequests.some(
+        (request: any) => String(request.id) === String(otherMember?.userId)
+      ),
+    [contextFriendRequests, otherMember?.userId]
+  );
   const isFriend = friendshipStatus === "friends" || isFriendInContext;
+  const isPendingReceived =
+    friendshipStatus === "pending_received" || isReceivedRequestInContext;
   const isPendingSent =
     friendshipStatus === "pending_sent" ||
     friendRequestSent ||
@@ -1075,6 +1088,33 @@ function ChatWindowContent({
     isPendingSent,
     otherMember?.userId,
     sendFriendRequest,
+    userId,
+  ]);
+
+  const handleAcceptFriendRequest = useCallback(async () => {
+    if (!userId || !otherMember?.userId || friendRequestSending) {
+      return;
+    }
+
+    setFriendRequestSending(true);
+    try {
+      const ok = await acceptFriendRequest();
+      if (!ok) throw new Error("accept failed");
+      setFriendRequestSent(false);
+      setLoadedRelationshipInfo((previous) =>
+        previous
+          ? { ...previous, friendStatus: "FRIEND" }
+          : previous,
+      );
+    } catch {
+      window.alert("Khong the chap nhan loi moi ket ban. Vui long thu lai.");
+    } finally {
+      setFriendRequestSending(false);
+    }
+  }, [
+    acceptFriendRequest,
+    friendRequestSending,
+    otherMember?.userId,
     userId,
   ]);
 
@@ -2442,15 +2482,27 @@ function ChatWindowContent({
           <div className="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2 shadow-sm dark:bg-black">
             <div className="flex min-w-0 items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
               <Plus size={18} />
-              <span>Gửi yêu cầu kết bạn tới người này</span>
+              <span>
+                {isPendingReceived
+                  ? "Người này đã gửi lời mời kết bạn cho bạn"
+                  : "Gửi yêu cầu kết bạn tới người này"}
+              </span>
             </div>
             <button
               type="button"
-              onClick={() => void handleSendFriendRequest()}
+              onClick={() =>
+                isPendingReceived
+                  ? void handleAcceptFriendRequest()
+                  : void handleSendFriendRequest()
+              }
               disabled={friendRequestSending || friendActionLoading}
               className="rounded-lg bg-gray-200 px-3.5 py-1.5 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-300 disabled:cursor-default disabled:opacity-70 dark:bg-gray-800 dark:text-gray-100"
             >
-              {isPendingSent
+              {isPendingReceived
+                ? friendRequestSending || friendActionLoading
+                  ? "Đang chấp nhận..."
+                  : "Chấp nhận yêu cầu"
+                : isPendingSent
                 ? friendRequestSending || friendActionLoading
                   ? "Đang hủy..."
                   : "Hủy yêu cầu"
