@@ -711,8 +711,15 @@ export default function MessagesListScreen() {
                               )?.userId
                             : undefined,
                     );
+                    const isDirectPartnerUnavailable =
+                        item.type === "DIRECT" &&
+                        (displayInfo.locked ||
+                            Boolean(item.directPartnerLocked) ||
+                            Boolean(item.directBlockedByMe) ||
+                            Boolean(item.directBlockedMe));
                     const isDirectPartnerOnline = Boolean(
                         Number.isFinite(directPartnerId) &&
+                            !isDirectPartnerUnavailable &&
                             presenceByUserId[directPartnerId]?.online,
                     );
 

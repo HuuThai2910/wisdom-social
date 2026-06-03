@@ -40,7 +40,29 @@ export function useBlockNotifications(): number {
             }
         };
 
-        const handleBlockEvent = () => setRefreshTrigger((n) => n + 1);
+        const handleBlockEvent = (payload?: {
+            eventType?: string;
+            blockerId?: number | string;
+            blockedId?: number | string;
+        }) => {
+            setRefreshTrigger((n) => n + 1);
+
+            const blockerId = Number(payload?.blockerId);
+            const blockedId = Number(payload?.blockedId);
+            if (!Number.isFinite(blockerId) || !Number.isFinite(blockedId)) {
+                return;
+            }
+
+            window.dispatchEvent(
+                new CustomEvent("user-block-status-changed", {
+                    detail: {
+                        blockerId,
+                        blockedId,
+                        blocked: payload?.eventType === "save-block",
+                    },
+                }),
+            );
+        };
 
         void setup();
 

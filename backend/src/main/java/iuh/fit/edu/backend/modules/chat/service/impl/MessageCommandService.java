@@ -7,16 +7,7 @@ package iuh.fit.edu.backend.modules.chat.service.impl;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.LinkedHashSet;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 import org.springframework.context.ApplicationEventPublisher;
@@ -53,6 +44,7 @@ import iuh.fit.edu.backend.modules.chat.repository.PollRepository;
 import iuh.fit.edu.backend.modules.chat.service.MessageCacheService;
 import iuh.fit.edu.backend.modules.chat.service.PollCacheService;
 import iuh.fit.edu.backend.modules.conversation.constant.ConversationMemberStatus;
+import iuh.fit.edu.backend.modules.conversation.constant.ConversationType;
 import iuh.fit.edu.backend.modules.conversation.constant.MemberRole;
 import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationMemberResponse;
 import iuh.fit.edu.backend.modules.conversation.dto.response.ConversationResponse;
@@ -69,6 +61,7 @@ import iuh.fit.edu.backend.modules.conversation.repository.ConversationMemberRep
 import iuh.fit.edu.backend.modules.conversation.repository.ConversationRepository;
 import iuh.fit.edu.backend.modules.conversation.service.ConversationMemberService;
 import iuh.fit.edu.backend.modules.conversation.service.DirectConversationService;
+import iuh.fit.edu.backend.modules.user.repository.BlockUserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -99,6 +92,7 @@ public class MessageCommandService {
     private final ObjectMapper objectMapper;
     private final ChatSnapshotHelper chatSnapshotHelper;
     private final DirectConversationService directConversationService;
+    private final BlockUserRepository blockUserRepository;
 
     /**
      * Hàm xử lý việc gửi tin nhắn
@@ -127,11 +121,7 @@ public class MessageCommandService {
         ConversationMemberResponse senderInfo = conversationMemberService
                 .getMemberInfo(sendMessageRequest.getConversationId(), userId);
 
-        if (conversation.isMessageRestricted()) {
-            if (senderInfo.getRole() != MemberRole.OWNER && senderInfo.getRole() != MemberRole.DEPUTY) {
-                throw new AccessDeniedException("Nhóm đang bật chế độ chỉ Trưởng/Phó nhóm mới được gửi tin nhắn.");
-            }
-        }
+        validateCanSendToConversation(conversation, senderInfo);
 
         // Lưu tin nhắn vào mongo
         String clientMessageId = normalizeClientMessageId(sendMessageRequest.getClientMessageId());
@@ -576,6 +566,22 @@ public class MessageCommandService {
                 && senderInfo.getRole() != MemberRole.OWNER
                 && senderInfo.getRole() != MemberRole.DEPUTY) {
             throw new AccessDeniedException("Nhóm đang bật chế độ chỉ Trưởng/Phó nhóm mới được gửi tin nhắn.");
+        }
+
+        if (conversation.getType() == ConversationType.DIRECT) {
+            Long partnerId = conversation.getMembers() == null ? null : conversation.getMembers()
+                    .stream()
+                    .map(ConversationMember::getUser)
+                    .filter(Objects::nonNull)
+                    .map(user -> user.getId())
+                    .filter(memberUserId -> !memberUserId.equals(senderInfo.getUserId()))
+                    .findFirst()
+                    .orElse(null);
+            if (partnerId != null && (
+                    blockUserRepository.existsByBlocker_IdAndBlocked_Id(senderInfo.getUserId(), partnerId)
+                            || blockUserRepository.existsByBlocker_IdAndBlocked_Id(partnerId, senderInfo.getUserId()))) {
+                throw new AccessDeniedException("Bạn không thể nhắn tin với người này.");
+            }
         }
     }
 

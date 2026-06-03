@@ -68,7 +68,15 @@ export function resolveReadOnlyNoticeFromConversation(
     conversation: Conversation | ConversationSnapshot | undefined,
     currentUserId: number,
 ): string | null {
-    if (!conversation || conversation.type !== "GROUP") return null;
+    if (!conversation) return null;
+
+    if (conversation.type === "DIRECT") {
+        if (conversation.directBlockedByMe) return "Bạn đã chặn người này.";
+        if (conversation.directBlockedMe) return "Bạn không thể nhắn tin với người này.";
+        return null;
+    }
+
+    if (conversation.type !== "GROUP") return null;
 
     const currentMember = (conversation.members ?? []).find(
         (member) => Number(member.userId) === Number(currentUserId),

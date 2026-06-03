@@ -416,6 +416,46 @@ export function useMessagesController() {
     }, []);
 
     useEffect(() => {
+        const subscription = DeviceEventEmitter.addListener(
+            "conversation-direct-block-status-changed",
+            (detail: {
+                conversationId?: number;
+                blockerId?: number | null;
+                blockedId?: number | null;
+                blocked?: boolean;
+            }) => {
+                if (!detail || typeof detail.conversationId !== "number") return;
+
+                setConversations((prev) =>
+                    prev.map((conversation) => {
+                        if (
+                            conversation.id !== detail.conversationId ||
+                            conversation.type !== "DIRECT"
+                        ) {
+                            return conversation;
+                        }
+
+                        const nextConversation = {
+                            ...conversation,
+                            directBlockedByMe:
+                                Number(detail.blockerId) === Number(currentUserIdRef.current)
+                                    ? Boolean(detail.blocked)
+                                    : conversation.directBlockedByMe,
+                            directBlockedMe:
+                                Number(detail.blockedId) === Number(currentUserIdRef.current)
+                                    ? Boolean(detail.blocked)
+                                    : conversation.directBlockedMe,
+                        };
+                        chatRuntimeStore.setConversation(conversation.id, nextConversation);
+                        return nextConversation;
+                    }),
+                );
+            },
+        );
+        return () => subscription.remove();
+    }, []);
+
+    useEffect(() => {
         if (!currentUserId) return;
         const missingPresenceConversations = conversations.filter(
             (conversation) =>

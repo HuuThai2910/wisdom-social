@@ -160,6 +160,8 @@ export interface ConversationSidebar {
     // Với hội thoại DIRECT: đối phương có đang bị khóa tài khoản không.
     // Dùng để mask tên/avatar ở sidebar (không có sẵn danh sách members).
     directPartnerLocked?: boolean;
+    directBlockedByMe?: boolean;
+    directBlockedMe?: boolean;
     updatedAt: string;
     lastMessage?: LastMessage;
     unreadCount?: number;

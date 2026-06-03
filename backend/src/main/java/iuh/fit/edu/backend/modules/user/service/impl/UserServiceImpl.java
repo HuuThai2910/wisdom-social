@@ -18,6 +18,10 @@ import iuh.fit.edu.backend.modules.user.repository.DeviceRepository;
 import iuh.fit.edu.backend.modules.user.repository.FriendRepository;
 import iuh.fit.edu.backend.modules.user.repository.UserRepository;
 import iuh.fit.edu.backend.modules.user.repository.UserSettingRepository;
+import iuh.fit.edu.backend.modules.conversation.entity.Conversation;
+import iuh.fit.edu.backend.modules.conversation.event.payload.DirectBlockStatusChangedEvent;
+import iuh.fit.edu.backend.modules.conversation.repository.ConversationRepository;
+import iuh.fit.edu.backend.modules.conversation.service.DirectConversationService;
 import iuh.fit.edu.backend.modules.user.entity.UserSetting;
 import iuh.fit.edu.backend.common.exception.AccountLockedException;
 import iuh.fit.edu.backend.common.exception.RateLimitExceededException;
@@ -27,6 +31,7 @@ import iuh.fit.edu.backend.modules.user.service.BlockUserService;
 import iuh.fit.edu.backend.modules.user.service.UserService;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -70,6 +75,9 @@ public class UserServiceImpl implements UserService {
     FriendRepository friendRepository;
     UserSettingRepository userSettingRepository;
     StringRedisTemplate redisTemplate;
+    ConversationRepository conversationRepository;
+    DirectConversationService directConversationService;
+    ApplicationEventPublisher eventPublisher;
 
 
     public UserServiceImpl(BlackListUserRepository blackListUserRepository,
@@ -82,7 +90,10 @@ public class UserServiceImpl implements UserService {
                             AccountLockService accountLockService,
                             FriendRepository friendRepository,
                             UserSettingRepository userSettingRepository,
-                            StringRedisTemplate redisTemplate
+                            StringRedisTemplate redisTemplate,
+                            ConversationRepository conversationRepository,
+                            DirectConversationService directConversationService,
+                            ApplicationEventPublisher eventPublisher
                             ) {
         this.blackListUserRepository = blackListUserRepository;
         this.blockUserService = blockUserService;
@@ -97,6 +108,9 @@ public class UserServiceImpl implements UserService {
         this.friendRepository = friendRepository;
         this.userSettingRepository = userSettingRepository;
         this.redisTemplate = redisTemplate;
+        this.conversationRepository = conversationRepository;
+        this.directConversationService = directConversationService;
+        this.eventPublisher = eventPublisher;
     }
 
     /*Đăng kí tài khoản bằng aws cognito
@@ -606,12 +620,14 @@ public class UserServiceImpl implements UserService {
                     .build();
             simpMessagingTemplate.convertAndSend("/topic/user/" + blockerPhone + "/save-block", blockPayload);
             simpMessagingTemplate.convertAndSend("/topic/user/" + blockedPhone + "/save-block", blockPayload);
+            publishDirectBlockStatusChanged(blocker.getId(), blocked.getId(), true);
             return true;
         }
         return false;
     }
 
     @Override
+    @Transactional
     public boolean cancelBlockUser(FriendRequest friendRequest) {
         if(friendRequest!=null){
             User blocker = findUserById(friendRequest.getSenderId());
@@ -631,9 +647,30 @@ public class UserServiceImpl implements UserService {
                     .build();
             simpMessagingTemplate.convertAndSend("/topic/user/" + blockerPhone + "/cancel-block", cancelPayload);
             simpMessagingTemplate.convertAndSend("/topic/user/" + blockedPhone + "/cancel-block", cancelPayload);
+            publishDirectBlockStatusChanged(blocker.getId(), blocked.getId(), false);
             return true;
         }
         return false;
+    }
+
+    private void publishDirectBlockStatusChanged(Long blockerId, Long blockedId, boolean blocked) {
+        if (blockerId == null || blockedId == null) return;
+
+        String directKey = directConversationService.buildDirectKey(blockerId, blockedId);
+        Conversation conversation = conversationRepository.findByDirectKey(directKey)
+                .orElseGet(() -> conversationRepository.findDirectConversationsByMemberIds(blockerId, blockedId)
+                        .stream()
+                        .findFirst()
+                        .orElse(null));
+        if (conversation == null) return;
+
+        eventPublisher.publishEvent(new DirectBlockStatusChangedEvent(
+                conversation.getId(),
+                blockerId,
+                blockedId,
+                blocked,
+                Set.of(blockerId, blockedId)
+        ));
     }
 
     @Override

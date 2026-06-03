@@ -27,6 +27,8 @@ public class ConversationSidebarResponse {
     // Sidebar không trả về danh sách members nên cần cờ riêng để FE mask tên/avatar.
     // Mặc định false -> client cũ bỏ qua vẫn hoạt động bình thường.
     private boolean directPartnerLocked;
+    private boolean directBlockedByMe;
+    private boolean directBlockedMe;
     private Instant updatedAt;
     private int unreadCount;
     private LastMessageResponse lastMessage;

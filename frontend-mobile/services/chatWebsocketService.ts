@@ -4,6 +4,7 @@ import { DeviceEventEmitter } from "react-native";
 import type {
     Conversation,
     ConversationCreatedEvent,
+    DirectBlockStatusChangedEvent,
     ConversationMembershipEvent,
     ConversationUpdatedEvent,
     GroupDisbandedEvent,
@@ -991,6 +992,7 @@ class ChatWebsocketService {
         conversationId: number,
         onMemberUpdated: (event: MemberUpdatedEvent) => void,
         onAccountLockChanged?: (event: MemberAccountLockChangedEvent) => void,
+        onDirectBlockStatusChanged?: (event: DirectBlockStatusChangedEvent) => void,
     ): void {
         const destination = `/topic/conversations/${conversationId}/members`;
         this.registerSubscription(destination, () => {
@@ -1003,12 +1005,17 @@ class ChatWebsocketService {
                 try {
                     const event = JSON.parse(message.body) as
                         | MemberUpdatedEvent
-                        | MemberAccountLockChangedEvent;
+                        | MemberAccountLockChangedEvent
+                        | DirectBlockStatusChangedEvent;
                     // Phân loại theo domainEventType. Mặc định coi như MEMBER_UPDATED
                     // để tương thích ngược với payload cũ.
                     if (event.domainEventType === "MEMBER_ACCOUNT_LOCK_CHANGED") {
                         onAccountLockChanged?.(
                             event as MemberAccountLockChangedEvent,
+                        );
+                    } else if (event.domainEventType === "DIRECT_BLOCK_STATUS_CHANGED") {
+                        onDirectBlockStatusChanged?.(
+                            event as DirectBlockStatusChangedEvent,
                         );
                     } else {
                         onMemberUpdated(event as MemberUpdatedEvent);
@@ -1170,6 +1177,33 @@ class ChatWebsocketService {
                                 conversationId: lockConversationId,
                                 userId: toFiniteNumber(lockPayload.userId),
                                 accountLocked: Boolean(lockPayload.accountLocked),
+                            },
+                        );
+                        return;
+                    }
+
+                    const directBlockPayload = payload as {
+                        domainEventType?: string;
+                        conversationId?: unknown;
+                        blockerId?: unknown;
+                        blockedId?: unknown;
+                        blocked?: unknown;
+                    };
+                    const directBlockConversationId = toFiniteNumber(
+                        directBlockPayload.conversationId,
+                    );
+                    if (
+                        directBlockPayload.domainEventType ===
+                            "DIRECT_BLOCK_STATUS_CHANGED" &&
+                        directBlockConversationId !== null
+                    ) {
+                        DeviceEventEmitter.emit(
+                            "conversation-direct-block-status-changed",
+                            {
+                                conversationId: directBlockConversationId,
+                                blockerId: toFiniteNumber(directBlockPayload.blockerId),
+                                blockedId: toFiniteNumber(directBlockPayload.blockedId),
+                                blocked: Boolean(directBlockPayload.blocked),
                             },
                         );
                         return;

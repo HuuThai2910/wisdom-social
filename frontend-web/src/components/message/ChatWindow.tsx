@@ -49,6 +49,7 @@ import chatService, {
   type ConversationSidebar,
   type Message,
 } from "../../services/chatService";
+import blockService from "../../services/blockService";
 import { buildConversationDisplayInfo } from "../../utils/conversationDisplayInfo";
 import {
   LOCKED_ACCOUNT_AVATAR_URL,
@@ -679,6 +680,7 @@ function ChatWindowContent({
     useState<ChatUserSearchResult | null>(null);
   const [friendRequestSending, setFriendRequestSending] = useState(false);
   const [friendRequestSent, setFriendRequestSent] = useState(false);
+  const [forceStrangerAfterBlock, setForceStrangerAfterBlock] = useState(false);
   const effectiveRelationshipInfo =
     peerRelationshipInfo ?? loadedRelationshipInfo;
   const relationshipText = useMemo(() => {
@@ -911,6 +913,145 @@ function ChatWindowContent({
     isDirectConversation &&
     (Boolean(conversation?.directPartnerLocked) ||
       Boolean(otherMember?.accountLocked));
+  const isDirectBlockedByMe =
+    isDirectConversation && Boolean(conversation?.directBlockedByMe);
+  const isDirectBlockedMe =
+    isDirectConversation && Boolean(conversation?.directBlockedMe);
+  const isDirectChatBlocked = isDirectBlockedByMe || isDirectBlockedMe;
+
+  const handleUnblockDirectPartner = useCallback(async () => {
+    if (!directTargetUserId || !userId) return;
+    try {
+      await blockService.unblockUser(Number(userId), Number(directTargetUserId));
+      toast.success("Đã bỏ chặn");
+      chatRuntimeStore.setConversation(conversationId, {
+        ...(conversation as ConversationSidebar),
+        directBlockedByMe: false,
+      });
+      setForceStrangerAfterBlock(true);
+      setLoadedRelationshipInfo((previous) =>
+        previous
+          ? { ...previous, friendStatus: "STRANGER" }
+          : directTargetUserId
+            ? {
+                userId: Number(directTargetUserId),
+                name:
+                  otherMember?.nickname ||
+                  otherMember?.username ||
+                  "",
+                friendStatus: "STRANGER",
+                mutualGroupsCount: 0,
+              }
+            : previous,
+      );
+      window.dispatchEvent(
+        new CustomEvent("user-block-status-changed", {
+          detail: {
+            blockerId: Number(userId),
+            blockedId: Number(directTargetUserId),
+            blocked: false,
+          },
+        }),
+      );
+    } catch {
+      toast.error("Không thể bỏ chặn");
+    }
+  }, [
+    conversation,
+    conversationId,
+    directTargetUserId,
+    otherMember?.nickname,
+    otherMember?.username,
+    userId,
+  ]);
+
+  useEffect(() => {
+    const handleBlockStatusChanged = (event: Event) => {
+      if (!userId || !directTargetUserId) return;
+      const detail = (event as CustomEvent<{
+        blockerId?: number | null;
+        blockedId?: number | null;
+      }>).detail;
+      const blockerId = Number(detail?.blockerId);
+      const blockedId = Number(detail?.blockedId);
+      const matchesDirectPartner =
+        (blockerId === Number(userId) &&
+          blockedId === Number(directTargetUserId)) ||
+        (blockerId === Number(directTargetUserId) &&
+          blockedId === Number(userId));
+      if (!matchesDirectPartner) return;
+
+      setForceStrangerAfterBlock(true);
+      setLoadedRelationshipInfo((previous) =>
+        previous
+          ? { ...previous, friendStatus: "STRANGER" }
+          : {
+              userId: Number(directTargetUserId),
+              name: otherMember?.nickname || otherMember?.username || "",
+              friendStatus: "STRANGER",
+              mutualGroupsCount: 0,
+            },
+      );
+    };
+
+    window.addEventListener("user-block-status-changed", handleBlockStatusChanged);
+    return () =>
+      window.removeEventListener(
+        "user-block-status-changed",
+        handleBlockStatusChanged,
+      );
+  }, [
+    directTargetUserId,
+    otherMember?.nickname,
+    otherMember?.username,
+    userId,
+  ]);
+
+  useEffect(() => {
+    const handleFriendStatusChanged = (event: Event) => {
+      if (!userId || !directTargetUserId) return;
+      const detail = (event as CustomEvent<{
+        event?: string;
+        senderId?: number | null;
+        receiverId?: number | null;
+      }>).detail;
+      if (detail?.event !== "friend-accept") return;
+
+      const senderId = Number(detail.senderId);
+      const receiverId = Number(detail.receiverId);
+      const matchesDirectPartner =
+        (senderId === Number(userId) &&
+          receiverId === Number(directTargetUserId)) ||
+        (senderId === Number(directTargetUserId) &&
+          receiverId === Number(userId));
+      if (!matchesDirectPartner) return;
+
+      setForceStrangerAfterBlock(false);
+      setFriendRequestSent(false);
+      setLoadedRelationshipInfo((previous) =>
+        previous
+          ? { ...previous, friendStatus: "FRIEND" }
+          : {
+              userId: Number(directTargetUserId),
+              name: otherMember?.nickname || otherMember?.username || "",
+              friendStatus: "FRIEND",
+              mutualGroupsCount: 0,
+            },
+      );
+    };
+
+    window.addEventListener("friend-status-changed", handleFriendStatusChanged);
+    return () =>
+      window.removeEventListener(
+        "friend-status-changed",
+        handleFriendStatusChanged,
+      );
+  }, [
+    directTargetUserId,
+    otherMember?.nickname,
+    otherMember?.username,
+    userId,
+  ]);
 
   // Helper dùng chung: 1 user có đang bị khóa tài khoản không.
   // - Ưu tiên cờ trên member (membersById).
@@ -934,19 +1075,20 @@ function ChatWindowContent({
   const otherMemberPresence = Number.isFinite(otherMemberUserId)
     ? presenceByUserId[otherMemberUserId]
     : undefined;
-  const otherMemberOnline = Boolean(
+  const otherMemberPresenceOnline = Boolean(
     conversation?.type === "DIRECT" &&
+      !isDirectChatBlocked &&
       Number.isFinite(otherMemberUserId) &&
       otherMemberPresence?.online
   );
   const [presenceNow, setPresenceNow] = useState(() => Date.now());
   useEffect(() => {
-    if (otherMemberOnline || !otherMemberPresence?.lastActiveAt) return;
+    if (otherMemberPresenceOnline || !otherMemberPresence?.lastActiveAt) return;
 
     // Offline text tự nhảy phút/giờ ở client, không cần backend bắn event mỗi phút.
     const timer = window.setInterval(() => setPresenceNow(Date.now()), 60000);
     return () => window.clearInterval(timer);
-  }, [otherMemberOnline, otherMemberPresence?.lastActiveAt]);
+  }, [otherMemberPresenceOnline, otherMemberPresence?.lastActiveAt]);
   const otherMemberLastActiveText = formatLastActiveText(
     otherMemberPresence?.lastActiveAt,
     presenceNow
@@ -955,10 +1097,14 @@ function ChatWindowContent({
     status: friendshipStatus,
     loading: friendActionLoading,
     sendRequest: sendFriendRequest,
+    acceptRequest: acceptFriendRequest,
     cancelRequest: cancelFriendRequest,
   } = useFriendStatus(otherMember?.userId);
-  const { friends: contextFriends, sentRequests: contextSentRequests } =
-    useFriendDataSafe();
+  const {
+    friends: contextFriends,
+    sentRequests: contextSentRequests,
+    friendRequests: contextFriendRequests,
+  } = useFriendDataSafe();
   const isFriendInContext = useMemo(
     () =>
       contextFriends.some(
@@ -973,7 +1119,22 @@ function ChatWindowContent({
       ),
     [contextSentRequests, otherMember?.userId]
   );
-  const isFriend = friendshipStatus === "friends" || isFriendInContext;
+  const isReceivedRequestInContext = useMemo(
+    () =>
+      contextFriendRequests.some(
+        (request: any) => String(request.id) === String(otherMember?.userId)
+      ),
+    [contextFriendRequests, otherMember?.userId]
+  );
+  const isFriend =
+    !isDirectChatBlocked &&
+    !forceStrangerAfterBlock &&
+    (friendshipStatus === "friends" ||
+      isFriendInContext ||
+      effectiveRelationshipInfo?.friendStatus === "FRIEND");
+  const otherMemberOnline = Boolean(isFriend && otherMemberPresenceOnline);
+  const isPendingReceived =
+    friendshipStatus === "pending_received" || isReceivedRequestInContext;
   const isPendingSent =
     friendshipStatus === "pending_sent" ||
     friendRequestSent ||
@@ -992,18 +1153,27 @@ function ChatWindowContent({
   }, [effectiveRelationshipInfo, isFriend, relationshipText]);
   const headerStatusText =
     conversation?.type === "DIRECT"
-      ? otherMemberOnline
+      ? isDirectChatBlocked
+        ? "Người lạ"
+        : forceStrangerAfterBlock
+        ? "Người lạ"
+        : !isFriend
+        ? resolvedRelationshipText || relationshipText || "Người lạ"
+        : otherMemberOnline
         ? "Đang hoạt động"
         : otherMemberLastActiveText || resolvedRelationshipText || "Không hoạt động"
       : null;
   const canShowFriendBanner =
+    !isDirectChatBlocked &&
     Boolean(effectiveRelationshipInfo) &&
     !isFriend &&
-    effectiveRelationshipInfo?.friendStatus !== "FRIEND";
+    (forceStrangerAfterBlock ||
+      effectiveRelationshipInfo?.friendStatus !== "FRIEND");
 
   useEffect(() => {
     setFriendRequestSent(false);
     setFriendRequestSending(false);
+    setForceStrangerAfterBlock(false);
   }, [otherMember?.userId]);
 
   useEffect(() => {
@@ -1026,6 +1196,7 @@ function ChatWindowContent({
       } else {
         const ok = await sendFriendRequest();
         if (!ok) throw new Error("send failed");
+        setForceStrangerAfterBlock(false);
         setFriendRequestSent(true);
       }
     } catch {
@@ -1046,6 +1217,34 @@ function ChatWindowContent({
     isPendingSent,
     otherMember?.userId,
     sendFriendRequest,
+    userId,
+  ]);
+
+  const handleAcceptFriendRequest = useCallback(async () => {
+    if (!userId || !otherMember?.userId || friendRequestSending) {
+      return;
+    }
+
+    setFriendRequestSending(true);
+    try {
+      const ok = await acceptFriendRequest();
+      if (!ok) throw new Error("accept failed");
+      setForceStrangerAfterBlock(false);
+      setFriendRequestSent(false);
+      setLoadedRelationshipInfo((previous) =>
+        previous
+          ? { ...previous, friendStatus: "FRIEND" }
+          : previous,
+      );
+    } catch {
+      window.alert("Khong the chap nhan loi moi ket ban. Vui long thu lai.");
+    } finally {
+      setFriendRequestSending(false);
+    }
+  }, [
+    acceptFriendRequest,
+    friendRequestSending,
+    otherMember?.userId,
     userId,
   ]);
 
@@ -2364,7 +2563,7 @@ function ChatWindowContent({
             disabled={
               isGroupConversation
                 ? false
-                : !directTargetUserId || isPartnerAccountLocked
+                : !directTargetUserId || isPartnerAccountLocked || isDirectChatBlocked
             }
             title="Gọi thoại"
           >
@@ -2387,7 +2586,7 @@ function ChatWindowContent({
             disabled={
               isGroupConversation
                 ? false
-                : !directTargetUserId || isPartnerAccountLocked
+                : !directTargetUserId || isPartnerAccountLocked || isDirectChatBlocked
             }
             title="Gọi video"
           >
@@ -2413,15 +2612,27 @@ function ChatWindowContent({
           <div className="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2 shadow-sm dark:bg-black">
             <div className="flex min-w-0 items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
               <Plus size={18} />
-              <span>Gửi yêu cầu kết bạn tới người này</span>
+              <span>
+                {isPendingReceived
+                  ? "Người này đã gửi lời mời kết bạn cho bạn"
+                  : "Gửi yêu cầu kết bạn tới người này"}
+              </span>
             </div>
             <button
               type="button"
-              onClick={() => void handleSendFriendRequest()}
+              onClick={() =>
+                isPendingReceived
+                  ? void handleAcceptFriendRequest()
+                  : void handleSendFriendRequest()
+              }
               disabled={friendRequestSending || friendActionLoading}
               className="rounded-lg bg-gray-200 px-3.5 py-1.5 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-300 disabled:cursor-default disabled:opacity-70 dark:bg-gray-800 dark:text-gray-100"
             >
-              {isPendingSent
+              {isPendingReceived
+                ? friendRequestSending || friendActionLoading
+                  ? "Đang chấp nhận..."
+                  : "Chấp nhận yêu cầu"
+                : isPendingSent
                 ? friendRequestSending || friendActionLoading
                   ? "Đang hủy..."
                   : "Hủy yêu cầu"
@@ -2764,9 +2975,9 @@ function ChatWindowContent({
           onChange={onFileChange}
         />
 
-        {isConversationReadOnly || isPartnerAccountLocked ? (
+        {isConversationReadOnly || isPartnerAccountLocked || isDirectChatBlocked ? (
           /* Restriction notice — replaces composer entirely */
-          <div className="flex items-center justify-center gap-2 rounded-full bg-gray-100 px-4 py-2.5 dark:bg-gray-800/60">
+          <div className="flex flex-wrap items-center justify-center gap-2 rounded-full bg-gray-100 px-4 py-2.5 dark:bg-gray-800/60">
             <svg
               xmlns="http://www.w3.org/2000/svg"
               viewBox="0 0 24 24"
@@ -2785,13 +2996,34 @@ function ChatWindowContent({
               <span className="text-sm font-semibold text-gray-600 dark:text-gray-300">
                 Tài khoản đã bị khóa
               </span>
+            ) : isDirectBlockedByMe ? (
+              <>
+                <span className="text-sm font-semibold text-gray-600 dark:text-gray-300">
+                  Bạn đã chặn người này.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void handleUnblockDirectPartner()}
+                  className="rounded-full bg-gray-900 px-3 py-1 text-xs font-semibold text-white transition-colors hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-gray-300"
+                >
+                  Bỏ chặn
+                </button>
+              </>
+            ) : isDirectBlockedMe ? (
+              <span className="text-sm font-semibold text-gray-600 dark:text-gray-300">
+                Bạn không thể nhắn tin với người này.
+              </span>
             ) : (
               <span className="text-sm text-gray-500 dark:text-gray-400">
-                Chỉ{" "}
-                <span className="font-semibold text-gray-700 dark:text-gray-200">
-                  trưởng/phó nhóm
-                </span>{" "}
-                mới được gửi tin nhắn
+                {readOnlyNotice || (
+                  <>
+                    Chỉ{" "}
+                    <span className="font-semibold text-gray-700 dark:text-gray-200">
+                      trưởng/phó nhóm
+                    </span>{" "}
+                    mới được gửi tin nhắn
+                  </>
+                )}
               </span>
             )}
           </div>

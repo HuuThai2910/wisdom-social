@@ -151,6 +151,23 @@ export function FriendDataProvider({ children }: { children: ReactNode }) {
         }
     }, [blockTrigger, triggerRefreshAll]);
 
+    useEffect(() => {
+        const handleBlockStatusChanged = () => {
+            triggerRefreshAll();
+        };
+
+        window.addEventListener(
+            "user-block-status-changed",
+            handleBlockStatusChanged,
+        );
+        return () => {
+            window.removeEventListener(
+                "user-block-status-changed",
+                handleBlockStatusChanged,
+            );
+        };
+    }, [triggerRefreshAll]);
+
     // Accept friend request
     const acceptRequest = useCallback(async (userId: number): Promise<boolean> => {
         if (!currentUser?.id) return false;
@@ -165,6 +182,15 @@ export function FriendDataProvider({ children }: { children: ReactNode }) {
             // Refresh friends list to show new friend
             refreshFriends();
             setRefreshTrigger(prev => prev + 1);
+            window.dispatchEvent(
+                new CustomEvent("friend-status-changed", {
+                    detail: {
+                        event: "friend-accept",
+                        senderId: userId,
+                        receiverId: currentUser.id,
+                    },
+                }),
+            );
             return true;
         } catch (err) {
             console.error("Error accepting request:", err);

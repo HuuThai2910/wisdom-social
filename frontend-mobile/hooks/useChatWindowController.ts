@@ -18,6 +18,7 @@ import type {
     BulkPresignedRequest,
     Conversation,
     ConversationMember,
+    DirectBlockStatusChangedEvent,
     LocalUploadFile,
     MemberStatus,
     Message,
@@ -571,7 +572,15 @@ function resolveReadOnlyReasonFromConversation(
     conversation: Conversation | null,
     currentUserId: number,
 ): string | null {
-    if (!conversation || conversation.type !== "GROUP") return null;
+    if (!conversation) return null;
+
+    if (conversation.type === "DIRECT") {
+        if (conversation.directBlockedByMe) return "Bạn đã chặn người này.";
+        if (conversation.directBlockedMe) return "Bạn không thể nhắn tin với người này.";
+        return null;
+    }
+
+    if (conversation.type !== "GROUP") return null;
 
     const currentMember = (conversation.members ?? []).find(
         (member) => Number(member.userId) === Number(currentUserId),
@@ -1795,6 +1804,34 @@ if (token !== loadTokenRef.current) return;
                             const token = ++loadTokenRef.current;
                             void loadInitialDataRef.current(token);
                         }
+                    },
+                    (event: DirectBlockStatusChangedEvent) => {
+                        setConversation((prev) => {
+                            if (!prev || prev.type !== "DIRECT") return prev;
+
+                            const nextConversation = {
+                                ...prev,
+                                directBlockedByMe:
+                                    Number(event.blockerId) === Number(currentUserId)
+                                        ? event.blocked
+                                        : prev.directBlockedByMe,
+                                directBlockedMe:
+                                    Number(event.blockedId) === Number(currentUserId)
+                                        ? event.blocked
+                                        : prev.directBlockedMe,
+                            };
+                            chatRuntimeStore.setConversation(
+                                conversationId,
+                                nextConversation,
+                            );
+                            setReadOnlyNotice(
+                                resolveReadOnlyReasonFromConversation(
+                                    nextConversation,
+                                    currentUserId,
+                                ),
+                            );
+                            return nextConversation;
+                        });
                     },
                 );
 
