@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { X, Globe, Users, Lock, Settings, Trash2 } from "lucide-react";
+import { X, Globe, Users, Lock, Trash2 } from "lucide-react";
 
 interface StoryOptionsBottomSheetProps {
   isOpen: boolean;
@@ -9,7 +9,6 @@ interface StoryOptionsBottomSheetProps {
   isUpdating: boolean;
   onDelete: () => void;
   onUpdatePrivacy: (privacy: string) => void;
-  onUpdateSettings: (settings: { allowReplies?: boolean; allowReactions?: boolean; allowSharing?: boolean }) => void;
 }
 
 export default function StoryOptionsBottomSheet({
@@ -20,15 +19,12 @@ export default function StoryOptionsBottomSheet({
   isUpdating,
   onDelete,
   onUpdatePrivacy,
-  onUpdateSettings,
 }: StoryOptionsBottomSheetProps) {
   const [showPrivacyOptions, setShowPrivacyOptions] = useState(false);
-  const [showSettingsOptions, setShowSettingsOptions] = useState(false);
 
   useEffect(() => {
     if (!isOpen) {
       setShowPrivacyOptions(false);
-      setShowSettingsOptions(false);
     }
   }, [isOpen]);
 
@@ -36,7 +32,7 @@ export default function StoryOptionsBottomSheet({
 
   return (
     <div
-      className="absolute inset-0 bg-black/65 backdrop-blur-xs z-50 flex items-end"
+      className="absolute inset-0 bg-black/65 backdrop-blur-xs z-[1000] flex items-end"
       onMouseDown={(e) => e.stopPropagation()}
       onMouseUp={(e) => e.stopPropagation()}
       onTouchStart={(e) => e.stopPropagation()}
@@ -110,63 +106,6 @@ export default function StoryOptionsBottomSheet({
               Quay lại
             </button>
           </div>
-        ) : showSettingsOptions ? (
-          /* Advanced Settings Screen */
-          <div className="flex flex-col gap-3">
-            <p className="text-white/50 text-[10px] font-bold uppercase tracking-wider mb-1">
-              Cài đặt nâng cao
-            </p>
-            
-            <div className="flex flex-col gap-1 bg-white/5 rounded-xl border border-white/5 p-3">
-              {[
-                {
-                  key: "allowReplies",
-                  label: "Cho phép trả lời",
-                  desc: "Cho phép người xem trả lời tin bằng tin nhắn",
-                  val: activeStory?.allowReplies
-                },
-                {
-                  key: "allowReactions",
-                  label: "Cho phép bày tỏ cảm xúc",
-                  desc: "Cho phép người xem thả tim, emoji trên tin",
-                  val: activeStory?.allowReactions
-                },
-                {
-                  key: "allowSharing",
-                  label: "Cho phép chia sẻ",
-                  desc: "Cho phép chia sẻ tin này sang tin của họ",
-                  val: activeStory?.allowSharing
-                }
-              ].map((setting) => (
-                <div key={setting.key} className="flex items-center justify-between py-2.5 border-b border-white/5 last:border-b-0">
-                  <div className="flex flex-col max-w-[75%]">
-                    <span className="text-xs text-white font-medium">{setting.label}</span>
-                    <span className="text-[8px] text-white/40 mt-0.5 leading-tight">{setting.desc}</span>
-                  </div>
-                  <button
-                    disabled={isUpdating}
-                    onClick={() => onUpdateSettings({ [setting.key]: !setting.val })}
-                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer ${
-                      setting.val ? "bg-blue-500" : "bg-zinc-700"
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
-                        setting.val ? "translate-x-4.5" : "translate-x-1"
-                      }`}
-                    />
-                  </button>
-                </div>
-              ))}
-            </div>
-
-            <button
-              onClick={() => setShowSettingsOptions(false)}
-              className="w-full py-2.5 bg-white/5 hover:bg-white/10 active:scale-98 text-white rounded-xl text-xs font-semibold transition-all cursor-pointer text-center"
-            >
-              Quay lại
-            </button>
-          </div>
         ) : (
           /* Main Options Screen */
           <div className="flex flex-col gap-2">
@@ -176,14 +115,6 @@ export default function StoryOptionsBottomSheet({
               className="w-full py-3 bg-white/5 hover:bg-white/10 active:scale-98 text-white rounded-xl text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-2 border border-white/5"
             >
               <Lock size={14} /> Thay đổi quyền riêng tư
-            </button>
-
-            <button
-              disabled={isDeleting}
-              onClick={() => setShowSettingsOptions(true)}
-              className="w-full py-3 bg-white/5 hover:bg-white/10 active:scale-98 text-white rounded-xl text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-2 border border-white/5"
-            >
-              <Settings size={14} /> Cài đặt nâng cao
             </button>
 
             <button

@@ -152,7 +152,7 @@ export default function PostCard({
     musicId: `post-card-music-${post.id}`,
     audioPath: post.music?.audioUrl,
     enabled: Boolean(post.music?.audioUrl),
-    autoPlay: true,
+    autoPlay: false,
   });
 
   const locationText =
@@ -540,9 +540,30 @@ export default function PostCard({
             </>
           ) : null}
 
+          {post.music?.audioUrl ? (
+            <Pressable
+              onPress={handleToggleMusic}
+              hitSlop={8}
+              style={styles.musicOverlayButton}
+              accessibilityRole="button"
+              accessibilityLabel={isMusicPlaying ? "Tắt nhạc" : "Phát nhạc"}
+            >
+              <Ionicons
+                name={isMusicPlaying ? "volume-high" : "volume-mute"}
+                size={19}
+                color={colors.white}
+              />
+            </Pressable>
+          ) : null}
+
           {typeof currentMedia.duration === "number" &&
           postApi.isVideoMedia(currentMedia.url, currentMedia.type) ? (
-            <View style={styles.durationBadge}>
+            <View
+              style={[
+                styles.durationBadge,
+                post.music?.audioUrl ? styles.durationBadgeWithMusic : null,
+              ]}
+            >
               <Text style={styles.durationText}>
                 {postApi.formatMediaDuration(currentMedia.duration)}
               </Text>
@@ -849,7 +870,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: 3,
   },
+  durationBadgeWithMusic: {
+    right: undefined,
+    left: spacing.sm,
+  },
   durationText: { color: colors.white, fontSize: 12, fontWeight: "700" },
+  musicOverlayButton: {
+    position: "absolute",
+    right: spacing.sm,
+    bottom: spacing.sm,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "rgba(0,0,0,0.58)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   musicIndicator: {
     flexDirection: "row",
     alignItems: "center",

@@ -21,19 +21,13 @@ export default function Home() {
   const nextCursorRef = useRef<string | null>(null);
   const loadingMoreRef = useRef(false);
 
-  // Derived sorted posts for rendering
-  const sortedPosts = Array.from(postsMap.values()).sort((a, b) => {
-    const da = new Date(a.rankingTime || a.createdAt).getTime();
-    const db = new Date(b.rankingTime || b.createdAt).getTime();
-    if (isNaN(da) || isNaN(db)) return 0;
-    return db - da;
-  });
+  const feedPosts = Array.from(postsMap.values());
 
   const handlePostCreated = useCallback(async (newPost: any) => {
     console.log("🔥 WebSocket: NEW_POST received", newPost);
     toast.success("New post created!");
     try {
-      const authorData = await postApi.fetchUserById(newPost.authorId);
+      const authorData = await postApi.fetchPostAuthorById(newPost.authorId);
       const normalized = normalizePost(newPost, authorData);
       setPostsMap((prev) => {
         const next = new Map(prev);
@@ -72,47 +66,16 @@ export default function Home() {
     (postId: string, lastActivityAt: string, actorId?: string) => {
       console.log("🔥 WebSocket: BUMP received", postId, lastActivityAt, "actor:", actorId);
 
-      // ⭐️ CRITICAL: Skip bump if CURRENT USER is the one reacting
-      // (user already viewed this post, don't bump their own interaction)
-      if (currentUser && actorId === currentUser.id) {
-        console.log("⏭️ Skipping BUMP - current user performed the action:", postId);
-        return;
-      }
-
       setPostsMap((prev) => {
         const existing = prev.get(postId);
         if (!existing) return prev;
 
-        // Check if already at top position
-        const keys = Array.from(prev.keys());
-        if (keys[0] === postId) {
-          // Already at top, just update timestamp
-          const next = new Map(prev);
-          const tempRankingTime = new Date().toISOString();
-          next.set(postId, { ...existing, lastActivityAt, rankingTime: tempRankingTime });
-          return next;
-        }
-
-        // ⭐️ ENGAGEMENT BUMP: Move post to TOP of feed for realtime "hot content" UX
         const next = new Map(prev);
-        next.delete(postId); // Remove from current position
-        const tempRankingTime = new Date().toISOString();
-        const bumpedPost = { ...existing, lastActivityAt, rankingTime: tempRankingTime };
-
-        // Create new Map with bumped post at the beginning
-        const newMap = new Map<string, Post>();
-        newMap.set(postId, bumpedPost);
-        next.forEach((value, key) => {
-          if (key !== postId) {
-            newMap.set(key, value);
-          }
-        });
-
-        console.log("🚀 Post bumped to top (engagement):", postId, "by actor:", actorId);
-        return newMap;
+        next.set(postId, { ...existing, lastActivityAt });
+        return next;
       });
     },
-    [currentUser]
+    []
   );
 
   // Listen to global post events
@@ -246,46 +209,37 @@ export default function Home() {
   }, [hasMore, loadMore]);
 
   return (
-    <div>
+    <div className="min-h-screen">
       {/* Stories */}
       <StoriesBar />
 
-      {/* Posts Feed */}
       <div>
-        {loading && (
+        {loading ? (
           <div className="p-8 text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 dark:border-white mx-auto"></div>
             <p className="mt-4 text-gray-500 dark:text-gray-400">
               Loading posts...
             </p>
           </div>
-        )}
-
-        {!loading && !currentUser && (
+        ) : !currentUser ? (
           <div className="p-8 text-center text-gray-500">
             Please login to view posts
           </div>
-        )}
-
-        {error && !loading && (
+        ) : error ? (
           <div className="p-4 text-center text-red-500">{error}</div>
-        )}
-
-        {!loading && currentUser && !error && postsMap.size === 0 && (
+        ) : postsMap.size === 0 ? (
           <div className="p-8 text-center text-gray-500">
             No posts available. Start following friends to see their posts!
           </div>
-        )}
-
-        {!loading && !error && sortedPosts.length > 0 && (
+        ) : (
           <>
-            {sortedPosts.map((post) => <PostCard key={post.id} post={post} />)}
+            {feedPosts.map((post) => <PostCard key={post.id} post={post} />)}
 
             {/* Infinite scroll sentinel */}
             <div id="feed-load-more-sentinel" className="py-8 text-center">
               {loadingMore && (
                 <div className="flex items-center justify-center gap-2">
-                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900 dark:border-white"></div>
+                  <div className="animate-spin rounded-full h-6 w-6 border-2 border-gray-900 dark:border-white"></div>
                   <span className="text-gray-500">Loading more...</span>
                 </div>
               )}

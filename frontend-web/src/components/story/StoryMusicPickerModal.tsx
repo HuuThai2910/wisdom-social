@@ -25,16 +25,51 @@ export default function StoryMusicPickerModal({
   const [query, setQuery] = useState("");
   const [tracks, setTracks] = useState<MusicMetadata[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [page, setPage] = useState(0);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load initial tracks
+  const loadTracks = useCallback(
+    async (targetPage: number, reset = false) => {
+      if (targetPage === 0) {
+        setLoading(true);
+      } else {
+        setLoadingMore(true);
+      }
+
+      const result = query.trim()
+        ? await searchMusicByTitle(query.trim(), targetPage, 30)
+        : await getAllMusic(targetPage, 30);
+
+      setTracks((prev) => {
+        if (reset || targetPage === 0) return result.tracks;
+        const seen = new Set(prev.map((item) => item.id));
+        const next = result.tracks.filter((item) => !seen.has(item.id));
+        return [...prev, ...next];
+      });
+      setHasMore(result.hasMore);
+      setPage(targetPage + 1);
+      setLoading(false);
+      setLoadingMore(false);
+    },
+    [query]
+  );
+
   useEffect(() => {
     if (!isOpen) return;
+    setQuery("");
+    setPage(0);
+    setHasMore(false);
     setLoading(true);
     getAllMusic(0, 30)
-      .then((result) => setTracks(result.tracks))
+      .then((result) => {
+        setTracks(result.tracks);
+        setHasMore(result.hasMore);
+        setPage(1);
+      })
       .finally(() => setLoading(false));
   }, [isOpen]);
 
@@ -57,13 +92,29 @@ export default function StoryMusicPickerModal({
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
       setLoading(true);
+      setPage(0);
       const result = q.trim()
-        ? await searchMusicByTitle(q)
+        ? await searchMusicByTitle(q, 0, 30)
         : await getAllMusic(0, 30);
       setTracks(result.tracks);
+      setHasMore(result.hasMore);
+      setPage(1);
       setLoading(false);
     }, 300);
   }, []);
+
+  const handleScroll = useCallback(
+    (event: React.UIEvent<HTMLDivElement>) => {
+      if (loading || loadingMore || !hasMore) return;
+      const target = event.currentTarget;
+      const distanceToBottom =
+        target.scrollHeight - target.scrollTop - target.clientHeight;
+      if (distanceToBottom < 120) {
+        void loadTracks(page, false);
+      }
+    },
+    [hasMore, loadTracks, loading, loadingMore, page]
+  );
 
   const togglePlay = useCallback(
     (track: MusicMetadata) => {
@@ -141,7 +192,7 @@ export default function StoryMusicPickerModal({
         </div>
 
         {/* Track list */}
-        <div className="flex-1 overflow-y-auto px-2 pb-3">
+        <div className="flex-1 overflow-y-auto px-2 pb-3" onScroll={handleScroll}>
           {loading ? (
             // Skeleton
             <div className="space-y-1 px-2">
@@ -243,6 +294,11 @@ export default function StoryMusicPickerModal({
                   </div>
                 );
               })}
+              {loadingMore && (
+                <div className="py-3 text-center text-xs text-white/40">
+                  Đang tải thêm...
+                </div>
+              )}
             </div>
           )}
         </div>

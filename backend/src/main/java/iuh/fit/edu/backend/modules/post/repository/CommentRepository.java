@@ -5,6 +5,7 @@
 package iuh.fit.edu.backend.modules.post.repository;
 
 import iuh.fit.edu.backend.modules.notification.constant.TargetType;
+import iuh.fit.edu.backend.modules.post.constant.StatusType;
 import iuh.fit.edu.backend.modules.post.entity.Comment;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.mongodb.repository.MongoRepository;
@@ -22,6 +23,7 @@ import java.util.List;
  */
 @Repository
 public interface CommentRepository extends MongoRepository<Comment, String> {
+    List<Comment> findByUserIdAndStatus(String userId, StatusType status);
     
     // Get root comments (cấp 1) của target - sắp xếp mới → cũ
     List<Comment> findByTargetTypeAndTargetIdAndParentIdIsNullOrderByCreatedAtDesc(

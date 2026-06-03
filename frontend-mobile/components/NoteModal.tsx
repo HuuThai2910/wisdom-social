@@ -547,7 +547,8 @@ export default function NoteModal({
         onClose={() => setIsMusicSelectorOpen(false)}
         onSelect={(music) => {
           setSelectedMusic(music);
-          void startPreview(resolveMusicMediaUrl(music.audioUrl) || "");
+          void stopAudioPreview();
+          setPlayingUrl(null);
         }}
       />
     </Modal>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   playAudioPreview,
   resolveMusicMediaUrl,
+  subscribeToPlayback,
   stopAudioPreview,
 } from "@/services/musicService";
 
@@ -15,7 +16,7 @@ type UseMusicAutoplayOptions = {
 export default function useMusicAutoplay({
   audioPath,
   enabled,
-  autoPlay = true,
+  autoPlay = false,
 }: UseMusicAutoplayOptions) {
   const [isPlaying, setIsPlaying] = useState(false);
   const audioUrl = resolveMusicMediaUrl(audioPath);
@@ -27,6 +28,14 @@ export default function useMusicAutoplay({
     hasAutoPlayed.current = false;
     isPlayingRef.current = false;
     setIsPlaying(false);
+  }, [audioUrl]);
+
+  useEffect(() => {
+    return subscribeToPlayback((url, playing) => {
+      const nextPlaying = Boolean(audioUrl && playing && url === audioUrl);
+      isPlayingRef.current = nextPlaying;
+      setIsPlaying(nextPlaying);
+    });
   }, [audioUrl]);
 
   // Auto-play when enabled, audio changes, and not yet auto-played
@@ -41,7 +50,11 @@ export default function useMusicAutoplay({
 
     const timeout = setTimeout(async () => {
       try {
-        await playAudioPreview(audioUrl);
+        const sound = await playAudioPreview(audioUrl);
+        if (!sound) {
+          isPlayingRef.current = false;
+          setIsPlaying(false);
+        }
       } catch (error) {
         console.error("[MusicAutoplay] Auto-play error:", error);
         isPlayingRef.current = false;
@@ -75,7 +88,11 @@ export default function useMusicAutoplay({
       // Not playing - start
       isPlayingRef.current = true;
       setIsPlaying(true);
-      await playAudioPreview(audioUrl);
+      const sound = await playAudioPreview(audioUrl);
+      if (!sound) {
+        isPlayingRef.current = false;
+        setIsPlaying(false);
+      }
     }
   }, [audioUrl, enabled]);
 

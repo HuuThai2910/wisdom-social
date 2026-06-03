@@ -1,6 +1,7 @@
 import {
   createPost,
   fetchHomeFeedPosts,
+  fetchPostAuthorById,
   fetchUserById,
   normalizePost,
   togglePostReaction,
@@ -453,7 +454,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     onPostCreated: async (post) => {
       console.log("🔥 Mobile WS: NEW_POST received", post);
       try {
-        const authorData = await fetchUserById(post.authorId);
+        const authorData = post.authorSummary || await fetchPostAuthorById(post.authorId);
         const normalized = normalizePost(post, authorData);
         setPosts((prev) => {
           if (prev.some((p) => p.id === normalized.id)) return prev;
@@ -481,31 +482,12 @@ export function AppProvider({ children }: PropsWithChildren) {
     onActivityBump: (postId, lastActivityAt, actorId) => {
       console.log("🔥 Mobile WS: BUMP received", postId, lastActivityAt, "actor:", actorId);
 
-      // ⭐️ CRITICAL: Skip bump if CURRENT USER is the one reacting
-      // (user already viewed this post, don't bump their own interaction)
-      if (currentUser && actorId === currentUser.id) {
-        console.log("⏭️ Skipping BUMP - current user performed the action:", postId);
-        return;
-      }
-
       setPosts((prev) => {
-        const existing = prev.find((p) => p.id === postId);
-        if (!existing) return prev;
-
-        // Check if already at top position
-        const topPost = prev[0];
-        if (topPost && topPost.id === postId) {
-          // Already at top, just update timestamp (no reorder needed)
-          return prev.map((p) =>
-            p.id === postId
-              ? { ...p, lastActivityAt, rankingTime: new Date().toISOString() }
-              : p
-          );
-        }
-
-        // ⭐️ ENGAGEMENT BUMP: Move post to TOP of feed
-        const bumpedPost = { ...existing, lastActivityAt, rankingTime: new Date().toISOString() };
-        return [bumpedPost, ...prev.filter((p) => p.id !== postId)];
+        return prev.map((p) =>
+          p.id === postId
+            ? { ...p, lastActivityAt }
+            : p
+        );
       });
     },
   });
@@ -1067,6 +1049,9 @@ export function AppProvider({ children }: PropsWithChildren) {
       updateNotificationSetting,
       toggleAllNotifications,
       refreshPosts,
+      loadMorePosts,
+      hasMorePosts,
+      loadingMorePosts,
       likePost,
       savePost,
       addComment,
@@ -1104,6 +1089,9 @@ export function AppProvider({ children }: PropsWithChildren) {
       deletionRemainingDays,
       clearDeletionPending,
       refreshPosts,
+      loadMorePosts,
+      hasMorePosts,
+      loadingMorePosts,
       getUserById,
       syncCurrentUserFromServer,
       unreadCount,

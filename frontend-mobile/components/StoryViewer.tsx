@@ -41,6 +41,7 @@ import { removeStoriesFromHighlight } from "@/services/highlightService";
 import { buildS3Url } from "@/utils/s3";
 import UserAvatar from "./UserAvatar";
 import useRealtimeStory from "@/hooks/useRealtimeStory";
+import { useRouter } from "expo-router";
 
 type Props = {
   visible: boolean;
@@ -423,6 +424,7 @@ export default function StoryViewer({
   onStoryRemovedFromHighlight,
   onEditHighlight,
 }: Props) {
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const [groupIdx, setGroupIdx] = useState(initialGroupIdx);
   const [storyIdx, setStoryIdx] = useState(initialStoryIdx);
@@ -451,6 +453,18 @@ export default function StoryViewer({
       activeGroup &&
       String(currentUser.id) === String(activeGroup.userId)
   );
+
+  const openActiveUserProfile = () => {
+    if (!activeGroup?.userId) return;
+    onClose();
+    router.push({
+      pathname: "/(tabs)/user-profile",
+      params: {
+        userId: String(activeGroup.userId),
+        username: activeGroup.username,
+      },
+    });
+  };
 
   useEffect(() => {
     if (!visible) return;
@@ -852,7 +866,7 @@ export default function StoryViewer({
                 ))}
               </View>
               <View style={styles.headerRow}>
-                <View style={styles.ownerRow}>
+                <Pressable style={styles.ownerRow} onPress={openActiveUserProfile}>
                   <UserAvatar
                     uri={activeGroup?.userAvatar}
                     name={activeGroup?.username || "User"}
@@ -864,7 +878,7 @@ export default function StoryViewer({
                       {formatTimeAgo(activeStory?.createdAt)}
                     </Text>
                   </View>
-                </View>
+                </Pressable>
                 <View style={styles.headerActions}>
                   {isMyStory ? (
                     <TouchableOpacity

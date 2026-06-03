@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Music } from "lucide-react";
 import * as postApi from "../../../services/postService";
 import { buildS3Url } from "../../../utils/s3";
 import { useCurrentUser } from "../../../hooks/useCurrentUser";
@@ -179,7 +178,9 @@ export default function PostCard({ post }: PostCardProps) {
     audioPath: displayPost.music?.audioUrl,
     enabled: Boolean(displayPost.music?.audioUrl) && shouldMuteOriginal,
     focusRatio: 0.65,
+    autoPlayOnFocus: false,
   });
+  const isMusicPlaying = Boolean(musicAudioUrl && musicPlayingUrl === musicAudioUrl);
 
   useEffect(() => {
     const fetchReactionData = async () => {
@@ -591,20 +592,25 @@ export default function PostCard({ post }: PostCardProps) {
         ""
       )}
 
-      <PostCardMedia
-        displayPost={displayPost}
-        totalImages={totalImages}
-        currentImageIndex={currentImageIndex}
-        currentMediaUrl={currentMediaUrl}
-        currentMediaDuration={currentMediaDuration}
-        isCurrentMediaVideo={isCurrentMediaVideo}
-        locationPathname={location.pathname}
-        onPrevImage={handlePrevImage}
-        onNextImage={handleNextImage}
-        onSelectImage={handleSelectImage}
-        containerRef={containerRef}
-        videoRef={videoRef}
-      />
+      <div ref={musicContainerRef}>
+        <PostCardMedia
+          displayPost={displayPost}
+          totalImages={totalImages}
+          currentImageIndex={currentImageIndex}
+          currentMediaUrl={currentMediaUrl}
+          currentMediaDuration={currentMediaDuration}
+          isCurrentMediaVideo={isCurrentMediaVideo}
+          locationPathname={location.pathname}
+          onPrevImage={handlePrevImage}
+          onNextImage={handleNextImage}
+          onSelectImage={handleSelectImage}
+          onToggleMusic={handleToggleMusic}
+          containerRef={containerRef}
+          videoRef={videoRef}
+          hasMusic={Boolean(displayPost.music?.audioUrl)}
+          isMusicPlaying={isMusicPlaying}
+        />
+      </div>
 
       <div className="px-4">
         <PostCardActions

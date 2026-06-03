@@ -66,9 +66,6 @@ export default function CreateStoryScreen() {
 
     const [selectedBgIndex, setSelectedBgIndex] = useState(0);
     const [privacy, setPrivacy] = useState<PrivacyType>("PUBLIC");
-    const [allowReplies, setAllowReplies] = useState(true);
-    const [allowReactions, setAllowReactions] = useState(true);
-    const [allowSharing, setAllowSharing] = useState(true);
     const [muteOriginal, setMuteOriginal] = useState(false);
     const [selectedMusic, setSelectedMusic] = useState<MusicMetadata | null>(null);
     const [musicPickerOpen, setMusicPickerOpen] = useState(false);
@@ -235,9 +232,6 @@ export default function CreateStoryScreen() {
                 musicId: selectedMusic?.id,
                 musicStartTime: selectedMusic ? 0 : undefined,
                 muteOriginal,
-                allowReplies,
-                allowReactions,
-                allowSharing,
                 textLayers: preparedTextLayers,
                 musicStickers: preparedMusicStickers,
             });
@@ -755,22 +749,6 @@ export default function CreateStoryScreen() {
                     })}
                 </View>
 
-                {/* Advanced toggles */}
-                <View style={styles.panel}>
-                    <Text style={styles.label}>Cài đặt nâng cao</Text>
-                    <View style={styles.settingRow}>
-                        <Text style={styles.settingText}>Cho phép reply story</Text>
-                        <Switch value={allowReplies} onValueChange={setAllowReplies} />
-                    </View>
-                    <View style={styles.settingRow}>
-                        <Text style={styles.settingText}>Cho phép bày tỏ cảm xúc</Text>
-                        <Switch value={allowReactions} onValueChange={setAllowReactions} />
-                    </View>
-                    <View style={styles.settingRow}>
-                        <Text style={styles.settingText}>Cho phép chia sẻ</Text>
-                        <Switch value={allowSharing} onValueChange={setAllowSharing} />
-                    </View>
-                </View>
             </ScrollView>
 
             <StoryMusicPickerModal

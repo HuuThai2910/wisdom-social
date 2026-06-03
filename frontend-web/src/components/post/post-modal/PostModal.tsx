@@ -173,7 +173,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
         const postData = await postApi.fetchPostById(postId);
         setPost(postData);
 
-        const authorData = await postApi.fetchUserById(postData.authorId);
+        const authorData = postData.authorSummary || await postApi.fetchPostAuthorById(postData.authorId);
         setAuthor(authorData);
 
         if (postData.taggedUserIds && postData.taggedUserIds.length > 0) {

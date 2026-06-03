@@ -12,7 +12,6 @@ import {
   viewStory,
   deleteStory,
   updateStoryPrivacy,
-  updateStorySettings,
   fetchStoryViewers,
 } from "../../services/storyService";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
@@ -24,6 +23,7 @@ import { removeStoriesFromHighlight } from "../../services/highlightService";
 import HighlightOptionsBottomSheet from "./HighlightOptionsBottomSheet";
 import EditHighlightModal from "./EditHighlightModal";
 import useRealtimeStory from "../../hooks/useRealtimeStory";
+import { useNavigate } from "react-router-dom";
 
 export interface StoryGroup {
   userId: string;
@@ -61,6 +61,7 @@ export default function StoryViewerModal({
   onStoryRemovedFromHighlight,
   onHighlightUpdated,
 }: StoryViewerModalProps) {
+  const navigate = useNavigate();
   // Use groups directly — parent is responsible for keeping them stable
   const [groupIdx, setGroupIdx] = useState(initialGroupIdx);
   const [storyIdx, setStoryIdx] = useState(initialStoryIdx);
@@ -227,27 +228,6 @@ export default function StoryViewerModal({
     }
   };
 
-  const handleUpdateSettings = async (settings: {
-    allowReplies?: boolean;
-    allowReactions?: boolean;
-    allowSharing?: boolean;
-  }) => {
-    if (!activeStory) return;
-    setIsUpdating(true);
-    try {
-      await updateStorySettings(activeStory.id, settings);
-      // Mutate the story object directly so UI reflects change
-      Object.assign(activeStory, settings);
-
-      setShowOptions(false);
-      setIsPaused(false);
-    } catch (err) {
-      alert("Cập nhật cài đặt thất bại!");
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
   const handleRemoveFromHighlight = async () => {
     if (!activeStory || !highlightId) return;
     if (window.confirm("Bạn có chắc chắn muốn gỡ tin này khỏi tin nổi bật?")) {
@@ -324,6 +304,16 @@ export default function StoryViewerModal({
     setIsPaused(false);
     onClose();
   };
+
+  const handleOpenProfile = useCallback(
+    (event: React.MouseEvent) => {
+      event.stopPropagation();
+      if (!activeGroup?.username) return;
+      handleClose();
+      navigate(`/profile/${activeGroup.username}`);
+    },
+    [activeGroup?.username, navigate]
+  );
 
   const handleNext = useCallback(() => {
     const group = groups[groupIdx];
@@ -962,20 +952,39 @@ export default function StoryViewerModal({
               <div className="flex items-center justify-between w-full pr-1">
                 <div className="flex items-center gap-2.5">
                   {activeGroup && (
-                    <img
-                      src={
-                        buildS3Url(activeGroup.userAvatar) ||
-                        activeGroup.userAvatar ||
-                        "https://i.pravatar.cc/150"
-                      }
-                      alt={activeGroup.username}
-                      className="w-9 h-9 rounded-full object-cover border border-white/20"
-                    />
+                    <button
+                      type="button"
+                      onClick={handleOpenProfile}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onMouseUp={(e) => e.stopPropagation()}
+                      onTouchStart={(e) => e.stopPropagation()}
+                      onTouchEnd={(e) => e.stopPropagation()}
+                      className="shrink-0 rounded-full cursor-pointer"
+                      title={`Xem profile ${activeGroup.username}`}
+                    >
+                      <img
+                        src={
+                          buildS3Url(activeGroup.userAvatar) ||
+                          activeGroup.userAvatar ||
+                          "https://i.pravatar.cc/150"
+                        }
+                        alt={activeGroup.username}
+                        className="w-9 h-9 rounded-full object-cover border border-white/20 hover:opacity-90 transition-opacity"
+                      />
+                    </button>
                   )}
                   <div className="flex flex-col">
-                    <span className="text-white text-xs font-bold leading-tight">
+                    <button
+                      type="button"
+                      onClick={handleOpenProfile}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onMouseUp={(e) => e.stopPropagation()}
+                      onTouchStart={(e) => e.stopPropagation()}
+                      onTouchEnd={(e) => e.stopPropagation()}
+                      className="text-left text-white text-xs font-bold leading-tight hover:underline cursor-pointer"
+                    >
                       {activeGroup?.username}
-                    </span>
+                    </button>
                     <span className="text-white/50 text-[10px] leading-tight mt-0.5">
                       {activeStory?.createdAt
                         ? formatTimeAgo(activeStory.createdAt)
@@ -1112,7 +1121,6 @@ export default function StoryViewerModal({
           isUpdating={isUpdating}
           onDelete={handleDelete}
           onUpdatePrivacy={handleUpdatePrivacy}
-          onUpdateSettings={handleUpdateSettings}
         />
 
         {/* Story Viewers list Bottom Sheet */}
