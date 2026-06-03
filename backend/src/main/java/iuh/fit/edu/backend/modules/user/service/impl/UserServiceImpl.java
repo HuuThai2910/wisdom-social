@@ -244,6 +244,14 @@ public class UserServiceImpl implements UserService {
                 if (user == null) {
                     user = userRepository.findByPhone(login.getPhone());
                 }
+
+                // 1 PHIÊN MỖI NỀN TẢNG: trước khi tạo phiên mới, chỉ thu hồi + đẩy
+                // FORCE_LOGOUT tới các phiên cũ CÙNG nền tảng (web đá web, mobile đá
+                // mobile). Nhờ vậy 1 web + 1 mobile vẫn đăng nhập song song được.
+                // Thiết bị mới chưa subscribe nên không bị ảnh hưởng bởi broadcast này.
+                String platform = resolvePlatform(login.getDeviceType());
+                logoutPlatformSessions(user, platform);
+
                 saveDevice(user, login.getDeviceType(), login.getDeviceName(), login.getIpAddress());
 
                 activeTokenRepository.save(ActiveToken.builder()
@@ -251,6 +259,7 @@ public class UserServiceImpl implements UserService {
                         .accessToken(accessToken)
                         .refreshToken(refreshToken)
                         .idToken(idToken)
+                        .platform(platform)
                         .createdAt(OffsetDateTime.now())
                         .expiresAt(OffsetDateTime.now().plusHours(1))
                         .build());
@@ -426,6 +435,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Transactional
     public boolean resetPassword(UserRequestResetPassword requestResetPassword) {
         long otpLock = rateLimitService.checkOtpLock(requestResetPassword.getPhone());
         if (otpLock > 0) {
@@ -450,6 +460,14 @@ public class UserServiceImpl implements UserService {
 
             if (response != null) {
                 rateLimitService.clearOtpAttempts(requestResetPassword.getPhone());
+                // Mật khẩu đã đổi -> đăng xuất tất cả thiết bị: thu hồi mọi token cũ
+                // và đẩy FORCE_LOGOUT realtime để web/mobile đăng xuất ngay lập tức.
+                // Bảo đảm ở phía server cho MỌI luồng reset (settings và quên mật khẩu),
+                // kể cả khi client không/không thể gọi logout-all.
+                User user = userRepository.findByPhone(requestResetPassword.getPhone());
+                if (user != null) {
+                    logoutAllDevices(user);
+                }
                 return true;
             }
             return false;
@@ -860,6 +878,43 @@ public class UserServiceImpl implements UserService {
         }
         activeTokenRepository.deleteByUserId(user.getId());
         deviceRepository.deleteDeviceByUser_Id(user.getId());
+    }
+
+    // Phân loại nền tảng từ deviceType client gửi lên: ANDROID/IOS/MOBILE -> MOBILE,
+    // còn lại (WEB/UNKNOWN/null) -> WEB.
+    private String resolvePlatform(String deviceType) {
+        if (deviceType == null) return "WEB";
+        String dt = deviceType.toUpperCase();
+        if (dt.contains("ANDROID") || dt.contains("IOS") || dt.contains("MOBILE")) {
+            return "MOBILE";
+        }
+        return "WEB";
+    }
+
+    // Đăng xuất các phiên CÙNG nền tảng của user (giữ nguyên phiên ở nền tảng khác).
+    // Dùng khi đăng nhập để áp "1 phiên mỗi nền tảng": web đá web, mobile đá mobile.
+    @Transactional
+    public void logoutPlatformSessions(User user, String platform) {
+        // Force-logout realtime tới đúng nền tảng đó qua topic riêng.
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("event", "FORCE_LOGOUT");
+        payload.put("userId", user.getId());
+        payload.put("platform", platform);
+        payload.put("timestamp", OffsetDateTime.now().toString());
+        String topic = "/topic/user/" + user.getId() + "/force-logout/" + platform;
+        simpMessagingTemplate.convertAndSend(topic, payload);
+        System.out.println("🔴 Platform force logout sent to " + topic);
+
+        // Thu hồi (blacklist + xóa) các token cùng nền tảng.
+        List<ActiveToken> tokens = activeTokenRepository.findByUserIdAndPlatform(user.getId(), platform);
+        for (ActiveToken token : tokens) {
+            blackListUserRepository.save(BlackListUser.builder()
+                    .idToken(token.getIdToken())
+                    .refreshToken(token.getRefreshToken())
+                    .userId(user.getId())
+                    .build());
+        }
+        activeTokenRepository.deleteByUserIdAndPlatform(user.getId(), platform);
     }
 
     @Override

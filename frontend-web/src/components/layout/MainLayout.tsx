@@ -6,6 +6,7 @@ import { Link } from "react-router-dom";
 import { Loader2, UserPlus, X } from "lucide-react";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useForceLogout } from "../../hooks/useForceLogout";
+import DeletionPendingNotice from "../security/DeletionPendingNotice";
 import { useAvatarBuster } from "../../context/AvatarContext";
 import { FriendNotificationProvider } from "../../contexts/FriendNotificationContext";
 import {
@@ -104,6 +105,9 @@ function MainLayoutContent() {
 
     return (
         <div className="min-h-screen bg-[#fafafa] dark:bg-[#000]">
+            {/* Cảnh báo tài khoản đang chờ xóa khi vừa vào app (giống mobile) */}
+            <DeletionPendingNotice />
+
             {/* Sidebar for desktop */}
             <Sidebar />
 

@@ -25,8 +25,18 @@ import {
     requestAccountDeletion,
     setupPinCode,
     removePinCode,
+    verifyPin,
 } from "@/services/securityService";
 import userService from "@/services/userService";
+import { forgotPassword, resetPassword } from "@/services/authService";
+import { validateOTP, validateResetPasswordForm } from "@/utils/validators";
+
+const maskPhone = (phone?: string): string => {
+    if (!phone) return "";
+    const tail = phone.slice(-3);
+    return `${"*".repeat(Math.max(0, phone.length - 3))}${tail}`;
+};
+const RESEND_COOLDOWN = 30;
 
 type ProfilePrivacy = "PUBLIC" | "FRIENDS" | "ONLY_ME";
 
@@ -100,6 +110,157 @@ export default function SecuritySettingsScreen() {
     const [cancelDeletePin, setCancelDeletePin] = useState(['', '', '', '', '', '']);
     const [cancelDeletePinError, setCancelDeletePinError] = useState("");
     const cancelDeleteInputRefs = useRef<Array<TextInput | null>>([]);
+
+    // Change Password State (OTP gửi về SĐT của chính mình)
+    const [changePwModalVisible, setChangePwModalVisible] = useState(false);
+    const [cpOtp, setCpOtp] = useState("");
+    const [cpPassword, setCpPassword] = useState("");
+    const [cpConfirm, setCpConfirm] = useState("");
+    const [cpShowPassword, setCpShowPassword] = useState(false);
+    const [cpError, setCpError] = useState("");
+    const [cpInfo, setCpInfo] = useState("");
+    const [cpLoading, setCpLoading] = useState(false);
+    const [cpSending, setCpSending] = useState(false);
+    const [cpCooldown, setCpCooldown] = useState(0);
+
+    // 2FA: xác thực mã PIN trước khi đổi mật khẩu (chỉ khi user đã bật PIN)
+    const [cpPinModalVisible, setCpPinModalVisible] = useState(false);
+    const [cpPin, setCpPin] = useState("");
+    const [cpPinError, setCpPinError] = useState("");
+    const [cpPinLoading, setCpPinLoading] = useState(false);
+
+    // Toast nhỏ tự ẩn (mobile chưa có hệ thống toast dùng chung)
+    const [cpToast, setCpToast] = useState<string | null>(null);
+    const cpToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const showCpToast = useCallback((msg: string) => {
+        if (cpToastTimer.current) clearTimeout(cpToastTimer.current);
+        setCpToast(msg);
+        cpToastTimer.current = setTimeout(() => setCpToast(null), 4000);
+    }, []);
+    useEffect(() => () => { if (cpToastTimer.current) clearTimeout(cpToastTimer.current); }, []);
+
+    // Resend cooldown ticker
+    useEffect(() => {
+        if (cpCooldown <= 0) return;
+        const id = setInterval(() => setCpCooldown((c) => (c <= 1 ? 0 : c - 1)), 1000);
+        return () => clearInterval(id);
+    }, [cpCooldown]);
+
+    const sendChangePwOtp = useCallback(async () => {
+        const phone = currentUser?.phone;
+        if (!phone) {
+            setCpError("Không tìm thấy số điện thoại của tài khoản.");
+            return;
+        }
+        setCpSending(true);
+        setCpError("");
+        const result = await forgotPassword(phone);
+        setCpSending(false);
+        if (result.success) {
+            setCpInfo(`Đã gửi mã OTP đến số ${maskPhone(phone)}.`);
+            setCpCooldown(RESEND_COOLDOWN);
+        } else {
+            setCpError(result.message || "Gửi OTP thất bại. Vui lòng thử lại.");
+        }
+    }, [currentUser?.phone]);
+
+    const openChangePwModal = useCallback(() => {
+        setCpOtp("");
+        setCpPassword("");
+        setCpConfirm("");
+        setCpShowPassword(false);
+        setCpError("");
+        setCpInfo("");
+        setCpCooldown(0);
+        setChangePwModalVisible(true);
+        const phone = currentUser?.phone;
+        showCpToast(
+            phone
+                ? `Mã OTP sẽ được gửi về số điện thoại ${maskPhone(phone)} của bạn.`
+                : "Mã OTP sẽ được gửi về số điện thoại của bạn.",
+        );
+        void sendChangePwOtp();
+    }, [sendChangePwOtp, currentUser?.phone, showCpToast]);
+
+    // Thực hiện đổi mật khẩu (đã qua validate + 2FA nếu cần) rồi đăng xuất mọi thiết bị.
+    const doChangePassword = useCallback(async () => {
+        const phone = currentUser?.phone;
+        if (!phone) {
+            setCpError("Không tìm thấy số điện thoại của tài khoản.");
+            return;
+        }
+        setCpLoading(true);
+        const result = await resetPassword({
+            phone,
+            password: cpPassword,
+            confirmPassword: cpConfirm,
+            confirmationCode: cpOtp.trim(),
+        });
+        setCpLoading(false);
+
+        if (result.success) {
+            setCpPinModalVisible(false);
+            setChangePwModalVisible(false);
+            // Đổi mật khẩu xong -> đăng xuất tất cả thiết bị (web + mobile).
+            try { await logoutAllDevices(); } catch { /* vẫn đăng xuất thiết bị này */ }
+            await logout();
+            Alert.alert(
+                "Đổi mật khẩu thành công",
+                "Tất cả thiết bị đã được đăng xuất. Vui lòng đăng nhập lại bằng mật khẩu mới.",
+            );
+            router.replace("/(auth)/login");
+        } else {
+            // Lỗi -> đóng modal PIN, quay lại form đổi mật khẩu để sửa.
+            setCpPinModalVisible(false);
+            setCpError(result.message || "Đổi mật khẩu thất bại.");
+        }
+    }, [currentUser?.phone, cpOtp, cpPassword, cpConfirm, logout, router]);
+
+    // Bấm "Đổi mật khẩu": validate xong -> nếu đã bật PIN thì mở bước 2FA, ngược lại đổi luôn.
+    const handleChangePassword = useCallback(() => {
+        const phone = currentUser?.phone;
+        if (!phone) {
+            setCpError("Không tìm thấy số điện thoại của tài khoản.");
+            return;
+        }
+        setCpError("");
+
+        const otpCheck = validateOTP(cpOtp);
+        if (!otpCheck.isValid) {
+            setCpError(otpCheck.error || "Mã OTP không hợp lệ.");
+            return;
+        }
+        const pwCheck = validateResetPasswordForm(cpPassword, cpConfirm);
+        if (!pwCheck.isValid) {
+            setCpError(pwCheck.error || "Thông tin không hợp lệ.");
+            return;
+        }
+
+        if (currentUser?.hasPinCode) {
+            setCpPin("");
+            setCpPinError("");
+            setCpPinModalVisible(true);
+            return;
+        }
+        void doChangePassword();
+    }, [currentUser?.phone, currentUser?.hasPinCode, cpOtp, cpPassword, cpConfirm, doChangePassword]);
+
+    // Bước 2FA: xác thực mã PIN rồi mới đổi mật khẩu.
+    const handleVerifyCpPin = useCallback(async () => {
+        setCpPinError("");
+        if (!/^\d{6}$/.test(cpPin)) {
+            setCpPinError("Mã PIN phải gồm 6 chữ số.");
+            return;
+        }
+        setCpPinLoading(true);
+        const result = await verifyPin(cpPin);
+        setCpPinLoading(false);
+        if (!result.success) {
+            setCpPinError(result.message || "Mã PIN không chính xác.");
+            return;
+        }
+        await doChangePassword();
+    }, [cpPin, doChangePassword]);
 
     const handleSetupPinChange = (value: string, index: number) => {
         if (value.length > 1) value = value[value.length - 1];
@@ -348,6 +509,12 @@ export default function SecuritySettingsScreen() {
 
     return (
         <SafeAreaView style={styles.container}>
+            {cpToast ? (
+                <View style={[styles.toast, { top: insets.top + 10 }]} pointerEvents="none">
+                    <Ionicons name="information-circle" size={18} color="#fff" />
+                    <Text style={styles.toastText}>{cpToast}</Text>
+                </View>
+            ) : null}
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => router.back()} hitSlop={12}>
                     <Ionicons name="arrow-back" size={24} color={colors.text} />
@@ -407,6 +574,28 @@ export default function SecuritySettingsScreen() {
                                 <Text style={styles.settingLabel}>Đăng xuất tất cả thiết bị</Text>
                                 <Text style={styles.settingDesc}>
                                     Hủy tất cả phiên đăng nhập trên các thiết bị khác
+                                </Text>
+                            </View>
+                        </View>
+                        <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+                    </TouchableOpacity>
+                </View>
+
+                <Text style={styles.sectionTitle}>Mật khẩu</Text>
+                <View style={styles.card}>
+                    <TouchableOpacity
+                        style={styles.menuItem}
+                        onPress={openChangePwModal}
+                        activeOpacity={0.7}
+                    >
+                        <View style={styles.settingInfo}>
+                            <View style={[styles.iconWrap, { backgroundColor: "#E3F2FD" }]}>
+                                <Ionicons name="lock-closed" size={20} color="#3B82F6" />
+                            </View>
+                            <View>
+                                <Text style={styles.settingLabel}>Đổi mật khẩu</Text>
+                                <Text style={styles.settingDesc}>
+                                    Xác minh bằng OTP gửi đến số điện thoại của bạn
                                 </Text>
                             </View>
                         </View>
@@ -599,6 +788,183 @@ export default function SecuritySettingsScreen() {
                             <Text style={styles.modalCancelText}>Đóng</Text>
                         </TouchableOpacity>
                     </Pressable>
+                </Pressable>
+            </Modal>
+
+            {/* Modal Đổi mật khẩu */}
+            <Modal
+                visible={changePwModalVisible}
+                transparent
+                animationType="slide"
+                onRequestClose={() => !cpLoading && setChangePwModalVisible(false)}
+            >
+                <Pressable style={styles.modalOverlay} onPress={() => !cpLoading && setChangePwModalVisible(false)}>
+                    <KeyboardAvoidingView
+                        behavior={Platform.OS === "ios" ? "padding" : "height"}
+                        style={styles.modalKeyboard}
+                    >
+                        <Pressable style={styles.modalSheet}>
+                            <View style={styles.modalHandle} />
+                            <View style={styles.modalIconWrap}>
+                                <Ionicons name="lock-closed" size={32} color={colors.primary} />
+                            </View>
+                            <Text style={styles.modalTitle}>Đổi mật khẩu</Text>
+                            <Text style={styles.modalDesc}>
+                                Nhập mã OTP đã gửi và mật khẩu mới của bạn.
+                            </Text>
+
+                            {cpInfo && !cpError ? (
+                                <Text style={styles.cpInfoText}>{cpInfo}</Text>
+                            ) : null}
+                            {cpError ? (
+                                <Text style={styles.passwordErrorText}>{cpError}</Text>
+                            ) : null}
+
+                            {/* OTP */}
+                            <TextInput
+                                style={styles.passwordInput}
+                                value={cpOtp}
+                                onChangeText={(v) => setCpOtp(v.replace(/[^0-9]/g, ""))}
+                                placeholder="Mã OTP (6 chữ số)"
+                                placeholderTextColor={colors.textMuted}
+                                keyboardType="number-pad"
+                                maxLength={6}
+                            />
+
+                            <TouchableOpacity
+                                style={styles.cpResendBtn}
+                                onPress={sendChangePwOtp}
+                                disabled={cpSending || cpCooldown > 0}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={[styles.cpResendText, (cpSending || cpCooldown > 0) && { color: colors.textMuted }]}>
+                                    {cpCooldown > 0 ? `Gửi lại mã (${cpCooldown}s)` : cpSending ? "Đang gửi..." : "Gửi lại mã OTP"}
+                                </Text>
+                            </TouchableOpacity>
+
+                            {/* Mật khẩu mới */}
+                            <View style={styles.cpPwRow}>
+                                <TextInput
+                                    style={styles.cpPwInput}
+                                    value={cpPassword}
+                                    onChangeText={setCpPassword}
+                                    placeholder="Mật khẩu mới"
+                                    placeholderTextColor={colors.textMuted}
+                                    secureTextEntry={!cpShowPassword}
+                                    autoCapitalize="none"
+                                />
+                                <TouchableOpacity onPress={() => setCpShowPassword((s) => !s)} hitSlop={8}>
+                                    <Ionicons
+                                        name={cpShowPassword ? "eye-off-outline" : "eye-outline"}
+                                        size={20}
+                                        color={colors.textMuted}
+                                    />
+                                </TouchableOpacity>
+                            </View>
+
+                            {/* Xác nhận mật khẩu */}
+                            <View style={styles.cpPwRow}>
+                                <TextInput
+                                    style={styles.cpPwInput}
+                                    value={cpConfirm}
+                                    onChangeText={setCpConfirm}
+                                    placeholder="Nhập lại mật khẩu mới"
+                                    placeholderTextColor={colors.textMuted}
+                                    secureTextEntry={!cpShowPassword}
+                                    autoCapitalize="none"
+                                />
+                            </View>
+
+                            <Text style={styles.cpHint}>
+                                Mật khẩu 8-50 ký tự, gồm chữ hoa, chữ thường, số và ký tự đặc biệt.
+                            </Text>
+
+                            <TouchableOpacity
+                                style={[styles.modalConfirmBtn, (cpLoading || cpSending) && { opacity: 0.7 }]}
+                                onPress={handleChangePassword}
+                                disabled={cpLoading || cpSending}
+                                activeOpacity={0.8}
+                            >
+                                {cpLoading ? (
+                                    <ActivityIndicator size="small" color="#fff" />
+                                ) : (
+                                    <Text style={styles.modalConfirmText}>
+                                        {currentUser?.hasPinCode ? "Tiếp tục" : "Đổi mật khẩu"}
+                                    </Text>
+                                )}
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={styles.modalCancelBtn}
+                                onPress={() => !cpLoading && setChangePwModalVisible(false)}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={styles.modalCancelText}>Hủy</Text>
+                            </TouchableOpacity>
+                        </Pressable>
+                    </KeyboardAvoidingView>
+                </Pressable>
+            </Modal>
+
+            {/* Modal 2FA: xác thực mã PIN để đổi mật khẩu */}
+            <Modal
+                visible={cpPinModalVisible}
+                transparent
+                animationType="slide"
+                onRequestClose={() => !cpPinLoading && setCpPinModalVisible(false)}
+            >
+                <Pressable style={styles.modalOverlay} onPress={() => !cpPinLoading && setCpPinModalVisible(false)}>
+                    <KeyboardAvoidingView
+                        behavior={Platform.OS === "ios" ? "padding" : "height"}
+                        style={styles.modalKeyboard}
+                    >
+                        <Pressable style={styles.modalSheet}>
+                            <View style={styles.modalHandle} />
+                            <View style={styles.modalIconWrap}>
+                                <Ionicons name="keypad" size={32} color={colors.primary} />
+                            </View>
+                            <Text style={styles.modalTitle}>Xác thực 2 yếu tố</Text>
+                            <Text style={styles.modalDesc}>
+                                Nhập mã PIN 6 chữ số để xác nhận đổi mật khẩu.
+                            </Text>
+
+                            <TextInput
+                                style={[styles.passwordInput, cpPinError ? styles.passwordInputError : null]}
+                                value={cpPin}
+                                onChangeText={(v) => { setCpPin(v.replace(/[^0-9]/g, "")); setCpPinError(""); }}
+                                placeholder="••••••"
+                                placeholderTextColor={colors.textMuted}
+                                keyboardType="number-pad"
+                                maxLength={6}
+                                secureTextEntry
+                                autoFocus
+                            />
+                            {cpPinError ? (
+                                <Text style={styles.passwordErrorText}>{cpPinError}</Text>
+                            ) : null}
+
+                            <TouchableOpacity
+                                style={[styles.modalConfirmBtn, cpPinLoading && { opacity: 0.7 }]}
+                                onPress={handleVerifyCpPin}
+                                disabled={cpPinLoading}
+                                activeOpacity={0.8}
+                            >
+                                {cpPinLoading ? (
+                                    <ActivityIndicator size="small" color="#fff" />
+                                ) : (
+                                    <Text style={styles.modalConfirmText}>Xác nhận & đổi mật khẩu</Text>
+                                )}
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={styles.modalCancelBtn}
+                                onPress={() => !cpPinLoading && setCpPinModalVisible(false)}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={styles.modalCancelText}>Hủy</Text>
+                            </TouchableOpacity>
+                        </Pressable>
+                    </KeyboardAvoidingView>
                 </Pressable>
             </Modal>
 
@@ -1050,6 +1416,69 @@ const styles = StyleSheet.create({
     },
     passwordInputError: {
         borderColor: colors.danger,
+    },
+    toast: {
+        position: "absolute",
+        left: 16,
+        right: 16,
+        zIndex: 1000,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        backgroundColor: "rgba(17,24,39,0.95)",
+        paddingHorizontal: 14,
+        paddingVertical: 12,
+        borderRadius: 12,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 8,
+        elevation: 6,
+    },
+    toastText: {
+        flex: 1,
+        color: "#fff",
+        fontSize: 13,
+        fontWeight: "500",
+    },
+    cpInfoText: {
+        color: "#059669",
+        fontSize: 13,
+        marginBottom: 12,
+        alignSelf: "center",
+        textAlign: "center",
+    },
+    cpResendBtn: {
+        alignSelf: "flex-end",
+        marginBottom: 16,
+    },
+    cpResendText: {
+        color: colors.primary,
+        fontSize: 13,
+        fontWeight: "600",
+    },
+    cpPwRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        width: "100%",
+        height: 52,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: 12,
+        paddingHorizontal: 16,
+        backgroundColor: colors.surface,
+        marginBottom: 12,
+    },
+    cpPwInput: {
+        flex: 1,
+        fontSize: 16,
+        color: colors.text,
+    },
+    cpHint: {
+        fontSize: 11,
+        color: colors.textMuted,
+        alignSelf: "flex-start",
+        marginBottom: 20,
     },
     passwordErrorText: {
         color: colors.danger,

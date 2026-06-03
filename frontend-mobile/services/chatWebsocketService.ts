@@ -1632,6 +1632,32 @@ class ChatWebsocketService {
     unsubscribeFromForceLogout(phone: string): void {
         this.removeSubscription(`/topic/user/${phone}/force-logout`);
     }
+
+    // Force-logout theo NỀN TẢNG: chỉ bị đá khi có phiên MOBILE khác đăng nhập.
+    // Tách khỏi topic chung (admin khóa / logout-all / đổi mật khẩu) vốn đá mọi nền tảng.
+    subscribeToForceLogoutByPlatform(userId: number | string, platform: string, onForceLogout: () => void): void {
+        const destination = `/topic/user/${userId}/force-logout/${platform}`;
+        this.registerSubscription(destination, () => {
+            const client = this.client;
+            if (!client?.connected) {
+                throw new Error("WebSocket not connected");
+            }
+            return client.subscribe(destination, (msg: IMessage) => {
+                try {
+                    const raw = JSON.parse(msg.body) as Record<string, unknown>;
+                    if (raw.event === "FORCE_LOGOUT") {
+                        onForceLogout();
+                    }
+                } catch {
+                    // no-op
+                }
+            });
+        });
+    }
+
+    unsubscribeFromForceLogoutByPlatform(userId: number | string, platform: string): void {
+        this.removeSubscription(`/topic/user/${userId}/force-logout/${platform}`);
+    }
 }
 
 const chatWebsocketService = new ChatWebsocketService();

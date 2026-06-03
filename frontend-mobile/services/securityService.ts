@@ -32,6 +32,17 @@ export async function removePinCode(pinCode: string): Promise<{ success: boolean
     }
 }
 
+// Xác thực mã PIN 2 lớp (2FA) của user hiện tại, không thực hiện hành động nào.
+export async function verifyPin(pinCode: string): Promise<{ success: boolean; message?: string }> {
+    try {
+        await apiClient.post("/auth/verify-pin", { pinCode });
+        return { success: true };
+    } catch (error: any) {
+        const msg = error?.response?.data?.message || error?.message || '';
+        return { success: false, message: msg || 'Mã PIN không chính xác.' };
+    }
+}
+
 export async function requestAccountDeletion(pinCode?: string): Promise<{
     success: boolean;
     message?: string;

@@ -1849,6 +1849,42 @@ class WebSocketService {
         }
     }
 
+    /**
+     * Force-logout theo NỀN TẢNG: chỉ nhận khi có phiên mới CÙNG nền tảng đăng nhập
+     * (web đá web). Tách khỏi topic force-logout chung (admin khóa / logout-all / đổi
+     * mật khẩu) vốn đá mọi nền tảng.
+     */
+    subscribeToForceLogoutByPlatform(userId: number, platform: string, callback: () => void) {
+        const destination = `/topic/user/${userId}/force-logout/${platform}`;
+        if (this.subscriptionFactories.has(destination)) {
+            this.syncSubscriptions();
+            return;
+        }
+        this.registerSubscription(destination, () => {
+            const client = this.client;
+            if (!client?.connected) {
+                throw new Error("WebSocket not connected");
+            }
+            return client.subscribe(destination, (message: IMessage) => {
+                try {
+                    const payload = JSON.parse(message.body);
+                    if (payload?.event === "FORCE_LOGOUT") {
+                        callback();
+                    }
+                } catch (error) {
+                    console.error("Error parsing force-logout (platform) event:", error);
+                }
+            });
+        });
+    }
+
+    unsubscribeFromForceLogoutByPlatform(userId: number, platform: string) {
+        const destination = `/topic/user/${userId}/force-logout/${platform}`;
+        if (this.subscriptions.has(destination) || this.subscriptionFactories.has(destination)) {
+            this.removeSubscription(destination);
+        }
+    }
+
     // ── Page realtime ─────────────────────────────────────────────────────
 
     subscribeToPagePosts(pageId: number, onEvent: (event: Record<string, unknown>) => void) {

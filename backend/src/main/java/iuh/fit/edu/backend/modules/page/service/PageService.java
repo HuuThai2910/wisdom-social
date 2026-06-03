@@ -13,6 +13,7 @@ public interface PageService {
     boolean updatePage(long pageId, UserRequestUpdatePage updatePage);
     Page findPageById(long id);
     List<Page> findAllPages();
+    List<Page> findAllPagesForUser(long userId);
     List<Page> findPagesByUserId(long userId);
     boolean followPageUser(long userId, long pageId);
     boolean likePageUser(long userId, long pageId);
