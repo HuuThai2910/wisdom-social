@@ -40,7 +40,7 @@ export default function InstagramLikesScreen() {
             currentUserId={currentUser?.id}
             liked={likedPostIds.includes(item.id) || item.isLiked}
             saved={savedPostIds.includes(item.id) || item.isSaved}
-            onLike={() => void likePost(item.id)}
+            onLike={(reactionType, isToggleOff) => void likePost(item.id, reactionType, isToggleOff)}
             onSave={() => void savePost(item.id)}
             onAddComment={(content) => void addComment(item.id, content)}
             onDeleted={removePost}

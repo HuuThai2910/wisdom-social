@@ -20,6 +20,7 @@ import securityService, { computeDeletionStatus } from "../services/securityServ
 import userService from "../services/userService";
 import PinInputModal from "../components/security/PinInputModal";
 import ConfirmModal from "../components/security/ConfirmModal";
+import ChangePasswordModal from "../components/security/ChangePasswordModal";
 
 type ModalKind =
   | "logoutAll"
@@ -27,6 +28,7 @@ type ModalKind =
   | "cancelDeletion"
   | "setupPin"
   | "removePin"
+  | "changePassword"
   | null;
 
 interface SettingRow {
@@ -52,6 +54,7 @@ export default function SettingsPage() {
   const [deletionPending, setDeletionPending] = useState(false);
   const [deletionRemainingDays, setDeletionRemainingDays] = useState(0);
   const [hasPinCode, setHasPinCode] = useState(false);
+  const [userPhone, setUserPhone] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -63,6 +66,7 @@ export default function SettingsPage() {
         setDeletionPending(pending);
         setDeletionRemainingDays(remainingDays);
         setHasPinCode(!!me.hasPinCode);
+        setUserPhone(me.phone ?? "");
       } catch (err) {
         console.error("Failed to load settings:", err);
       }
@@ -247,7 +251,7 @@ export default function SettingsPage() {
       title: "Mật khẩu",
       description: "Thay đổi mật khẩu của bạn",
       actionLabel: "Cập nhật",
-      onClick: () => {},
+      onClick: () => openModal("changePassword"),
     },
     pinRow,
     {
@@ -482,7 +486,25 @@ export default function SettingsPage() {
         onClose={closeModal}
       />
 
-
+      {/* Modal: Đổi mật khẩu (OTP về SĐT của chính mình) */}
+      <ChangePasswordModal
+        open={modal === "changePassword"}
+        phone={userPhone}
+        hasPinCode={hasPinCode}
+        onClose={() => setModal(null)}
+        onSuccess={async () => {
+          // Đổi mật khẩu xong -> đăng xuất tất cả thiết bị (web + mobile).
+          // Phiên hiện tại vẫn còn token hợp lệ để gọi logout-all; các thiết bị
+          // khác sẽ bị đẩy ra ở request/refresh kế tiếp.
+          setModal(null);
+          try {
+            await logoutAllDevices();
+          } catch {
+            /* vẫn đăng xuất thiết bị này */
+          }
+          window.location.href = "/login";
+        }}
+      />
     </div>
   );
 }

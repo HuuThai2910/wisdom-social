@@ -69,6 +69,11 @@ public class PageServiceImpl implements PageService {
 
         if (page != null) {
             page.setCreatedBy(user);
+            // Tự gán username của page = username người tạo (cho phép trùng,
+            // không yêu cầu unique). Bỏ qua giá trị username client gửi lên.
+            if (user != null) {
+                page.setUsername(user.getUsername());
+            }
             page.setCreatedAt(OffsetDateTime.now());
             Page saved = pageRepository.save(page);
             // Publish PAGE_CREATED so all clients update their list
@@ -136,6 +141,19 @@ public class PageServiceImpl implements PageService {
     @Override
     public List<Page> findAllPages() {
         return pageRepository.findAll();
+    }
+
+    @Override
+    public List<Page> findAllPagesForUser(long userId) {
+        List<Page> pages = pageRepository.findAll();
+        for (Page page : pages) {
+            long pageId = page.getId();
+            page.setLikeCount(pageLikeRepository.countByPage_Id(pageId));
+            page.setFollowCount(pageFollowRepository.countByPage_Id(pageId));
+            page.setIsLiked(pageLikeRepository.existsByUser_IdAndPage_Id(userId, pageId));
+            page.setIsFollowing(pageFollowRepository.existsByUser_IdAndPage_Id(userId, pageId));
+        }
+        return pages;
     }
 
     @Override

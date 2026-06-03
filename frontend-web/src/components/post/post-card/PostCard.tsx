@@ -178,7 +178,9 @@ export default function PostCard({ post }: PostCardProps) {
     audioPath: displayPost.music?.audioUrl,
     enabled: Boolean(displayPost.music?.audioUrl) && shouldMuteOriginal,
     focusRatio: 0.65,
+    autoPlayOnFocus: false,
   });
+  const isMusicPlaying = Boolean(musicAudioUrl && musicPlayingUrl === musicAudioUrl);
 
   useEffect(() => {
     const fetchReactionData = async () => {
@@ -223,6 +225,32 @@ export default function PostCard({ post }: PostCardProps) {
       clearTimeout(fullCommentsTimeoutRef.current);
       fullCommentsTimeoutRef.current = null;
     }
+  }, [post.id]);
+
+  // ============ EFFECT: Listen to post-update events from other components ============
+  useEffect(() => {
+    const handlePostUpdate = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const { postId: eventPostId, type, reactionType, likesCount: newLikesCount, isSaved: newIsSaved } = customEvent.detail;
+      if (eventPostId !== post.id) return;
+
+      if (type === "reaction") {
+        setCurrentReaction(reactionType);
+        setIsLiked(reactionType !== null);
+        if (typeof newLikesCount === "number") {
+          setLikesCount(newLikesCount);
+        }
+      } else if (type === "save") {
+        if (typeof newIsSaved === "boolean") {
+          setIsSaved(newIsSaved);
+        }
+      }
+    };
+
+    window.addEventListener("post-update", handlePostUpdate);
+    return () => {
+      window.removeEventListener("post-update", handlePostUpdate);
+    };
   }, [post.id]);
 
   useEffect(() => {
@@ -291,17 +319,37 @@ export default function PostCard({ post }: PostCardProps) {
         reactionType
       );
 
+      let nextReaction: string | null = null;
+      let nextLikesCount = likesCount;
+
       if (!reaction) {
-        setCurrentReaction(null);
+        nextReaction = null;
         setIsLiked(false);
-        setLikesCount((prev) => Math.max(0, prev - 1));
+        nextLikesCount = Math.max(0, likesCount - 1);
       } else {
-        if (!currentReaction) {
-          setLikesCount((prev) => prev + 1);
-        }
-        setCurrentReaction(reaction.type);
+        const wasNewReaction = currentReaction === null;
+        nextReaction = reaction.type;
         setIsLiked(true);
+        if (wasNewReaction) {
+          nextLikesCount = likesCount + 1;
+        }
       }
+
+      setCurrentReaction(nextReaction);
+      setLikesCount(nextLikesCount);
+
+      // Dispatch event to sync other components
+      window.dispatchEvent(
+        new CustomEvent("post-update", {
+          detail: {
+            postId: post.id,
+            type: "reaction",
+            reactionType: nextReaction,
+            likesCount: nextLikesCount,
+          },
+        })
+      );
+
       setShowReactions(false);
     } catch (error) {
       console.error("Error reacting to post:", error);
@@ -327,7 +375,19 @@ export default function PostCard({ post }: PostCardProps) {
 
     try {
       await postApi.togglePostSaved(String(currentUser.id), post.id);
-      setIsSaved(!isSaved);
+      const nextSaved = !isSaved;
+      setIsSaved(nextSaved);
+
+      // Dispatch event to sync other components
+      window.dispatchEvent(
+        new CustomEvent("post-update", {
+          detail: {
+            postId: post.id,
+            type: "save",
+            isSaved: nextSaved,
+          },
+        })
+      );
     } catch (error) {
       console.error("Error toggling save status:", error);
     }
@@ -515,10 +575,6 @@ export default function PostCard({ post }: PostCardProps) {
         onCopyLink={handleCopyLink}
         onChangePrivacy={handleChangePrivacy}
         taggedUsers={taggedUsers}
-        musicContainerRef={musicContainerRef}
-        musicPlayingUrl={musicPlayingUrl}
-        musicAudioUrl={musicAudioUrl}
-        onToggleMusic={handleToggleMusic}
       />
 
       {displayPost.caption || (displayPost as any).content ? (
@@ -536,20 +592,25 @@ export default function PostCard({ post }: PostCardProps) {
         ""
       )}
 
-      <PostCardMedia
-        displayPost={displayPost}
-        totalImages={totalImages}
-        currentImageIndex={currentImageIndex}
-        currentMediaUrl={currentMediaUrl}
-        currentMediaDuration={currentMediaDuration}
-        isCurrentMediaVideo={isCurrentMediaVideo}
-        locationPathname={location.pathname}
-        onPrevImage={handlePrevImage}
-        onNextImage={handleNextImage}
-        onSelectImage={handleSelectImage}
-        containerRef={containerRef}
-        videoRef={videoRef}
-      />
+      <div ref={musicContainerRef}>
+        <PostCardMedia
+          displayPost={displayPost}
+          totalImages={totalImages}
+          currentImageIndex={currentImageIndex}
+          currentMediaUrl={currentMediaUrl}
+          currentMediaDuration={currentMediaDuration}
+          isCurrentMediaVideo={isCurrentMediaVideo}
+          locationPathname={location.pathname}
+          onPrevImage={handlePrevImage}
+          onNextImage={handleNextImage}
+          onSelectImage={handleSelectImage}
+          onToggleMusic={handleToggleMusic}
+          containerRef={containerRef}
+          videoRef={videoRef}
+          hasMusic={Boolean(displayPost.music?.audioUrl)}
+          isMusicPlaying={isMusicPlaying}
+        />
+      </div>
 
       <div className="px-4">
         <PostCardActions

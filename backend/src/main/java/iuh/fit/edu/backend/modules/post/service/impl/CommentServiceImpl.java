@@ -481,6 +481,7 @@ public class CommentServiceImpl implements CommentService {
 
                 PostEvent bumpEvent = PostEvent.builder()
                         .action("BUMP")
+                        .actorId(userId)          // Who performed the comment
                         .postId(postId)
                         .lastActivityAt(lastActivityAt)
                         .authorId(post.getAuthorId())

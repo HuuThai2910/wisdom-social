@@ -30,6 +30,10 @@ public class ActiveToken {
     @Column(columnDefinition = "TEXT")
     private String idToken;
 
+    // Nền tảng của phiên: "WEB" hoặc "MOBILE". Dùng để chỉ thu hồi phiên cùng
+    // nền tảng khi đăng nhập (cho phép 1 web + 1 mobile đăng nhập song song).
+    private String platform;
+
     private OffsetDateTime createdAt;
     private OffsetDateTime expiresAt;
 }

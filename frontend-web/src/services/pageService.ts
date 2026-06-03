@@ -3,7 +3,8 @@ import axiosClient from "../api/axiosClient";
 
 export interface UserRequestCreatePage {
     name: string;
-    username: string;
+    // Username được backend tự gán = username người tạo (cho phép trùng), không cần gửi.
+    username?: string;
     category: string;
     description?: string;
     avatarUrl?: string;
@@ -81,6 +82,13 @@ export interface Page {
     status: string;
     createdAt: string;
     updatedAt: string;
+    // Per-current-user interaction state, embedded by the backend on the
+    // discover list (/page/all). Lets the list render like/follow without
+    // a separate interaction-status call per page.
+    isLiked?: boolean;
+    isFollowing?: boolean;
+    likeCount?: number;
+    followCount?: number;
 }
 
 export interface PageMember {

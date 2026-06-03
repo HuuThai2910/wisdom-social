@@ -191,6 +191,25 @@ public class UserController {
         return ResponseEntity.ok(ApiResponse.success(200, "Xóa mã PIN thành công", null));
     }
 
+    @PostMapping("/verify-pin")
+    @ApiMessage("Verify PIN successfully")
+    public ResponseEntity<ApiResponse<String>> verifyPin(@RequestBody UserRequestRemovePin request) {
+        User user = userService.getCurrentUser();
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "Unauthorized", null));
+        }
+        if (!user.hasPinCode()) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error(400, "Chưa thiết lập mã PIN", null));
+        }
+        if (!userService.verifyPinCode(user, request.getPinCode())) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error(400, "Mã PIN không chính xác", null));
+        }
+        return ResponseEntity.ok(ApiResponse.success(200, "Xác thực mã PIN thành công", null));
+    }
+
     @PostMapping("/request-deletion")
     @ApiMessage("Account deletion requested")
     public ResponseEntity<ApiResponse<Map<String, Object>>> requestDeletion(@RequestBody(required = false) UserRequestDeletion request) {

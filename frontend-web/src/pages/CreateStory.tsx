@@ -8,7 +8,6 @@ import {
   Users,
   ArrowLeft,
   Music,
-  Settings2,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
@@ -103,8 +102,6 @@ export default function CreateStory() {
       musicManager,
       selectedMedia: media.selectedMedia,
       privacy: privacy.privacy,
-      allowReplies: settings.allowReplies,
-      allowSharing: settings.allowSharing,
       selectedBgIndex: media.selectedBgIndex,
       muteOriginal: videoMuted,
     });
@@ -511,79 +508,6 @@ export default function CreateStory() {
                     </div>
                   )}
                 </div>
-              </div>
-
-              {/* Divider */}
-              <div className="h-px bg-white/5" />
-
-              {/* Advanced Settings */}
-              <div>
-                <button
-                  onClick={() =>
-                    settings.setShowAdvancedSettings(
-                      !settings.showAdvancedSettings
-                    )
-                  }
-                  className="w-full flex items-center justify-between py-2 transition-colors"
-                >
-                  <div className="flex items-center gap-2 text-white/40 text-[10px] font-bold uppercase tracking-wider">
-                    <Settings2 size={12} />
-                    Cài đặt nâng cao
-                  </div>
-                  <span
-                    className={`text-white/30 text-[10px] transition-transform ${
-                      settings.showAdvancedSettings ? "rotate-180" : ""
-                    }`}
-                  >
-                    ▼
-                  </span>
-                </button>
-                {settings.showAdvancedSettings && (
-                  <div className="pt-2 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-white/60">
-                        Cho phép reply story
-                      </span>
-                      <button
-                        onClick={() =>
-                          settings.setAllowReplies(!settings.allowReplies)
-                        }
-                        className={`relative w-9 h-5 rounded-full transition-colors ${
-                          settings.allowReplies ? "bg-blue-500" : "bg-white/10"
-                        }`}
-                      >
-                        <span
-                          className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform shadow-sm ${
-                            settings.allowReplies
-                              ? "translate-x-4"
-                              : "translate-x-0"
-                          }`}
-                        />
-                      </button>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-white/60">
-                        Cho phép chia sẻ
-                      </span>
-                      <button
-                        onClick={() =>
-                          settings.setAllowSharing(!settings.allowSharing)
-                        }
-                        className={`relative w-9 h-5 rounded-full transition-colors ${
-                          settings.allowSharing ? "bg-blue-500" : "bg-white/10"
-                        }`}
-                      >
-                        <span
-                          className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform shadow-sm ${
-                            settings.allowSharing
-                              ? "translate-x-4"
-                              : "translate-x-0"
-                          }`}
-                        />
-                      </button>
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
           </div>

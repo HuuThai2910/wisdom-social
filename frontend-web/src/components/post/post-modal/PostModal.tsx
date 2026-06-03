@@ -49,7 +49,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { X } from "lucide-react";
+import { X, Music } from "lucide-react";
 import FriendSelectorModal from "../FriendSelectorModal";
 import EditPostModal from "../EditPostModal";
 import PostHeader from "./PostHeader";
@@ -58,6 +58,7 @@ import PostActions from "./PostActions";
 import PostComments from "./post-comment/PostComments";
 import { useAuth } from "../../../contexts/AuthContext";
 import * as postApi from "../../../services/postService";
+import useMusicAutoplay from "../../../hooks/useMusicAutoplay";
 import toast from "react-hot-toast";
 import type {
   PostData,
@@ -172,7 +173,7 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
         const postData = await postApi.fetchPostById(postId);
         setPost(postData);
 
-        const authorData = await postApi.fetchUserById(postData.authorId);
+        const authorData = postData.authorSummary || await postApi.fetchPostAuthorById(postData.authorId);
         setAuthor(authorData);
 
         if (postData.taggedUserIds && postData.taggedUserIds.length > 0) {
@@ -265,6 +266,31 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
     return () => window.removeEventListener("focus", handleFocus);
   }, [viewerId, postId]);
 
+  // ============ EFFECT: Listen to post-update events from other components ============
+  useEffect(() => {
+    const handlePostUpdate = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const { postId: eventPostId, type, reactionType, likesCount, isSaved: newIsSaved } = customEvent.detail;
+      if (eventPostId !== postId) return;
+
+      if (type === "reaction") {
+        setCurrentReaction(reactionType);
+        if (typeof likesCount === "number") {
+          setReactCount(likesCount);
+        }
+      } else if (type === "save") {
+        if (typeof newIsSaved === "boolean") {
+          setIsSaved(newIsSaved);
+        }
+      }
+    };
+
+    window.addEventListener("post-update", handlePostUpdate);
+    return () => {
+      window.removeEventListener("post-update", handlePostUpdate);
+    };
+  }, [postId]);
+
   // ============ HANDLERS: Menu & Privacy ============
   const handleEdit = () => {
     if (!post) return;
@@ -337,16 +363,34 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
         reactionType
       );
 
+      let nextReaction: string | null = null;
+      let nextReactCount = reactCount;
+
       if (!reaction) {
-        setCurrentReaction(null);
-        setReactCount((prev) => Math.max(0, prev - 1));
+        nextReaction = null;
+        nextReactCount = Math.max(0, reactCount - 1);
       } else {
         const wasNewReaction = currentReaction === null;
-        setCurrentReaction(reaction.type);
+        nextReaction = reaction.type;
         if (wasNewReaction) {
-          setReactCount((prev) => prev + 1);
+          nextReactCount = reactCount + 1;
         }
       }
+
+      setCurrentReaction(nextReaction);
+      setReactCount(nextReactCount);
+
+      // Dispatch event to sync other components
+      window.dispatchEvent(
+        new CustomEvent("post-update", {
+          detail: {
+            postId,
+            type: "reaction",
+            reactionType: nextReaction,
+            likesCount: nextReactCount,
+          },
+        })
+      );
     } catch (error) {
       console.error("Error toggling reaction:", error);
     }
@@ -360,7 +404,19 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
 
     try {
       await postApi.togglePostSaved(viewerId, postId);
-      setIsSaved(!isSaved);
+      const nextSaved = !isSaved;
+      setIsSaved(nextSaved);
+
+      // Dispatch event to sync other components
+      window.dispatchEvent(
+        new CustomEvent("post-update", {
+          detail: {
+            postId,
+            type: "save",
+            isSaved: nextSaved,
+          },
+        })
+      );
     } catch (error) {
       console.error("Error toggling save status:", error);
     }
@@ -464,6 +520,17 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
             musicAutoPlayEnabled={true}
           />
 
+          {/* Music Bar - above comments */}
+          {post.music && (
+            <div className="px-4 py-2 border-b dark:border-[#363636]">
+              <MusicBar
+                music={post.music}
+                scopeId={`post-modal-music-${post.id}`}
+                autoPlayEnabled={true}
+              />
+            </div>
+          )}
+
           {/* Comments */}
           <PostComments 
             postId={postId} 
@@ -527,3 +594,56 @@ export default function PostModal({ postId, onClose }: PostModalProps) {
     </div>
   );
 }
+
+// Music Bar Component for PostModal
+const MusicBar: React.FC<{
+  music: any;
+  scopeId: string;
+  autoPlayEnabled: boolean;
+}> = ({ music, scopeId, autoPlayEnabled }) => {
+  const {
+    containerRef,
+    playingUrl,
+    audioUrl,
+    togglePlay: handleToggle,
+  } = useMusicAutoplay({
+    musicId: scopeId,
+    audioPath: music?.audioUrl,
+    enabled: Boolean(autoPlayEnabled && music?.audioUrl),
+    focusRatio: 0.65,
+  });
+
+  return (
+    <div ref={containerRef}>
+      <button
+        onClick={handleToggle}
+        className="flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/50 px-3 py-2 rounded-lg w-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+      >
+        <div className="relative flex items-center justify-center">
+          <Music
+            size={14}
+            className={`shrink-0 ${
+              playingUrl === audioUrl ? "text-blue-500 animate-pulse" : ""
+            }`}
+          />
+          {playingUrl === audioUrl && (
+            <div className="absolute -inset-1 bg-blue-500/10 rounded-full animate-ping" />
+          )}
+        </div>
+        <span className="truncate flex-1 text-left">
+          {music.title} • {music.artist}
+        </span>
+        {playingUrl === audioUrl ? (
+          <svg className="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="currentColor">
+            <rect x="6" y="4" width="4" height="16" />
+            <rect x="14" y="4" width="4" height="16" />
+          </svg>
+        ) : (
+          <svg className="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="5 3 19 12 5 21 5 3" />
+          </svg>
+        )}
+      </button>
+    </div>
+  );
+};

@@ -451,6 +451,21 @@ export default function PageDetailScreen() {
       const status = await pageService.getMemberStatus(numericPageId, numericUserId);
       setMemberStatus(status);
       if (status === "ACTIVE") setMemberCount(c => c + 1);
+
+      // Tham gia trang -> tự động thích + theo dõi (nếu chưa).
+      if (!interaction.isLiked) {
+        try {
+          await pageService.likePage(numericUserId, numericPageId);
+          setInteraction(s => ({ ...s, isLiked: true, likeCount: s.likeCount + 1 }));
+        } catch { /* bỏ qua nếu like lỗi */ }
+      }
+      if (!interaction.isFollowing) {
+        try {
+          await pageService.followPage(numericUserId, numericPageId);
+          setInteraction(s => ({ ...s, isFollowing: true, followCount: s.followCount + 1 }));
+        } catch { /* bỏ qua nếu follow lỗi */ }
+      }
+
       Alert.alert("Thành công", page?.status === "PUBLIC" ? "Đã tham gia trang." : "Đã gửi yêu cầu tham gia.");
     } catch {
       Alert.alert("Lỗi", "Không thể gửi yêu cầu.");

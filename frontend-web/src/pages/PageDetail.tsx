@@ -91,6 +91,9 @@ const normalizePost = (p: any): Post => {
       : transformMediaToS3Urls(p?.media, p?.authorId || "");
   return {
     ...p,
+    // PostCard dùng post.id làm targetId khi gọi /reactions, /comments.
+    // Page-post có thể chỉ có _id -> phải set cả id để tránh gọi thiếu targetId.
+    id: p?.id ?? p?._id,
     _id: p?._id ?? p?.id,
     images,
   };
@@ -265,6 +268,16 @@ export default function PageDetail() {
         } catch {
           setMemberStatus("none");
         }
+      } else {
+        // Not logged in yet: reset interaction state to avoid stale "liked" UI
+        setIsLiked(false);
+        setIsFollowing(false);
+        setMemberStatus("none");
+      }
+
+      // Tải trạng thái like/follow cho MỌI user đã đăng nhập (kể cả chủ page).
+      // Trước đây nhánh "owner" không gọi nên like/follow bị "mất" sau khi F5.
+      if (currentUserId) {
         try {
           const interactionStatus =
             await pageService.getPageInteractionStatus(numericPageId);
@@ -272,11 +285,6 @@ export default function PageDetail() {
           setIsLiked(interactionStatus.isLiked || false);
           setIsFollowing(interactionStatus.isFollowing || false);
         } catch {}
-      } else {
-        // Not logged in yet: reset interaction state to avoid stale "liked" UI
-        setIsLiked(false);
-        setIsFollowing(false);
-        setMemberStatus("none");
       }
     } catch (error) {
       console.error("Error loading page:", error);
@@ -338,6 +346,24 @@ export default function PageDetail() {
         const newStatus = page?.status === "PRIVATE" ? "pending" : "member";
         setMemberStatus(newStatus);
         if (newStatus === "member") setMemberCount((c) => c + 1);
+
+        // Tham gia trang -> tự động thích + theo dõi (nếu chưa).
+        if (!isLiked) {
+          try {
+            await pageService.likePage(currentUser.id, numericPageId);
+            setIsLiked(true);
+          } catch (e) {
+            console.error("Auto-like on join failed:", e);
+          }
+        }
+        if (!isFollowing) {
+          try {
+            await pageService.followPage(currentUser.id, numericPageId);
+            setIsFollowing(true);
+          } catch (e) {
+            console.error("Auto-follow on join failed:", e);
+          }
+        }
       }
     } catch (error) {
       console.error("Error handling join request:", error);

@@ -12,6 +12,7 @@ type UseMusicAutoplayOptions = {
   audioPath?: string | null;
   enabled: boolean;
   focusRatio?: number;
+  autoPlayOnFocus?: boolean;
 };
 
 export default function useMusicAutoplay({
@@ -19,6 +20,7 @@ export default function useMusicAutoplay({
   audioPath,
   enabled,
   focusRatio = 0.65,
+  autoPlayOnFocus = true,
 }: UseMusicAutoplayOptions) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
@@ -72,6 +74,15 @@ export default function useMusicAutoplay({
       pause: pauseMusic,
     });
 
+    if (!autoPlayOnFocus) {
+      observerRef.current?.disconnect();
+      observerRef.current = null;
+      return () => {
+        musicFeedManager.pauseIfActive(musicId);
+        musicFeedManager.unregister(musicId);
+      };
+    }
+
     const node = containerRef.current;
     if (node) {
       observerRef.current = new IntersectionObserver(
@@ -101,7 +112,7 @@ export default function useMusicAutoplay({
       musicFeedManager.pauseIfActive(musicId);
       musicFeedManager.unregister(musicId);
     };
-  }, [audioUrl, enabled, focusRatio, musicId, pauseMusic, playMusic]);
+  }, [audioUrl, autoPlayOnFocus, enabled, focusRatio, musicId, pauseMusic, playMusic]);
 
   return {
     containerRef,

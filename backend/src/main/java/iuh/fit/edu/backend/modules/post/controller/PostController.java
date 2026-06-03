@@ -14,6 +14,7 @@ import iuh.fit.edu.backend.common.dto.response.PresignedUrlResponse;
 import iuh.fit.edu.backend.modules.post.service.FeedService;
 import iuh.fit.edu.backend.modules.post.service.PostService;
 import iuh.fit.edu.backend.common.service.s3.S3Service;
+import iuh.fit.edu.backend.modules.user.entity.User;
 import iuh.fit.edu.backend.modules.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,7 +24,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /*
  * @description: Post management controller
@@ -64,6 +67,9 @@ public class PostController {
             }
             
             FeedSliceResponse feed = feedService.getFeed(currentUser.getId(), lastActivityAt, lastPostId, size, prioritizePostId);
+            if (feed.getPosts() != null) {
+                feed.getPosts().forEach(this::attachAuthorSummary);
+            }
             return ResponseEntity.ok(ApiResponse.success(200, "Lấy feed thành công", feed));
         } catch (Exception e) {
             log.error("Error fetching feed", e);
@@ -187,6 +193,7 @@ public class PostController {
             Long currentUserId = currentUser != null ? currentUser.getId() : null;
             
             Page<Post> posts = postService.getPostsByUserId(userId, currentUserId, page, size);
+            posts.forEach(this::attachAuthorSummary);
             return ResponseEntity.ok(ApiResponse.success(200, "Lấy danh sách post thành công", posts));
         } catch (Exception e) {
             log.error("Error fetching posts", e);
@@ -217,6 +224,30 @@ public class PostController {
         }
     }
 
+    @GetMapping("/authors/{authorId}/summary")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getPostAuthorSummary(@PathVariable Long authorId) {
+        try {
+            var user = userService.findUserById(authorId);
+            if (user == null) {
+                return ResponseEntity.badRequest()
+                        .body(ApiResponse.error(404, "Không tìm thấy tác giả", null));
+            }
+
+            Map<String, Object> author = new HashMap<>();
+            author.put("id", user.getId());
+            author.put("username", user.getUsername());
+            author.put("name", user.getName());
+            author.put("fullName", user.getName());
+            author.put("avatarUrl", user.getAvatarUrl());
+
+            return ResponseEntity.ok(ApiResponse.success(200, "Lấy thông tin tác giả thành công", author));
+        } catch (Exception e) {
+            log.error("Error fetching post author summary", e);
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error(400, "Lỗi khi lấy thông tin tác giả: " + e.getMessage(), null));
+        }
+    }
+
     /**
      * Get post by ID
      * @param id Post ID
@@ -227,6 +258,7 @@ public class PostController {
         try {
             log.info("Fetching post by ID: {}", id);
             Post post = postService.getPostById(id);
+            attachAuthorSummary(post);
             return ResponseEntity.ok(ApiResponse.success(200, "Lấy chi tiết post thành công", post));
         } catch (Exception e) {
             log.error("Error fetching post", e);
@@ -311,6 +343,7 @@ public class PostController {
         try {
             log.info("Fetching posts where user {} is tagged", userId);
             List<Post> posts = postService.getPostsByTaggedUserId(userId);
+            posts.forEach(this::attachAuthorSummary);
             return ResponseEntity.ok(ApiResponse.success(200, "Lấy danh sách post được tag thành công", posts));
         } catch (Exception e) {
             log.error("Error fetching tagged posts", e);
@@ -334,5 +367,32 @@ public class PostController {
             return ResponseEntity.badRequest()
                     .body(ApiResponse.error(400, "Lỗi khi đồng bộ thống kê: " + e.getMessage(), null));
         }
+    }
+
+    private void attachAuthorSummary(Post post) {
+        if (post == null || post.getAuthorId() == null) {
+            return;
+        }
+
+        try {
+            post.setAuthorSummary(buildAuthorSummary(Long.parseLong(post.getAuthorId())));
+        } catch (Exception e) {
+            log.warn("Cannot attach author summary for post {} author {}", post.getId(), post.getAuthorId());
+        }
+    }
+
+    private Map<String, Object> buildAuthorSummary(Long authorId) {
+        User user = userService.findUserById(authorId);
+        if (user == null) {
+            return null;
+        }
+
+        Map<String, Object> author = new HashMap<>();
+        author.put("id", user.getId());
+        author.put("username", user.getUsername());
+        author.put("name", user.getName());
+        author.put("fullName", user.getName());
+        author.put("avatarUrl", user.getAvatarUrl());
+        return author;
     }
 }

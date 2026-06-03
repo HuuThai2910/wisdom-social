@@ -38,39 +38,82 @@ export default function StoryMusicPickerModal({ visible, onClose, onSelect }: Pr
     const [query, setQuery] = useState("");
     const [tracks, setTracks] = useState<MusicMetadata[]>([]);
     const [loading, setLoading] = useState(false);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [hasMore, setHasMore] = useState(true);
+    const [page, setPage] = useState(0);
     const [playingId, setPlayingId] = useState<string | null>(null);
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const flatListRef = useRef<FlatList>(null);
 
-    const loadTracks = useCallback(async (searchQuery = "") => {
-        setLoading(true);
+    const loadTracks = useCallback(async (resetPage = false) => {
+        const currentPage = resetPage ? 0 : page;
+        const isSearch = query.trim().length > 0;
+
+        if (resetPage) {
+            setPage(0);
+            setHasMore(true);
+        }
+
+        if (currentPage === 0) {
+            setLoading(true);
+        } else {
+            setLoadingMore(true);
+        }
+
         try {
-            const data = searchQuery.trim()
-                ? await searchMusicByTitle(searchQuery.trim())
-                : await getAllMusic(0, 30);
-            setTracks(data);
+            let result: { tracks: MusicMetadata[]; hasMore: boolean };
+
+            if (isSearch) {
+                result = await searchMusicByTitle(query.trim(), currentPage, 20);
+            } else {
+                result = await getAllMusic(currentPage, 20);
+            }
+
+            if (currentPage === 0) {
+                setTracks(result.tracks);
+            } else {
+                setTracks(prev => [...prev, ...result.tracks]);
+            }
+            setHasMore(result.hasMore);
+            setPage(currentPage + 1);
+        } catch (error) {
+            console.error("Error loading music:", error);
         } finally {
             setLoading(false);
+            setLoadingMore(false);
         }
-    }, []);
+    }, [query, page]);
+
+    const handleLoadMore = () => {
+        if (!loadingMore && hasMore) {
+            loadTracks(false);
+        }
+    };
 
     useEffect(() => {
         if (!visible) return;
+
+        const timeout = setTimeout(() => {
+            void loadTracks(true);
+        }, 0);
+
+        return () => clearTimeout(timeout);
+    }, [visible, query]);
+
+    useEffect(() => {
+        if (!visible) return;
+
         setQuery("");
         setPlayingId(null);
-        void loadTracks();
+        setTracks([]);
+        setPage(0);
+        setHasMore(true);
+
         return () => {
             if (debounceRef.current) clearTimeout(debounceRef.current);
             void stopAudioPreview();
         };
-    }, [visible, loadTracks]);
-
-    const handleSearch = (text: string) => {
-        setQuery(text);
-        if (debounceRef.current) clearTimeout(debounceRef.current);
-        debounceRef.current = setTimeout(() => {
-            void loadTracks(text);
-        }, SEARCH_DEBOUNCE_MS);
-    };
+    }, [visible]);
 
     const togglePlay = async (track: MusicMetadata) => {
         if (playingId === track.id) {
@@ -97,6 +140,54 @@ export default function StoryMusicPickerModal({ visible, onClose, onSelect }: Pr
         setPlayingId(null);
         onClose();
     }, [onClose]);
+
+    const handleSearch = (text: string) => {
+        setQuery(text);
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        debounceRef.current = setTimeout(() => {
+            void loadTracks(true);
+        }, SEARCH_DEBOUNCE_MS);
+    };
+
+    const renderTrack = ({ item }: { item: MusicMetadata }) => {
+        const isPlaying = playingId === item.id;
+        return (
+            <TouchableOpacity
+                style={[styles.trackRow, isPlaying && styles.trackRowActive]}
+                onPress={() => handleSelect(item)}
+            >
+                <View style={styles.coverWrap}>
+                    {item.imageUrl ? (
+                        <Image source={{ uri: item.imageUrl }} style={styles.coverImage} />
+                    ) : (
+                        <View style={styles.coverFallback}>
+                            <Text style={styles.coverFallbackText}>♪</Text>
+                        </View>
+                    )}
+                </View>
+                <View style={styles.trackInfo}>
+                    <Text style={styles.trackTitle} numberOfLines={1}>{item.title}</Text>
+                    <Text style={styles.trackArtist} numberOfLines={1}>{item.artist}</Text>
+                    <Text style={styles.trackDuration}>{formatDuration(item.duration)}</Text>
+                </View>
+                <TouchableOpacity
+                    style={[styles.playButton, isPlaying && styles.playButtonActive]}
+                    onPress={() => togglePlay(item)}
+                >
+                    <Ionicons name={isPlaying ? "pause" : "play"} size={15} color={colors.white} />
+                </TouchableOpacity>
+            </TouchableOpacity>
+        );
+    };
+
+    const renderFooter = () => {
+        if (!loadingMore) return null;
+        return (
+            <View style={styles.footer}>
+                <ActivityIndicator color={colors.primary} />
+            </View>
+        );
+    };
 
     return (
         <Modal visible={visible} animationType="slide" transparent onRequestClose={handleClose}>
@@ -137,34 +228,15 @@ export default function StoryMusicPickerModal({ visible, onClose, onSelect }: Pr
                         </View>
                     ) : (
                         <FlatList
+                            ref={flatListRef}
                             data={tracks}
                             keyExtractor={(item) => item.id}
                             contentContainerStyle={tracks.length ? styles.listContent : styles.emptyContent}
                             ListEmptyComponent={<Text style={styles.mutedText}>Không tìm thấy bài hát nào</Text>}
-                            renderItem={({ item }) => {
-                                const isPlaying = playingId === item.id;
-                                return (
-                                    <TouchableOpacity style={[styles.trackRow, isPlaying && styles.trackRowActive]} onPress={() => handleSelect(item)}>
-                                        <View style={styles.coverWrap}>
-                                            {item.imageUrl ? (
-                                                <Image source={{ uri: item.imageUrl }} style={styles.coverImage} />
-                                            ) : (
-                                                <View style={styles.coverFallback}>
-                                                    <Text style={styles.coverFallbackText}>♪</Text>
-                                                </View>
-                                            )}
-                                        </View>
-                                        <View style={styles.trackInfo}>
-                                            <Text style={styles.trackTitle} numberOfLines={1}>{item.title}</Text>
-                                            <Text style={styles.trackArtist} numberOfLines={1}>{item.artist}</Text>
-                                            <Text style={styles.trackDuration}>{formatDuration(item.duration)}</Text>
-                                        </View>
-                                        <TouchableOpacity style={[styles.playButton, isPlaying && styles.playButtonActive]} onPress={() => togglePlay(item)}>
-                                            <Ionicons name={isPlaying ? "pause" : "play"} size={15} color={colors.white} />
-                                        </TouchableOpacity>
-                                    </TouchableOpacity>
-                                );
-                            }}
+                            renderItem={renderTrack}
+                            onEndReached={handleLoadMore}
+                            onEndReachedThreshold={0.5}
+                            ListFooterComponent={renderFooter}
                         />
                     )}
                 </View>
@@ -186,6 +258,7 @@ const styles = StyleSheet.create({
     mutedText: { color: "rgba(255,255,255,0.48)", textAlign: "center", fontSize: 13 },
     listContent: { paddingBottom: spacing.md, gap: 6 },
     emptyContent: { paddingVertical: spacing.xl },
+    footer: { paddingVertical: spacing.md, alignItems: "center" },
     trackRow: { flexDirection: "row", alignItems: "center", gap: 12, padding: 10, borderRadius: 16, backgroundColor: "rgba(255,255,255,0.04)", borderWidth: 1, borderColor: "transparent" },
     trackRowActive: { backgroundColor: "rgba(168,85,247,0.14)", borderColor: "rgba(168,85,247,0.28)" },
     coverWrap: { width: 48, height: 48, borderRadius: 14, overflow: "hidden" },
