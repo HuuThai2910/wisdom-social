@@ -47,6 +47,10 @@ export interface UserResponseLogin {
     birthday?: string;
     gender?: string;
     createdAt: string;
+    // Có khi tài khoản đang ở trạng thái chờ xóa (backend trả kèm lúc login).
+    deletionPending?: boolean;
+    deletionRemainingDays?: number;
+    deletionScheduledFor?: string;
 }
 
 export interface UserRequestUpdate {
@@ -105,7 +109,8 @@ export const userService = {
     },
 
     async login(data: UserRequestLogin): Promise<UserResponseLogin> {
-        const response = await axiosClient.post(`auth/login`, data);
+        // Gắn nền tảng để backend áp "1 phiên mỗi nền tảng" (web đá web, mobile đá mobile).
+        const response = await axiosClient.post(`auth/login`, { ...data, deviceType: "WEB", deviceName: "Web Browser" });
         const loginData = response.data.data;
 
         if (loginData.token) {

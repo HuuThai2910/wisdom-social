@@ -1,3 +1,4 @@
+import { Alert } from "react-native";
 import {
   createPost,
   fetchHomeFeedPosts,
@@ -566,10 +567,27 @@ export function AppProvider({ children }: PropsWithChildren) {
       handleForceLogout
     );
 
+    // Topic riêng theo nền tảng: bị đá khi có phiên MOBILE khác đăng nhập
+    // (cho phép 1 web + 1 mobile cùng tồn tại) -> báo cho người dùng.
+    const handleForceLogoutElsewhere = () => {
+      handleForceLogout();
+      Alert.alert(
+        "Đã đăng xuất",
+        "Tài khoản của bạn vừa được đăng nhập trên một thiết bị khác.",
+      );
+    };
+    const uid = currentUser?.id;
+    if (uid != null) {
+      chatWebsocketService.subscribeToForceLogoutByPlatform(uid, "MOBILE", handleForceLogoutElsewhere);
+    }
+
     return () => {
       chatWebsocketService.unsubscribeFromForceLogout(internationalPhone);
+      if (uid != null) {
+        chatWebsocketService.unsubscribeFromForceLogoutByPlatform(uid, "MOBILE");
+      }
     };
-  }, [loggedIn, currentUser?.phone]);
+  }, [loggedIn, currentUser?.phone, currentUser?.id]);
 
   useEffect(() => {
     const loadRemoteDeviceSettings = async () => {

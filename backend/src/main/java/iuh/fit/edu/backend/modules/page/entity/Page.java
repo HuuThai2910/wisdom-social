@@ -69,4 +69,16 @@ public class Page {
 
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
+
+    // ─── Transient interaction fields (per current user, not persisted) ───────
+    // Populated on read endpoints so the discover list can render like/follow
+    // state in a single request instead of an N+1 of interaction-status calls.
+    @Transient
+    private Boolean isLiked;
+    @Transient
+    private Boolean isFollowing;
+    @Transient
+    private Long likeCount;
+    @Transient
+    private Long followCount;
 }

@@ -94,11 +94,8 @@ export default function CreatePage() {
         if (!formData.name.trim()) {
             newErrors.name = "Tên page là bắt buộc";
         }
-        if (!formData.username.trim()) {
-            newErrors.username = "Username là bắt buộc";
-        } else if (!/^[a-zA-Z0-9_]+$/.test(formData.username)) {
-            newErrors.username = "Username chỉ chứa chữ cái, số và dấu gạch dưới";
-        }
+        // Username được tự gán = username người tạo ở backend (cho phép trùng),
+        // nên không cần nhập/validate ở form.
         if (!formData.category) {
             newErrors.category = "Vui lòng chọn danh mục";
         }
@@ -160,7 +157,6 @@ export default function CreatePage() {
             // Create page
             await pageService.createPage({
                 name: formData.name,
-                username: formData.username,
                 category: formData.category,
                 description: formData.description || undefined,
                 phone: formData.phone || undefined,
@@ -291,27 +287,6 @@ export default function CreatePage() {
                         }`}
                     />
                     {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
-                </div>
-
-                {/* Username */}
-                <div>
-                    <label className="block text-sm font-medium dark:text-white mb-2">
-                        Username <span className="text-red-500">*</span>
-                    </label>
-                    <div className="flex items-center">
-                        <span className="px-3 py-3 bg-gray-200 dark:bg-[#363636] text-gray-500 rounded-l-lg">@</span>
-                        <input
-                            type="text"
-                            name="username"
-                            value={formData.username}
-                            onChange={handleChange}
-                            placeholder="username"
-                            className={`flex-1 px-4 py-3 bg-gray-100 dark:bg-[#262626] rounded-r-lg focus:ring-2 focus:ring-blue-500 dark:text-white ${
-                                errors.username ? "ring-2 ring-red-500" : ""
-                            }`}
-                        />
-                    </div>
-                    {errors.username && <p className="text-red-500 text-sm mt-1">{errors.username}</p>}
                 </div>
 
                 {/* Category */}

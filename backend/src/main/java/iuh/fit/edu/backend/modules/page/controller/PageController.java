@@ -62,6 +62,10 @@ public class PageController {
             UserRequestMemberPage userMemberPage=new UserRequestMemberPage(currentUser.getId(),page.getId(), PageRole.ADMIN);
             pageMemberService.addMemberPage(userMemberPage);
 
+            // Người tạo tự động thích + theo dõi trang của mình.
+            pageService.likePageUser(currentUser.getId(), page.getId());
+            pageService.followPageUser(currentUser.getId(), page.getId());
+
             UserRequestUpdatePage userRequestUpdatePage=new UserRequestUpdatePage();
             if (createPage.getAvatarUrl()!=null){
                 String key=s3Service.moveUploadUrl("pages", String.valueOf(page.getId()), createPage.getAvatarUrl());
@@ -135,7 +139,12 @@ public class PageController {
     @GetMapping("/all")
     @ApiMessage("Get all pages successfully")
     public ResponseEntity<List<Page>> getAllPages(){
-        List<Page> pages = pageService.findAllPages();
+        User currentUser = userService.getCurrentUser();
+        // Embed per-user like/follow state so the discover list renders correctly
+        // in one request (anonymous callers just get the plain list).
+        List<Page> pages = currentUser != null
+                ? pageService.findAllPagesForUser(currentUser.getId())
+                : pageService.findAllPages();
         return ResponseEntity.ok(pages);
     }
 

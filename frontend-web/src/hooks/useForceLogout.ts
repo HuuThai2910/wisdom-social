@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import websocketService from '../services/websocket';
 import { clearAuthStorage } from '../utils/cookies';
 import { convertPhoneToInternational } from './useCurrentUser';
@@ -25,19 +26,30 @@ export function useForceLogout(phone: string | undefined, userId: number | undef
     const navigate = useNavigate();
     const subscribedRef = useRef(false);
 
-    const handleForceLogout = useCallback(() => {
-        console.log('🔴 FORCE LOGOUT: Tài khoản bị khóa / đăng xuất tất cả thiết bị. Đang đăng xuất...');
-
+    const doForceLogout = useCallback(() => {
         // 1. Clear auth data immediately
         clearAuthStorage();
-
         // 2. Disconnect WebSocket
         websocketService.disconnect();
         subscribedRef.current = false;
-
         // 3. Redirect to login
         navigate('/login', { replace: true });
     }, [navigate]);
+
+    // Force-logout chung (admin khóa / logout-all / đổi mật khẩu): đăng xuất im lặng.
+    const handleForceLogout = useCallback(() => {
+        console.log('🔴 FORCE LOGOUT: đăng xuất tất cả thiết bị. Đang đăng xuất...');
+        doForceLogout();
+    }, [doForceLogout]);
+
+    // Bị đá do có phiên cùng nền tảng đăng nhập ở nơi khác -> báo cho người dùng.
+    const handleForceLogoutElsewhere = useCallback(() => {
+        console.log('🔴 FORCE LOGOUT: tài khoản đăng nhập ở nơi khác. Đang đăng xuất...');
+        toast.error('Tài khoản của bạn vừa được đăng nhập trên một thiết bị khác', {
+            duration: 6000,
+        });
+        doForceLogout();
+    }, [doForceLogout]);
 
     useEffect(() => {
         const internationalPhone = phone ? convertPhoneToInternational(phone) : '';
@@ -52,6 +64,8 @@ export function useForceLogout(phone: string | undefined, userId: number | undef
             // được lưu lại và syncSubscriptions sẽ tự subscribe ngay khi WS kết nối.
             if (hasUserId) {
                 websocketService.subscribeToForceLogoutById(userId!, handleForceLogout);
+                // Topic riêng theo nền tảng: bị đá khi có phiên WEB khác đăng nhập -> có thông báo.
+                websocketService.subscribeToForceLogoutByPlatform(userId!, "WEB", handleForceLogoutElsewhere);
             }
             if (hasPhone) {
                 websocketService.subscribeToForceLogout(internationalPhone, handleForceLogout);
@@ -75,6 +89,7 @@ export function useForceLogout(phone: string | undefined, userId: number | undef
             if (subscribedRef.current) {
                 if (hasUserId) {
                     websocketService.unsubscribeFromForceLogoutById(userId!);
+                    websocketService.unsubscribeFromForceLogoutByPlatform(userId!, "WEB");
                 }
                 if (hasPhone) {
                     websocketService.unsubscribeFromForceLogout(internationalPhone);
@@ -82,5 +97,5 @@ export function useForceLogout(phone: string | undefined, userId: number | undef
                 subscribedRef.current = false;
             }
         };
-    }, [phone, userId, handleForceLogout]);
+    }, [phone, userId, handleForceLogout, handleForceLogoutElsewhere]);
 }

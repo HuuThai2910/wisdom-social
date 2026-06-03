@@ -65,10 +65,8 @@ export default function Pages() {
   const loadSeqRef = useRef(0);
 
   const loadPages = useCallback(async () => {
-    // Guard against stale/concurrent runs: the first run may fire before
-    // currentUser resolves, then a second run starts once it does. Only the
-    // latest run is allowed to commit, otherwise the like/follow state would
-    // briefly show wrong values.
+    // Guard against stale/concurrent runs (e.g. fast tab switches): only the
+    // latest run is allowed to commit its results.
     const seq = ++loadSeqRef.current;
     const isStale = () => seq !== loadSeqRef.current;
     setLoading(true);
@@ -81,26 +79,15 @@ export default function Pages() {
       const list = (data as PageWithMeta[]) || [];
       setPages(list);
 
-      // Resolve like/follow state for the discover list (logged-in users only)
-      if (activeTab === "discover" && currentUser?.id && list.length) {
-        const statuses = await Promise.all(
-          list.map((p) =>
-            pageService
-              .getPageInteractionStatus(p.id)
-              .then((s) => ({
-                id: p.id,
-                isLiked: !!s?.isLiked,
-                isFollowing: !!s?.isFollowing,
-              }))
-              .catch(() => ({ id: p.id, isLiked: false, isFollowing: false })),
-          ),
-        );
-        if (isStale()) return;
+      // Like/follow state is embedded on each page by the backend (/page/all),
+      // so seed the optimistic-update Sets directly from the list — no per-page
+      // interaction-status calls, and correct regardless of currentUser timing.
+      if (activeTab === "discover") {
         const liked = new Set<number>();
         const followed = new Set<number>();
-        statuses.forEach((s) => {
-          if (s.isLiked) liked.add(s.id);
-          if (s.isFollowing) followed.add(s.id);
+        list.forEach((p) => {
+          if (p.isLiked) liked.add(p.id);
+          if (p.isFollowing) followed.add(p.id);
         });
         setLikedIds(liked);
         setFollowedIds(followed);
@@ -113,7 +100,7 @@ export default function Pages() {
     } finally {
       if (!isStale()) setLoading(false);
     }
-  }, [activeTab, currentUser?.id]);
+  }, [activeTab]);
 
   useEffect(() => {
     void loadPages();
