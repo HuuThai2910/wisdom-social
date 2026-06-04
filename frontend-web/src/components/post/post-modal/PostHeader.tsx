@@ -42,6 +42,9 @@ import type { PostData, UserData } from "../../../types/post";
 import PostHeaderMenu from "../PostHeaderMenu";
 import useMusicAutoplay from "../../../hooks/useMusicAutoplay";
 import { useFriendStatus } from "../../../hooks/useFriendStatus";
+import { getAvatarUrl } from "../../../utils/s3";
+
+const DEFAULT_AVATAR_URL = "https://i.pravatar.cc/150?img=5";
 
 interface PostHeaderProps {
   post: PostData;
@@ -80,7 +83,7 @@ const PostHeader: React.FC<PostHeaderProps> = ({
   const authorDisplay = {
     id: author?.id ?? Number(post.authorId || 0),
     username: author?.username || "unknown",
-    avatarUrl: author?.avatarUrl || "https://i.pravatar.cc/150?img=5",
+    avatarUrl: getAvatarUrl(author?.avatarUrl) || DEFAULT_AVATAR_URL,
   };
 
   // Check friendship status with post author
@@ -100,6 +103,9 @@ const PostHeader: React.FC<PostHeaderProps> = ({
           <img
             src={authorDisplay.avatarUrl}
             alt={authorDisplay.username}
+            onError={(event) => {
+              event.currentTarget.src = DEFAULT_AVATAR_URL;
+            }}
             className="w-10 h-10 rounded-full object-cover border border-gray-100 dark:border-gray-800"
           />
         </Link>

@@ -17,6 +17,8 @@ import {
   Maximize2,
   Play,
   Pause,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Theme } from "emoji-picker-react";
@@ -79,6 +81,7 @@ export default function CreatePost() {
   const [playingUrl, setPlayingUrl] = useState<string | null>(null);
   const [isVideo2Playing, setIsVideo2Playing] = useState(false);
   const [isVideo3Playing, setIsVideo3Playing] = useState(false);
+  const [finalPreviewIndex, setFinalPreviewIndex] = useState(0);
 
   const videoRef2 = useRef<HTMLVideoElement>(null);
   const videoRef3 = useRef<HTMLVideoElement>(null);
@@ -159,6 +162,13 @@ export default function CreatePost() {
     enforceLockedMute(videoRef2.current);
     enforceLockedMute(videoRef3.current);
   }, [muteOriginal, step, imagePreviewUrls]);
+
+  useEffect(() => {
+    setFinalPreviewIndex((current) =>
+      Math.min(current, Math.max(0, selectedImages.length - 1))
+    );
+    setIsVideo3Playing(false);
+  }, [selectedImages.length]);
 
   // Search location suggestions with debounce
   useEffect(() => {
@@ -683,11 +693,12 @@ export default function CreatePost() {
                 {selectedImages.length > 0 && (
                 <div className="w-full md:w-1/2">
                   <div className="relative rounded-xl overflow-hidden bg-black aspect-[4/5] shadow-sm">
-                    {selectedImages[0]?.type.startsWith("video/") ? (
+                    {selectedImages[finalPreviewIndex]?.type.startsWith("video/") ? (
                       <>
                         <video
+                          key={imagePreviewUrls[finalPreviewIndex]}
                           ref={videoRef3}
-                          src={imagePreviewUrls[0]}
+                          src={imagePreviewUrls[finalPreviewIndex]}
                           className="w-full h-full object-cover"
                           controls={!muteOriginal}
                           muted={muteOriginal}
@@ -709,7 +720,8 @@ export default function CreatePost() {
                       </>
                     ) : (
                       <img
-                        src={imagePreviewUrls[0]}
+                        src={imagePreviewUrls[finalPreviewIndex]}
+                        alt={`Xem trước media ${finalPreviewIndex + 1}`}
                         className="w-full h-full object-cover"
                       />
                     )}
@@ -717,9 +729,50 @@ export default function CreatePost() {
                       <Maximize2 size={16} />
                     </button>
                     {selectedImages.length > 1 && (
-                      <div className="absolute top-3 right-3 bg-black/60 px-2 py-1 rounded text-white text-xs font-semibold backdrop-blur-sm">
-                        1/{selectedImages.length}
-                      </div>
+                      <>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setFinalPreviewIndex((current) =>
+                              current === 0 ? selectedImages.length - 1 : current - 1
+                            )
+                          }
+                          className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full bg-black/60 p-2 text-white backdrop-blur-sm hover:bg-black/80"
+                          aria-label="Media trước"
+                        >
+                          <ChevronLeft size={22} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setFinalPreviewIndex((current) =>
+                              current === selectedImages.length - 1 ? 0 : current + 1
+                            )
+                          }
+                          className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-black/60 p-2 text-white backdrop-blur-sm hover:bg-black/80"
+                          aria-label="Media tiếp theo"
+                        >
+                          <ChevronRight size={22} />
+                        </button>
+                        <div className="absolute top-3 right-3 bg-black/60 px-2 py-1 rounded text-white text-xs font-semibold backdrop-blur-sm">
+                          {finalPreviewIndex + 1}/{selectedImages.length}
+                        </div>
+                        <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 gap-1.5">
+                          {selectedImages.map((_, index) => (
+                            <button
+                              key={index}
+                              type="button"
+                              onClick={() => setFinalPreviewIndex(index)}
+                              className={`h-1.5 rounded-full transition-all ${
+                                index === finalPreviewIndex
+                                  ? "w-5 bg-white"
+                                  : "w-1.5 bg-white/60 hover:bg-white/80"
+                              }`}
+                              aria-label={`Xem media ${index + 1}`}
+                            />
+                          ))}
+                        </div>
+                      </>
                     )}
                   </div>
                 </div>
