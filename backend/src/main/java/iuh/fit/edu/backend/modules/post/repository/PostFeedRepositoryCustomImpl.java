@@ -241,7 +241,8 @@ public class PostFeedRepositoryCustomImpl implements PostFeedRepositoryCustom {
             return List.of();
         }
 
-        posts.sort((left, right) -> {
+        List<Post> sortedPosts = new ArrayList<>(posts);
+        sortedPosts.sort((left, right) -> {
             int rankCompare = effectiveRankingTime(right, interactedPostIds)
                     .compareTo(effectiveRankingTime(left, interactedPostIds));
             if (rankCompare != 0) {
@@ -250,7 +251,7 @@ public class PostFeedRepositoryCustomImpl implements PostFeedRepositoryCustom {
             return nullSafeId(right).compareTo(nullSafeId(left));
         });
 
-        return posts.stream()
+        return sortedPosts.stream()
                 .filter(post -> isAfterCursor(post, lastRankingTime, lastPostId, interactedPostIds))
                 .limit(size)
                 .toList();
