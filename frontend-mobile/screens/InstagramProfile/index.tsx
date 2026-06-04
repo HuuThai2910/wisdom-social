@@ -19,6 +19,7 @@ import { colors } from "@/constants";
 import userService from "@/services/userService";
 import friendService from "@/services/friendService";
 import blockService from "@/services/blockService";
+import chatService from "@/services/chatService";
 import { useFriendNotifications } from "@/hooks/useFriendNotifications";
 import { useBlockNotifications } from "@/hooks/useBlockNotifications";
 import { usePresenceStatus } from "@/hooks/usePresenceStatus";
@@ -62,7 +63,13 @@ const getGradientIndex = (text: string) => {
   return Math.abs(hash) % TEXT_GRADIENTS.length;
 };
 
-type FriendStatus = "NONE" | "SENT" | "RECEIVED" | "FRIEND" | "BLOCKED";
+type FriendStatus =
+  | "NONE"
+  | "SENT"
+  | "RECEIVED"
+  | "FRIEND"
+  | "BLOCKED"
+  | "BLOCKED_BY";
 type ProfileTab = "posts" | "tagged" | "saved" | "shared" | "blocked";
 
 const OWN_TABS: {
@@ -90,7 +97,8 @@ const OTHER_TABS: {
 export default function InstagramProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { userId: paramUserId, username: paramUsername } = useLocalSearchParams<{ userId?: string; username?: string }>();
+  const { userId: paramUserId, username: paramUsername } =
+    useLocalSearchParams<{ userId?: string; username?: string }>();
   const { currentUser, logout } = useAppContext();
 
   const isViewingOther = useMemo(
@@ -134,7 +142,7 @@ export default function InstagramProfileScreen() {
   const refreshTrigger = useFriendNotifications();
   const profileFriendTrigger = useFriendNotifications(
     undefined,
-    isViewingOther ? profileUser?.phone : null,
+    isViewingOther ? profileUser?.phone : null
   );
   const blockTrigger = useBlockNotifications();
 
@@ -197,7 +205,11 @@ export default function InstagramProfileScreen() {
     const activeUserId = isViewingOther
       ? String(targetId)
       : String(currentUser?.id);
-    if (!activeUserId || activeUserId === "undefined" || activeUserId === "NaN") {
+    if (
+      !activeUserId ||
+      activeUserId === "undefined" ||
+      activeUserId === "NaN"
+    ) {
       setProfilePostsCount(null);
       return;
     }
@@ -223,10 +235,14 @@ export default function InstagramProfileScreen() {
   }, [isViewingOther, targetId, currentUser?.id]);
 
   const mapHighlightStoryToStory = (hs: any, user: any) => {
+    // Properly process media URL through buildS3Url
+    const mediaUrl = hs.media?.url ? buildS3Url(hs.media.url) || hs.media.url : "";
+    const thumbnailUrl = hs.media?.thumbnailUrl ? buildS3Url(hs.media.thumbnailUrl) || hs.media.thumbnailUrl : "";
+
     return {
       id: hs.id,
       userId: hs.userId,
-      image: hs.media?.url || "",
+      image: mediaUrl || hs.image || "",
       viewed: true,
       isViewed: true,
       createdAt: hs.createdAt,
@@ -234,9 +250,9 @@ export default function InstagramProfileScreen() {
       content: hs.text || "",
       media: hs.media
         ? {
-            url: hs.media.url,
+            url: mediaUrl,
             type: hs.media.type,
-            thumbnailUrl: hs.media.thumbnailUrl,
+            thumbnailUrl: thumbnailUrl,
           }
         : undefined,
       user: user
@@ -350,7 +366,10 @@ export default function InstagramProfileScreen() {
       ? String(targetId)
       : String(currentUser?.id);
     if (!activeUserId) return;
-    if (isPrivateProfile) { setTabPosts([]); return; }
+    if (isPrivateProfile) {
+      setTabPosts([]);
+      return;
+    }
 
     setTabLoading(true);
     try {
@@ -499,6 +518,45 @@ export default function InstagramProfileScreen() {
           { text: "Hủy", style: "cancel" },
         ]
       );
+    }
+  };
+  // Mở cuộc trò chuyện trực tiếp — giống luồng tìm người trong tin nhắn:
+  // lấy quan hệ chat, mở cuộc đã có hoặc tạo/resolve cuộc mới rồi điều hướng.
+  const [messageLoading, setMessageLoading] = useState(false);
+  const handleMessage = async () => {
+    const uid = Number(profileUser?.id ?? targetId);
+    if (!Number.isFinite(uid) || uid <= 0 || messageLoading) return;
+    setMessageLoading(true);
+    try {
+      // Quan hệ chat chỉ để lấy peer params + id cuộc đã có (không bắt buộc).
+      let result: Awaited<
+        ReturnType<typeof chatService.getChatUserRelationship>
+      > | null = null;
+      try {
+        result = await chatService.getChatUserRelationship(uid);
+      } catch {
+        result = null;
+      }
+
+      // Luôn mở/resolve cuộc trò chuyện trực tiếp rồi điều hướng — giống search.
+      let conversationId = result?.existingDirectConversationId ?? null;
+      if (!conversationId) {
+        const conversation = await chatService.resolveDirectConversation(uid);
+        conversationId = conversation.id;
+      }
+
+      router.push({
+        pathname: "/(stack)/messages/[conversationId]",
+        params: {
+          conversationId: String(conversationId),
+          peerFriendStatus: result?.friendStatus ?? "STRANGER",
+          peerMutualGroupsCount: String(result?.mutualGroupsCount ?? 0),
+        },
+      });
+    } catch {
+      Alert.alert("Thông báo", "Không thể mở cuộc trò chuyện");
+    } finally {
+      setMessageLoading(false);
     }
   };
   const handleUnblockOwn = (userId: string) => {
@@ -814,8 +872,8 @@ export default function InstagramProfileScreen() {
               <View style={s.profileRightCol}>
                 <Text style={s.profileUsername} numberOfLines={1}>
                   {isPrivateProfile
-                    ? (paramUsername || u?.username || "Người dùng")
-                    : (u?.username || u?.name || "Người dùng")}
+                    ? paramUsername || u?.username || "Người dùng"
+                    : u?.username || u?.name || "Người dùng"}
                 </Text>
                 <View style={s.statsRow}>
                   <StatItem
@@ -849,7 +907,9 @@ export default function InstagramProfileScreen() {
               {!isPrivateProfile && u?.birthday ? (
                 <Text style={s.infoMeta}>{u.birthday}</Text>
               ) : null}
-              {!isPrivateProfile && u?.bio ? <Text style={s.bio}>{u.bio}</Text> : null}
+              {!isPrivateProfile && u?.bio ? (
+                <Text style={s.bio}>{u.bio}</Text>
+              ) : null}
             </View>
 
             {/* Action buttons */}
@@ -857,9 +917,15 @@ export default function InstagramProfileScreen() {
               {renderFriendButton()}
               <TouchableOpacity
                 style={[s.btn, s.btnGray, { flex: 1 }]}
+                onPress={handleMessage}
+                disabled={messageLoading}
                 activeOpacity={0.75}
               >
-                <Text style={s.btnGrayText}>Nhắn tin</Text>
+                {messageLoading ? (
+                  <ActivityIndicator size="small" color="#000" />
+                ) : (
+                  <Text style={s.btnGrayText}>Nhắn tin</Text>
+                )}
               </TouchableOpacity>
               <TouchableOpacity
                 style={[s.btn, s.btnGray, s.btnIcon]}
@@ -922,8 +988,11 @@ export default function InstagramProfileScreen() {
                     <View style={{ flex: 1 }}>
                       <Text style={s.modalName}>
                         {isPrivateProfile
-                          ? (paramUsername || "Người dùng")
-                          : (u?.name || u?.fullName || u?.username || "Người dùng")}
+                          ? paramUsername || "Người dùng"
+                          : u?.name ||
+                            u?.fullName ||
+                            u?.username ||
+                            "Người dùng"}
                       </Text>
                       {(isPrivateProfile ? paramUsername : u?.username) ? (
                         <Text style={s.modalSub}>
@@ -939,35 +1008,47 @@ export default function InstagramProfileScreen() {
                   <InfoModalRow
                     icon="at"
                     label="Tên người dùng"
-                    value={isPrivateProfile ? "**********" : (u?.username ? `@${u.username}` : "")}
+                    value={
+                      isPrivateProfile
+                        ? "**********"
+                        : u?.username
+                        ? `@${u.username}`
+                        : ""
+                    }
                   />
                   <InfoModalRow
                     icon="person-outline"
                     label="Họ và tên"
-                    value={isPrivateProfile ? "***********" : (u?.name || u?.fullName || "")}
+                    value={
+                      isPrivateProfile
+                        ? "***********"
+                        : u?.name || u?.fullName || ""
+                    }
                   />
-                  {(isPrivateProfile || u?.birthday) ? (
+                  {isPrivateProfile || u?.birthday ? (
                     <InfoModalRow
                       icon="calendar-outline"
                       label="Ngày sinh"
                       value={isPrivateProfile ? "**/***/****" : u!.birthday!}
                     />
                   ) : null}
-                  {(isPrivateProfile || (u?.gender && GENDER_LABEL[u.gender])) ? (
+                  {isPrivateProfile || (u?.gender && GENDER_LABEL[u.gender]) ? (
                     <InfoModalRow
                       icon="people-outline"
                       label="Giới tính"
-                      value={isPrivateProfile ? "******" : GENDER_LABEL[u!.gender!]}
+                      value={
+                        isPrivateProfile ? "******" : GENDER_LABEL[u!.gender!]
+                      }
                     />
                   ) : null}
-                  {(isPrivateProfile || u?.bio) ? (
+                  {isPrivateProfile || u?.bio ? (
                     <InfoModalRow
                       icon="chatbubble-outline"
                       label="Giới thiệu"
                       value={isPrivateProfile ? "**************" : u!.bio!}
                     />
                   ) : null}
-                  {(isPrivateProfile || u?.phone) ? (
+                  {isPrivateProfile || u?.phone ? (
                     <InfoModalRow
                       icon="call-outline"
                       label="Số điện thoại"
@@ -1174,9 +1255,11 @@ export default function InstagramProfileScreen() {
 
             {/* Stats */}
             <View style={s.statsRow}>
-              <StatItem value={String(profilePostsCount ?? 0)} label="Bài viết" />
+              <StatItem
+                value={String(profilePostsCount ?? 0)}
+                label="Bài viết"
+              />
               <StatItem value={String(friendsCount)} label="Bạn bè" />
-              
             </View>
           </View>
         </View>
@@ -1423,19 +1506,46 @@ export default function InstagramProfileScreen() {
 // ── Private account lock screen ──────────────────────────────────────────────
 function PrivateAccountLock() {
   return (
-    <View style={{ alignItems: "center", paddingVertical: 64, paddingHorizontal: 40 }}>
-      <View style={{
-        width: 80, height: 80, borderRadius: 40,
-        borderWidth: 2, borderColor: "#000",
-        alignItems: "center", justifyContent: "center",
-        marginBottom: 16,
-      }}>
+    <View
+      style={{
+        alignItems: "center",
+        paddingVertical: 64,
+        paddingHorizontal: 40,
+      }}
+    >
+      <View
+        style={{
+          width: 80,
+          height: 80,
+          borderRadius: 40,
+          borderWidth: 2,
+          borderColor: "#000",
+          alignItems: "center",
+          justifyContent: "center",
+          marginBottom: 16,
+        }}
+      >
         <Ionicons name="lock-closed" size={36} strokeWidth={1.5} color="#000" />
       </View>
-      <Text style={{ fontSize: 20, fontWeight: "700", color: "#000", marginBottom: 8, textAlign: "center" }}>
+      <Text
+        style={{
+          fontSize: 20,
+          fontWeight: "700",
+          color: "#000",
+          marginBottom: 8,
+          textAlign: "center",
+        }}
+      >
         Tài khoản này ở chế độ riêng tư
       </Text>
-      <Text style={{ fontSize: 14, color: "#8E8E93", textAlign: "center", lineHeight: 20 }}>
+      <Text
+        style={{
+          fontSize: 14,
+          color: "#8E8E93",
+          textAlign: "center",
+          lineHeight: 20,
+        }}
+      >
         Chỉ những người theo dõi mới xem được ảnh và video của họ.
       </Text>
     </View>

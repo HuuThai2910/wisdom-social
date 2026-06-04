@@ -1,76 +1,106 @@
 package iuh.fit.edu.backend.modules.post.repository;
 
+import iuh.fit.edu.backend.modules.notification.constant.TargetType;
 import iuh.fit.edu.backend.modules.post.constant.PrivacyType;
 import iuh.fit.edu.backend.modules.post.constant.StatusType;
+import iuh.fit.edu.backend.modules.post.entity.Comment;
 import iuh.fit.edu.backend.modules.post.entity.Post;
+import iuh.fit.edu.backend.modules.post.entity.PostShare;
+import iuh.fit.edu.backend.modules.post.entity.Reaction;
+import iuh.fit.edu.backend.modules.post.entity.SavedPost;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
-import org.springframework.data.mongodb.core.aggregation.Aggregation;
-import org.springframework.data.mongodb.core.aggregation.AggregationResults;
 import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.aggregation.Aggregation;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 
 @Repository
 @RequiredArgsConstructor
 public class PostFeedRepositoryCustomImpl implements PostFeedRepositoryCustom {
 
+    private static final long INTERACTION_PENALTY_MINUTES = 360;
+    private static final int MAX_CANDIDATE_WINDOW = 500;
+
     private final MongoTemplate mongoTemplate;
+    private final ReactionRepository reactionRepository;
+    private final CommentRepository commentRepository;
+    private final SavedPostRepository savedPostRepository;
+    private final PostShareRepository postShareRepository;
 
     @Override
-        public List<Post> findRecentFriendPosts(
+    public Set<String> findInteractedPostIds(String currentUserId) {
+        Set<String> interacted = new HashSet<>();
+        if (currentUserId == null || currentUserId.isBlank()) {
+            return interacted;
+        }
+
+        reactionRepository.findByUserIdAndTargetType(currentUserId, TargetType.POST)
+                .stream()
+                .map(Reaction::getTargetId)
+                .filter(Objects::nonNull)
+                .forEach(interacted::add);
+
+        commentRepository.findByUserIdAndStatus(currentUserId, StatusType.ACTIVE)
+                .stream()
+                .filter(comment -> comment.getTargetType() == TargetType.POST)
+                .map(Comment::getTargetId)
+                .filter(Objects::nonNull)
+                .forEach(interacted::add);
+
+        savedPostRepository.findByUserIdAndTargetType(currentUserId, TargetType.POST)
+                .stream()
+                .map(SavedPost::getTargetId)
+                .filter(Objects::nonNull)
+                .forEach(interacted::add);
+
+        postShareRepository.findBySharedByUserIdAndStatus(currentUserId, StatusType.ACTIVE)
+                .stream()
+                .map(PostShare::getOriginalPostId)
+                .filter(Objects::nonNull)
+                .forEach(interacted::add);
+
+        return interacted;
+    }
+
+    @Override
+    public List<Post> findRecentFriendPosts(
             List<String> friendIds,
             String currentUserId,
             Instant lastRankingTime,
             String lastPostId,
-                        Instant recentThreshold,
-            int size
-    ) {
-        List<Criteria> andCriteria = new ArrayList<>();
-
-                if (friendIds == null || friendIds.isEmpty()) {
-                        return List.of();
-                }
-
-                andCriteria.add(Criteria.where("authorId").in(friendIds));
-        andCriteria.add(Criteria.where("status").is(StatusType.ACTIVE));
-        andCriteria.add(Criteria.where("rankingTime").gte(recentThreshold));
-
-        andCriteria.add(buildPrivacyCriteria(currentUserId, friendIds));
-        andCriteria.add(buildCursorCriteria(lastRankingTime, lastPostId));
-
-        Query query = new Query(new Criteria().andOperator(andCriteria));
-        query.with(Sort.by(Sort.Order.desc("rankingTime"), Sort.Order.desc("_id")));
-        query.limit(size);
-
-        return mongoTemplate.find(query, Post.class);
-    }
-
-    @Override
-    public List<Post> findActiveSelfPosts(
-            String userId,
             Instant recentThreshold,
-            int size
+            int size,
+            Set<String> interactedPostIds
     ) {
-        List<Criteria> andCriteria = new ArrayList<>();
-        andCriteria.add(Criteria.where("authorId").is(userId));
-        andCriteria.add(Criteria.where("status").is(StatusType.ACTIVE));
-        // Only include recently CREATED self-posts.
-        // We do not want other users' interactions to bump self-posts back into the feed forever.
-        // "Nhìn 1 lần thôi chứ" - meaning self posts should naturally fade out based on creation time,
-        // rather than persisting due to lastActivityAt updates.
-        andCriteria.add(Criteria.where("createdAt").gte(recentThreshold));
+        if (friendIds == null || friendIds.isEmpty() || size <= 0) {
+            return List.of();
+        }
 
-        Query query = new Query(new Criteria().andOperator(andCriteria));
-        query.with(Sort.by(Sort.Order.desc("createdAt")));
-        query.limit(size);
+        List<Criteria> criteria = baseVisibleCriteria(currentUserId, friendIds);
+        criteria.add(Criteria.where("authorId").in(friendIds));
+        criteria.add(Criteria.where("rankingTime").gte(recentThreshold));
 
-        return mongoTemplate.find(query, Post.class);
+        Query query = new Query(new Criteria().andOperator(criteria.toArray(new Criteria[0])));
+        query.with(Sort.by(Sort.Direction.DESC, "rankingTime").and(Sort.by(Sort.Direction.DESC, "_id")));
+        query.limit(candidateLimit(size));
+
+        return sortAndPageByPersonalizedRank(
+                mongoTemplate.find(query, Post.class),
+                lastRankingTime,
+                lastPostId,
+                size,
+                interactedPostIds
+        );
     }
 
     @Override
@@ -81,167 +111,190 @@ public class PostFeedRepositoryCustomImpl implements PostFeedRepositoryCustom {
             String lastPostId,
             Instant olderThan,
             List<String> excludePostIds,
-            int size
+            int size,
+            Set<String> interactedPostIds
     ) {
         if (size <= 0) {
             return List.of();
         }
 
-        List<Criteria> andCriteria = new ArrayList<>();
-        andCriteria.add(Criteria.where("status").is(StatusType.ACTIVE));
-        andCriteria.add(Criteria.where("rankingTime").lt(olderThan));
-        andCriteria.add(Criteria.where("authorId").ne(currentUserId));
-        andCriteria.add(buildPrivacyCriteria(currentUserId, friendIds));
-        andCriteria.add(buildCursorCriteria(lastRankingTime, lastPostId));
-
+        List<Criteria> criteria = baseVisibleCriteria(currentUserId, friendIds);
+        criteria.add(Criteria.where("rankingTime").lt(olderThan));
+        criteria.add(Criteria.where("authorId").ne(currentUserId));
         if (excludePostIds != null && !excludePostIds.isEmpty()) {
-            andCriteria.add(Criteria.where("_id").nin(excludePostIds));
+            criteria.add(Criteria.where("_id").nin(excludePostIds));
         }
-
-        Criteria matchCriteria = new Criteria().andOperator(andCriteria);
 
         Aggregation aggregation = Aggregation.newAggregation(
-                Aggregation.match(matchCriteria),
-                Aggregation.sample(size)
+                Aggregation.match(new Criteria().andOperator(criteria.toArray(new Criteria[0]))),
+                Aggregation.sample(candidateLimit(size))
         );
 
-        AggregationResults<Post> aggregationResults = mongoTemplate.aggregate(
-                aggregation,
-                mongoTemplate.getCollectionName(Post.class),
-                Post.class
+        return sortAndPageByPersonalizedRank(
+                mongoTemplate.aggregate(aggregation, "posts", Post.class).getMappedResults(),
+                lastRankingTime,
+                lastPostId,
+                size,
+                interactedPostIds
         );
+    }
 
-        return aggregationResults.getMappedResults();
-        }
-    
     @Override
-    public List<Post> findProfilePosts(
-            String targetUserId,
-            String currentUserId,
-            List<String> friendIds,
-            int page,
-            int size
-    ) {
-        List<Criteria> andCriteria = new ArrayList<>();
-        andCriteria.add(Criteria.where("authorId").is(targetUserId));
-        andCriteria.add(Criteria.where("status").is(StatusType.ACTIVE));
-        andCriteria.add(buildPrivacyCriteria(currentUserId, friendIds));
-
-        Query query = new Query(new Criteria().andOperator(andCriteria));
-        query.with(Sort.by(Sort.Order.desc("createdAt")));
-        query.skip((long) page * size);
-        query.limit(size);
-
+    public List<Post> findProfilePosts(String targetUserId, String currentUserId, List<String> friendIds, int page, int size) {
+        Query query = profileQuery(targetUserId, currentUserId, friendIds);
+        query.with(Sort.by(Sort.Direction.DESC, "createdAt").and(Sort.by(Sort.Direction.DESC, "_id")));
+        query.skip((long) Math.max(page, 0) * Math.max(size, 1));
+        query.limit(Math.max(size, 1));
         return mongoTemplate.find(query, Post.class);
     }
 
     @Override
-    public long countProfilePosts(
-            String targetUserId,
-            String currentUserId,
-            List<String> friendIds
+    public long countProfilePosts(String targetUserId, String currentUserId, List<String> friendIds) {
+        return mongoTemplate.count(profileQuery(targetUserId, currentUserId, friendIds), Post.class);
+    }
+
+    @Override
+    public List<Post> findActiveSelfPosts(String userId, Instant recentThreshold, int size) {
+        if (size <= 0) {
+            return List.of();
+        }
+        Query query = new Query(new Criteria().andOperator(
+                Criteria.where("authorId").is(userId),
+                Criteria.where("status").is(StatusType.ACTIVE),
+                Criteria.where("rankingTime").gte(recentThreshold)
+        ));
+        query.with(Sort.by(Sort.Direction.DESC, "rankingTime").and(Sort.by(Sort.Direction.DESC, "_id")));
+        query.limit(size);
+        return mongoTemplate.find(query, Post.class);
+    }
+
+    @Override
+    public List<Post> findPostsByHashtag(String hashtag, String currentUserId, List<String> friendIds, int page, int size) {
+        Query query = hashtagQuery(hashtag, currentUserId, friendIds);
+        query.with(Sort.by(Sort.Direction.DESC, "createdAt").and(Sort.by(Sort.Direction.DESC, "_id")));
+        query.skip((long) Math.max(page, 0) * Math.max(size, 1));
+        query.limit(Math.max(size, 1));
+        return mongoTemplate.find(query, Post.class);
+    }
+
+    @Override
+    public long countPostsByHashtag(String hashtag, String currentUserId, List<String> friendIds) {
+        return mongoTemplate.count(hashtagQuery(hashtag, currentUserId, friendIds), Post.class);
+    }
+
+    private Query profileQuery(String targetUserId, String currentUserId, List<String> friendIds) {
+        List<Criteria> criteria = baseVisibleCriteria(currentUserId, friendIds);
+        criteria.add(Criteria.where("authorId").is(targetUserId));
+        return new Query(new Criteria().andOperator(criteria.toArray(new Criteria[0])));
+    }
+
+    private Query hashtagQuery(String hashtag, String currentUserId, List<String> friendIds) {
+        List<Criteria> criteria = baseVisibleCriteria(currentUserId, friendIds);
+        criteria.add(Criteria.where("hashtags").is(normalizeHashtag(hashtag)));
+        return new Query(new Criteria().andOperator(criteria.toArray(new Criteria[0])));
+    }
+
+    private List<Criteria> baseVisibleCriteria(String currentUserId, List<String> friendIds) {
+        List<Criteria> criteria = new ArrayList<>();
+        criteria.add(Criteria.where("status").is(StatusType.ACTIVE));
+        criteria.add(privacyCriteria(currentUserId, friendIds));
+        return criteria;
+    }
+
+    private Criteria privacyCriteria(String currentUserId, List<String> friendIds) {
+        List<Criteria> visible = new ArrayList<>();
+        visible.add(Criteria.where("privacy").is(PrivacyType.PUBLIC));
+
+        if (currentUserId != null && !currentUserId.isBlank()) {
+            visible.add(new Criteria().andOperator(
+                    Criteria.where("privacy").is(PrivacyType.ONLY_ME),
+                    Criteria.where("authorId").is(currentUserId)
+            ));
+            visible.add(new Criteria().andOperator(
+                    Criteria.where("privacy").is(PrivacyType.SPECIFIC),
+                    Criteria.where("specificViewerUserIds").is(currentUserId)
+            ));
+            visible.add(new Criteria().andOperator(
+                    Criteria.where("privacy").is(PrivacyType.EXCEPT),
+                    Criteria.where("excludedUserIds").ne(currentUserId)
+            ));
+        }
+
+        if (friendIds != null && !friendIds.isEmpty()) {
+            visible.add(new Criteria().andOperator(
+                    Criteria.where("privacy").is(PrivacyType.FRIENDS),
+                    Criteria.where("authorId").in(friendIds)
+            ));
+        }
+
+        return new Criteria().orOperator(visible.toArray(new Criteria[0]));
+    }
+
+    private List<Post> sortAndPageByPersonalizedRank(
+            List<Post> posts,
+            Instant lastRankingTime,
+            String lastPostId,
+            int size,
+            Set<String> interactedPostIds
     ) {
-        List<Criteria> andCriteria = new ArrayList<>();
-        andCriteria.add(Criteria.where("authorId").is(targetUserId));
-        andCriteria.add(Criteria.where("status").is(StatusType.ACTIVE));
-        andCriteria.add(buildPrivacyCriteria(currentUserId, friendIds));
+        if (posts == null || posts.isEmpty()) {
+            return List.of();
+        }
 
-        Query query = new Query(new Criteria().andOperator(andCriteria));
-        return mongoTemplate.count(query, Post.class);
+        posts.sort((left, right) -> {
+            int rankCompare = effectiveRankingTime(right, interactedPostIds)
+                    .compareTo(effectiveRankingTime(left, interactedPostIds));
+            if (rankCompare != 0) {
+                return rankCompare;
+            }
+            return nullSafeId(right).compareTo(nullSafeId(left));
+        });
+
+        return posts.stream()
+                .filter(post -> isAfterCursor(post, lastRankingTime, lastPostId, interactedPostIds))
+                .limit(size)
+                .toList();
     }
 
-    private Criteria buildPrivacyCriteria(String currentUserId, List<String> friendIds) {
-        Criteria ownPost = Criteria.where("authorId").is(currentUserId);
-
-        Criteria publicPost = Criteria.where("privacy").is(PrivacyType.PUBLIC);
-
-        Criteria friendsPost = new Criteria().andOperator(
-                Criteria.where("privacy").is(PrivacyType.FRIENDS),
-                Criteria.where("authorId").in(friendIds)
-        );
-
-        Criteria specificPost = new Criteria().andOperator(
-                Criteria.where("privacy").is(PrivacyType.SPECIFIC),
-                Criteria.where("specificViewerUserIds").in(currentUserId)
-        );
-
-        Criteria exceptPost = new Criteria().andOperator(
-                Criteria.where("privacy").is(PrivacyType.EXCEPT),
-                new Criteria().orOperator(
-                        Criteria.where("excludedUserIds").exists(false),
-                        Criteria.where("excludedUserIds").size(0),
-                        Criteria.where("excludedUserIds").nin(currentUserId)
-                )
-        );
-
-        // In this codebase ONLY_ME is equivalent to PRIVATE.
-        Criteria onlyMePost = new Criteria().andOperator(
-                Criteria.where("privacy").is(PrivacyType.ONLY_ME),
-                Criteria.where("authorId").is(currentUserId)
-        );
-
-        return new Criteria().orOperator(
-                ownPost,
-                publicPost,
-                friendsPost,
-                specificPost,
-                exceptPost,
-                onlyMePost
-        );
-    }
-
-    private Criteria buildCursorCriteria(Instant lastRankingTime, String lastPostId) {
+    private boolean isAfterCursor(Post post, Instant lastRankingTime, String lastPostId, Set<String> interactedPostIds) {
         if (lastRankingTime == null) {
-            return new Criteria();
+            return true;
         }
 
-        if (lastPostId == null || lastPostId.isBlank()) {
-            return Criteria.where("rankingTime").lt(lastRankingTime);
+        Instant effectiveRank = effectiveRankingTime(post, interactedPostIds);
+        int timeCompare = effectiveRank.compareTo(lastRankingTime);
+        if (timeCompare < 0) {
+            return true;
         }
-
-        return new Criteria().orOperator(
-                Criteria.where("rankingTime").lt(lastRankingTime),
-                new Criteria().andOperator(
-                        Criteria.where("rankingTime").is(lastRankingTime),
-                        Criteria.where("_id").lt(lastPostId)
-                )
-        );
+        if (timeCompare > 0 || lastPostId == null || lastPostId.isBlank()) {
+            return false;
+        }
+        return nullSafeId(post).compareTo(lastPostId) < 0;
     }
 
-    @Override
-    public List<Post> findPostsByHashtag(
-            String hashtag,
-            String currentUserId,
-            List<String> friendIds,
-            int page,
-            int size
-    ) {
-        List<Criteria> andCriteria = new ArrayList<>();
-        // Compare with lowercase for case-insensitivity consistency
-        andCriteria.add(Criteria.where("hashtags").is(hashtag.trim().toLowerCase()));
-        andCriteria.add(Criteria.where("status").is(StatusType.ACTIVE));
-        andCriteria.add(buildPrivacyCriteria(currentUserId, friendIds));
-
-        Query query = new Query(new Criteria().andOperator(andCriteria));
-        query.with(Sort.by(Sort.Order.desc("createdAt")));
-        query.skip((long) page * size);
-        query.limit(size);
-
-        return mongoTemplate.find(query, Post.class);
+    private Instant effectiveRankingTime(Post post, Set<String> interactedPostIds) {
+        Instant rankingTime = post.getRankingTime() != null
+                ? post.getRankingTime()
+                : post.getCreatedAt() != null ? post.getCreatedAt() : Instant.EPOCH;
+        if (interactedPostIds != null && interactedPostIds.contains(post.getId())) {
+            return rankingTime.minus(INTERACTION_PENALTY_MINUTES, ChronoUnit.MINUTES);
+        }
+        return rankingTime;
     }
 
-    @Override
-    public long countPostsByHashtag(
-            String hashtag,
-            String currentUserId,
-            List<String> friendIds
-    ) {
-        List<Criteria> andCriteria = new ArrayList<>();
-        andCriteria.add(Criteria.where("hashtags").is(hashtag.trim().toLowerCase()));
-        andCriteria.add(Criteria.where("status").is(StatusType.ACTIVE));
-        andCriteria.add(buildPrivacyCriteria(currentUserId, friendIds));
+    private int candidateLimit(int requestedSize) {
+        return Math.min(MAX_CANDIDATE_WINDOW, Math.max(requestedSize * 4, requestedSize + 1));
+    }
 
-        Query query = new Query(new Criteria().andOperator(andCriteria));
-        return mongoTemplate.count(query, Post.class);
+    private String nullSafeId(Post post) {
+        return post.getId() == null ? "" : post.getId();
+    }
+
+    private String normalizeHashtag(String hashtag) {
+        if (hashtag == null) {
+            return "";
+        }
+        String clean = hashtag.trim();
+        return clean.startsWith("#") ? clean.substring(1).toLowerCase() : clean.toLowerCase();
     }
 }

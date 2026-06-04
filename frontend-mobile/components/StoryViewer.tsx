@@ -41,6 +41,7 @@ import { removeStoriesFromHighlight } from "@/services/highlightService";
 import { buildS3Url } from "@/utils/s3";
 import UserAvatar from "./UserAvatar";
 import useRealtimeStory from "@/hooks/useRealtimeStory";
+import { useRouter } from "expo-router";
 
 type Props = {
   visible: boolean;
@@ -423,6 +424,7 @@ export default function StoryViewer({
   onStoryRemovedFromHighlight,
   onEditHighlight,
 }: Props) {
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const [groupIdx, setGroupIdx] = useState(initialGroupIdx);
   const [storyIdx, setStoryIdx] = useState(initialStoryIdx);
@@ -451,6 +453,18 @@ export default function StoryViewer({
       activeGroup &&
       String(currentUser.id) === String(activeGroup.userId)
   );
+
+  const openActiveUserProfile = () => {
+    if (!activeGroup?.userId) return;
+    onClose();
+    router.push({
+      pathname: "/(tabs)/user-profile",
+      params: {
+        userId: String(activeGroup.userId),
+        username: activeGroup.username,
+      },
+    });
+  };
 
   useEffect(() => {
     if (!visible) return;
@@ -539,22 +553,38 @@ export default function StoryViewer({
   useEffect(() => {
     let mounted = true;
     const playMusic = async () => {
-      if (audioRef.current) {
-        await audioRef.current.unloadAsync().catch(() => undefined);
-        audioRef.current = null;
+      try {
+        if (audioRef.current) {
+          await audioRef.current.unloadAsync().catch(() => undefined);
+          audioRef.current = null;
+        }
+        if (!visible || !activeStory?.music?.audioUrl || finished) return;
+
+        // Ensure iOS/Android audio mode is configured for playback (silent mode allowed)
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+          shouldDuckAndroid: true,
+          playThroughEarpieceAndroid: false,
+          staysActiveInBackground: false,
+        }).catch((err) => console.warn("Failed to set audio mode in StoryViewer", err));
+
+        const url =
+          buildS3Url(activeStory.music.audioUrl) || activeStory.music.audioUrl;
+        console.log("Loading story audio:", url);
+
+        const { sound } = await Audio.Sound.createAsync(
+          { uri: url },
+          { isLooping: true, volume: 0.8, shouldPlay: !paused }
+        );
+        if (!mounted) {
+          await sound.unloadAsync().catch(() => undefined);
+          return;
+        }
+        audioRef.current = sound;
+      } catch (error) {
+        console.error("Error loading story audio in StoryViewer:", error);
       }
-      if (!visible || !activeStory?.music?.audioUrl || finished) return;
-      const url =
-        buildS3Url(activeStory.music.audioUrl) || activeStory.music.audioUrl;
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: url },
-        { isLooping: true, volume: 0.8, shouldPlay: !paused }
-      );
-      if (!mounted) {
-        await sound.unloadAsync().catch(() => undefined);
-        return;
-      }
-      audioRef.current = sound;
     };
     void playMusic();
     return () => {
@@ -565,6 +595,15 @@ export default function StoryViewer({
       }
     };
   }, [visible, activeStory?.id, finished]);
+
+  // Also stop audio when modal closes (visible = false)
+  useEffect(() => {
+    if (visible) return;
+    if (audioRef.current) {
+      void audioRef.current.unloadAsync().catch(() => undefined);
+      audioRef.current = null;
+    }
+  }, [visible]);
 
   useEffect(() => {
     if (audioRef.current) {
@@ -827,7 +866,7 @@ export default function StoryViewer({
                 ))}
               </View>
               <View style={styles.headerRow}>
-                <View style={styles.ownerRow}>
+                <Pressable style={styles.ownerRow} onPress={openActiveUserProfile}>
                   <UserAvatar
                     uri={activeGroup?.userAvatar}
                     name={activeGroup?.username || "User"}
@@ -839,7 +878,7 @@ export default function StoryViewer({
                       {formatTimeAgo(activeStory?.createdAt)}
                     </Text>
                   </View>
-                </View>
+                </Pressable>
                 <View style={styles.headerActions}>
                   {isMyStory ? (
                     <TouchableOpacity
@@ -881,21 +920,8 @@ export default function StoryViewer({
                 })()
               : null}
 
-            {activeStory?.music?.title ? (
-              <View style={styles.musicSticker}>
-                <Text style={styles.musicIcon}>🎵</Text>
-                <View style={styles.musicTextWrap}>
-                  <Text numberOfLines={1} style={styles.musicTitle}>
-                    {activeStory.music.title}
-                  </Text>
-                  <Text numberOfLines={1} style={styles.musicArtist}>
-                    {activeStory.music.artist}
-                  </Text>
-                </View>
-              </View>
-            ) : null}
 
-            {activeStory?.media?.url && cleanText ? (
+            {activeStory?.media?.url && cleanText && (!activeStory.text_layers || activeStory.text_layers.length === 0) ? (
               <View
                 style={[
                   styles.captionOverlay,

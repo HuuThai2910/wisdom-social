@@ -17,11 +17,13 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 import java.security.interfaces.RSAPublicKey;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 
@@ -75,9 +77,26 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
                 String phone = jwt.getClaim("phone_number").asString();
 
+                // Map Cognito groups (ADMIN/USER) -> Spring authorities (ROLE_ADMIN/ROLE_USER).
+                // Local "wis-chat" tokens (QR login) -> default to ROLE_USER.
+                List<String> groups = jwt.getClaim("cognito:groups").asList(String.class);
+                System.out.println("[ROLE-DEBUG] token_use=" + jwt.getClaim("token_use").asString()
+                        + " phone=" + phone + " cognito:groups=" + groups);
+                List<SimpleGrantedAuthority> authorities = new ArrayList<>();
+                if (groups != null) {
+                    for (String group : groups) {
+                        if (group != null && !group.isBlank()) {
+                            authorities.add(new SimpleGrantedAuthority("ROLE_" + group));
+                        }
+                    }
+                }
+                if (authorities.isEmpty()) {
+                    authorities.add(new SimpleGrantedAuthority("ROLE_USER"));
+                }
+
                 UsernamePasswordAuthenticationToken auth =
                         new UsernamePasswordAuthenticationToken(
-                                phone, null, List.of()
+                                phone, null, authorities
                         );
                 SecurityContextHolder.getContext().setAuthentication(auth);
 

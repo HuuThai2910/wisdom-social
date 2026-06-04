@@ -19,6 +19,7 @@ import org.springframework.data.mongodb.core.mapping.Document;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
 
 /*
  * @description: Post entity with optimization for social media features
@@ -84,6 +85,9 @@ public class Post {
     private Activity activity;
 
     private Music music;
+
+    @org.springframework.data.annotation.Transient
+    private Map<String, Object> authorSummary;
 
     // Background cho text post (như Facebook colored background)
     private String backgroundStyle;

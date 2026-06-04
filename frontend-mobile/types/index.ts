@@ -62,6 +62,7 @@ export type MusicStickerMetadata = {
     title: string;
     artist: string;
     cover_url?: string;
+    audio_url?: string;
     start_sec?: number;
     end_sec?: number;
 };
@@ -185,6 +186,7 @@ export type Post = {
     allowShares?: boolean;
     taggedUserIds?: string[];
     music?: PostMusic;
+    authorSummary?: User;
     location?:
     | string
     | {

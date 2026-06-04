@@ -41,7 +41,6 @@ export default function NotificationsScreen() {
   const router = useRouter();
   const segments = useSegments();
   const {
-    notifications: contextNotifications,
     getUserById,
     markNotificationsRead,
   } = useAppContext();
@@ -53,7 +52,10 @@ export default function NotificationsScreen() {
     if (showLoading) setLoading(true);
     try {
       const remoteNotifications = await getNotifications(0, 50);
-      setNotifications(remoteNotifications as AppNotification[]);
+      // Deduplicate by ID to avoid showing same notification twice
+      const uniqueMap = new Map<string, AppNotification>();
+      remoteNotifications.forEach(n => uniqueMap.set(n.id, n));
+      setNotifications(Array.from(uniqueMap.values()));
     } finally {
       if (showLoading) setLoading(false);
     }
@@ -62,9 +64,6 @@ export default function NotificationsScreen() {
   useEffect(() => {
     void loadNotifications();
   }, [loadNotifications]);
-
-  const displayNotifications =
-    notifications.length > 0 ? notifications : contextNotifications;
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -135,14 +134,14 @@ export default function NotificationsScreen() {
           <Text style={styles.markAllText}>Đánh dấu đã đọc</Text>
         </TouchableOpacity>
       </View>
-      {loading && displayNotifications.length === 0 ? (
+      {loading && notifications.length === 0 ? (
         <View style={styles.center}>
           <ActivityIndicator color={colors.primary} />
           <Text style={styles.mutedText}>Đang tải thông báo...</Text>
         </View>
       ) : (
         <FlatList
-          data={displayNotifications}
+          data={notifications}
           keyExtractor={(item) => item.id}
           refreshControl={
             <RefreshControl

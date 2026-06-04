@@ -12,10 +12,10 @@ import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityPr
 @Configuration
 public class CognitoConfig {
 
-    @Value("${aws.access-key}")
+    @Value("${aws.cognito.access-key}")
     private String accessKey;
 
-    @Value("${aws.secret-key}")
+    @Value("${aws.cognito.secret-key}")
     private String secretKey;
 
     @Value("${aws.region}")

@@ -5,8 +5,8 @@ export interface MusicMetadata {
     id: string;
     title: string;
     artist: string;
-    duration: number; // seconds
-    imageUrl: string; 
+    duration: number;
+    imageUrl: string;
     audioUrl: string;
     createdAt: string;
 }
@@ -29,63 +29,75 @@ interface ApiResponse<T> {
  * Fetch all music tracks with pagination
  * @param page page number (0-indexed)
  * @param size page size (default: 20)
+ * @returns tracks and hasMore boolean
  */
 export const getAllMusic = async (
     page: number = 0,
     size: number = 20
-): Promise<MusicMetadata[]> => {
+): Promise<{ tracks: MusicMetadata[]; hasMore: boolean }> => {
     try {
         const res = await axiosClient.get<ApiResponse<MusicPage>>(
             `/music?page=${page}&size=${size}`
         );
-        return res.data.data.content || [];
+        const data = res.data.data;
+        const tracks = data?.content || [];
+        const totalPages = data?.totalPages ?? 1;
+        const hasMore = page < totalPages - 1;
+        return { tracks, hasMore };
     } catch (error) {
         console.error("Error fetching music:", error);
-        return [];
+        return { tracks: [], hasMore: false };
     }
 };
 
 /**
  * Search music by title
  * @param title search term
+ * @param page page number (0-indexed)
+ * @param size page size (default: 20)
  */
 export const searchMusicByTitle = async (
-    title: string
-): Promise<MusicMetadata[]> => {
-    if (!title.trim()) return [];
+    title: string,
+    page: number = 0,
+    size: number = 20
+): Promise<{ tracks: MusicMetadata[]; hasMore: boolean }> => {
+    if (!title.trim()) return { tracks: [], hasMore: false };
     try {
         const res = await axiosClient.get<ApiResponse<MusicMetadata[]>>(
-            `/music/search/title?title=${encodeURIComponent(title)}`
+            `/music/search/title?title=${encodeURIComponent(title)}&page=${page}&size=${size}`
         );
-        return res.data.data || [];
+        return { tracks: res.data.data || [], hasMore: false };
     } catch (error) {
         console.error("Error searching music by title:", error);
-        return [];
+        return { tracks: [], hasMore: false };
     }
 };
 
 /**
  * Search music by artist
  * @param artist search term
+ * @param page page number (0-indexed)
+ * @param size page size (default: 20)
  */
 export const searchMusicByArtist = async (
-    artist: string
-): Promise<MusicMetadata[]> => {
-    if (!artist.trim()) return [];
+    artist: string,
+    page: number = 0,
+    size: number = 20
+): Promise<{ tracks: MusicMetadata[]; hasMore: boolean }> => {
+    if (!artist.trim()) return { tracks: [], hasMore: false };
     try {
         const res = await axiosClient.get<ApiResponse<MusicMetadata[]>>(
-            `/music/search/artist?artist=${encodeURIComponent(artist)}`
+            `/music/search/artist?artist=${encodeURIComponent(artist)}&page=${page}&size=${size}`
         );
-        return res.data.data || [];
+        return { tracks: res.data.data || [], hasMore: false };
     } catch (error) {
         console.error("Error searching music by artist:", error);
-        return [];
+        return { tracks: [], hasMore: false };
     }
 };
 
 /**
  * Get music by ID
- * @param musicId music ID
  */
 export const getMusicById = async (musicId: string): Promise<MusicMetadata | null> => {
     try {
@@ -103,15 +115,13 @@ export const getMusicById = async (musicId: string): Promise<MusicMetadata | nul
  * Format duration from seconds to MM:SS
  */
 export const formatDuration = (seconds: number): string => {
-    const total = Math.floor(seconds);
-    const mins = Math.floor(total / 60);
-    const secs = total % 60;
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, "0")}`;
 };
 
 /**
  * Resolve music media path/object key to a fully-qualified URL.
- * Supports already-qualified URLs and raw S3 object keys.
  */
 export const resolveMusicMediaUrl = (
     mediaPath: string | null | undefined
@@ -119,6 +129,7 @@ export const resolveMusicMediaUrl = (
     return buildS3Url(mediaPath) || "";
 };
 
+// Audio playback state management
 let currentAudio: HTMLAudioElement | null = null;
 let currentUrl: string | null = null;
 const listeners = new Set<(url: string | null) => void>();
@@ -143,7 +154,7 @@ const notifyListeners = () => {
 export const stopAudioPreview = (): void => {
     if (currentAudio) {
         currentAudio.pause();
-        currentAudio.src = ""; // Clear source to stop buffering
+        currentAudio.src = "";
         currentAudio = null;
         currentUrl = null;
         notifyListeners();
@@ -152,7 +163,6 @@ export const stopAudioPreview = (): void => {
 
 /**
  * Create and play a preview audio instance.
- * Returns the created audio element so caller can keep track of it.
  */
 export const playAudioPreview = (
     url: string,
@@ -164,7 +174,6 @@ export const playAudioPreview = (
 ): HTMLAudioElement | null => {
     if (!url) return null;
 
-    // Stop existing audio if any
     stopAudioPreview();
 
     const audio = new Audio(url);

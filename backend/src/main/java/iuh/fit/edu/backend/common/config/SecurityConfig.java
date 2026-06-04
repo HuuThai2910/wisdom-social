@@ -50,6 +50,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET,"/api/session/qr-login/access-token/**").permitAll()
                         .requestMatchers(HttpMethod.GET,"/api/session/qr-login/access-token").permitAll()
                         .requestMatchers(HttpMethod.PUT,"/api/auth/users/**").authenticated()
+                        // Chỉ tài khoản thuộc nhóm ADMIN (Cognito group) mới gọi được API quản trị.
+                        .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)

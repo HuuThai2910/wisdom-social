@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { FlatList, SafeAreaView, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import { AppHeader, EmptyState, PostCard } from "@/components";
@@ -19,6 +19,13 @@ export default function InstagramLikesScreen() {
     removePost,
     updatePostPrivacyLocal,
   } = useAppContext();
+  // Force re-render when likedPostIds changes
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    setTick(t => t + 1);
+  }, [likedPostIds.join(',')]);
+
   const likedPosts = posts.filter(
     (post) => likedPostIds.includes(post.id) || post.isLiked
   );
@@ -35,12 +42,13 @@ export default function InstagramLikesScreen() {
         ListEmptyComponent={<EmptyState title="Bạn chưa like bài nào" />}
         renderItem={({ item }) => (
           <PostCard
+            key={`${item.id}-${likedPostIds.includes(item.id)}-${savedPostIds.includes(item.id)}`}
             post={item}
             author={item.user || getUserById(item.userId)}
             currentUserId={currentUser?.id}
             liked={likedPostIds.includes(item.id) || item.isLiked}
             saved={savedPostIds.includes(item.id) || item.isSaved}
-            onLike={() => void likePost(item.id)}
+            onLike={(reactionType, isToggleOff) => void likePost(item.id, reactionType, isToggleOff)}
             onSave={() => void savePost(item.id)}
             onAddComment={(content) => void addComment(item.id, content)}
             onDeleted={removePost}

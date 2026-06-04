@@ -1,7 +1,8 @@
 import { Story, StoryGroup, User } from "@/types";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useFocusEffect } from "@react-navigation/native";
 import {
   ActivityIndicator,
   FlatList,
@@ -21,9 +22,14 @@ import UserAvatar from "./UserAvatar";
 type Props = {
   currentUser: User | null;
   onUsersLoaded?: (users: User[]) => void;
+  refreshing?: boolean;
 };
 
-export default function StoriesBar({ currentUser, onUsersLoaded }: Props) {
+export default function StoriesBar({
+  currentUser,
+  onUsersLoaded,
+  refreshing,
+}: Props) {
   const router = useRouter();
   const [stories, setStories] = useState<Story[]>([]);
   const [loading, setLoading] = useState(true);
@@ -51,6 +57,18 @@ export default function StoriesBar({ currentUser, onUsersLoaded }: Props) {
     void loadStories();
   }, []);
 
+  useFocusEffect(
+    useCallback(() => {
+      void loadStories();
+    }, [])
+  );
+
+  useEffect(() => {
+    if (refreshing) {
+      void loadStories();
+    }
+  }, [refreshing]);
+
   const groups = useMemo(
     () => groupStoriesByUser(stories, currentUser),
     [stories, currentUser]
@@ -74,6 +92,18 @@ export default function StoriesBar({ currentUser, onUsersLoaded }: Props) {
           : story
       )
     );
+    // Also update snapshotGroups to keep them in sync for when viewer reopens
+    setSnapshotGroups((prev) => {
+      if (!prev) return prev;
+      return prev.map((group) => ({
+        ...group,
+        stories: group.stories.map((story) =>
+          story.id === storyId
+            ? { ...story, isViewed: true, viewed: true }
+            : story
+        ),
+      }));
+    });
   };
 
   const handleDeleted = (storyId: string) => {
@@ -209,7 +239,7 @@ export default function StoriesBar({ currentUser, onUsersLoaded }: Props) {
 const styles = StyleSheet.create({
   container: {
     backgroundColor: colors.white,
-    borderBottomWidth: 1,
+    borderBottomWidth: 6,
     borderBottomColor: colors.border,
   },
   content: { paddingHorizontal: spacing.md, paddingVertical: spacing.md },

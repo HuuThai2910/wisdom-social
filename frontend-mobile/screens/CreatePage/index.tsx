@@ -230,14 +230,7 @@ export default function CreatePageScreen() {
                         onChange={v => update("name", v)}
                         placeholder="VD: Cộng đồng yêu du lịch"
                     />
-                    <FormField
-                        label="Username"
-                        value={form.username || ""}
-                        onChange={v => update("username", v)}
-                        placeholder="VD: travel-community"
-                        autoCapitalize="none"
-                        hint="Dùng để tìm kiếm trang của bạn"
-                    />
+                    {/* Username được tự gán = username người tạo ở backend (cho phép trùng) */}
                     <FormField
                         label="Mô tả"
                         value={form.description || ""}

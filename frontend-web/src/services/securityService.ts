@@ -79,6 +79,17 @@ export const securityService = {
             return { success: false, message: msg || "Không thể xóa mã PIN." };
         }
     },
+
+    // Xác thực mã PIN 2 lớp (2FA) của user hiện tại mà không thực hiện hành động nào.
+    async verifyPin(pinCode: string): Promise<SecurityResult> {
+        try {
+            await axiosClient.post("auth/verify-pin", { pinCode });
+            return { success: true };
+        } catch (error: any) {
+            const msg = error?.response?.data?.message || error?.message || "";
+            return { success: false, message: msg || "Mã PIN không chính xác." };
+        }
+    },
 };
 
 /**

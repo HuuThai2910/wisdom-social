@@ -36,7 +36,7 @@
  */
 
 import React from "react";
-import { Smile } from "lucide-react";
+import { Smile, Send } from "lucide-react";
 import { Theme } from "emoji-picker-react";
 import IconModal from "../../../icon-modal/IconModal";
 import type { UserData } from "../../../../types/post";
@@ -197,9 +197,15 @@ const CommentInput: React.FC<CommentInputProps & { inputRef?: React.RefObject<HT
         <button
           onClick={onSubmitComment}
           disabled={!commentInput.trim() || submittingComment}
-          className="text-[#3b5998] font-bold text-sm hover:text-[#2d4373] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          className="text-blue-500 hover:text-blue-600 disabled:opacity-35 disabled:cursor-not-allowed transition-colors p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-950/30 flex items-center justify-center"
+          title="Gửi bình luận"
+          aria-label="Gửi bình luận"
         >
-          {submittingComment ? "Đang gửi..." : "Đăng"}
+          {submittingComment ? (
+            <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+          ) : (
+            <Send size={18} />
+          )}
         </button>
       </div>
     </div>

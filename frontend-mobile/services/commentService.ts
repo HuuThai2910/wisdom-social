@@ -187,7 +187,11 @@ export const commentService = {
                 },
             });
             const data = response.data?.data ?? response.data;
-            return data || null;
+            // Check if data is a valid reaction object with type property
+            if (data && typeof data === 'object' && 'type' in data && data.type) {
+                return { type: data.type };
+            }
+            return null;
         } catch {
             return null;
         }

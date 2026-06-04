@@ -58,6 +58,12 @@ export type PageData = {
   };
   createdAt?: string;
   updatedAt?: string;
+  // Per-current-user interaction state, embedded by the backend on the
+  // discover list (/page/all) so the list can render like/follow in one call.
+  isLiked?: boolean;
+  isFollowing?: boolean;
+  likeCount?: number;
+  followCount?: number;
 };
 
 export type PageMemberData = {

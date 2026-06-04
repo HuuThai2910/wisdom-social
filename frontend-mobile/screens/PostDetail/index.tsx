@@ -20,13 +20,21 @@ export default function PostDetailScreen() {
         getUserById,
         removePost,
         updatePostPrivacyLocal,
+        upsertPosts,
     } = useAppContext();
     const [remotePost, setRemotePost] = useState<Post | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    // Force re-render when likedPostIds changes
+    const [, setTick] = useState(0);
 
     const localPost = posts.find((item) => item.id === postId);
     const post = localPost || remotePost;
+
+    // Re-render when likedPostIds or savedPostIds change so PostCard gets updated liked/saved props
+    useEffect(() => {
+        setTick(t => t + 1);
+    }, [(likedPostIds || []).join(','), (savedPostIds || []).join(',')]);
 
     useEffect(() => {
         let mounted = true;
@@ -36,7 +44,10 @@ export default function PostDetailScreen() {
             setError(null);
             try {
                 const fetched = await fetchPostWithAuthor(postId);
-                if (mounted) setRemotePost(fetched);
+                if (mounted) {
+                    setRemotePost(fetched);
+                    upsertPosts([fetched]);
+                }
             } catch (err: any) {
                 if (mounted) setError(err?.response?.data?.message || "Không thể tải bài viết");
             } finally {
@@ -47,16 +58,17 @@ export default function PostDetailScreen() {
         return () => {
             mounted = false;
         };
-    }, [localPost, postId]);
+    }, [localPost, postId, upsertPosts]);
 
     const postHeader = post ? (
         <PostCard
+            key={`${post.id}-${likedPostIds.includes(post.id)}-${savedPostIds.includes(post.id)}`}
             post={post}
             author={post.user || getUserById(post.userId)}
             currentUserId={currentUser?.id}
             liked={likedPostIds.includes(post.id) || post.isLiked}
             saved={savedPostIds.includes(post.id) || post.isSaved}
-            onLike={() => void likePost(post.id)}
+            onLike={(reactionType, isToggleOff) => void likePost(post.id, reactionType, isToggleOff)}
             onSave={() => void savePost(post.id)}
             hideCommentInput={true}
             onDeleted={(id) => {

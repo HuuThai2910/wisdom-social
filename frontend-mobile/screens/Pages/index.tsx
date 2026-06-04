@@ -37,10 +37,20 @@ function DiscoverCard({
   item,
   onPress,
   onFollow,
+  onLike,
+  followed,
+  following,
+  liked,
+  liking,
 }: {
   item: PageData & { memberCount?: number; followCount?: number };
   onPress: () => void;
   onFollow: () => void;
+  onLike: () => void;
+  followed: boolean;
+  following: boolean;
+  liked: boolean;
+  liking: boolean;
 }) {
   const coverUri = item.coverUrl ? buildS3Url(item.coverUrl) : null;
   const avatarUri = item.avatarUrl ? buildS3Url(item.avatarUrl) : null;
@@ -104,11 +114,47 @@ function DiscoverCard({
           </View>
         </View>
 
-        {/* Follow button */}
-        <TouchableOpacity style={c.followBtn} onPress={onFollow} activeOpacity={0.75}>
-          <Ionicons name="add" size={16} color={FB_BLUE} />
-          <Text style={c.followBtnText}>Theo dõi</Text>
-        </TouchableOpacity>
+        {/* Like + Follow buttons */}
+        <View style={c.actions}>
+          {/* Like (toggle) */}
+          <TouchableOpacity
+            style={[c.iconBtn, liked && c.iconBtnActive]}
+            onPress={onLike}
+            disabled={liking}
+            activeOpacity={0.75}
+          >
+            {liking ? (
+              <ActivityIndicator size="small" color={liked ? FB_BLUE : colors.textMuted} />
+            ) : (
+              <Ionicons
+                name={liked ? "thumbs-up" : "thumbs-up-outline"}
+                size={16}
+                color={liked ? FB_BLUE : colors.textMuted}
+              />
+            )}
+          </TouchableOpacity>
+
+          {/* Follow (toggle) */}
+          <TouchableOpacity
+            style={[c.followBtn, followed && c.followBtnActive]}
+            onPress={onFollow}
+            disabled={following}
+            activeOpacity={0.75}
+          >
+            {following ? (
+              <ActivityIndicator size="small" color={followed ? colors.textMuted : FB_BLUE} />
+            ) : (
+              <Ionicons
+                name={followed ? "checkmark" : "add"}
+                size={16}
+                color={followed ? colors.textMuted : FB_BLUE}
+              />
+            )}
+            <Text style={[c.followBtnText, followed && c.followBtnTextActive]}>
+              {followed ? "Đã theo dõi" : "Theo dõi"}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </TouchableOpacity>
   );
@@ -191,6 +237,28 @@ export default function PagesScreen() {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [followedIds, setFollowedIds] = useState<Set<number>>(new Set());
+  const [likedIds, setLikedIds] = useState<Set<number>>(new Set());
+  const [followingId, setFollowingId] = useState<number | null>(null);
+  const [likingId, setLikingId] = useState<number | null>(null);
+
+  // Seed the optimistic like/follow Sets from the per-user state the backend
+  // embeds on the discover list (/page/all).
+  const seedInteraction = useCallback((data: PageData[], tab: string) => {
+    if (tab !== "discover") {
+      setFollowedIds(new Set());
+      setLikedIds(new Set());
+      return;
+    }
+    const liked = new Set<number>();
+    const followed = new Set<number>();
+    data.forEach((p) => {
+      if (p.isLiked) liked.add(p.id);
+      if (p.isFollowing) followed.add(p.id);
+    });
+    setLikedIds(liked);
+    setFollowedIds(followed);
+  }, []);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -199,10 +267,11 @@ export default function PagesScreen() {
         ? await pageService.getAllPages()
         : await pageService.getMyPages();
       setPages(data);
+      seedInteraction(data, activeTab);
     } finally {
       setLoading(false);
     }
-  }, [activeTab]);
+  }, [activeTab, seedInteraction]);
 
   useEffect(() => { void loadData(); }, [loadData]);
   useFocusEffect(useCallback(() => { void loadData(); }, [loadData]));
@@ -242,6 +311,7 @@ export default function PagesScreen() {
         ? await pageService.getAllPages()
         : await pageService.getMyPages();
       setPages(data);
+      seedInteraction(data, activeTab);
     } finally {
       setRefreshing(false);
     }
@@ -256,8 +326,59 @@ export default function PagesScreen() {
   }, [pages, searchQuery]);
 
   const handleFollow = async (page: PageData) => {
-    if (!currentUser?.id) return;
-    await pageService.followPage(Number(currentUser.id), page.id);
+    if (!currentUser?.id || followingId) return;
+    const uid = Number(currentUser.id);
+    const wasFollowing = followedIds.has(page.id);
+    setFollowingId(page.id);
+    // Optimistic toggle
+    setFollowedIds((prev) => {
+      const next = new Set(prev);
+      if (wasFollowing) next.delete(page.id);
+      else next.add(page.id);
+      return next;
+    });
+    try {
+      if (wasFollowing) await pageService.cancelFollowPage(uid, page.id);
+      else await pageService.followPage(uid, page.id);
+    } catch {
+      // Revert on failure
+      setFollowedIds((prev) => {
+        const next = new Set(prev);
+        if (wasFollowing) next.add(page.id);
+        else next.delete(page.id);
+        return next;
+      });
+    } finally {
+      setFollowingId(null);
+    }
+  };
+
+  const handleLike = async (page: PageData) => {
+    if (!currentUser?.id || likingId) return;
+    const uid = Number(currentUser.id);
+    const wasLiked = likedIds.has(page.id);
+    setLikingId(page.id);
+    // Optimistic toggle
+    setLikedIds((prev) => {
+      const next = new Set(prev);
+      if (wasLiked) next.delete(page.id);
+      else next.add(page.id);
+      return next;
+    });
+    try {
+      if (wasLiked) await pageService.cancelLikePage(uid, page.id);
+      else await pageService.likePage(uid, page.id);
+    } catch {
+      // Revert on failure
+      setLikedIds((prev) => {
+        const next = new Set(prev);
+        if (wasLiked) next.add(page.id);
+        else next.delete(page.id);
+        return next;
+      });
+    } finally {
+      setLikingId(null);
+    }
   };
 
   const goToDetail = (item: PageData) =>
@@ -268,6 +389,11 @@ export default function PagesScreen() {
       item={item as any}
       onPress={() => goToDetail(item)}
       onFollow={() => handleFollow(item)}
+      onLike={() => handleLike(item)}
+      followed={followedIds.has(item.id)}
+      following={followingId === item.id}
+      liked={likedIds.has(item.id)}
+      liking={likingId === item.id}
     />
   );
 
@@ -547,14 +673,25 @@ const c = StyleSheet.create({
   metaChip: { fontSize: 12, color: colors.textMuted },
   metaCount: { fontSize: 12, color: colors.textMuted },
 
+  actions: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    alignSelf: "flex-end", flexShrink: 0,
+  },
+  iconBtn: {
+    width: 36, height: 36, borderRadius: 8,
+    alignItems: "center", justifyContent: "center",
+    backgroundColor: "#EEF0F2",
+  },
+  iconBtnActive: { backgroundColor: colors.zalo50 },
   followBtn: {
     flexDirection: "row", alignItems: "center", gap: 4,
     paddingHorizontal: 12, paddingVertical: 8,
     borderRadius: 8, backgroundColor: colors.zalo50,
-    alignSelf: "flex-end", marginBottom: 0,
-    flexShrink: 0,
+    flexShrink: 0, minWidth: 96, justifyContent: "center",
   },
+  followBtnActive: { backgroundColor: "#EEF0F2" },
   followBtnText: { fontSize: 13, fontWeight: "700", color: FB_BLUE },
+  followBtnTextActive: { color: colors.textMuted },
 });
 
 // ─── My Pages card styles ──────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useState, useEffect, useCallback } from "react";
 import type { User } from "../../types";
 import {
@@ -26,6 +26,7 @@ import BlockUnblockButton from "../friend/BlockUnblockButton";
 import FriendActions from "../friend/FriendActions";
 import type { FriendshipStatus } from "../../hooks/useFriendStatus";
 import friendService from "../../services/friendService";
+import chatService from "../../services/chatService";
 import { NOTE_PLACEHOLDERS } from "./note-modal/NoteContentDefault";
 import { getUserPostsCount } from "../../services/postService";
 import { useProfileNote } from "../../hooks/useProfileNote";
@@ -70,6 +71,7 @@ export default function ProfileHeader({
   onFriendAccepted,
   onFriendRemoved,
 }: ProfileHeaderProps) {
+  const navigate = useNavigate();
   const [friendStatus, setFriendStatus] = useState<FriendshipStatus>("loading");
   const [showFriendsModal, setShowFriendsModal] = useState(false);
   const [showInfoModal, setShowInfoModal] = useState(false);
@@ -116,6 +118,35 @@ export default function ProfileHeader({
     setProfileFriendsCount((count) => Math.max(0, count - 1));
     onFriendRemoved?.();
   }, [onFriendRemoved]);
+
+  // Mở cuộc trò chuyện trực tiếp rồi chuyển thẳng tới thread — giống luồng
+  // chọn người trong ô tìm kiếm tin nhắn.
+  const [messageLoading, setMessageLoading] = useState(false);
+  const handleMessage = useCallback(async () => {
+    const uid = Number(user.id);
+    if (!Number.isFinite(uid) || uid <= 0 || messageLoading) return;
+    setMessageLoading(true);
+    try {
+      // Quan hệ chat chỉ để lấy id cuộc đã có (không bắt buộc).
+      let existingId: number | null = null;
+      try {
+        const rel = await chatService.getChatUserRelationship(uid);
+        existingId = rel?.existingDirectConversationId ?? null;
+      } catch {
+        existingId = null;
+      }
+      let convId = existingId;
+      if (!convId) {
+        const conversation = await chatService.resolveDirectConversation(uid);
+        convId = conversation.id;
+      }
+      navigate(`/messages/${convId}`);
+    } catch {
+      navigate("/messages");
+    } finally {
+      setMessageLoading(false);
+    }
+  }, [user.id, messageLoading, navigate]);
 
   // Check if user has an active story
   const {
@@ -376,8 +407,12 @@ export default function ProfileHeader({
                       onStatusChange={setFriendStatus}
                     />
                   </div>
-                  <button className="min-w-[140px] flex-[1_1_140px] inline-flex items-center justify-center gap-1.5 h-8.5 px-3 bg-[#efefef] dark:bg-[#262626] hover:bg-[#dbdbdb] dark:hover:bg-[#363636] border border-[#dbdbdb] dark:border-[#363636] rounded-lg text-[14px] font-semibold dark:text-white transition-colors">
-                    <MessageCircle size={14} /> Nhắn tin
+                  <button
+                    onClick={handleMessage}
+                    disabled={messageLoading}
+                    className="min-w-[140px] flex-[1_1_140px] inline-flex items-center justify-center gap-1.5 h-8.5 px-3 bg-[#efefef] dark:bg-[#262626] hover:bg-[#dbdbdb] dark:hover:bg-[#363636] border border-[#dbdbdb] dark:border-[#363636] rounded-lg text-[14px] font-semibold dark:text-white transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    <MessageCircle size={14} /> {messageLoading ? "Đang mở..." : "Nhắn tin"}
                   </button>
                   <button
                     onClick={() => setShowInfoModal(true)}

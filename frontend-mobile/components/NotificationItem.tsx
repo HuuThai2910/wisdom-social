@@ -30,7 +30,10 @@ const notificationIconByType = (type: string) => {
       return "share-social";
     case "TAG_POST":
     case "TAG_COMMENT":
+    case "TAG_STORY":
       return "pricetags";
+    case "STORY_MENTION":
+      return "at";
     default:
       return "notifications";
   }
@@ -60,8 +63,12 @@ const getFallbackText = (type: string): string => {
       return "Đã tag bạn trong bài viết";
     case "TAG_COMMENT":
       return "Đã tag bạn trong bình luận";
+    case "TAG_STORY":
+      return "Đã tag bạn trong story";
     case "STORY_REPLY":
       return "Đã trả lời story của bạn";
+    case "STORY_MENTION":
+      return "Đã mention bạn trong story";
     default:
       return "Có thông báo mới";
   }

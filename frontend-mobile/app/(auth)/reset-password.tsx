@@ -15,6 +15,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { resetPassword, forgotPassword } from '@/services/authService';
 import Logo from '@/components/Logo';
+import PasswordStrengthMeter from '@/components/PasswordStrengthMeter';
 import { validateResetPasswordForm, validateOTP } from '@/utils/validators';
 
 export default function ResetPasswordScreen() {
@@ -223,6 +224,8 @@ export default function ResetPasswordScreen() {
                                 />
                             </TouchableOpacity>
                         </View>
+
+                        <PasswordStrengthMeter password={password} />
 
                         <View style={styles.inputWrapper}>
                             <View style={styles.inputIconContainer}>
