@@ -19,6 +19,7 @@ import { colors } from "@/constants";
 import userService from "@/services/userService";
 import friendService from "@/services/friendService";
 import blockService from "@/services/blockService";
+import chatService from "@/services/chatService";
 import { useFriendNotifications } from "@/hooks/useFriendNotifications";
 import { useBlockNotifications } from "@/hooks/useBlockNotifications";
 import { usePresenceStatus } from "@/hooks/usePresenceStatus";
@@ -519,6 +520,45 @@ export default function InstagramProfileScreen() {
       );
     }
   };
+  // Mở cuộc trò chuyện trực tiếp — giống luồng tìm người trong tin nhắn:
+  // lấy quan hệ chat, mở cuộc đã có hoặc tạo/resolve cuộc mới rồi điều hướng.
+  const [messageLoading, setMessageLoading] = useState(false);
+  const handleMessage = async () => {
+    const uid = Number(profileUser?.id ?? targetId);
+    if (!Number.isFinite(uid) || uid <= 0 || messageLoading) return;
+    setMessageLoading(true);
+    try {
+      // Quan hệ chat chỉ để lấy peer params + id cuộc đã có (không bắt buộc).
+      let result: Awaited<
+        ReturnType<typeof chatService.getChatUserRelationship>
+      > | null = null;
+      try {
+        result = await chatService.getChatUserRelationship(uid);
+      } catch {
+        result = null;
+      }
+
+      // Luôn mở/resolve cuộc trò chuyện trực tiếp rồi điều hướng — giống search.
+      let conversationId = result?.existingDirectConversationId ?? null;
+      if (!conversationId) {
+        const conversation = await chatService.resolveDirectConversation(uid);
+        conversationId = conversation.id;
+      }
+
+      router.push({
+        pathname: "/(stack)/messages/[conversationId]",
+        params: {
+          conversationId: String(conversationId),
+          peerFriendStatus: result?.friendStatus ?? "STRANGER",
+          peerMutualGroupsCount: String(result?.mutualGroupsCount ?? 0),
+        },
+      });
+    } catch {
+      Alert.alert("Thông báo", "Không thể mở cuộc trò chuyện");
+    } finally {
+      setMessageLoading(false);
+    }
+  };
   const handleUnblockOwn = (userId: string) => {
     Alert.alert("Bỏ chặn", "Bạn có chắc muốn bỏ chặn người dùng này?", [
       { text: "Hủy", style: "cancel" },
@@ -877,9 +917,15 @@ export default function InstagramProfileScreen() {
               {renderFriendButton()}
               <TouchableOpacity
                 style={[s.btn, s.btnGray, { flex: 1 }]}
+                onPress={handleMessage}
+                disabled={messageLoading}
                 activeOpacity={0.75}
               >
-                <Text style={s.btnGrayText}>Nhắn tin</Text>
+                {messageLoading ? (
+                  <ActivityIndicator size="small" color="#000" />
+                ) : (
+                  <Text style={s.btnGrayText}>Nhắn tin</Text>
+                )}
               </TouchableOpacity>
               <TouchableOpacity
                 style={[s.btn, s.btnGray, s.btnIcon]}
