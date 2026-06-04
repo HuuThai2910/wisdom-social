@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { ArrowLeft, CheckCircle2, Eye, EyeOff, KeyRound, Lock } from "lucide-react";
 import { resetPassword, AuthError } from "../utils/auth";
 import { validateResetPasswordForm } from "../utils/validation";
+import PasswordStrengthMeter from "../components/auth/PasswordStrengthMeter";
 
 const formatCountdown = (totalSeconds: number): string => {
     const m = Math.floor(totalSeconds / 60);
@@ -113,6 +114,7 @@ export default function ResetPassword() {
                             {showPassword ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
                         </button>
                     </div>
+                    <PasswordStrengthMeter password={password} />
                     <div className="flex items-center rounded-xl border border-gray-200 bg-white px-3">
                         <Lock className="h-4 w-4 text-blue-500" />
                         <input

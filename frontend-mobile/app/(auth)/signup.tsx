@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { registerWithPhone } from '@/services/authService';
 import Logo from '@/components/Logo';
+import PasswordStrengthMeter from '@/components/PasswordStrengthMeter';
 import { validateSignupForm } from '@/utils/validators';
 
 export default function SignUpScreen() {
@@ -115,6 +116,8 @@ export default function SignUpScreen() {
                                 />
                             </TouchableOpacity>
                         </View>
+
+                        <PasswordStrengthMeter password={password} />
 
                         <View style={styles.inputWrapper}>
                             <View style={styles.inputIconContainer}>

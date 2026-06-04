@@ -69,6 +69,67 @@ export function validateStrongPassword(password: string): {
     return { valid: true };
 }
 
+export type PasswordStrengthLevel =
+    | "empty"
+    | "weak"
+    | "medium"
+    | "strong"
+    | "very-strong";
+
+export interface PasswordStrength {
+    level: PasswordStrengthLevel;
+    score: number; // 0-4 satisfied character-type criteria
+    label: string;
+    checks: {
+        length: boolean;
+        lowercase: boolean;
+        uppercase: boolean;
+        number: boolean;
+        special: boolean;
+    };
+}
+
+export function getPasswordStrength(password: string): PasswordStrength {
+    const checks = {
+        length: password.length >= 8,
+        lowercase: /[a-z]/.test(password),
+        uppercase: /[A-Z]/.test(password),
+        number: /[0-9]/.test(password),
+        special: /[^A-Za-z0-9]/.test(password),
+    };
+
+    if (!password) {
+        return { level: "empty", score: 0, label: "", checks };
+    }
+
+    const typeScore =
+        (checks.lowercase ? 1 : 0) +
+        (checks.uppercase ? 1 : 0) +
+        (checks.number ? 1 : 0) +
+        (checks.special ? 1 : 0);
+
+    const lengthBonus = password.length >= 12 ? 1 : 0;
+
+    let level: PasswordStrengthLevel;
+    let label: string;
+
+    if (!checks.length || typeScore <= 1) {
+        level = "weak";
+        label = "Yếu";
+    } else if (typeScore === 2) {
+        level = "medium";
+        label = "Trung bình";
+    } else if (typeScore === 3 || (typeScore === 4 && lengthBonus === 0)) {
+        level = "strong";
+        label = "Mạnh";
+    } else {
+        level = "very-strong";
+        label = "Rất mạnh";
+    }
+
+    return { level, score: typeScore, label, checks };
+}
+
 export function validateUsername(username: string): ValidationResult {
     if (!username || username.trim() === "") {
         return { isValid: false, error: "Tên người dùng không được để trống" };
