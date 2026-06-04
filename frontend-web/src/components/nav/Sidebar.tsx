@@ -3,8 +3,6 @@ import { useState } from "react";
 import {
   Home,
   Search,
-  Compass,
-  Clapperboard,
   MessageCircle,
   Heart,
   PlusSquare,
@@ -52,8 +50,6 @@ export default function Sidebar() {
   const navItems = [
     { icon: Home, label: "Tường nhà", path: "/" },
     { icon: Search, label: "Tìm kiếm", path: "/search" },
-    { icon: Compass, label: "Khám phá", path: "/explore" },
-    { icon: Clapperboard, label: "Bảng tin", path: "/reels" },
     {
       icon: MessageCircle,
       label: "Tin nhắn",
