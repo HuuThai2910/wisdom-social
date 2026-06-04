@@ -20,6 +20,7 @@ export interface User {
   deletionRequestedAt?: string;
   deletionScheduledFor?: string;
   confirmUseAI?: boolean;
+  roles?: string[];
 }
 
 export type PageStatus = 'ACTIVE' | 'INACTIVE' | 'BLOCKED' | 'PENDING';

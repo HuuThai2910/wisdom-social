@@ -187,6 +187,19 @@ public class UserServiceImpl implements UserService {
             ConfirmSignUpResponse response = cognitoClient.confirmSignUp(request);
             if (response != null) {
                 rateLimitService.clearOtpAttempts(confirm.getPhone());
+
+                // Gán tài khoản mới vào nhóm USER để token có claim cognito:groups=[USER].
+                // ADMIN được cấp thủ công trong Cognito console.
+                try {
+                    cognitoClient.adminAddUserToGroup(AdminAddUserToGroupRequest.builder()
+                            .userPoolId(userPoolId)
+                            .username(phone)
+                            .groupName("USER")
+                            .build());
+                } catch (Exception ex) {
+                    System.err.println("Could not add user to USER group: " + ex.getMessage());
+                }
+
                 return UserResponseConfirmRegister.builder()
                         .status(true)
                         .build();
@@ -339,7 +352,15 @@ public class UserServiceImpl implements UserService {
                 phone = "0" + phone.substring(3);
             }
 
-            return userRepository.findByPhone(phone);
+            User user = userRepository.findByPhone(phone);
+            if (user != null && auth.getAuthorities() != null) {
+                // Trả về vai trò (bỏ tiền tố ROLE_) để frontend phân quyền: ADMIN, USER
+                List<String> roles = auth.getAuthorities().stream()
+                        .map(a -> a.getAuthority().replaceFirst("^ROLE_", ""))
+                        .toList();
+                user.setRoles(roles);
+            }
+            return user;
         } catch (Exception e) {
             return null;
         }

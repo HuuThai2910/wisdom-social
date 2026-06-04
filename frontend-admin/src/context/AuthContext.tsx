@@ -7,9 +7,14 @@ import { setAuditActor } from '../services/auditLogService';
 interface AuthContextValue {
   user: User | null;
   loading: boolean;
+  isAdmin: boolean;
   login: (user: User) => void;
   logout: () => Promise<void>;
-  refreshMe: () => Promise<void>;
+  refreshMe: () => Promise<User | null>;
+}
+
+export function hasAdminRole(user: User | null): boolean {
+  return !!user?.roles?.includes('ADMIN');
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -24,16 +29,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     else setAuditActor(null);
   }, [user]);
 
-  const refreshMe = async () => {
+  const refreshMe = async (): Promise<User | null> => {
     const token = getCookie('accessToken');
     if (!token) {
       setUser(null);
       setLoading(false);
-      return;
+      return null;
     }
     const me = await authService.getMe();
     setUser(me);
     setLoading(false);
+    return me;
   };
 
   useEffect(() => {
@@ -52,7 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, refreshMe }}>
+    <AuthContext.Provider value={{ user, loading, isAdmin: hasAdminRole(user), login, logout, refreshMe }}>
       {children}
     </AuthContext.Provider>
   );

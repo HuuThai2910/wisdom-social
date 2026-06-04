@@ -4,14 +4,14 @@ import toast from 'react-hot-toast';
 import { Lock, Phone, ShieldCheck } from 'lucide-react';
 import authService from '../services/authService';
 import { saveAccessToken } from '../api/axiosClient';
-import { useAuth } from '../context/AuthContext';
+import { useAuth, hasAdminRole } from '../context/AuthContext';
 
 export default function Login() {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
-  const { refreshMe } = useAuth();
+  const { refreshMe, logout } = useAuth();
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -29,7 +29,13 @@ export default function Login() {
         return;
       }
       saveAccessToken(token);
-      await refreshMe();
+      const me = await refreshMe();
+      if (!hasAdminRole(me)) {
+        // Tài khoản USER thường không được phép vào trang quản trị.
+        await logout();
+        toast.error('Tài khoản này không có quyền truy cập trang quản trị');
+        return;
+      }
       toast.success('Đăng nhập thành công');
       navigate('/', { replace: true });
     } catch (err: any) {

@@ -75,6 +75,11 @@ public class User {
         return this.pinCode != null && !this.pinCode.isEmpty();
     }
 
+    // Vai trò lấy từ Cognito groups (ADMIN/USER), không lưu DB.
+    // Frontend dùng để phân quyền truy cập (chỉ ADMIN mới vào được trang quản trị).
+    @Transient
+    private List<String> roles;
+
     @OneToMany(mappedBy = "user")
     @JsonIgnore
     private List<Device> devices;
